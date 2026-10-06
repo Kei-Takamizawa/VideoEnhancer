@@ -18,8 +18,9 @@ from typing import Any
 import numpy as np
 import psutil
 
-from videoenhancer.config import executable
 from videoenhancer.jobs.store import JobStore, add_job
+
+from videoenhancer.config import executable
 from videoenhancer.media.decode import read_exact
 from videoenhancer.media.probe import probe
 

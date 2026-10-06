@@ -77,8 +77,9 @@ def test_format_plan_shows_local_weekday_windows_and_progress() -> None:
 
 
 def test_enhance_runs_only_newly_added_job(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
-    from videoenhancer.estimate import Estimate
     from videoenhancer.jobs import store as jobs_store
+
+    from videoenhancer.estimate import Estimate
     from videoenhancer.media import decode
     from videoenhancer.schedule import controller
 

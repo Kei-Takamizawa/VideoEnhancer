@@ -13,9 +13,10 @@ from typing import Any
 
 import psutil
 
+from videoenhancer.jobs.store import JobStore
+
 from videoenhancer.config import get_home
 from videoenhancer.estimate import estimate_job
-from videoenhancer.jobs.store import JobStore
 from videoenhancer.media.probe import probe
 from videoenhancer.schedule.windows import Schedule
 
