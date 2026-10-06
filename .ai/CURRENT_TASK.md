@@ -1,119 +1,64 @@
-# CURRENT_TASK: Cycle P1a-2 (Fix the white frame, prove the gain objectively, finish P1a)
+# CURRENT_TASK: Cycle P1a-3 (two small things: locate the flash, run the degraded benchmark)
 
-- **Task ID:** VE-P1a-2
+- **Task ID:** VE-P1a-3
 - **Date:** 2026-10-07
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
-Save this file as `.ai/CURRENT_TASK.md`, commit it, and write `.ai/LAST_REPORT.md` (English) at the end (format in §9). Continue on branch `p1-restoration-gui`; PR #2 stays a draft until all acceptance criteria are PASS or have a justified exception. Do not push to `main`.
+Save this file as `.ai/CURRENT_TASK.md`, commit it, and write `.ai/LAST_REPORT.md` (English) at the end. Continue on `p1-restoration-gui`; PR #2 stays a draft. Do not push to `main`.
 
-This cycle continues P1a (the earlier instruction text is in your current `.ai/CURRENT_TASK.md`; keep its principles and its unfinished items, restated below). The GUI and local API remain postponed (P1b).
+This cycle is **deliberately small**: two tasks only. Everything else from P1a-2 (memory tuning, `ve trial`, seam/fidelity metrics, calibration, soaks, SAC mock) moves to the next cycle P1a-4. Finish both tasks completely rather than touching many things. If you run short of time, finish Task A first, then Task B in the order given.
+
+Principles (unchanged): the target look is the original video before compression; keep beauty-filtered looks; never synthesize texture the source lacks; no generative/diffusion models. Reference machine: Windows 11, RTX 4060 Ti 8 GB. No private sample names, frames or crops in committed files; samples are referred to as `sample-01`…`sample-05`.
 
 ---
 
-## 1. What the owner saw on the P1a outputs (RTX 4060 Ti, five private samples)
+## Task A. Find the white frame in the **old** output
 
-1. Faces, hair, the beauty-filtered look, and `fast` vs plain resize: no complaints. Seams and cuts: fine **except one defect**:
-   - **A single white frame flashes for an instant about 6 seconds before the end of sample-05** (the clip with 9 scene cuts, 30.5 s long). Which preset it appears in is not known; check both `fast` and `standard`.
-2. **The `standard` improvement is not clearly visible.** The owner thinks this is partly because the source is already fairly clean (720×1280, 1.5–2.8 Mbps). So we cannot yet tell whether the restoration works well, or does little, or does little on good input only.
+The owner saw a white frame for an instant about 6 seconds before the end of the **P1a-1 `fast` output of sample-05**. The new outputs do not show it, so a re-run cannot reproduce it. But the old file still exists:
 
-## 2. Product principles (unchanged)
+- `C:\Users\pro\Documents\VideoEnhancer-P1a\quality\sample-05_fast.mp4` (and, for comparison, `sample-05_standard.mp4` in the same folder).
 
-- The target look is the original video before compression. Remove compression damage; keep the source look, including beauty filters. Never synthesize texture the source does not have. No diffusion or generative models.
-- Temporal stability first. Bounded memory. Peak VRAM for `standard` ≤ 5 GB (Torch reserved and process dedicated memory), RAM ≤ 6 GB. Reference machine: Windows 11, RTX 4060 Ti 8 GB.
+Your P1a-2 report says the detector was run on "eight prior-cycle outputs" (samples 01–04); it does not say that the old sample-05 files were analyzed. Do this:
 
-## 3. Requirements
+1. Run the outlier detector (and a plain per-frame mean-luma dump) on the **old** `sample-05_fast.mp4` and `sample-05_standard.mp4`. Report the exact frame index and timestamp of every flagged frame, and the frame's mean luma versus its neighbours. Also check the **old** `sample-05_standard.mp4`.
+2. If the old file contains the white frame: that is a real defect that the current code may or may not still have. Determine which of the old file's segment and clip contained it. Then answer:
+   - Was the segment/clip layout the same in the fresh run? Which code changed between the P1a-1 commit and the P1a-2 commit in `pipeline/runner.py` and the stages? Could one of those changes have removed it, or is the pipeline nondeterministic (threads, decoder, NVENC, FP16)?
+   - **Determinism test:** run `fast` on sample-05 **three times** with the same settings; compare the three outputs by per-frame hash (decode to raw frames and hash). Report whether they are bit-identical. If they are not, find the source of the difference (thread ordering, non-deterministic CUDA kernels, encoder state) and report it.
+3. If the old file has no flagged frame either, say so clearly, and report the luma statistics of frames near 24.4 s (output frame ≈ 1463) of that file. Ask the owner to name the exact file and a timestamp.
+4. Keep the detector. If the old file proved a real flash, add a regression test that reproduces its cause, and implement the retry-once for a flagged clip (retry the clip once; if it persists, record it in the report without failing the job).
 
-### R1. Find and fix the white frame (highest priority)
+## Task B. Degraded benchmark and the owner's side-by-side videos
 
-- Reproduce it: re-run `fast` and `standard` on sample-05 and find the frame(s) with an abnormal luminance jump (for example, compute per-frame mean luma of the output and of the input, and flag outputs whose mean luma deviates strongly from both neighbours while the input does not). Report the output frame index, timestamp, preset, segment index and clip index.
-- Determine the root cause. Likely suspects, to check and not to assume: scene-cut handling at clip or segment edges (edge-frame replication, context frames from the other side of a cut), RIFE at a cut or at padding/crop, a segment or clip boundary, FP16 overflow or NaN/Inf that was clamped, a wrongly owned or duplicated frame, color conversion on a frame with unusual values, or decoder frame ordering.
-- Fix it. Add a regression test that fails without the fix (CPU with a fake model when possible; a GPU test if only the GPU reproduces it).
-- Add a **permanent detector** to the pipeline: per output segment, check each frame's mean luma (and, cheaply, a downscaled-frame difference) against the neighbours and against the input; flag isolated outliers in the job report with the frame index. Make it a unit-tested function. For a flagged frame in the real pipeline, retry the clip once; if it persists, record it in the report without failing the job.
-- Verify on all five samples and both presets that no flagged frames remain.
+The owner could not find a "restored" video because the benchmark in P1a-2 was not run (only the degraded inputs exist). Run it now, exactly as specified in P1a-2 R2, but do the following in this order so that useful results appear early:
 
-### R2. Measure the real gain objectively (degraded-input benchmark)
+1. **Stage B1 (do first): C0 and C1 on degraded D2 and D3 of sample-04 and sample-05** (the two longest). Use the middle 150 frames. For each: PSNR-Y, SSIM, flicker ratio, and the speed. Compute the **gain against the degraded input itself** (C1 minus C0), and against plain bicubic. Write the table into the report as soon as it exists (commit early).
+2. **Stage B2: side-by-side videos** (outside the repository), for sample-04 D2 and D3, 10 seconds each (middle of the video): three panels in one frame, left to right "Original", "Degraded", "Restored". Restored = C1 output at the sample's own resolution, no interpolation. H.264 8-bit, same resolution per panel (so the frame is 3×720 wide; if that is too wide for the encoder, make two videos, or stack the panels vertically; your choice). Also produce the same with C2 in the Restored panel. List the paths in the report and also copy them to one folder named `owner-review`.
+3. **Stage B3: C2** (Real-ESRGAN `realesr-general-x4v3` through spandrel, then downscale 4× back to the degraded size with an area or Lanczos filter), on the same material as B1. Report quality and speed. Use batch sizes that fit in 5 GB.
+4. **Stage B4: C4** (C1 plus a mild fixed unsharp mask; state the constant) on the same material.
+5. **Stage B5: all five samples × D1–D4 × C0/C1** (150 middle frames each), then C2 on the same. If time is short, skip and say so; B1–B3 are the priority.
+6. **C3** (RealBasicVSR) only if it loads without custom CUDA builds; otherwise report the reason and move on.
 
-We do not have clean-vs-compressed pairs, so create them. The owner's samples are the "clean" side, and we degrade them ourselves. Then the restored output can be compared with the known original.
+Rules:
+- Compare **at the sample's own resolution and frame rate**: no resize, no interpolation, so pixels line up with the original.
+- Align frames exactly (same frame count and order); verify by checking that C0 metrics against the original are plausible (for example, D1 PSNR-Y should be lower than the original-vs-original infinity and above 25 dB).
+- Report plainly: on which degradation each candidate improves or hurts each metric, and whether C1 improves on the degraded input at all. Do not change the default preset. Do not write conclusions about visual quality; the designer and the owner decide after looking at the videos.
+- Put the numbers into `docs/BENCHMARK_DEGRADED.md` (no sample names, no frames of people), and into the report.
 
-1. Script `scripts/make_degraded.py` (committed; it creates files outside the repo and never stores samples in git). For each of the five samples produce degraded versions with FFmpeg and libx264:
-   - **D1:** same size, `-crf 30`, `-preset veryfast`.
-   - **D2:** same size, `-crf 36`, `-preset veryfast`.
-   - **D3:** downscale to 480×854 (Lanczos), `-crf 28`, then upscale back to 720×1280 with bicubic (a low-resolution plus compression case).
-   - **D4:** same size, `-b:v 400k`, two-pass or `-maxrate/-bufsize` capped, `-preset veryfast`.
-   Record each file's bitrate and size.
-2. Run these through candidate restoration pipelines **at the sample's own resolution and frame rate (no resize, no interpolation)** so that the output can be compared pixel by pixel with the original sample. Metrics per pipeline, per degradation, per sample, over all frames (or at least 150 frames from the middle of each, to save time):
-   - PSNR (Y channel), SSIM, and **LPIPS** if you can install it without friction (optional; if you cannot, say so).
-   - Flicker ratio (mean absolute consecutive-frame difference of the output divided by that of the original).
-   - The difference of each metric against the **degraded input itself** (that is the real gain), and against plain bicubic (null baseline).
-3. Candidates (report any that cannot be made to run, with the reason):
-   - **C0:** the degraded input itself (reference).
-   - **C1:** current `standard` restoration (BasicVSR++ NTIRE 2021 decompression), with the current clip settings.
-   - **C2:** Real-ESRGAN `realesr-general-x4v3` (already benchmarked in P0; BSD-3-Clause) applied to the degraded frame, then downscaled by 4× with an area/Lanczos filter back to the original size. Use batch sizes that fit in 5 GB. This tests whether a learned model that was trained for real-world degradations does better, even though it hallucinates detail. Report speed too.
-   - **C3 (optional, if it loads without custom CUDA builds):** RealBasicVSR (Apache-2.0, through the pinned MMagic source and your existing torchvision adapter) at 4×, then downscale, or at 1× if the checkpoint supports it.
-   - **C4:** C1 followed by a mild, fixed unsharp mask (strength a single constant you pick, report it). This tests whether the visible gain is mostly sharpness.
-4. Write the results into `.ai/LAST_REPORT.md` as tables and also to `docs/BENCHMARK_DEGRADED.md` (no sample names, no frames of people). State plainly which candidate wins on each metric and on which degradation, and whether the gain is positive at all on D1–D4.
-5. **Do not change the default preset based on this benchmark.** Report. The designer and the owner decide, after looking at the pictures.
-6. For the owner's visual check, also produce, outside the repository, a **side-by-side comparison video for two degraded cases** (D2 and D3) of one sample: left original, middle degraded input, right C1 output (and one more video with C2 instead of C1 in the right panel). H.264 8-bit, same resolution per panel, labels "Original / Degraded / Restored". List the paths.
+## Acceptance criteria
 
-### R3. Reduce `standard` memory (it exceeded the 5 GB cap)
+- **A1** The old sample-05 `fast` and `standard` outputs were analyzed, with frame indices and luma values reported; the three-run determinism result is reported; the cause is identified or the absence of a defect in the old file is documented.
+- **A2** If a real defect was found: a regression test and retry-once exist and pass.
+- **A3** Stage B1 table (C0 and C1 on D2 and D3 of sample-04 and sample-05) is in the report, with gains.
+- **A4** The side-by-side videos for sample-04 D2 and D3 (C1 and C2 versions) exist in `owner-review`, with their paths in the report.
+- **A5** B3 (C2) and B4 (C4) tables exist. B5 and C3 are done or marked NOT RUN with the reason.
+- **A6** `ruff`, `pyright`, CPU and GPU suites pass; CI green; nothing private committed.
 
-Measured: Torch reserved peak 5.641 GB (sample-04) and process dedicated memory sampled at 5.186 GB, on the default clip 21 / overlap 3.
+## Out of scope
 
-- Find where the reserved memory goes (BasicVSR++ activations, RIFE at 1088×1920, intermediate full-resolution tensors, decode and encode surfaces, allocator fragmentation) and bring both numbers under **5.0 GB** without slowing `standard` by more than 5%.
-- Things to consider: smaller clip length, `torch.cuda.empty_cache()` between stages only if it does not hurt speed, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (check that it works on Windows), releasing the restoration activations before RIFE runs, running RIFE on fewer simultaneous frames, sequencing stages inside the compute worker.
-- Report the table (clip, overlap, speed, Torch reserved peak, process dedicated peak) for the final default and for two alternatives. Run it on the longest sample (sample-04 and sample-05).
-- The default clip/overlap must now be justified by the seam metric (R4), not only by memory.
+Memory tuning, `ve trial`, seam/fidelity metrics, calibration, soaks, SAC mock, GUI/API, face processing.
 
-### R4. Metrics, trial command, calibration (unfinished from P1a)
+## Report (`.ai/LAST_REPORT.md`, English)
 
-1. **Seam / fidelity / flicker metrics** exactly as specified before: seam ratio at clip and segment joints (target ≤ 1.3), PSNR/SSIM of the output downscaled to input size against the input, and the flicker ratio. Reported per job and per sample for both presets; add the seam sweep for all nine clip/overlap combinations on a real sample (including sample-05, which has cuts), not only a 30-frame excerpt.
-2. **`ve trial`** as specified before: `ve trial <input> [--start S] [--seconds N] [--preset fast|standard] [--out DIR]`, writing `original.mp4`, `enhanced.mp4`, `comparison_split.mp4` (original on the left half, enhanced on the right half, thin divider, labels), and `report.json`; print the measured speed and the projected total time. Must work on CPU too.
-3. **Calibration:** make `ve bench --calibrate` measure the restore and RIFE stages and store real coefficients; verify the estimator's accuracy (initial within ±30%, within ±15% at 10% progress) on the 60-minute run below.
-
-### R5. Long-run verification
-
-1. **`fast` soak:** a 2-hour synthetic 720×1280 30000/1001 fps input with audio and a schedule forcing at least 2 pauses. Memory criteria: between minute 10 and the end, the engine's dedicated GPU memory grows ≤ 150 MB, Torch reserved ≤ 100 MB, RSS ≤ 200 MB. Exact expected frame count, zero crashes. Run the new luma-outlier detector over the whole output and report the count.
-2. **`standard` run:** ≥ 60 minutes of wall time on a 2-hour input derived from the samples (for example the five samples concatenated and looped, so that it contains real content and many scene cuts), with one forced pause and resume, then a clean stop and a verified resume. Report memory trends, fps, the per-stage table, the estimate error at 10%, and the outlier-detector count.
-3. A job created by P0 still resumes.
-
-### R6. Remaining housekeeping
-
-- Smart App Control mock test (simulate a blocked PyNvVideoCodec import; `ve probe` and `ve enhance` must print the specific message).
-- Keep the sample names out of every committed file and test names; the hash-based test must keep passing. `docs/BENCHMARK_DEGRADED.md` and the report must refer to samples only as `sample-01`…`sample-05` (same order as before).
-- CI green on Windows and Ubuntu.
-
-## 4. Constraints
-
-- Windows 11, no WSL, no custom CUDA compilation, prebuilt wheels fine. No non-commercial source code copied into this MIT repository. No network at processing time except explicit model downloads. Do not commit media, weights, generated videos, or any frame or crop of the private samples. All code, comments, docs and the report are in English. Do not rewrite git history.
-
-## 5. Out of scope
-
-GUI, local API, trial viewer, face detection/restoration, installer, diffusion/generative models, changing the default preset based on the benchmark.
-
-## 6. Acceptance criteria
-
-- **A1** The white-frame root cause is explained in the report with the frame index and cause; a regression test fails without the fix; the detector is unit-tested; zero flagged frames on all five samples for both presets.
-- **A2** `make_degraded.py` and the degraded benchmark exist; tables for C0–C4 (C3 optional) over D1–D4 for all five samples are in the report and in `docs/BENCHMARK_DEGRADED.md`; a plain statement of which candidate wins and whether C1 gains over the degraded input.
-- **A3** Side-by-side videos for D2 and D3 exist outside the repository; paths listed.
-- **A4** `standard` peaks (Torch reserved and process dedicated) are both < 5.0 GB on sample-04 and sample-05, with speed loss ≤ 5%.
-- **A5** Seam metric ≤ 1.3 for the chosen default on all samples and on the 60-second synthetic pan; the nine-combination seam sweep table is in the report.
-- **A6** `ve trial` works (GPU and CPU) and produces the four files and the speed line.
-- **A7** Calibration populates restore/RIFE coefficients; estimate accuracy within ±30% initially and ±15% at 10%.
-- **A8** `fast` soak passes; `standard` 60-minute run passes with resume.
-- **A9** Smart App Control mock test passes; P0 jobs resume; CI is green; nothing private is committed.
-
-## 7. Builds and tests
-
-`ruff check .`, `ruff format --check`, `pyright src`, `pytest -m "not gpu and not soak"`, `pytest -m gpu`, the degraded benchmark, the seam sweep, `ve trial`, `ve bench --calibrate`, the `fast` soak and the 60-minute `standard` run. Anything that cannot run is marked NOT RUN with the exact command. Never report a test as passed if it did not run.
-
-## 8. Checks for the owner after the PR
-
-1. Watch the side-by-side D2 and D3 videos: does "Restored" look closer to "Original" than "Degraded" does, and does it keep the beauty-filtered look?
-2. Watch sample-05 `fast` and `standard` around 6 seconds before the end: no white frame.
-3. Open a `ve trial` `comparison_split.mp4` on any sample.
-
-## 9. Report (`.ai/LAST_REPORT.md`, English)
-
-Summary by requirement; environment; A1–A9 with PASS / FAIL / NOT RUN and numbers; the white-frame root-cause write-up; the degraded benchmark tables and the plain-language verdict; the memory table; seam/fidelity/flicker tables; per-stage times; output paths outside the repository; known issues and questions for the designer; exact reproduction steps for anything the owner must run.
+Summary by task (A, B), A1–A6 with PASS / FAIL / NOT RUN and numbers, the flagged-frame table for the old outputs, the determinism result, the benchmark tables (B1, B3, B4, B5), output paths (outside the repository), known issues and questions, and exact reproduction steps.
