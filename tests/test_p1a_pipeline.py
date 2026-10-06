@@ -8,6 +8,7 @@ from videoenhancer.models.basicvsr import BasicVSRRestoreStage
 from videoenhancer.models.rife import RifeInterpolateStage
 from videoenhancer.pipeline import runner as pipeline_runner
 from videoenhancer.pipeline.clips import StreamingClipBuffer, plan_restore_clips
+from videoenhancer.pipeline.outliers import detect_frame_outliers
 from videoenhancer.pipeline.stages import FrameBatch
 
 
@@ -20,6 +21,21 @@ def _batch(start: int, end: int) -> FrameBatch:
         tuple(Fraction(index, 30) for index in range(start, end)),
         tuple(range(start, end)),
     )
+
+
+def test_frame_outlier_detector_flags_isolated_flash_but_not_source_cut():
+    reference = torch.full((6, 3, 16, 16), 0.25)
+    reference[4:] = 0.75  # A real cut is present in both the source and output.
+    output = reference.clone()
+    output[2] = 1.0  # One white flash absent from the source.
+    assert detect_frame_outliers(output, reference) == [2]
+    assert detect_frame_outliers(reference, reference) == []
+
+
+def test_frame_outlier_detector_rejects_a_source_flash():
+    source_flash = torch.full((5, 3, 16, 16), 0.25)
+    source_flash[2] = 1.0
+    assert detect_frame_outliers(source_flash, source_flash) == []
 
 
 def test_clip_ownership_is_center_most_and_covers_each_frame_once():
@@ -254,6 +270,7 @@ def test_process_segment_uses_bounded_streaming_restore_and_retries_oom(
         manifest, {"index": 7, "start": 0, "end": 24}, output, lambda: False
     )
     assert stats["output_frames"] == 24
+    assert stats["luma_outliers"] == []
     assert fake_restore.calls > 1
     assert fake_restore.max_frames <= fake_restore.clip_length
     assert stats["oom_retries"] == int(out_of_memory_once)

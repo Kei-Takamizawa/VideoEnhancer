@@ -11,6 +11,7 @@ from typing import Any
 
 import psutil
 import torch
+import torch.nn.functional as F
 
 from videoenhancer.jobs.gpu_memory import JobMemorySampler
 from videoenhancer.media.decode import IndexedDecoder, choose_backend
@@ -21,6 +22,7 @@ from videoenhancer.pipeline.clips import (
     StreamingClipBuffer,
     plan_restore_clips,
 )
+from videoenhancer.pipeline.outliers import detect_frame_outliers
 from videoenhancer.pipeline.presets import create_stages
 from videoenhancer.pipeline.stages import FrameBatch
 
@@ -63,6 +65,8 @@ def process_segment(
     decode_seconds = 0.0
     encode_seconds = 0.0
     stage_seconds: dict[str, float] = {}
+    reference_summaries: dict[int, torch.Tensor] = {}
+    output_summaries: dict[int, torch.Tensor] = {}
     sentinel = object()
     restore_stage: Any = next((stage for stage in stages if stage.name == "restore"), None)
     restore_windows = (
@@ -124,6 +128,8 @@ def process_segment(
                         tuple(Fraction(i) / rate for i in positions),
                         tuple(positions),
                     )
+                    summaries = F.interpolate(batch.frames.float(), size=(16, 16), mode="area")
+                    reference_summaries.update(zip(batch.indices, summaries.cpu(), strict=True))
                     if backend == "cuda":
                         torch.cuda.synchronize()
                     put(decoded, batch)
@@ -134,6 +140,8 @@ def process_segment(
                     tuple(Fraction(i) / rate for i in positions),
                     tuple(positions),
                 )
+                summaries = F.interpolate(batch.frames.float(), size=(16, 16), mode="area")
+                reference_summaries.update(zip(batch.indices, summaries.cpu(), strict=True))
                 if backend == "cuda":
                     torch.cuda.synchronize()
                 put(decoded, batch)
@@ -325,6 +333,11 @@ def process_segment(
                 batch = get(processed)
                 if batch is sentinel:
                     break
+                summaries = F.interpolate(batch.frames.float(), size=(16, 16), mode="area").cpu()
+                output_indices = tuple(
+                    range(start * factor + written, start * factor + written + len(batch.indices))
+                )
+                output_summaries.update(zip(output_indices, summaries, strict=True))
                 for frame in batch.frames:
                     if check():
                         raise InterruptedError("The segment was interrupted.")
@@ -358,6 +371,12 @@ def process_segment(
             f"Segment {segment['index']} encoded {written} frames instead of "
             f"{(end - start) * factor}. Retry the segment."
         )
+    ordered_output = sorted(output_summaries)
+    aligned_reference = [reference_summaries[index // factor] for index in ordered_output]
+    flagged_positions = detect_frame_outliers(
+        torch.stack([output_summaries[index] for index in ordered_output]),
+        torch.stack(aligned_reference),
+    )
     elapsed = time.perf_counter() - started
     return {
         "seconds": elapsed,
@@ -375,4 +394,11 @@ def process_segment(
         ),
         "nan_retries": sum(int(getattr(stage, "nan_retries", 0)) for stage in stages),
         "oom_retries": oom_retries,
+        "luma_outliers": [
+            {
+                "frame_index": ordered_output[position],
+                "timestamp_seconds": ordered_output[position] / float(output_rate(settings, media)),
+            }
+            for position in flagged_positions
+        ],
     }
