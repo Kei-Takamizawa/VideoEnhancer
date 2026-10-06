@@ -30,7 +30,7 @@
 - R7: PARTIAL. The estimator has restore and interpolation cost components and `ve add` presents fast/standard estimates. `ve bench --calibrate` was NOT RUN; the current calibration profile generator does not populate measured restore/interpolation coefficients.
 - R8: NOT IMPLEMENTED. `ve trial` and the four comparison/report outputs are absent; this remains P1a work despite the separately postponed graphical trial viewer.
 - R9: PARTIAL. Full `fast` and `standard` outputs were produced for all five private inputs outside the repository and ffprobe confirmed exactly 2N frames at 1080x1920. Standard exceeded the 5 GB process/Torch reserved target on several samples. The fast two-hour soak and 60-minute standard pause/resume run were NOT RUN.
-- R10: PARTIAL. Architecture, development and third-party model docs were updated. The FFmpeg executable's Authenticode status is `NotSigned`; whether it runs with Smart App Control enabled is NOT TESTED because Smart App Control was already off and was not changed. The Smart App Control mock and P0-created job resume acceptance are NOT RUN. `uv sync --locked` could not run locally because `uv` is not installed or available on PATH. The first pushed CI run failed because the broad `models/` ignore rule omitted `src/videoenhancer/models/`; the ignore rule is now narrowed and the production model package is tracked. CI rerun is pending.
+- R10: PARTIAL. Architecture, development and third-party model docs were updated. The FFmpeg executable's Authenticode status is `NotSigned`; whether it runs with Smart App Control enabled is NOT TESTED because Smart App Control was already off and was not changed. The Smart App Control mock and P0-created job resume acceptance are NOT RUN. `uv sync --locked` could not run locally because `uv` is not installed or available on PATH; GitHub Actions ran it successfully. The first pushed CI run failed because the broad `models/` ignore rule omitted `src/videoenhancer/models/`; after narrowing the ignore rule and tracking the production model package, both Windows and Ubuntu CI passed on commit `d0ecf9e` (runs 37469261585 and 37469270489).
 
 ## Environment and verification
 
@@ -99,7 +99,7 @@ Fallbacks, NaN retries and OOM retries were all zero in these full-sample runs. 
 | A10 | NOT RUN | 60-minute standard pause/resume/clean-stop soak not run. |
 | A11 | PARTIAL | Ten full outputs exist and frame counts pass; `ve trial` and its four files are not implemented. |
 | A12 | PARTIAL | FFmpeg is unsigned; Smart App Control mock and enabled-state behavior not tested. |
-| A13 | PARTIAL | CPU/GPU suites pass. First CI failed because model sources were ignored; ignore rule and source tracking are fixed, and CI rerun is pending. P0-created job acceptance remains unrun. No media or weights were added to Git. |
+| A13 | PARTIAL | Local CPU/GPU suites pass; GitHub Actions passed on Windows and Ubuntu (runs 37469261585 and 37469270489). The P0-created job resume acceptance remains unrun. No media or weights were added to Git. |
 
 ## Deviations, unresolved work and reproduction
 
