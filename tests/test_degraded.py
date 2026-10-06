@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
+from pathlib import Path
 
-from scripts.make_degraded import make_degraded
+_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "make_degraded.py"
+_SPEC = importlib.util.spec_from_file_location("make_degraded", _SCRIPT)
+assert _SPEC is not None and _SPEC.loader is not None
+_MODULE = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_MODULE)
+make_degraded = _MODULE.make_degraded
 
 
 def test_make_degraded_writes_four_outside_repo_variants_per_input(video_factory, tmp_path):

@@ -108,7 +108,7 @@ The third segment's short duration did not yield a non-baseline 60-second PDH ob
 - `ve trial`: NOT RUN.
 - Degraded restoration benchmark and seam sweep: NOT RUN.
 - Fast and Standard long soaks: NOT RUN.
-- CI Windows/Ubuntu for this commit: pending push; no result yet.
+- Initial CI run 37538292947: FAIL on both Windows and Ubuntu during test collection because `scripts` was not an importable package under CI. The test now loads the committed script by file path; local CPU suite passes after the fix. Corrected CI run: pending push.
 - `git diff --check`: PASS before the final report was written.
 
 ## Files and external outputs
