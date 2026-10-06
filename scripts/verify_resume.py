@@ -17,7 +17,6 @@ from typing import Any
 
 import numpy as np
 import psutil
-
 from videoenhancer.jobs.store import JobStore, add_job
 
 from videoenhancer.config import executable

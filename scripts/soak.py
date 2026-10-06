@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import psutil
-
 from videoenhancer.jobs.store import JobStore
 
 from videoenhancer.config import get_home

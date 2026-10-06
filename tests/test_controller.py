@@ -13,7 +13,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
 from videoenhancer.jobs.store import JobStore, input_identity
 
 from videoenhancer.schedule import controller
