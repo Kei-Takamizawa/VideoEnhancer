@@ -108,7 +108,7 @@ The third segment's short duration did not yield a non-baseline 60-second PDH ob
 - `ve trial`: NOT RUN.
 - Degraded restoration benchmark and seam sweep: NOT RUN.
 - Fast and Standard long soaks: NOT RUN.
-- Initial CI run 37538292947: FAIL on both Windows and Ubuntu during test collection because `scripts` was not an importable package under CI. The test now loads the committed script by file path; local CPU suite passes after the fix. Corrected CI run: pending push.
+- Initial CI run 37538292947: FAIL on both Windows and Ubuntu during test collection because `scripts` was not an importable package under CI. The test now loads the committed script by file path. Corrected CI run 37538587044: PASS on Windows (2m07s) and Ubuntu (56s); Ruff, format, Pyright and CPU tests passed on both.
 - `git diff --check`: PASS before the final report was written.
 
 ## Files and external outputs
@@ -119,6 +119,7 @@ Changed repository files: `.ai/CURRENT_TASK.md`, `.ai/LAST_REPORT.md`, `docs/BEN
 - Fresh sample-05 output: `C:\Users\pro\Documents\VideoEnhancer-P1a-2\quality\sample-05_standard.mp4`
 - Degraded inputs and manifest: `C:\Users\pro\Documents\VideoEnhancer-P1a-2\degraded\`
 - D2/D3 side-by-side videos: NOT CREATED.
+- GUI test: NOT RUN; GUI is explicitly out of scope for this cycle.
 
 ## Known issues and exact remaining work
 
