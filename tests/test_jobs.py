@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from videoenhancer.jobs.segments import expected_frames, plan_segments
 from videoenhancer.jobs.store import JobStore, add_job, input_identity, load_machine_profile
 
