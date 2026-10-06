@@ -107,11 +107,11 @@ An initial FFV1/Matroska material clip was unsupported by the GPU decoder (decod
 - `pyright src`: PASS, 0 errors, 0 warnings, 0 informations.
 - CPU test suite: PASS, 110 passed, 3 skipped, 15 deselected, 41.87 s.
 - GPU test suite: PASS, 15 passed, 113 deselected, 38.28 s.
-- Remote CI status: to be checked after push.
+- Remote CI: PASS on push run `37543189206` for commit `72413e9` (Windows and Ubuntu). A duplicate PR-triggered run also passed Ubuntu; its Windows job was still running at report finalization.
 - `git diff --check`: PASS.
 - Private media committed: NO.
 - GUI test: NOT RUN; not required by this task.
-- Commit/push: NOT YET DONE.
+- Commit: `72413e9` (`Complete P1a-3 flash and degradation benchmark`). This report's CI status update will be committed and pushed separately to the same branch.
 
 ## Remaining question and intentionally omitted work
 
