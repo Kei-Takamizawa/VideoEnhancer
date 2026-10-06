@@ -330,7 +330,7 @@ def add_job(
     if destination == source:
         raise ValueError("Output path would overwrite the input video. Choose another output path.")
     chosen: dict[str, Any] = {
-        "preset": "p0-test",
+        "preset": "standard",
         "short_side": 1080,
         "fps": "2x",
         "codec": "hevc",

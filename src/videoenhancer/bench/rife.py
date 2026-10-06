@@ -109,6 +109,63 @@ def _prepare_files() -> tuple[Path, Path]:
     return source_root, checkpoint
 
 
+def load_rife_model(torch: Any | None = None) -> Any:
+    """Load Practical-RIFE 4.25 from its pinned external source and weights."""
+    if torch is None:
+        import torch as torch_module
+
+        torch = torch_module
+    source_root, checkpoint = _prepare_files()
+    code_root = checkpoint.parent / "rife425_source"
+    sys.path.insert(0, str(source_root / f"Practical-RIFE-{SOURCE_COMMIT}"))
+    sys.path.insert(0, str(code_root))
+    module_path = code_root / "train_log" / "IFNet_HDv3.py"
+    spec = importlib.util.spec_from_file_location("ve_external_rife425_ifnet", module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError("Could not load the official RIFE 4.25 IFNet module.")
+    module: Any = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    import torch.nn.functional as functional
+
+    warplayer: Any = importlib.import_module("model.warplayer")
+
+    def half_warp(image: Any, flow: Any) -> Any:
+        height, width = flow.shape[-2:]
+        horizontal = torch.linspace(-1.0, 1.0, width, device=flow.device, dtype=image.dtype)
+        horizontal = horizontal.view(1, 1, 1, width).expand(flow.shape[0], -1, height, -1)
+        vertical = torch.linspace(-1.0, 1.0, height, device=flow.device, dtype=image.dtype)
+        vertical = vertical.view(1, 1, height, 1).expand(flow.shape[0], -1, -1, width)
+        grid = torch.cat((horizontal, vertical), 1)
+        normalized = torch.cat(
+            (
+                flow[:, 0:1] / ((image.shape[3] - 1.0) / 2.0),
+                flow[:, 1:2] / ((image.shape[2] - 1.0) / 2.0),
+            ),
+            1,
+        )
+        return functional.grid_sample(
+            image,
+            (grid + normalized).permute(0, 2, 3, 1),
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=True,
+        )
+
+    warplayer.warp = half_warp
+    module.warp = half_warp
+    network = module.IFNet().eval()
+    state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    state = {
+        key.removeprefix("module."): value
+        for key, value in state.items()
+        if not key.startswith(("module.teacher.", "module.caltime."))
+    }
+    loaded = network.load_state_dict(state, strict=False)
+    if loaded.missing_keys or loaded.unexpected_keys:
+        raise RuntimeError("The official checkpoint did not match the Practical-RIFE architecture.")
+    return network
+
+
 def bench_rife(torch: Any) -> dict[str, Any]:
     common: dict[str, Any] = {
         "name": "Practical-RIFE 4.25",

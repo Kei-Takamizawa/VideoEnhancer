@@ -14,14 +14,35 @@ import torch.nn.functional as F
 from videoenhancer.config import executable
 from videoenhancer.media.color import nv12_to_rgb
 
+SMART_APP_CONTROL_MESSAGE = (
+    "PyNvVideoCodec could not start. Windows Smart App Control may have blocked its "
+    "unsigned NVIDIA video component (VersionCheck.cp312-win_amd64.pyd). See "
+    "docs/TROUBLESHOOTING.md for details and options."
+)
+
+
+def _load_pynvcodec() -> Any:
+    try:
+        return importlib.import_module("PyNvVideoCodec")
+    except (ImportError, OSError) as exc:
+        # Windows returns ERROR_INVALID_IMAGE_HASH (577) when policy blocks an
+        # image. ImportError also covers a blocked extension reported by Python.
+        winerror = getattr(exc, "winerror", None)
+        missing_optional_package = (
+            isinstance(exc, ModuleNotFoundError) and exc.name == "PyNvVideoCodec"
+        )
+        if not missing_optional_package and (winerror == 577 or isinstance(exc, ImportError)):
+            raise RuntimeError(f"{SMART_APP_CONTROL_MESSAGE} Details: {exc}") from None
+        raise
+
 
 def choose_backend(requested: str = "auto") -> str:
     if requested == "cpu":
         return "cpu"
     if torch.cuda.is_available():
         try:
-            importlib.import_module("PyNvVideoCodec")
-        except ImportError:
+            _load_pynvcodec()
+        except ModuleNotFoundError:
             if requested == "cuda":
                 raise RuntimeError(
                     "Install the gpu extra (uv sync --extra gpu) for NVDEC/NVENC."
@@ -72,7 +93,7 @@ class IndexedDecoder:
         validate_pixel_format(media)
         self.decoder: Any = None
         if backend == "cuda":
-            nvc: Any = importlib.import_module("PyNvVideoCodec")
+            nvc: Any = _load_pynvcodec()
 
             self.decoder = nvc.SimpleDecoder(
                 self.path,

@@ -335,6 +335,20 @@ def _model_from_checkpoint(torch: Any, basic_path: Path, plus_path: Path, weight
     return model
 
 
+def load_basicvsr_model(torch: Any | None = None) -> Any:
+    """Load the pinned benchmark model for production inference."""
+    if torch is None:
+        import torch as torch_module
+
+        torch = torch_module
+    models = get_home() / "models"
+    basic_path, plus_path = _source_files(models)
+    weights = _verified_download(
+        models / "basicvsrpp-ntire-track3.pth", WEIGHTS_URL, WEIGHTS_SHA256
+    )
+    return _model_from_checkpoint(torch, basic_path, plus_path, weights)
+
+
 def bench_basicvsr(torch: Any) -> dict[str, Any]:
     """Time 50 FP16 15-frame clips at the largest tile that fits the GPU."""
     result: dict[str, Any] = {

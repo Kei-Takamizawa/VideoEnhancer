@@ -24,7 +24,9 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("input", type=Path)
         command.add_argument("-o", "--output", type=Path)
         command.add_argument(
-            "--preset", choices=("passthrough", "resize", "p0-test"), default="p0-test"
+            "--preset",
+            choices=("passthrough", "resize", "p0-test", "fast", "standard"),
+            default="standard",
         )
         command.add_argument(
             "--short-side", choices=("keep", "1080", "1440", "2160"), default="1080"
@@ -265,12 +267,22 @@ def _add(args: argparse.Namespace, home: Path, as_json: bool, run_now: bool) -> 
         target_segment_seconds=args.segment_seconds,
     )
     estimate = estimate_job(manifest).to_dict()
+    comparisons = {}
+    for preset in ("fast", "standard"):
+        if isinstance(manifest.get("settings"), dict):
+            alternate = {**manifest, "settings": {**manifest["settings"], "preset": preset}}
+            comparisons[preset] = estimate_job(alternate).to_dict()
+        elif preset == "standard":
+            comparisons[preset] = estimate
+        else:
+            comparisons[preset] = estimate
     plan = _jobs_plan([manifest], home)
     result: dict[str, Any] = {
         "job_id": manifest["id"],
         "output": manifest["output"],
         "segments": len(manifest["segments"]),
         "estimate": estimate,
+        "preset_estimates": comparisons,
         "plan": plan,
     }
     if run_now:
@@ -289,6 +301,8 @@ def _add(args: argparse.Namespace, home: Path, as_json: bool, run_now: bool) -> 
             f"Added job {manifest['id']} ({len(manifest['segments'])} segments).\n"
             f"Estimated remaining time: {_duration(estimate['seconds'])}"
             f"{' (calibrated)' if estimate['calibrated'] else ' (uncalibrated)'}\n"
+            f"Fast: {_duration(comparisons['fast']['seconds'])}; "
+            f"Standard: {_duration(comparisons['standard']['seconds'])}\n"
             f"Output: {manifest['output']}\n{format_plan(plan)}"
         )
     _emit(result, human, as_json)

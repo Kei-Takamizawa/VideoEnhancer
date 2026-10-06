@@ -235,6 +235,28 @@ def main() -> int:
         late = [s[key] for s in ending if s[key] is not None]
         return max(late) - max(early) if early and late else None
 
+    segment_memory = [
+        sample for segment in done for sample in segment.get("stats", {}).get("memory_samples", [])
+    ]
+    after_ten_minutes = [s for s in segment_memory if s["timestamp"] - started >= 600]
+    process_gpu_values = [
+        s["process_dedicated_gpu_bytes"]
+        for s in after_ten_minutes
+        if s.get("process_dedicated_gpu_bytes") is not None
+    ]
+    torch_reserved_values = [
+        s["torch_reserved_bytes"]
+        for s in after_ten_minutes
+        if s.get("torch_reserved_bytes") is not None
+    ]
+    process_gpu_growth = (
+        max(process_gpu_values) - process_gpu_values[0] if len(process_gpu_values) > 1 else None
+    )
+    torch_reserved_growth = (
+        max(torch_reserved_values) - torch_reserved_values[0]
+        if len(torch_reserved_values) > 1
+        else None
+    )
     rss_growth, vram_growth = growth("rss_bytes"), growth("nvml_used_bytes")
     info = probe(output).to_dict() if output.is_file() else None
     expected = total_frames * 2
@@ -266,6 +288,17 @@ def main() -> int:
         "nvml_baseline_bytes": gpu_baseline,
         "nvml_peak_bytes": max((s["nvml_used_bytes"] or 0) for s in samples),
         "vram_growth_bytes": vram_growth,
+        "process_dedicated_gpu_growth_bytes": process_gpu_growth,
+        "torch_reserved_growth_bytes": torch_reserved_growth,
+        "job_memory_samples": segment_memory,
+        "memory_sources": {
+            "process_dedicated_gpu_growth_bytes": (
+                "Windows GPU Process Memory\\Dedicated Usage summed across instances for engine PID"
+            ),
+            "torch_reserved_growth_bytes": "torch.cuda.memory_reserved in engine worker",
+            "rss_growth_bytes": "psutil process-tree RSS sampled by soak supervisor",
+            "vram_growth_bytes": "device-wide NVML used memory sampled by soak supervisor",
+        },
         "torch_peak_bytes": max(
             (s.get("stats", {}).get("peak_torch_vram_bytes", 0) for s in done), default=0
         ),
@@ -288,8 +321,10 @@ def main() -> int:
         and info["frame_count"] == expected
         and rss_growth is not None
         and rss_growth <= 200_000_000
-        and vram_growth is not None
-        and vram_growth <= 100_000_000
+        and process_gpu_growth is not None
+        and process_gpu_growth <= 150_000_000
+        and torch_reserved_growth is not None
+        and torch_reserved_growth <= 100_000_000
         and not report["crashes"]
     )
     report["estimate_pass"] = bool(

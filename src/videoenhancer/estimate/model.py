@@ -12,8 +12,24 @@ from videoenhancer.media.timing import output_rate, output_size
 
 # Seconds per megapixel-frame. Calibration replaces these provisional values.
 DEFAULT_COMPONENTS = {
-    "cpu": {"decode": 0.018, "color": 0.025, "resize": 0.04, "blend2x": 0.025, "encode": 0.15},
-    "cuda": {"decode": 0.004, "color": 0.004, "resize": 0.005, "blend2x": 0.003, "encode": 0.008},
+    "cpu": {
+        "decode": 0.018,
+        "color": 0.025,
+        "resize": 0.04,
+        "blend2x": 0.025,
+        "restore": 0.32,
+        "interpolate": 0.046,
+        "encode": 0.15,
+    },
+    "cuda": {
+        "decode": 0.004,
+        "color": 0.004,
+        "resize": 0.005,
+        "blend2x": 0.003,
+        "restore": 0.32,
+        "interpolate": 0.046,
+        "encode": 0.008,
+    },
 }
 
 
@@ -85,16 +101,19 @@ def predict_segment(
         _coefficient("color", backend, profile) * (input_pixels + output_pixels * multiplier),
         _coefficient("encode", backend, profile) * output_pixels * multiplier,
     ]
-    preset = settings.get("preset", "p0-test")
-    if preset in ("resize", "p0-test"):
+    preset = settings.get("preset", "standard")
+    if preset in ("resize", "p0-test", "fast", "standard"):
         costs.append(_coefficient("resize", backend, profile) * output_pixels)
     normalized_pixels = int(media.get("display_width", media.get("width", 720))) * int(
         media.get("display_height", media.get("height", 1280))
     )
     if normalized_pixels != input_pixels:
         costs.append(_coefficient("resize", backend, profile) * normalized_pixels)
+    if preset == "standard":
+        costs.append(_coefficient("restore", backend, profile) * input_pixels)
     if multiplier > 1:
-        costs.append(_coefficient("blend2x", backend, profile) * output_pixels)
+        component = "interpolate" if preset in ("fast", "standard") else "blend2x"
+        costs.append(_coefficient(component, backend, profile) * output_pixels)
     # Sum is deliberately conservative before end-to-end overlap is calibrated.
     overhead = float((profile or {}).get("segment_overhead_seconds", 2.0))
     if overhead < 0 or not math.isfinite(overhead):
@@ -134,8 +153,11 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
         uncertainty = min(0.25, max(0.05, relative_std * 1.96, 0.25 / math.sqrt(len(ratios))))
     components = (profile or {}).get("components", {})
     needed = {"decode", "color", "encode"}
-    if settings.get("preset", "p0-test") in ("resize", "p0-test"):
+    preset = settings.get("preset", "standard")
+    if preset in ("resize", "p0-test", "fast", "standard"):
         needed.add("resize")
+    if preset == "standard":
+        needed.add("restore")
     if (
         int(media.get("display_width", media.get("width", 720)))
         * int(media.get("display_height", media.get("height", 1280)))
@@ -143,7 +165,7 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
     ):
         needed.add("resize")
     if _geometry(media, settings)[2] > 1:
-        needed.add("blend2x")
+        needed.add("interpolate" if preset in ("fast", "standard") else "blend2x")
 
     def measured(name: str) -> bool:
         value = components.get(name)

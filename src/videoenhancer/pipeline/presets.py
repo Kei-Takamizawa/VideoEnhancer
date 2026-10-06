@@ -19,8 +19,30 @@ def _placeholder(settings: dict[str, Any], media: dict[str, Any], cuts: set[int]
     return stages
 
 
+def _real(settings: dict[str, Any], media: dict[str, Any], cuts: set[int]) -> list[Stage]:
+    """Build the real preset stages; model-backed stages load lazily at setup."""
+    preset = settings["preset"]
+    stages: list[Stage] = []
+    if preset == "standard":
+        from videoenhancer.models.basicvsr import BasicVSRRestoreStage
+
+        stages.append(BasicVSRRestoreStage(settings))
+    if preset != "passthrough":
+        stages.append(ResizeStage(*output_size(settings, media)))
+    if output_rate(settings, media) == Fraction(media["cfr_fps"]) * 2:
+        if preset in {"fast", "standard"}:
+            from videoenhancer.models.rife import RifeInterpolateStage
+
+            stages.append(RifeInterpolateStage(Fraction(media["cfr_fps"]), cuts, settings))
+        else:
+            stages.append(Blend2xStage(Fraction(media["cfr_fps"]), cuts))
+    return stages
+
+
 PRESETS: dict[str, PresetFactory] = {
-    name: _placeholder for name in ("passthrough", "resize", "p0-test")
+    **{name: _placeholder for name in ("passthrough", "resize", "p0-test")},
+    "fast": _real,
+    "standard": _real,
 }
 
 

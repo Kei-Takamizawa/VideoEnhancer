@@ -185,10 +185,12 @@ def test_owner_sample_hard_cut_count():
     directory = samples_dir()
     if directory is None:
         pytest.skip("Set VE_SAMPLES_DIR to validate private sample scene cuts.")
-    source = next((path for path in directory.iterdir() if path.stem.lower() == "noachan1"), None)
-    assert source is not None, "The noachan1 clip is required for the hard-cut acceptance check."
+    source = next(
+        (path for path in directory.iterdir() if path.stem.lower().startswith("sample-05")), None
+    )
+    assert source is not None, "The sample-05 clip is required for the hard-cut acceptance check."
     count = len(analyze(source, backend="cpu")["scene_cuts"])
-    print(f"noachan1 hard cuts: {count}")
+    print(f"sample-05 hard cuts: {count}")
     assert 8 <= count <= 10, f"Detected {count} cuts; expected 9 +/- 1."
 
 

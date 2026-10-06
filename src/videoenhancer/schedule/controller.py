@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import json
 import multiprocessing
 import os
 import signal
@@ -737,6 +738,14 @@ def run_queue(
                         segment["state"] = "done"
                         segment["actual_seconds"] = elapsed
                         segment["stats"] = result.stats or {}
+                        memory_samples = segment["stats"].get("memory_samples", [])
+                        if memory_samples:
+                            job_logger.info(
+                                "Memory samples for segment %d: %s",
+                                index,
+                                json.dumps(memory_samples, separators=(",", ":")),
+                                extra={"job_id": job_id, "segment": index},
+                            )
                         update_correction(manifest, prediction, elapsed)
                         if manifest["state"] == "running":
                             manifest["state"] = "queued"

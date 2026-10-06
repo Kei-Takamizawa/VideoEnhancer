@@ -11,6 +11,7 @@ from typing import Any
 import psutil
 import torch
 
+from videoenhancer.jobs.gpu_memory import JobMemorySampler
 from videoenhancer.media.decode import IndexedDecoder, choose_backend
 from videoenhancer.media.encode import Encoder
 from videoenhancer.media.timing import output_rate, output_size
@@ -32,6 +33,8 @@ def process_segment(
     if backend == "cuda":
         torch.cuda.reset_peak_memory_stats()
     stages = create_stages(settings, media, set(manifest.get("scene_cuts", [])))
+    memory_sampler = JobMemorySampler()
+    memory_sampler.start()
     for stage in stages:
         stage.setup()
     context_before = sum(s.context_before for s in stages)
@@ -41,6 +44,74 @@ def process_segment(
     source_start, source_end = max(0, start - context_before), min(count, end + context_after)
     rate = Fraction(media["cfr_fps"])
     factor = int(output_rate(settings, media) / rate)
+    if any(stage.name == "restore" for stage in stages):
+        decoder = IndexedDecoder(manifest["input"]["path"], media, backend, manifest)
+        try:
+            indices_for_segment = manifest["cfr_map"][source_start:source_end]
+            frames = list(decoder.frames(indices_for_segment, abort))
+        finally:
+            decoder.close()
+        if abort():
+            raise InterruptedError("The segment was interrupted.")
+        batch = FrameBatch(
+            torch.stack(frames),
+            tuple(Fraction(i) / rate for i in range(source_start, source_end)),
+            tuple(range(source_start, source_end)),
+        )
+        try:
+            with torch.inference_mode():
+                for stage in stages:
+                    batch = stage.process(batch)
+            owned = [
+                i for i, index in enumerate(batch.indices) if start * factor <= index < end * factor
+            ]
+            batch = FrameBatch(
+                batch.frames[owned],
+                tuple(batch.timestamps[i] for i in owned),
+                tuple(batch.indices[i] for i in owned),
+            )
+            encoder = Encoder(
+                output_path,
+                *output_size(settings, media),
+                output_rate(settings, media),
+                settings.get("codec", "hevc"),
+                backend,
+                media,
+                settings.get("lossless", False),
+            )
+            written = 0
+            for frame in batch.frames:
+                if abort():
+                    raise InterruptedError("The segment was interrupted.")
+                encoder.write(frame)
+                written += 1
+            encoder.finish()
+        except BaseException:
+            for stage in stages:
+                stage.teardown()
+            memory_sampler.stop()
+            raise
+        for stage in stages:
+            stage.teardown()
+        memory_samples = memory_sampler.stop()
+        if written != (end - start) * factor:
+            raise RuntimeError(
+                f"Segment {segment['index']} encoded {written} frames instead of "
+                f"{(end - start) * factor}."
+            )
+        elapsed = time.perf_counter() - started
+        return {
+            "seconds": elapsed,
+            "input_frames": end - start,
+            "output_frames": written,
+            "fps": (end - start) / elapsed,
+            "peak_rss_bytes": psutil.Process().memory_info().rss,
+            "peak_torch_vram_bytes": torch.cuda.max_memory_reserved() if backend == "cuda" else 0,
+            "memory_samples": memory_samples,
+            "interpolation_fallbacks": sum(
+                int(getattr(stage, "fallback_count", 0)) for stage in stages
+            ),
+        }
     # Two queue slots, two-frame batches, and at most one context frame keep
     # full-resolution tensors bounded independently of video duration.
     decoded: queue.Queue[Any] = queue.Queue(maxsize=2)
@@ -181,6 +252,7 @@ def process_segment(
         worker.join()
     for stage in stages:
         stage.teardown()
+    memory_samples = memory_sampler.stop()
     if errors:
         primary = next((e for e in errors if not isinstance(e, InterruptedError)), errors[0])
         raise primary
@@ -197,4 +269,8 @@ def process_segment(
         "fps": (end - start) / elapsed,
         "peak_rss_bytes": peak_rss,
         "peak_torch_vram_bytes": torch.cuda.max_memory_reserved() if backend == "cuda" else 0,
+        "memory_samples": memory_samples,
+        "interpolation_fallbacks": sum(
+            int(getattr(stage, "fallback_count", 0)) for stage in stages
+        ),
     }
