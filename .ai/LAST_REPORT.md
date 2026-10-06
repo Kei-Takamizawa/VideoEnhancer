@@ -22,20 +22,31 @@
 
 | ID | 結果 | 検証・数値 |
 |---|---|---|
-| A Setup | PASS | `uv lock --check`、Ruff、Pyright、CLI。CIはPR作成後に確認予定。|
+| A Setup | PASS | `uv lock --check`、Ruff、Pyright、CLI。GitHub Actions run 16 はWindows/Ubuntu両方の全job成功。|
 | B Probe | PASS | 合成テストとVideosの5本。各入力720×1280、フレーム数532/326/375/561/911。2997/100は30000/1001へ正規化。|
 | C Geometry/timing | PASS | CPU全体テストとGPUテスト。5本すべて1080×1920、HEVC Main10、出力2Nフレーム。音声の開始オフセットを保持し、HE-AACのpriming分以外の尺差20 ms以内、デコードPCMは元と完全一致。GPU出力fpsは60000/1001または60。|
 | D Color | PASS | GPU lossless往復テスト（8-bit/10-bit）。YUV誤差0、PSNRは無限大（完全一致）。|
 | E Resume | PASS | 3分合成素材でCPU 3回・GPU 3回の強制終了後に再開。各10,800出力フレームで基準との比較一致、残存一時ファイル0。|
 | F Scheduler | PASS | DST、日跨ぎ、例外、15分制約、実行時間外の停止・再開をテスト。|
 | G Planner | PASS | 複数ジョブ・日程、順序変更、スケジュール変更のテスト。|
-| H Estimate | 実行中 | 2時間GPU耐久計測で初期推定と10%地点の誤差を測定する。|
-| I Soak | 実行中 | 720×1280、30000/1001、音声付き2時間・215,784フレーム入力。初期推定3,275.94秒（54.6分）。分析228.78秒。全121セグメント。第1セグメント16秒、70.2入力fps。2回の予定停止・再開を計測中。|
+| H Estimate | PASS | 初期推定3,275.94秒に対し処理実績2,763.30秒（誤差+18.55%）。10%地点の再推定2,781.53秒（誤差+0.66%）。許容±30%/±15%以内。|
+| I Soak | FAIL（GPUメモリ条件） | 2時間合成入力215,784フレーム、121/121区間成功、停止・再開2回成功、出力431,568フレーム/7,199.993秒、wall 4,821.18秒、GPU engine 2,525.03秒（85.46入力fps）、解析224.46秒。クラッシュ/一時ファイル0。RSSピーク1.832GB、比較窓のRSS増加8.05MB（上限200MB以内）。全デバイスNVMLは基準からの増加234.87MBで上限100MBを超過。WDDM下でNVMLに当該プロセス別メモリがなく他プロセスも動作していたため、アプリ起因かを分離できず、基準は未達として記録。Torch allocatorの先頭/末尾30区間ピーク差は+37.75MBだが、NVDEC/NVENC等ネイティブメモリを含まないので代替合格にはしない。|
 | J Bench | PASS | Part A完了。必須のBasicVSR++、Real-ESRGAN、RIFE、CodeFormer、SCRFDを実測。KEEPとBiSeNetは権利確認済みの互換アダプターがないため重みを取得せずスキップ。|
 | K Disk check | PASS | 注入した空き容量値で`ve add`が明確なエラーを返すテスト。|
 | L Hygiene | PASS | `git status`対象に動画、モデル重み、出力動画を含めず。LICENSE未変更。|
 
-CPUテスト最終結果（音声mux変更後）: `pytest -m "not gpu and not soak"` → 96 passed, 1 skipped, 13 deselected (19.28 s)。GPUスイート: 13 passed, 97 deselected (14.27 s)。Lint/format/type: Ruff全件成功、57ファイル整形済み、Pyright 0 errors/warnings/informations。`uv lock --check`成功。
+CPUテスト最終結果: `pytest -m "not gpu and not soak"` → 96 passed, 3 skipped, 13 deselected (13.48 s、最終GitHub Linux run 17.73 s)。GPUスイート: `pytest -m gpu` → 13 passed, 99 deselected (8.81 s)。Lint/format/type: Ruff全件成功、61ファイル整形済み、Pyright 0 errors/warnings/informations。`uv lock --check`成功。GitHub Actions run 16はWindows/Ubuntu両job成功。
+
+Soak判定は設計書の条件を適用し、デバイス全体NVMLの+234.87MBが100MB上限を超えたためFAILとした。WDDMではNVMLのプロセス別メモリ値が取得できず、システム全体の値を当該アプリに帰属できない。Torch allocatorは先頭/末尾30区間の最大値が551.55/589.30MB（+37.75MB）だが、NVDEC/NVENC等のネイティブ割当を含まないため、NVML条件の合格代用とはしていない。
+
+GPU有効化の原因: Smart App ControlがPyNvVideoCodecのunsigned `VersionCheck.cp312-win_amd64.pyd`を遮断していた。ユーザーが同機能を無効化後、PyNvVideoCodec import、CUDA利用可能、RTX 4060 Ti検出を確認した。
+
+## 実行コマンド
+
+- 環境/静的検査: `uv sync --locked`; `uv lock --check`; `ruff check .`; `ruff format --check`; `pyright src`; `pytest -m "not gpu and not soak"`。
+- GPU: `pytest -m gpu`; 各サンプルへ `ve enhance <input> --backend cuda`。
+- Soak: `python scripts/soak.py --input <2h synthetic> --output <destination>`。実測ジョブID `e91d16763b0d4109890d5c7336123422`、結果JSON `.ve-home/reports/soak_report.json`。
+- ベンチ: `ve bench --calibrate`; `ve bench --models all`; `ve bench --models rife`（RIFE再計測）。
 
 ## 実動画5本でのGPU出力
 
@@ -45,9 +56,11 @@ CPUテスト最終結果（音声mux変更後）: `pytest -m "not gpu and not so
 |---|---:|---:|---:|---:|---:|---:|---:|
 | HaYeon1.MP4 | 532 | 60 | 24,903,849 bps | 7.84 | 未記録 | 552 MB | 未計測 |
 | HaYeon2.MP4 | 326 | 60000/1001 | 17,057,334 bps | 3.69 | 8.63 | 501 MB | 900 MB |
-| JooBin+Sullin1.MP4 | 375 | 60 | 18,601,547 bps | 4.22 | 9.34 | 501 MB | 901 MB |
+| JooBin+Sullin1.MP4 | 375 | 60 | 18,601,547 bps | 6.00 | 未記録 | 501 MB | 未計測 |
 | Kotone+Lynn1.MP4 | 561 | 60000/1001 | 32,706,411 bps | 6.23 | 11.44 | 539 MB | 933 MB |
 | noachan1.MP4 | 911 | 60000/1001 | 26,609,041 bps | 9.94 | 15.56 | 539 MB | 938 MB |
+
+既知事項・リスク: Soakのデバイス全体NVML使用量増加が条件を超え、プロセス帰属もできないためGPUメモリ漏れ条件は未達。修正にはWDDM対応のプロセス別GPUメモリ採取を次回Soakで記録して再計測する必要がある。Real-ESRGAN batch 16の7.64GBピークは8GB GPUで余裕が小さく、後続統合時にbatch/tile制御が必要。GPU SoakがFAILのためPRはdraftのまま。
 
 NVML増分は当該プロセスのNVML基準値との差で、PyTorch予約量とは別指標。入力映像に対して音声トラックが0.105–0.146秒長いHE-AAC素材を含む。出力は音声を再エンコードせずコピーし、AAC primingを含む入力のデコードPCMサンプル列を保つ。FFprobeのトラック尺はAAC priming相当（最大約115 ms）短く表示される場合がある。動画トラックは規定のフレーム数・FPSで保持する。
 
