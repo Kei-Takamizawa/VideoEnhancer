@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "videoenhancer"
+version = "0.1.0"
+description = "A resumable Windows video processing engine for NVIDIA RTX GPUs"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+dependencies = [
+  "torch==2.14.1",
+  "numpy>=2.2,<3",
+  "psutil>=7,<8",
+  "nvidia-ml-py>=12",
+  "tzlocal>=5,<6",
+  "tzdata>=2026.1",
+]
+
+[project.optional-dependencies]
+gpu = ["pynvvideocodec==2.2.3"]
+models = ["torchvision==0.29.1", "spandrel>=0.4", "huggingface-hub>=0.30", "onnxruntime-gpu>=1.22", "gdown>=5.2"]
+
+[project.scripts]
+ve = "videoenhancer.cli:main"
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "ruff==0.16.10", "pyright==1.1.414"]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cpu", marker = "sys_platform != 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cpu", marker = "sys_platform != 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+include = ["src"]
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["gpu: requires NVIDIA CUDA and PyNvVideoCodec", "soak: long-running reliability test"]
