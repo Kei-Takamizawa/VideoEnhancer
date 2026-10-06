@@ -21,7 +21,7 @@ Videos/
 *.safetensors
 *.engine
 models/
-jobs/
+/jobs/
 .ve-home/
 .tools/
 .tmp/
