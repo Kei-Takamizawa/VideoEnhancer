@@ -20,7 +20,7 @@ Videos/
 *.onnx
 *.safetensors
 *.engine
-models/
+/models/
 /jobs/
 .ve-home/
 .tools/
