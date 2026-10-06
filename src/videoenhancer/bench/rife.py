@@ -32,7 +32,7 @@ def _sha256(path: Path) -> str:
 
 def _download_drive(path: Path) -> None:
     try:
-        import gdown
+        import gdown  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         raise RuntimeError(
             "Install the optional gdown package to fetch the official Google Drive model."

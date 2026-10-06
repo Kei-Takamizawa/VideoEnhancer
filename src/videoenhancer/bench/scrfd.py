@@ -129,7 +129,7 @@ def bench_scrfd(_torch: Any) -> dict[str, Any]:
     }
     try:
         import numpy as np
-        import onnxruntime as ort
+        import onnxruntime as ort  # pyright: ignore[reportMissingImports]
 
         checkpoint = _verified_weight()
         providers = ort.get_available_providers()

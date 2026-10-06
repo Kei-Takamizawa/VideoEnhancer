@@ -316,7 +316,7 @@ def _bench_tensor_stages(torch: Any, device: str) -> dict[str, Any]:
 def _bench_pynvc_samples(extra_files: list[Path] | None = None) -> dict[str, Any]:
     """Decode eligible local samples directly to device memory with NVDEC."""
     try:
-        import PyNvVideoCodec as nvc
+        import PyNvVideoCodec as nvc  # pyright: ignore[reportMissingImports]
     except ImportError:
         return {}
     configured = os.environ.get("VE_SAMPLES_DIR")
@@ -395,7 +395,7 @@ def _bench_pynvc_samples(extra_files: list[Path] | None = None) -> dict[str, Any
 def _bench_nvenc(torch: Any) -> dict[str, Any]:
     """Measure direct PyNvVideoCodec encode throughput without FFmpeg remux."""
     try:
-        import PyNvVideoCodec as nvc
+        import PyNvVideoCodec as nvc  # pyright: ignore[reportMissingImports]
 
         from videoenhancer.media.color import rgb_to_nv12
         from videoenhancer.media.encode import NVENC_SETTINGS, DeviceSurface, packet_bytes
@@ -755,7 +755,7 @@ def _bench_realesrgan(torch: Any) -> dict[str, Any]:
     }
     try:
         weight, digest = _verified_weight("realesrgan")
-        from spandrel import ModelLoader
+        from spandrel import ModelLoader  # pyright: ignore[reportMissingImports]
     except Exception as exc:
         return {**common, "status": "skipped", "sha256": entry["sha256"], "reason": str(exc)}
     try:

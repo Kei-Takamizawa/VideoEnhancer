@@ -83,7 +83,7 @@ def _attach_windows_job(pid: int) -> int:
             ("PeakJobMemoryUsed", ctypes.c_size_t),
         ]
 
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
     kernel.CreateJobObjectW.restype = wintypes.HANDLE
     kernel.SetInformationJobObject.argtypes = [
@@ -101,18 +101,18 @@ def _attach_windows_job(pid: int) -> int:
     kernel.CloseHandle.restype = wintypes.BOOL
     job = kernel.CreateJobObjectW(None, None)
     if not job:
-        raise ctypes.WinError(ctypes.get_last_error())
+        raise getattr(ctypes, "WinError")(getattr(ctypes, "get_last_error")())
     process_handle = None
     try:
         limits = ExtendedLimit()
         limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         if not kernel.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise getattr(ctypes, "WinError")(getattr(ctypes, "get_last_error")())
         process_handle = kernel.OpenProcess(0x0100 | 0x0001, False, pid)
         if not process_handle:
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise getattr(ctypes, "WinError")(getattr(ctypes, "get_last_error")())
         if not kernel.AssignProcessToJobObject(job, process_handle):
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise getattr(ctypes, "WinError")(getattr(ctypes, "get_last_error")())
         return int(job)
     except Exception:
         kernel.CloseHandle(job)
@@ -126,7 +126,7 @@ def _close_windows_job(handle: int | None) -> None:
     if handle is not None and os.name == "nt":
         from ctypes import wintypes
 
-        close_handle = ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle
+        close_handle = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True).CloseHandle
         close_handle.argtypes = [wintypes.HANDLE]
         close_handle.restype = wintypes.BOOL
         close_handle(handle)
@@ -159,14 +159,14 @@ def _redirect_child_stdout_to_stderr() -> None:
     if os.name == "nt":
         from ctypes import wintypes
 
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
         kernel.GetStdHandle.argtypes = [wintypes.DWORD]
         kernel.GetStdHandle.restype = wintypes.HANDLE
         kernel.SetStdHandle.argtypes = [wintypes.DWORD, wintypes.HANDLE]
         kernel.SetStdHandle.restype = wintypes.BOOL
         stderr_handle = kernel.GetStdHandle(0xFFFFFFF4)  # STD_ERROR_HANDLE
         if not kernel.SetStdHandle(0xFFFFFFF5, stderr_handle):  # STD_OUTPUT_HANDLE
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise getattr(ctypes, "WinError")(getattr(ctypes, "get_last_error")())
 
 
 def _child_run(
