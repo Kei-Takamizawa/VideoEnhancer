@@ -1,10 +1,6 @@
 # VideoEnhancer
 
-English · [日本語](docs/readme/ja.md) · [中文](docs/readme/zh.md) · [हिन्दी](docs/readme/hi.md) · [Español](docs/readme/es.md) · [العربية](docs/readme/ar.md) · [Français](docs/readme/fr.md) · [Bahasa Indonesia](docs/readme/id.md) · [한국어](docs/readme/ko.md) · [Русский](docs/readme/ru.md) · [Português](docs/readme/pt.md)
-
-VideoEnhancer is a Windows app in development. It aims to restore videos damaged by compression and make motion smoother while preserving the original appearance of people, makeup, and color.
-
-The first development version can resize videos, create intermediate frames by blending, save progress, resume interrupted jobs, and work within your chosen hours. AI quality restoration and a graphical interface are planned for later versions.
+VideoEnhancer is a Windows app in development. From the command line, it can restore compression damage and make motion smoother. It can also resize videos, save progress, resume interrupted jobs, and work within your chosen hours. A graphical interface is planned.
 
 Requires an NVIDIA RTX GPU. Your videos stay on your computer.
 

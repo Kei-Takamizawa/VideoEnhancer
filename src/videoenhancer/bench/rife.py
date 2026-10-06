@@ -117,7 +117,10 @@ def load_rife_model(torch: Any | None = None) -> Any:
         torch = torch_module
     source_root, checkpoint = _prepare_files()
     code_root = checkpoint.parent / "rife425_source"
-    sys.path.insert(0, str(source_root / f"Practical-RIFE-{SOURCE_COMMIT}"))
+    external_root = source_root / f"Practical-RIFE-{SOURCE_COMMIT}"
+    if not external_root.is_dir():
+        external_root = source_root
+    sys.path.insert(0, str(external_root))
     sys.path.insert(0, str(code_root))
     module_path = code_root / "train_log" / "IFNet_HDv3.py"
     spec = importlib.util.spec_from_file_location("ve_external_rife425_ifnet", module_path)

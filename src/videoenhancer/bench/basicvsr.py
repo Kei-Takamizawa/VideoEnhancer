@@ -307,7 +307,13 @@ def _load_source(name: str, path: Path) -> types.ModuleType:
     return module
 
 
-def _model_from_checkpoint(torch: Any, basic_path: Path, plus_path: Path, weights: Path) -> Any:
+def _model_from_checkpoint(
+    torch: Any,
+    basic_path: Path,
+    plus_path: Path,
+    weights: Path,
+    cpu_cache_length: int = 0,
+) -> Any:
     helpers = _helpers(torch)
     with _temporary_modules(helpers, torch):
         _load_source("mmagic.models.editors.basicvsr.basicvsr_net", basic_path)
@@ -318,7 +324,7 @@ def _model_from_checkpoint(torch: Any, basic_path: Path, plus_path: Path, weight
             mid_channels=128,
             num_blocks=25,
             is_low_res_input=False,
-            cpu_cache_length=0,
+            cpu_cache_length=cpu_cache_length,
         )
     checkpoint = torch.load(weights, map_location="cpu", weights_only=True)
     state = checkpoint["state_dict"]
@@ -335,7 +341,7 @@ def _model_from_checkpoint(torch: Any, basic_path: Path, plus_path: Path, weight
     return model
 
 
-def load_basicvsr_model(torch: Any | None = None) -> Any:
+def load_basicvsr_model(torch: Any | None = None, *, cpu_cache_length: int = 0) -> Any:
     """Load the pinned benchmark model for production inference."""
     if torch is None:
         import torch as torch_module
@@ -346,7 +352,11 @@ def load_basicvsr_model(torch: Any | None = None) -> Any:
     weights = _verified_download(
         models / "basicvsrpp-ntire-track3.pth", WEIGHTS_URL, WEIGHTS_SHA256
     )
-    return _model_from_checkpoint(torch, basic_path, plus_path, weights)
+    if cpu_cache_length < 0:
+        raise ValueError("cpu_cache_length cannot be negative.")
+    return _model_from_checkpoint(
+        torch, basic_path, plus_path, weights, cpu_cache_length=cpu_cache_length
+    )
 
 
 def bench_basicvsr(torch: Any) -> dict[str, Any]:

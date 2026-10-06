@@ -1,4 +1,4 @@
-"""Only placeholder presets are registered during P0."""
+"""Register placeholder P0 and model-backed P1a presets."""
 
 from collections.abc import Callable
 from fractions import Fraction

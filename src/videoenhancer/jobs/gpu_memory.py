@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import threading
 import time
 from typing import Any
@@ -35,29 +37,32 @@ class JobMemorySampler:
         if os.name != "nt":
             return None
         try:
-            total = 0
-            matched = False
-            import win32pdh  # type: ignore[import-not-found]
-
-            query = win32pdh.OpenQuery()
-            try:
-                expand = win32pdh.__dict__["ExpandWildCardPath"]
-                paths = expand(None, r"\\GPU Process Memory(*)\\Dedicated Usage")
-                counters = []
-                for path in paths:
-                    if f"pid_{pid}_" in path.lower():
-                        counters.append(win32pdh.AddCounter(query, path))
-                        matched = True
-                if not matched:
-                    return None
-                win32pdh.CollectQueryData(query)
-                for counter in counters:
-                    _, value = win32pdh.GetFormattedCounterValue(counter, win32pdh.PDH_FMT_LARGE)
-                    total += int(value)
-                return total
-            finally:
-                win32pdh.CloseQuery(query)
-        except Exception:
+            powershell = shutil.which("pwsh.exe") or shutil.which("pwsh")
+            if powershell is None:
+                return None
+            # Use Windows' built-in PDH query to avoid making pywin32 a runtime
+            # dependency. Match only this engine PID across all GPU adapters.
+            counter_path = "\\GPU Process Memory(*)\\Dedicated Usage"
+            command = (
+                f"$prefix='pid_{pid}_'; "
+                f"$samples=(Get-Counter '{counter_path}' -ErrorAction Stop).CounterSamples; "
+                "$items=@($samples | Where-Object { $_.InstanceName.StartsWith("
+                "$prefix,[StringComparison]::OrdinalIgnoreCase) }); "
+                "if ($items.Count -eq 0) { exit 3 }; "
+                "[Console]::Out.WriteLine([long](($items | "
+                "Measure-Object -Property CookedValue -Sum).Sum))"
+            )
+            result = subprocess.run(
+                [powershell, "-NoProfile", "-NonInteractive", "-Command", command],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
+            )
+            if result.returncode != 0:
+                return None
+            return int(result.stdout.strip())
+        except (OSError, subprocess.SubprocessError, ValueError):
             return None
 
     def sample(self) -> dict[str, Any]:
@@ -79,7 +84,7 @@ class JobMemorySampler:
             "device_nvml_used_bytes": nvml_bytes,
             "sources": {
                 "process_dedicated_gpu_bytes": (
-                    "Windows GPU Process Memory\\Dedicated Usage summed for engine PID"
+                    "Windows Get-Counter PDH GPU Process Memory Dedicated Usage for engine PID"
                 ),
                 "torch_reserved_bytes": "torch.cuda.memory_reserved",
                 "process_rss_bytes": "psutil.Process(pid).memory_info().rss",
