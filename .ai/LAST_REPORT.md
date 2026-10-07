@@ -1,7 +1,7 @@
 # VideoEnhancer Cycle P1a-5 Report
 
 - **Task ID / Cycle:** VE-P1a-5
-- **Status:** PARTIAL
+- **Status:** COMPLETED
 - **Validation date:** 2026-10-07 UTC (2026-10-06 local PDT)
 - **Branch:** `p1-restoration-gui`
 - **PR:** [#2](https://github.com/Kei-Takamizawa/VideoEnhancer/pull/2) remains a draft.
@@ -23,7 +23,7 @@ Task A includes the existing host-buffer NVENC safety path and handoff retry/fal
 | A4 | PASS for deterministic handoff/input-contract regressions | Failing-before and passing-after logs; the specific nondeterministic SDK mosaic is not reproducible on demand. |
 | A5 | PASS | Complete C2/C5/C8/C9/C10/C11 tables, deltas, chain speed and memory below. |
 | A6 | PASS | Two external labeled review videos, frame count/probe and layout check. |
-| A7 | PENDING current-commit CI | Local lint/type/CPU/GPU checks pass; current-commit CI must be checked after push. |
+| A7 | PASS | Local lint/type/CPU/GPU checks pass; all four source-commit CI checks passed at `32d965e`. |
 
 ## A1: Final Standard repeatability and stress
 
@@ -165,12 +165,12 @@ The external `owner-review-3` videos show Original / Degraded / C1 / C5 / C9 + C
 | Focused pixel/input safety regressions | PASS: 7 passed, 45 deselected, 9.40 s |
 | `git diff --check` | PASS |
 | Final benchmark color metadata | PASS: all 16 generated candidate files declare limited-range BT.709 |
-| Current-commit GitHub CI | PENDING push and checks; the older HEAD's green checks do not validate these changes |
+| Source-commit GitHub CI | PASS: 4/4 at `32d965e5a6fe81739eedf2e32979deaa6469b83b`; [push workflow](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/37569076036) and [PR workflow](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/37569080364), Windows and Ubuntu CPU jobs |
 | Build | NOT RUN: Python source/test/benchmark changes; no native build was required |
 
 The executed suites cover 136 passing tests and 3 skipped tests, including the added CPU polling regression; deselected tests are reported separately. The three CPU skips are two optional private-sample checks without `VE_SAMPLES_DIR`, and the Linux-only parent-death signal test on Windows. GPU execution used the local RTX 4060 Ti (8 GB), Python 3.12.14, Torch 2.14.1+cu130, PyNvVideoCodec 2.2.3 and FFmpeg 9.0.2. CI only supplies CPU jobs, not GPU validation.
 
-The initial implementation push `e2118e5` produced 3 PASS / 1 FAIL CI checks. One Linux job failed because its parent-death polling test observed an existing PID, then the correctly exiting process disappeared before `Process.status()`: `psutil.NoSuchProcess`. The other Linux job and both Windows jobs passed. This was a test-side race, not evidence that the worker survived. The test helper now treats a disappearing process as inactive; an injected disappearance test fails with the historical helper (1 FAIL) and passes in the corrected full CPU suite. No controller/production behavior was changed. Initial failure log: external `completion/evidence/ci-e2118e5-linux-fail.log`; deterministic fail-before log: `fail-before-pid-poll.log`; passing full CPU log: `final-cpu-ci-fix.log`. Fresh CI is required for this correction.
+The initial implementation push `e2118e5` produced 3 PASS / 1 FAIL CI checks. One Linux job failed because its parent-death polling test observed an existing PID, then the correctly exiting process disappeared before `Process.status()`: `psutil.NoSuchProcess`. The other Linux job and both Windows jobs passed. This was a test-side race, not evidence that the worker survived. The test helper now treats a disappearing process as inactive; an injected disappearance test fails with the historical helper (1 FAIL) and passes in the corrected full CPU suite. No controller/production behavior was changed. Initial failure log: external `completion/evidence/ci-e2118e5-linux-fail.log`; deterministic fail-before log: `fail-before-pid-poll.log`; passing full CPU log: `final-cpu-ci-fix.log`. Fresh CI for `32d965e` passed all four checks. The exact source-head status response is retained as external `completion/evidence/ci-32d965e.json`.
 
 ## Changed files in this continuation
 
@@ -222,4 +222,5 @@ To reproduce failing-before results, copy the external evidence plugin and its h
 - Earlier D3/frame-model benchmarks were not re-evaluated in this D2-only cycle; the corrected D2 results do not validate earlier frame-model color-conversion conditions.
 - Claude/owner visual review of the new panels remains a product decision. No design/UI/preset change was independently made.
 - Forced FP32 option, native builds, app GUI flow, long soaks, memory tuning, trial/seam/fidelity/calibration/SAC work remain intentionally unimplemented as specified.
-- Commit/push/current-head CI verification: pending push and CI; final Standard and candidate measurements are complete. No merge or main push is authorized or performed.
+- Git records: implementation and measurements `e2118e5`, CPU polling-test correction `32d965e`; both were pushed to `origin/p1-restoration-gui`. Source-head CI passed 4/4. This final report is recorded in a subsequent documentation-only commit. PR #2 remains a draft; no merge or main push was performed.
+- Existing GitHub actions emitted a Node.js 20 deprecation warning; GitHub ran them under Node.js 24. No action-version migration was made in this cycle.
