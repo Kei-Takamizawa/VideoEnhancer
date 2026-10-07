@@ -38,6 +38,25 @@ def test_frame_outlier_detector_rejects_a_source_flash():
     assert detect_frame_outliers(source_flash, source_flash) == []
 
 
+def test_frame_outlier_detector_flags_edge_only_flash_but_not_natural_cut():
+    reference = torch.full((5, 3, 40, 40), 0.25)
+    reference[4:] = 0.75
+    output = reference.clone()
+    output[2, :, :, :4] = 1.0
+    output[2, :, :, -4:] = 1.0
+    assert detect_frame_outliers(output, reference) == [2]
+    assert detect_frame_outliers(reference, reference) == []
+
+
+def test_frame_outlier_detector_flags_chroma_glitch_with_stable_mean_luma():
+    reference = torch.full((5, 3, 16, 16), 0.5)
+    output = reference.clone()
+    output[2, 0] = 1.0
+    output[2, 1] = 0.352
+    assert detect_frame_outliers(output, reference) == [2]
+    assert detect_frame_outliers(reference, reference) == []
+
+
 def test_clip_ownership_is_center_most_and_covers_each_frame_once():
     clips = plan_restore_clips(3, 103, clip_length=15, clip_overlap=3)
     assert clips[0].owned_start == 3

@@ -1,118 +1,157 @@
-# VideoEnhancer Cycle P1a-3 Report
+# VideoEnhancer Cycle P1a-4 Report
 
-- **Task ID / Cycle:** VE-P1a-3
+- **Task ID / Cycle:** VE-P1a-4
 - **Status:** PARTIAL
 - **Date:** 2026-10-07
 - **Branch:** `p1-restoration-gui`
 
 ## Summary
 
-Task A found no flagged flash in either existing P1a-1 output. Near 24.4 seconds, both files have steady mean luma; three new Fast runs were bit-identical frame-by-frame. The reported old flash therefore remains unlocated, and its cause cannot be inferred from these two files.
+The full old sample-05 outputs were scanned. There is no isolated edge-only luma spike where the center remains within 15 levels, but the old Standard output has two separate one-frame color/luma anomalies: frame 562 at 9.376033 s and frame 1327 at 22.138783 s. Neither occurs in the source or old Fast output. The updated detector flags both. A full current Standard rerun was clean at both frames and produced no detector flags. The original artifact's generating stage/root cause could not be proven from the old encoded file and the absent P1a-1 job manifest.
 
-Task B completed the requested C0/C1, C2, and C4 metrics for D2/D3 on the two longest clips using aligned middle frames. C1 improved PSNR-Y and SSIM-Y over the degraded input and bicubic baseline in all four conditions. Four owner-review videos were created outside the repository. The expanded five-source D1–D4 sweep (B5) and optional C3 were not run. This cycle does not make a visual-quality or default-preset recommendation.
+D3 candidates C5, C6 (half-size spatial crop), C7 and the C3 availability check were completed. Full-resolution C5 and C7 comparisons are documented below and in the benchmark document. C3 could not run because there is no existing adapter and MMagic is absent. Two owner-review videos were produced outside the repository. No preset was changed and no visual-quality conclusion is made.
 
-## A1–A6 acceptance status
+## Acceptance status
 
-| Criterion | Status | Evidence |
+| Criterion | Status | Evidence / limitation |
 |---|---|---|
-| A1 — Old outputs analyzed; determinism checked | PASS | Both old outputs decoded to 1,822 frames; no detector flags; three fresh Fast outputs were bit-identical. The old reported flash is not present in either named file. |
-| A2 — Regression/retry if old defect exists | NOT TRIGGERED | No old flagged frame was found, so the conditional regression/retry change was not made. Existing detector was retained unchanged. |
-| A3 — B1 metrics and gains | PASS | C0/C1/bicubic metrics and C1 gains are in the table below. |
-| A4 — Side-by-side videos | PASS | Four videos (C1/C2 for D2/D3) are in the external `owner-review` folder; paths below. |
-| A5 — C2/C4, B5/C3 status | PARTIAL | C2 and C4 tables completed. B5 and C3 are explicitly NOT RUN. |
-| A6 — lint, type check, CPU/GPU tests, CI, privacy | PARTIAL | Local checks passed; remote CI will be checked after push. No media was added to the repository. |
+| A1 — 19.5–23 s edge analysis, cuts, boundaries, contact sheet | PASS | Entire old files were scanned; the requested time window has per-frame CSVs. No edge-only threshold event in that window; the full-file scan found two whole-frame anomalies. Two 3-panel sheets and ±3 PNG sequences are outside the repository. |
+| A2 — root cause/fix or absence documented | PARTIAL | Edge-only spike absence is documented with the maximum edge and center deviations. The two separate whole-frame anomalies were detected and the detection gap was fixed/tested, but their original producer is unresolved. Current rerun is clean. |
+| A3 — edge-band detector/tests/CI | PARTIAL | Left/right/top/bottom bands and RGB-only isolated corruption are tested locally; CI will be checked after push. |
+| A4 — C5/C6/C3/C7 candidate metrics, speed, memory | PARTIAL | C5 and C7 completed full-frame. C6 completed on the required half-size crop after the full 2× input exceeded 5 GB. C3 skipped because no adapter/package exists. |
+| A5 — owner-review videos | PASS | Two H.264 videos in `owner-review-2`, details below. |
+| A6 — lint/types/CPU/GPU/CI/privacy | PARTIAL | Local lint, type checks and CPU/GPU suites pass; CI is pending after push. No private media has been added to the repository. |
 
-## Task A: old output flash investigation
+## Task A — old output inspection and full-duration scan
 
-The old output files were `C:\Users\pro\Documents\VideoEnhancer-P1a\quality\sample-05_fast.mp4` and `sample-05_standard.mp4`. Each decoded to 1,822 frames at 59.94 fps. Mean luma was extracted for every decoded frame and the existing outlier detector was run against input-aligned low-resolution summaries.
+Files inspected:
 
-| Old output | Flagged frames | Frame 1463 (24.407741 s) | Previous / next luma | Frames 1457–1469 |
-|---|---:|---:|---:|---|
-| Fast | 0 | 124 | 125 / 124 | Values 124–125; no isolated spike |
-| Standard | 0 | 124 | 124 / 124 | All 124 |
+- Old Standard: `C:\Users\pro\Documents\VideoEnhancer-P1a\quality\sample-05_standard.mp4`
+- Old Fast: `C:\Users\pro\Documents\VideoEnhancer-P1a\quality\sample-05_fast.mp4`
+- Original source: the task's sample-05 input under `Videos/` (source frame indices below are private aliases only).
 
-There is no flagged-frame index or flagged-frame neighbor comparison to report: neither old file contains a detector-flagged frame. The detector's strongest ordinary scene transitions were not isolated flashes and were not flagged. Full luma dumps are outside the repository at `C:\Users\pro\Documents\VideoEnhancer-P1a-3\sample-05_fast_luma.txt` and `...\sample-05_standard_luma.txt`.
+All three streams were decoded across their duration: input 911 frames at 29.97 fps; outputs 1,822 frames at 59.94 fps. The full-duration scan used 160×90 grayscale frames and 16×16 RGB thumbnails to find temporal candidates. Exact full-resolution ROI luma was then computed for every frame in the requested 19.5–23.0 s window and around the two detected anomalies. The CSV dumps are outside the repository:
 
-### Three-run determinism
+- `C:\Users\pro\Documents\VideoEnhancer-P1a-4\flash-check\input_region_luma.csv`
+- `C:\Users\pro\Documents\VideoEnhancer-P1a-4\flash-check\fast_region_luma.csv`
+- `C:\Users\pro\Documents\VideoEnhancer-P1a-4\flash-check\standard_region_luma.csv`
 
-Fast was run three times on the same private input with identical settings: `--preset fast --short-side 1080 --fps 2x --codec hevc --backend cuda --segment-seconds 180`. Each output contained 1,822 frames. Decoded raw per-frame hashes matched for every frame: run 1 vs run 2 **identical**, run 1 vs run 3 **identical**, zero differing frames. Outputs are under `C:\Users\pro\Documents\VideoEnhancer-P1a-3\determinism\`. This establishes repeatability for these three runs only; it does not establish the cause of a flash in some other file.
+The full-resolution exact ROI dump around the two discovered frames is at `C:\Users\pro\Documents\VideoEnhancer-P1a-4\flash-check\*_exact_spike_rois.csv`. These exact ROI values are integer mean luma levels, rounded by FFmpeg's 8-bit gray output.
 
-Because the named old Fast and Standard files contain no flagged frame, the conditional old-segment/clip comparison and retry-once implementation were not triggered. **Owner input needed:** provide the exact output filename and approximate timestamp (or identify the exact frame) where the flash is visible; the two specified old files do not contain it.
+### Threshold events and anomalies
 
-## Task B: degraded benchmark
+For the edge-only rule, a region must be an isolated local high/low (more than 15 levels from both adjacent frames) while the center changes by no more than 15 levels. **No frame meets that edge-only rule in the 19.5–23.0 s window in the input, Fast or Standard files.** The largest edge departure over the full old Standard is 56 levels at frame 1327, but the center also changes 42 levels; it is a whole-frame event, not edge-only. The largest edge departure while checking frame 562 is 21 levels; the center changes 16 levels, so that event narrowly fails the specified edge-only condition.
 
-Metrics are on 150 aligned middle frames at the source resolution (720×1280) and source frame rate (30000/1001), without restoration-stage resize or interpolation. For the first long clip, a centered 300-frame material window was prepared for the requested 10-second review videos; its middle 150 frames were used for metrics. For the second, the centered 150 frames were used for both. C0 speed is FFmpeg decode-only throughput. C1 speed is end-to-end measured restoration throughput. C2 speed is measured model-plus-downscale processing throughput.
+Two other one-frame anomalies are present in old Standard. They appear as chroma/spatial corruption in the decoded PNGs and are absent from both matched source frames and Fast:
 
-Metric cells are `PSNR-Y dB / SSIM-Y / flicker ratio`. Flicker ratio is candidate/original mean absolute consecutive-frame luma change; 1 is the original reference ratio. C1 gains are `ΔPSNR-Y / ΔSSIM`.
+| Old Standard frame | Time (s) | Region | Previous / current / next luma | Center previous / current / next | Source / Fast |
+|---:|---:|---|---|---|---|
+| 562 | 9.376033 | Whole | 162 / 145 / 162 | 159 / 143 / 159 | Source 163 / 163 / 163; Fast 162 / 162 / 162 |
+| 562 | 9.376033 | Left 8% | 176 / 155 / 176 | 159 / 143 / 159 | Source 176–177; Fast 176–177 |
+| 562 | 9.376033 | Top 8% | 185 / 167 / 186 | 159 / 143 / 159 | Source 183–187; Fast 185–187 |
+| 562 | 9.376033 | Bottom 8% | 192 / 171 / 192 | 159 / 143 / 159 | Source 193–194; Fast 192–192 |
+| 1327 | 22.138783 | Whole | 118 / 77 / 118 | 119 / 77 / 118 | Input frames 663/664: whole 120/119; Fast frame 1327: 118 |
+| 1327 | 22.138783 | Left 8% | 98 / 80 / 98 | 119 / 77 / 118 | Input 98/98; Fast 98 |
+| 1327 | 22.138783 | Right 8% | 136 / 80 / 136 | 119 / 77 / 118 | Input 136/135; Fast 136 |
 
-| Clip | Degrade | C0 | Bicubic | C1 | C0 speed (fps) | C1 speed (fps) | C1 gain vs C0 | C1 gain vs bicubic |
-|---|---|---:|---:|---:|---:|---:|---:|---:|
-| A | D2 | 30.422189 / 0.922811 / 0.878194 | 27.903576 / 0.900284 / 0.807769 | 32.019490 / 0.941709 / 0.873134 | 1610.66 | 2.6 | +1.597301 / +0.018898 | +4.115914 / +0.041425 |
-| A | D3 | 33.259623 / 0.957590 / 0.925344 | 28.569671 / 0.918598 / 0.848171 | 34.450644 / 0.963867 / 0.918351 | 1537.02 | 2.7 | +1.191021 / +0.006277 | +5.880972 / +0.045269 |
-| B | D2 | 31.719808 / 0.880273 / 0.827707 | 30.556435 / 0.860657 / 0.779768 | 33.298938 / 0.911173 / 0.850196 | 1035.53 | 2.8 | +1.579130 / +0.030900 | +2.742503 / +0.050516 |
-| B | D3 | 36.635446 / 0.955189 / 0.925956 | 32.481183 / 0.908587 / 0.844329 | 37.249102 / 0.960469 / 0.936861 | 961.64 | 2.8 | +0.613655 / +0.005280 | +4.767919 / +0.051882 |
+Frame 562's edge bands depart by 18–21 levels, but the center also falls 16 levels, so this does not qualify as an edge-only luma event under the requested 15-level center rule. Frame 1327 is a clear whole-frame luma event; its center also drops by over 40 levels. These observations do not support the owner's description of a white edge-only frame.
 
-C1 increases PSNR-Y and SSIM over C0 and bicubic in all four conditions. Against C0, C1 flicker ratio is closer to 1 for A/D2, B/D2 and B/D3, and slightly farther from 1 for A/D3. No visual-quality conclusion is made.
+### 19.5–23.0 s cuts and reconstructed boundaries
 
-### B3: C2 Real-ESRGAN
+The project scene-cut detector (`media.analyze`, 160×90 grayscale thumbnail, mean absolute delta ≥24 and histogram distance ≥0.18) found no cut in input frames 584–689, corresponding to 19.5–23.0 s. Its detected cuts for this source were at frames 44, 95, 145, 194, 246, 294, 343, 394 and 444; none is in the requested window.
 
-Real-ESRGAN `realesr-general-x4v3` ran through spandrel with batch size 1 and FP16, then 4× area downscaling. The reported PyTorch reserved-memory peak was 507,510,784 bytes (0.473 GiB); this is framework telemetry, not total process-dedicated GPU memory.
+The old P1a-1 job manifest was not retained, so exact historical segment boundaries cannot be recovered from the encoded output alone. Replaying the P1a-1 defaults (segment target 180 processing-seconds, 21-frame BasicVSR++ clips, overlap 3, and the detected cuts) with the current estimator/planner yields segment ranges `[0,394)`, `[394,782)`, `[782,911)`. Thus source frame 281 is in recomputed segment 0 and source frames 663/664 are in segment 1. `plan_restore_clips` yields clip `[276,294)` (owned `[279,294)`) for source frame 281, and clip `[654,675)` (owned `[657,672)`) for frames 663/664. These are reconstructed boundaries, not a claim that the missing historical manifest used the identical estimator profile.
 
-| Clip | Degrade | C2 PSNR-Y (dB) | C2 SSIM-Y | C2 flicker ratio | Speed (fps) | ΔPSNR vs C0 | ΔSSIM vs C0 |
-|---|---|---:|---:|---:|---:|---:|---:|
-| A | D2 | 29.968913 | 0.923556 | 0.905831 | 5.090 | −0.453277 | +0.000745 |
-| A | D3 | 32.765222 | 0.952094 | 0.965601 | 5.083 | −0.494401 | −0.005496 |
-| B | D2 | 31.084645 | 0.879882 | 0.843311 | 5.059 | −0.635163 | −0.000391 |
-| B | D3 | 34.347689 | 0.948150 | 0.952704 | 5.067 | −2.287758 | −0.007039 |
+### Rerun and detector change
 
-C2 PSNR-Y and SSIM-Y are below C1 in all four conditions. C2 PSNR-Y is below C0 in all four; SSIM-Y is above C0 only for A/D2. C2 flicker ratio is closer to 1 than C0 in all four. These are metric results, not a visual ranking.
+The current Standard pipeline was rerun on the same source with `--preset standard --short-side 1080 --fps 2x --codec hevc --backend cuda --segment-seconds 180`. It completed 911 input / 1,822 output frames in 393 seconds across three segments, at 2.32 aggregate input fps. Exact ROI values at frames 562 and 1327 matched surrounding frames; the updated detector returned zero flags over the entire current output.
 
-### B4: C4 fixed unsharp mask
+The old errors span two output positions: frame 562 is an even output frame (restoration-stage source frame 281), while frame 1327 is odd (RIFE-inserted between source frames 663/664). This narrows where to investigate but does not prove a single cause. The rerun did not reproduce either error, and the P1a-1 per-stage tensors/logs are unavailable. I did not attribute this to BasicVSR++, RIFE, FP16, NVENC or decoder state without evidence.
 
-C4 is C1 followed by FFmpeg `unsharp=5:5:0.20:5:5:0.0` (fixed amount 0.20). Speed for this post-processing pass was not measured.
+The detector now also flags an isolated RGB temporal outlier without requiring a large mean-luma jump, while retaining the reference-side cut guard. A synthetic chroma-only glitch test fails before this change and passes after it; the edge-only flash and natural-cut tests also pass.
 
-| Clip | Degrade | C4 PSNR-Y (dB) | C4 SSIM-Y | C4 flicker ratio | ΔPSNR vs C1 | ΔSSIM vs C1 |
+Contact sheets and lossless PNG evidence:
+
+- `C:\Users\pro\Documents\VideoEnhancer-P1a-4\flash-check\input_fast_standard_frame562_contact_sheet.png`
+- `C:\Users\pro\Documents\VideoEnhancer-P1a-4\flash-check\input_fast_standard_frame1327_contact_sheet.png`
+- Old Standard ±3 PNGs: `C:\Users\pro\Documents\VideoEnhancer-P1a-4\flash-check\standard9s_*.png` and `standard_*.png`.
+- Current rerun ±3 PNGs: `C:\Users\pro\Documents\VideoEnhancer-P1a-4\flash-check\current9s_*.png` and `current_*.png`.
+
+## Task B — D3 candidate measurements
+
+The full-frame rows use the P1a-3 D3 clips at native 720×1280 / 30000/1001 fps and the same aligned 150 central frames. Metrics are PSNR-Y dB / SSIM-Y / flicker ratio. Speed is candidate processing throughput. Delta columns are candidate minus baseline for all three numbers. The aliases A/B do not disclose source filenames.
+
+### C5 — two consecutive C1 restoration passes
+
+| Clip | PSNR-Y | SSIM-Y | Flicker ratio | Speed (fps) | Peak Torch reserved |
+|---|---:|---:|---:|---:|---:|
+| A | 34.437326 | 0.962955 | 0.922696 | 2.605 | 5,628,755,968 bytes (5.629 GB) |
+| B | 36.695605 | 0.955975 | 0.947789 | 2.870 | 5,047,844,864 bytes (5.048 GB) |
+
+| Clip | Δ vs C0 (PSNR / SSIM / flicker) | Δ vs C1 | Δ vs C2 |
+|---|---:|---:|---:|
+| A | +1.177703 / +0.005365 / −0.002648 | −0.013318 / −0.000912 / +0.004345 | +1.672104 / +0.010861 / −0.042905 |
+| B | +0.060159 / +0.000786 / +0.021833 | −0.553497 / −0.004494 / +0.010928 | +2.347916 / +0.007825 / −0.004915 |
+
+### C7 — fixed 0.5 blend of C1 and C2
+
+| Clip | PSNR-Y | SSIM-Y | Flicker ratio | Blend+encode speed (fps) | Peak Torch reserved |
+|---|---:|---:|---:|---:|---|
+| A | 34.127440 | 0.961442 | 0.933603 | 114.287 | Not applicable; CPU FFmpeg only |
+| B | 36.717819 | 0.960390 | 0.938366 | 105.325 | Not applicable; CPU FFmpeg only |
+
+| Clip | Δ vs C0 (PSNR / SSIM / flicker) | Δ vs C1 | Δ vs C2 |
+|---|---:|---:|---:|
+| A | +0.867817 / +0.003852 / +0.008259 | −0.323204 / −0.002425 / +0.015252 | +1.362218 / +0.009348 / −0.031998 |
+| B | +0.082373 / +0.005201 / +0.012410 | −0.531283 / −0.000079 / +0.001505 | +2.370130 / +0.012240 / −0.014338 |
+
+### C6 — 2× internal pre-upscale, half-size spatial crop
+
+A full 1440×2560 21-frame pilot reached 12,580,814,848 bytes Torch-reserved and 7,759,425,536 bytes process-dedicated GPU memory, so full-resolution C6 was not run. As requested for an over-budget C6, both clips were tested on a top-left 360×640 crop, upscaled to 720×1280, restored by C1, then area-downscaled back to 360×640. All values below (including C0/C1/C2 comparison values) use matching 360×640 crops; do not compare these absolute scores directly with the full-frame rows above. The B crop's 5,045,747,712-byte peak is 5.046 decimal GB (4.70 GiB): below 5 GiB but 0.046 GB above a strict decimal 5 GB cap.
+
+| Clip | Candidate | PSNR-Y | SSIM-Y | Flicker ratio | Speed (fps) | Peak Torch reserved |
 |---|---|---:|---:|---:|---:|---:|
-| A | D2 | 31.876129 | 0.941359 | 0.896071 | −0.143361 | −0.000350 |
-| A | D3 | 34.650034 | 0.964399 | 0.940218 | +0.199391 | +0.000532 |
-| B | D2 | 33.219053 | 0.910751 | 0.863740 | −0.079885 | −0.000422 |
-| B | D3 | 37.117593 | 0.959624 | 0.954892 | −0.131509 | −0.000845 |
+| A | C0 | 34.185015 | 0.934847 | 0.915036 | — | — |
+| A | C1 | 35.377466 | 0.939705 | 0.903788 | — | — |
+| A | C2 | 33.709884 | 0.918555 | 0.963155 | — | — |
+| A | C6 | 35.056472 | 0.940065 | 0.900115 | 2.797 | 4,414,504,960 bytes (4.415 GB) |
+| B | C0 | 38.248151 | 0.962790 | 0.931943 | — | — |
+| B | C1 | 38.880077 | 0.967779 | 0.937421 | — | — |
+| B | C2 | 35.977917 | 0.957872 | 0.952398 | — | — |
+| B | C6 | 39.093963 | 0.969563 | 0.928097 | 2.871 | 5,045,747,712 bytes (5.046 GB) |
 
-C4 flicker ratio is farther from 1 than C1 in all four conditions. No preset was changed.
+| Clip | Δ C6 vs | ΔPSNR-Y | ΔSSIM-Y | Δ flicker ratio |
+|---|---|---:|---:|---:|
+| A | C0 | +0.871456 | +0.005218 | −0.014920 |
+| A | C1 | −0.320994 | +0.000360 | −0.003672 |
+| A | C2 | +1.346587 | +0.021510 | −0.063039 |
+| B | C0 | +0.845812 | +0.006773 | −0.003845 |
+| B | C1 | +0.213886 | +0.001784 | −0.009324 |
+| B | C2 | +3.116046 | +0.011691 | −0.024301 |
 
-### B5 and C3
+### C3 and optional model
 
-- **B5: NOT RUN.** The full five-source × D1–D4 × C0/C1 sweep and the C2 extension were not run. This cycle completed the higher-priority two-source D2/D3 benchmark only.
-- **C3: NOT RUN.** RealBasicVSR was not attempted; no load/build result is claimed.
+- **C3 RealBasicVSR: NOT RUN.** The source tree has no RealBasicVSR adapter and `mmagic` is absent from the active Python environment. No custom CUDA build or unpinned loader was introduced.
+- **Optional extra model: NOT RUN.** No extra checkpoint was chosen or downloaded.
 
 ### Owner-review videos
 
-All four H.264 8-bit side-by-side files are in `C:\Users\pro\Documents\VideoEnhancer-P1a-3\owner-review\`. Each is 2160×1280, 300 frames at 30000/1001 fps, with Original / Degraded / Restored panels left-to-right and duration 10.01 seconds.
+Both videos are H.264, 8-bit `yuv420p`, 3600×1280, with panels labeled Degraded / C1 / C2 / C5 / C7:
 
-- `C:\Users\pro\Documents\VideoEnhancer-P1a-3\owner-review\sample-04_D2_C1_side-by-side.mp4`
-- `C:\Users\pro\Documents\VideoEnhancer-P1a-3\owner-review\sample-04_D3_C1_side-by-side.mp4`
-- `C:\Users\pro\Documents\VideoEnhancer-P1a-3\owner-review\sample-04_D2_C2_side-by-side.mp4`
-- `C:\Users\pro\Documents\VideoEnhancer-P1a-3\owner-review\sample-04_D3_C2_side-by-side.mp4`
+- `C:\Users\pro\Documents\VideoEnhancer-P1a-4\owner-review-2\D3_clip_A_C1_C2_C5_C7.mp4` — 300 frames, 10.010 s.
+- `C:\Users\pro\Documents\VideoEnhancer-P1a-4\owner-review-2\D3_clip_B_C1_C2_C5_C7.mp4` — 150 frames, 5.005 s.
 
-### Reproduction and execution notes
+## Verification, warnings and remaining work
 
-The private source clips were cropped to the centered matching windows outside the repository, then encoded losslessly as H.264 for reliable GPU decode. C1 was run using the project's CLI with `--short-side keep --fps off --codec h264 --backend cuda --lossless`. C2 used the stated spandrel model, batch size 1 and area downscale. C0 and candidate outputs were compared against the aligned original using the external `C:\Users\pro\Documents\VideoEnhancer-P1a-3\measure_metrics.py` script. The four review videos were assembled with FFmpeg using the same 300-frame middle window. Detailed intermediate media and scripts remain in `C:\Users\pro\Documents\VideoEnhancer-P1a-3\`.
-
-An initial FFV1/Matroska material clip was unsupported by the GPU decoder (decode error code 300); it was replaced with lossless H.264. An initial drawtext attempt could not resolve the font through fontconfig; specifying the Windows Arial font file fixed it. All final review videos were probed successfully. These attempts did not alter repository code.
-
-## Verification and Git
-
-- `ruff check .`: PASS, all checks passed.
+- `ruff check .`: PASS after formatting the detector; all checks passed.
 - `ruff format --check .`: PASS, 64 files already formatted.
 - `pyright src`: PASS, 0 errors, 0 warnings, 0 informations.
-- CPU test suite: PASS, 110 passed, 3 skipped, 15 deselected, 41.87 s.
-- GPU test suite: PASS, 15 passed, 113 deselected, 38.28 s.
-- Remote CI: PASS on push run `37543189206` for commit `72413e9` (Windows and Ubuntu). A duplicate PR-triggered run also passed Ubuntu; its Windows job was still running at report finalization.
-- `git diff --check`: PASS.
+- CPU tests: PASS, 112 passed, 3 skipped, 15 deselected, 40.49 s.
+- GPU tests: PASS, 15 passed, 115 deselected, 37.49 s.
+- CI: PENDING push.
+- `git diff --check`: PASS after the final report edit.
 - Private media committed: NO.
-- GUI test: NOT RUN; not required by this task.
-- Commit: `72413e9` (`Complete P1a-3 flash and degradation benchmark`). This report's CI status update will be committed and pushed separately to the same branch.
+- GUI test: NOT RUN; not requested.
+- Commit/push: PENDING.
 
-## Remaining question and intentionally omitted work
-
-Please provide the exact old output filename and timestamp (or frame index) where the white flash is visible. Neither specified P1a-1 output contains a flagged frame. The full B5 sweep and C3 were intentionally omitted; no default-preset change, visual-quality conclusion, or architecture change was made.
+Known limitation: the original encoded glitches were absent in the current Standard rerun, so their generation stage and root cause remain unverified. The detector change catches the old frames in offline replay and has synthetic coverage, but it does not repair a corrupted frame already written by a past run. No model weights, videos, crops or contact sheets were added to the repository.

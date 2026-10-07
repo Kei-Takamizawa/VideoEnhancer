@@ -44,6 +44,62 @@ Against C1, C4 changes PSNR-Y/SSIM-Y by −0.143361/−0.000350 (A/D2), +0.19939
 - **B5: NOT RUN.** The requested full five-source × D1–D4 sweep was outside this cycle's completed benchmark scope; only the two longest sources and D2/D3 were measured.
 - **C3: NOT RUN.** RealBasicVSR was not attempted in this cycle.
 
+## P1a-4: D3 candidate comparison
+
+The full-resolution rows use the same aligned D3 windows and metric definitions above. A and B are anonymized clip aliases. `Δ` fields are candidate minus baseline, including the signed flicker-ratio difference. A flicker ratio's distance from 1 is reported by the number itself; no perceptual conclusion is implied.
+
+### C5: C1 applied twice, and C7: 50/50 C1–C2 blend
+
+| Clip | Candidate | PSNR-Y dB | SSIM-Y | Flicker ratio | Speed (fps) | Peak Torch reserved (GB) |
+|---|---|---:|---:|---:|---:|---:|
+| A | C5 | 34.437326 | 0.962955 | 0.922696 | 2.605 | 5.629 |
+| B | C5 | 36.695605 | 0.955975 | 0.947789 | 2.870 | 5.048 |
+| A | C7 | 34.127440 | 0.961442 | 0.933603 | 114.287 | Not applicable (CPU FFmpeg blend) |
+| B | C7 | 36.717819 | 0.960390 | 0.938366 | 105.325 | Not applicable (CPU FFmpeg blend) |
+
+| Clip | Candidate | Δ vs C0 (PSNR / SSIM / flicker) | Δ vs C1 (PSNR / SSIM / flicker) | Δ vs C2 (PSNR / SSIM / flicker) |
+|---|---|---:|---:|---:|
+| A | C5 | +1.177703 / +0.005365 / −0.002648 | −0.013318 / −0.000912 / +0.004345 | +1.672104 / +0.010861 / −0.042905 |
+| B | C5 | +0.060159 / +0.000786 / +0.021833 | −0.553497 / −0.004494 / +0.010928 | +2.347916 / +0.007825 / −0.004915 |
+| A | C7 | +0.867817 / +0.003852 / +0.008259 | −0.323204 / −0.002425 / +0.015252 | +1.362218 / +0.009348 / −0.031998 |
+| B | C7 | +0.082373 / +0.005201 / +0.012410 | −0.531283 / −0.000079 / +0.001505 | +2.370130 / +0.012240 / −0.014338 |
+
+### C6: internal 2× upscale on a half-size spatial crop
+
+A 21-frame full-frame pilot at 1440×2560 reached 12,580,814,848 bytes Torch-reserved and 7,759,425,536 bytes process-dedicated GPU memory. This did not fit the requested 5 GB budget, so C6 was completed only on the top-left half-size spatial crop: 360×640 input, Lanczos pre-upscale to 720×1280, C1 restoration, then area downscale back to 360×640. Metrics below compare against matching 360×640 crops of the original and C0/C1/C2; they are not directly comparable to the full-resolution rows above. The B crop peaked at 5,045,747,712 bytes (5.046 decimal GB or 4.70 GiB): it fits a 5 GiB limit and is 0.046 GB above a strict decimal 5 GB limit.
+
+| Clip | C6 PSNR-Y dB | C6 SSIM-Y | C6 flicker ratio | Speed (fps) | Peak Torch reserved (GB, decimal) |
+|---|---:|---:|---:|---:|---:|
+| A | 35.056472 | 0.940065 | 0.900115 | 2.797 | 4.415 |
+| B | 39.093963 | 0.969563 | 0.928097 | 2.871 | 5.046 |
+
+| Clip | Cropped baseline | PSNR-Y dB | SSIM-Y | Flicker ratio |
+|---|---|---:|---:|---:|
+| A | C0 | 34.185015 | 0.934847 | 0.915036 |
+| A | C1 | 35.377466 | 0.939705 | 0.903788 |
+| A | C2 | 33.709884 | 0.918555 | 0.963155 |
+| B | C0 | 38.248151 | 0.962790 | 0.931943 |
+| B | C1 | 38.880077 | 0.967779 | 0.937421 |
+| B | C2 | 35.977917 | 0.957872 | 0.952398 |
+
+| Clip | Δ C6 vs cropped baseline | ΔPSNR-Y dB | ΔSSIM-Y | Δ flicker ratio |
+|---|---|---:|---:|---:|
+| A | C0 | +0.871456 | +0.005218 | −0.014920 |
+| A | C1 | −0.320994 | +0.000360 | −0.003672 |
+| A | C2 | +1.346587 | +0.021510 | −0.063039 |
+| B | C0 | +0.845812 | +0.006773 | −0.003845 |
+| B | C1 | +0.213886 | +0.001784 | −0.009324 |
+| B | C2 | +3.116046 | +0.011691 | −0.024301 |
+
+### C3 and optional extra model
+
+- **C3: NOT RUN.** The repository contains no RealBasicVSR adapter and the active Python environment has no `mmagic` package. No custom CUDA build or unpinned loader was introduced.
+- **Optional extra: NOT RUN.** C5–C7 cover the requested candidate comparison; no additional checkpoint was selected or downloaded.
+
+### Review videos
+
+The external folder `owner-review-2` contains two H.264 8-bit videos with panels ordered Degraded, C1, C2, C5, C7. Clip A is 300 frames (10.01 seconds); clip B is 150 frames (5.005 seconds). See `.ai/LAST_REPORT.md` for their local paths.
+
 ## Reproduction artifacts
 
 Measured data and comparison videos were generated in external working folders and are not committed. The task report records exact paths and reproduction commands for this run.
