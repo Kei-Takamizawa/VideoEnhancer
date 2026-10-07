@@ -17,10 +17,10 @@ D3 candidates C5, C6 (half-size spatial crop), C7 and the C3 availability check 
 |---|---|---|
 | A1 — 19.5–23 s edge analysis, cuts, boundaries, contact sheet | PASS | Entire old files were scanned; the requested time window has per-frame CSVs. No edge-only threshold event in that window; the full-file scan found two whole-frame anomalies. Two 3-panel sheets and ±3 PNG sequences are outside the repository. |
 | A2 — root cause/fix or absence documented | PARTIAL | Edge-only spike absence is documented with the maximum edge and center deviations. The two separate whole-frame anomalies were detected and the detection gap was fixed/tested, but their original producer is unresolved. Current rerun is clean. |
-| A3 — edge-band detector/tests/CI | PARTIAL | Left/right/top/bottom bands and RGB-only isolated corruption are tested locally; CI will be checked after push. |
+| A3 — edge-band detector/tests/CI | PASS | Left/right/top/bottom bands and RGB-only isolated corruption are tested locally; Linux and Windows CI passed. |
 | A4 — C5/C6/C3/C7 candidate metrics, speed, memory | PARTIAL | C5 and C7 completed full-frame. C6 completed on the required half-size crop after the full 2× input exceeded 5 GB. C3 skipped because no adapter/package exists. |
 | A5 — owner-review videos | PASS | Two H.264 videos in `owner-review-2`, details below. |
-| A6 — lint/types/CPU/GPU/CI/privacy | PARTIAL | Local lint, type checks and CPU/GPU suites pass; CI is pending after push. No private media has been added to the repository. |
+| A6 — lint/types/CPU/GPU/CI/privacy | PASS | Local lint, type checks and CPU/GPU suites pass; Linux and Windows CI pass. No private media has been added to the repository. |
 
 ## Task A — old output inspection and full-duration scan
 
@@ -148,10 +148,10 @@ Both videos are H.264, 8-bit `yuv420p`, 3600×1280, with panels labeled Degraded
 - `pyright src`: PASS, 0 errors, 0 warnings, 0 informations.
 - CPU tests: PASS, 112 passed, 3 skipped, 15 deselected, 40.49 s.
 - GPU tests: PASS, 15 passed, 115 deselected, 37.49 s.
-- CI: PENDING push.
+- CI: PASS, GitHub Actions run [37551478789](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/37551478789), Linux and Windows CPU checks.
 - `git diff --check`: PASS after the final report edit.
 - Private media committed: NO.
 - GUI test: NOT RUN; not requested.
-- Commit/push: PENDING.
+- Commit/push: PASS, commit `595d891` pushed to `origin/p1-restoration-gui`; upstream and local HEAD matched at completion.
 
 Known limitation: the original encoded glitches were absent in the current Standard rerun, so their generation stage and root cause remain unverified. The detector change catches the old frames in offline replay and has synthetic coverage, but it does not repair a corrupted frame already written by a past run. No model weights, videos, crops or contact sheets were added to the repository.
