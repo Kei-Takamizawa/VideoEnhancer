@@ -104,42 +104,64 @@ The external folder `owner-review-2` contains two H.264 8-bit videos with panels
 
 Measured data and comparison videos were generated in external working folders and are not committed. The task report records exact paths and reproduction commands for this run.
 
-## P1a-5 D2 extension (partial)
+## P1a-5: D2 candidate comparison
 
-This extension uses 150 full-resolution frames per clip: the middle 150 frames of clip A and all 150 frames of clip B. Values below are PSNR-Y / SSIM-Y / flicker ratio. Speed and peak Torch-reserved VRAM are included where measured; `N/A` means a CPU FFmpeg operation, and `Not run` means no measurement was made. Candidate deltas are omitted here until the full requested candidate set, including C10, has been evaluated consistently.
+All rows use the same native 720x1280, 30000/1001 fps inputs and 150 aligned middle frames per clip. A uses frames 75–224 of a 300-frame window; B uses all 150 frames. Metrics use original Y samples, global PSNR-Y, FFmpeg local SSIM-Y, and the same temporal absolute-luma flicker ratio as the earlier cycle. Final image/model/filter outputs are encoded losslessly. The frame-model RGB-to-YUV conversion explicitly uses limited-range BT.709, matching the original and C1, and writes matching color metadata.
 
-| Clip | Candidate | PSNR-Y (dB) | SSIM-Y | Flicker ratio | Speed (fps) | Peak Torch reserved (GB, decimal) |
+C5 applies C1 twice. C8 applies `realesr-general-x4v3` to **C1 output**, area-downscales to native size, then averages that result 50/50 with C1. C2 applies that Real-ESRGAN model directly to D2. C9 evaluates BasicVSR++ NTIRE Track 1 and its 50/50 average with C1. C10 evaluates color FBCNN (blind, predicted quality factor) and its 50/50 average with C1. C11 applies the light luma-only FFmpeg guard `deblock=filter=weak:block=8:alpha=0.098:beta=0.05:gamma=0.05:delta=0.05:planes=1` to C1.
+
+These final rows supersede the earlier partial P1a-5 table: its C8 used the wrong input, C9 shortened the A inference window and discarded B scene cuts, C11 included additional output compression, and C5 B reused the wrong job statistics. During completion, missing BT.709 conversion settings in the frame-model measurement helper were also found; C2/C8/C10 were regenerated with explicit matching conversion and color metadata. All quality metrics were recomputed after these corrections.
+
+| Clip | Candidate | PSNR-Y dB | SSIM-Y | Flicker ratio | Chain fps | Peak Torch reserved GB |
 |---|---|---:|---:|---:|---:|---:|
-| A | C1 | 32.019490 | 0.941709 | 0.873134 | 2.6 | 4.438 |
-| A | C2 | 29.968913 | 0.923556 | 0.905831 | 5.090 | Not recorded |
-| A | C5 | 32.045918 | 0.942190 | 0.876662 | 2.817 | 5.518 |
-| A | C8 | 31.274292 | 0.935033 | 0.876585 | 68.0 | N/A |
-| A | C9 (Track 1) | 31.480616 | 0.937026 | 0.856733 | 2.755 | 5.599 |
-| A | C9 + C1 (50/50) | 31.997449 | 0.940930 | 0.860363 | Not measured | N/A |
-| A | C11 | 31.875005 | 0.939550 | 0.872605 | 160.4 | N/A |
-| B | C1 | 33.298938 | 0.911173 | 0.850196 | 2.8 | 5.069 |
-| B | C2 | 31.084645 | 0.879882 | 0.843311 | 5.059 | Not recorded |
-| B | C5 | 33.236867 | 0.910927 | 0.857712 | 2.884 | 5.069 |
-| B | C8 | 32.654047 | 0.900408 | 0.837832 | 92.0 | N/A |
-| B | C9 (Track 1) | 32.694482 | 0.901530 | 0.821007 | 2.850 | 5.629 |
-| B | C9 + C1 (50/50) | 33.335030 | 0.910541 | 0.829304 | Not measured | N/A |
-| B | C11 | 33.134549 | 0.907302 | 0.847772 | 128.2 | N/A |
+| A | C0 | 30.422189 | 0.922811 | 0.878194 | N/A | N/A |
+| A | C1 | 32.019490 | 0.941709 | 0.873134 | 2.693 | 4.438 |
+| A | C2 | 30.177524 | 0.925506 | 0.904326 | 4.965 | 0.503 |
+| A | C5 | 32.045918 | 0.942190 | 0.876662 | 1.377 | 5.518 |
+| A | C8 | 31.683392 | 0.940269 | 0.894556 | 1.673 | 4.438 |
+| A | C9 | 31.488161 | 0.937058 | 0.856883 | 2.814 | 5.646 |
+| A | C9 + C1 (50/50) | 32.001280 | 0.940946 | 0.860422 | 1.332 | 5.646 |
+| A | C10 | 30.395485 | 0.922887 | 0.874609 | 3.580 | 1.262 |
+| A | C10 + C1 (50/50) | 31.586037 | 0.936610 | 0.863983 | 1.481 | 4.438 |
+| A | C11 | 32.009161 | 0.941571 | 0.872710 | 2.553 | 4.438 |
+| B | C0 | 31.719808 | 0.880273 | 0.827707 | N/A | N/A |
+| B | C1 | 33.298938 | 0.911173 | 0.850196 | 2.884 | 5.069 |
+| B | C2 | 31.368086 | 0.881302 | 0.842582 | 4.962 | 0.503 |
+| B | C5 | 33.236867 | 0.910927 | 0.857712 | 1.446 | 5.069 |
+| B | C8 | 32.803035 | 0.907104 | 0.866976 | 1.731 | 5.069 |
+| B | C9 | 32.702202 | 0.901821 | 0.820138 | 2.976 | 4.901 |
+| B | C9 + C1 (50/50) | 33.333362 | 0.910564 | 0.829191 | 1.403 | 5.069 |
+| B | C10 | 31.722564 | 0.880653 | 0.827887 | 3.582 | 1.262 |
+| B | C10 + C1 (50/50) | 33.035329 | 0.904903 | 0.827311 | 1.520 | 5.069 |
+| B | C11 | 33.255236 | 0.910572 | 0.849084 | 2.680 | 5.069 |
 
-Candidate deltas are PSNR-Y / SSIM-Y / flicker ratio, calculated as candidate minus baseline:
+Chain fps is frame count divided by the **sum of measured sequential step times**, including the measured C1 pass for multi-pass candidates and CPU blend/filter time. It is not an isolated CPU blending speed or a throughput prediction for a future combined pipeline. The standalone image-model timer includes decoding, inference and lossless encoding, and excludes model loading. C1/C5/C9 timers include their stage setup. Peak memory is the maximum measured Torch reservation of each sequential step, not the sum; it does not measure device-wide or NVENC memory. C10 alone fits the strict decimal 5 GB Torch-reservation limit in both clips; a C10+C1 blend also needs the C1 memory budget.
 
-| Clip | Candidate | Δ vs C0 | Δ vs C1 |
+| Clip | Candidate | Δ vs C0 (PSNR / SSIM / flicker) | Δ vs C1 (PSNR / SSIM / flicker) |
 |---|---|---:|---:|
-| A | C2 | −0.453276 / +0.000745 / +0.027637 | −2.050577 / −0.018153 / +0.032697 |
-| A | C5 | +1.623729 / +0.019379 / −0.001532 | +0.026428 / +0.000481 / +0.003528 |
-| A | C8 | +0.852103 / +0.012222 / −0.001609 | −0.745198 / −0.006676 / +0.003451 |
-| A | C9 | +1.058427 / +0.014215 / −0.021461 | −0.538874 / −0.004683 / −0.016401 |
-| A | C9 + C1 | +1.575260 / +0.018119 / −0.017831 | −0.022041 / −0.000779 / −0.012771 |
-| A | C11 | +1.452816 / +0.016739 / −0.005589 | −0.144485 / −0.002159 / −0.000529 |
-| B | C2 | −0.635163 / −0.000391 / +0.015604 | −2.214293 / −0.031291 / −0.006885 |
-| B | C5 | +1.517059 / +0.030654 / +0.030005 | −0.062071 / −0.000246 / +0.007516 |
-| B | C8 | +0.934239 / +0.020135 / +0.010125 | −0.644891 / −0.010765 / −0.012364 |
-| B | C9 | +0.974674 / +0.021257 / −0.006700 | −0.604456 / −0.009643 / −0.029189 |
-| B | C9 + C1 | +1.615222 / +0.030268 / +0.001597 | +0.036092 / −0.000632 / −0.020892 |
-| B | C11 | +1.414741 / +0.027029 / +0.020065 | −0.164389 / −0.003871 / −0.002424 |
+| A | C2 | -0.244666 / +0.002695 / +0.026132 | -1.841966 / -0.016203 / +0.031193 |
+| A | C5 | +1.623729 / +0.019379 / -0.001532 | +0.026428 / +0.000481 / +0.003528 |
+| A | C8 | +1.261202 / +0.017458 / +0.016362 | -0.336098 / -0.001440 / +0.021423 |
+| A | C9 | +1.065971 / +0.014247 / -0.021311 | -0.531329 / -0.004651 / -0.016251 |
+| A | C9 + C1 (50/50) | +1.579090 / +0.018135 / -0.017772 | -0.018210 / -0.000763 / -0.012712 |
+| A | C10 | -0.026704 / +0.000076 / -0.003585 | -1.624005 / -0.018822 / +0.001475 |
+| A | C10 + C1 (50/50) | +1.163847 / +0.013799 / -0.014211 | -0.433453 / -0.005099 / -0.009150 |
+| A | C11 | +1.586972 / +0.018760 / -0.005484 | -0.010329 / -0.000138 / -0.000423 |
+| B | C2 | -0.351722 / +0.001029 / +0.014875 | -1.930852 / -0.029871 / -0.007614 |
+| B | C5 | +1.517059 / +0.030654 / +0.030004 | -0.062071 / -0.000246 / +0.007516 |
+| B | C8 | +1.083228 / +0.026831 / +0.039269 | -0.495903 / -0.004069 / +0.016780 |
+| B | C9 | +0.982395 / +0.021548 / -0.007570 | -0.596736 / -0.009352 / -0.030058 |
+| B | C9 + C1 (50/50) | +1.613555 / +0.030291 / +0.001483 | +0.034424 / -0.000609 / -0.021005 |
+| B | C10 | +0.002756 / +0.000380 / +0.000179 | -1.576374 / -0.030520 / -0.022309 |
+| B | C10 + C1 (50/50) | +1.315521 / +0.024630 / -0.000396 | -0.263609 / -0.006270 / -0.022885 |
+| B | C11 | +1.535429 / +0.030299 / +0.021377 | -0.043702 / -0.000601 / -0.001111 |
 
-This is a partial comparison: C10 and the requested owner-review-3 videos were not completed. C11's SSIM-Y is below C1 for both clips, so it does not satisfy the explicit non-regression condition for recommendation. No default preset was changed. See `.ai/LAST_REPORT.md` for provenance, limitations, and external paths.
+### Models and metric-only selection
+
+- C9 uses [MMagic BasicVSR++ compressed-video Track 1](https://github.com/open-mmlab/mmagic/blob/main/configs/basicvsr_pp/README.md), Apache-2.0 source. Checkpoint SHA-256: `7b2eba02a24989bfbf8b2ed4a06c8e6fd5dbeb193b1178ef7171cd1c455ddb0f`. It is an alternate challenge-track checkpoint with the same c128/n25 architecture, not a proven universally stronger setting. The existing pinned torchvision deformable-convolution adapter was reused; no custom CUDA extension was built.
+- C10 uses [FBCNN](https://github.com/jiaxi-jiang/FBCNN), whose current official repository declares Apache-2.0. The external source is pinned at `2cd940856798e258beaa8f9181a1ffc32c9931f9`. Color-checkpoint SHA-256: `8b0e4ef23d59cf7ac934a342cb31a17619e4fa4a0b3374a9d78c5174312387e8`. It was chosen as a frame decompression candidate with a prebuilt-PyTorch implementation that fits the strict decimal 5 GB limit. Its JPEG training domain differs from D2 video compression; results including any regressions are reported.
+- C11 lowers SSIM-Y versus C1 on both clips and is not recommended under the explicit task rule.
+- For the review panels, candidates were ranked by mean SSIM-Y across A/B, then mean PSNR-Y. C2 is a reference baseline; C11 is excluded because it fails its non-regression rule. The top two new candidates are C5 and C9 + C1 (50/50).
+- No new candidate improves both PSNR-Y and SSIM-Y over C1 on both clips. No visual-quality conclusion or default-preset change is made.
+
+The external `owner-review-3` videos show Original / Degraded / C1 / C5 / C9 + C1 (50/50), using the same full 10.010 s and 5.005 s windows. Exact paths and reproduction commands are in `.ai/LAST_REPORT.md`.

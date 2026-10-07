@@ -292,12 +292,28 @@ class _CorruptOnceRestore(_FakeRestore):
 
 
 class _CorruptEveryRestore(_FakeRestore):
+    def __init__(self, position=2):
+        super().__init__()
+        self.position = position
+
     def process(self, batch: FrameBatch) -> FrameBatch:
         self.calls += 1
         frames = batch.frames.clone()
         if len(frames) >= 3:
-            frames[2].fill_(1.0)
+            frames[self.position].fill_(1.0)
         return FrameBatch(frames, batch.timestamps, batch.indices)
+
+
+def _capture_encoder_means(monkeypatch):
+    means = []
+    original_write = pipeline_runner.Encoder.write
+
+    def write(encoder, frame):
+        means.append(float(frame.float().mean()))
+        original_write(encoder, frame)
+
+    monkeypatch.setattr(pipeline_runner.Encoder, "write", write)
+    return means
 
 
 @pytest.mark.parametrize("out_of_memory_once", [False, True])
@@ -333,30 +349,37 @@ def test_process_segment_retries_an_injected_corrupt_clip_before_handoff(
         source, backend="cpu", preset="standard", fps="off", short_side="keep"
     )
     fake_restore = _CorruptOnceRestore()
+    encoder_means = _capture_encoder_means(monkeypatch)
     monkeypatch.setattr(pipeline_runner, "create_stages", lambda *_args: [fake_restore])
     output = tmp_path / "recovered.mp4"
     stats = pipeline_runner.process_segment(
         manifest, {"index": 0, "start": 0, "end": 12}, output, lambda: False
     )
+    assert len(encoder_means) == 12
+    assert max(encoder_means) < 0.95  # The injected all-white frame must never be encoded.
     assert stats["corruption_retries"] == 1
     assert stats["corruption_fallbacks"] == 0
     assert fake_restore.calls >= 2
     assert stats["luma_outliers"] == []
 
 
+@pytest.mark.parametrize("position", [0, 2, -1])
 def test_process_segment_records_fallback_when_corruption_persists(
-    video_factory, build_manifest, tmp_path, monkeypatch
+    video_factory, build_manifest, tmp_path, monkeypatch, position
 ):
     source = video_factory(width=64, height=64, frames=12)
     manifest = build_manifest(
         source, backend="cpu", preset="standard", fps="off", short_side="keep"
     )
-    fake_restore = _CorruptEveryRestore()
+    fake_restore = _CorruptEveryRestore(position)
+    encoder_means = _capture_encoder_means(monkeypatch)
     monkeypatch.setattr(pipeline_runner, "create_stages", lambda *_args: [fake_restore])
     output = tmp_path / "fallback.mp4"
     stats = pipeline_runner.process_segment(
         manifest, {"index": 0, "start": 0, "end": 12}, output, lambda: False
     )
+    assert len(encoder_means) == 12
+    assert max(encoder_means) < 0.95
     assert stats["corruption_retries"] > 0
     assert stats["corruption_fallbacks"] > 0
     assert all(event["action"] == "nearest_valid_frame" for event in stats["corruption_events"])

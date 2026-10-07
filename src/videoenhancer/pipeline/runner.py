@@ -206,7 +206,22 @@ def process_segment(
                 input_range_flags.append(outside)
             reference = torch.stack(references)
             summary = summarize_frames(candidate.frames)
-            temporal = detect_frame_outliers(summary, reference)
+            # At clip/video boundaries, an output neighbor is unavailable.
+            # Its aligned source summary supplies a conservative comparison
+            # so an in-range flash at an endpoint cannot escape the check.
+            temporal = [
+                position - 1
+                for position in detect_frame_outliers(
+                    torch.cat(
+                        (
+                            reference[:1].to(summary.device),
+                            summary,
+                            reference[-1:].to(summary.device),
+                        )
+                    ),
+                    torch.cat((reference[:1], reference, reference[-1:])),
+                )
+            ]
             return sorted(
                 set(temporal) | set(invalid_frame_positions(candidate.frames, input_range_flags))
             )

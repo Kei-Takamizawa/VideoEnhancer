@@ -422,9 +422,8 @@ def _bench_nvenc(torch: Any) -> dict[str, Any]:
                 fps="30",
                 gop="60",
                 profile="high" if codec == "h264" else "main10" if codec == "hevc" else "main",
-                cudastream=torch.cuda.current_stream().cuda_stream,
             )
-            encoder = nvc.CreateEncoder(1080, 1920, color_format, False, **settings)
+            encoder = nvc.CreateEncoder(1080, 1920, color_format, True, **settings)
             packed = rgb_to_nv12(rgb, matrix, depth)
             torch.cuda.current_stream().synchronize()
             surface = packed.cpu().contiguous()

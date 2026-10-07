@@ -61,3 +61,7 @@ Write the tables into `docs/BENCHMARK_DEGRADED.md` (no sample names, no faces) a
 ## Report (`.ai/LAST_REPORT.md`, English)
 
 Summary per task; A1–A7 with PASS / FAIL / NOT RUN; tables; what is proven vs unexplained; paths outside the repository; known issues and questions; exact reproduction steps.
+
+## Owner continuation instruction (verbatim)
+
+P1a-5を完了させてください。
