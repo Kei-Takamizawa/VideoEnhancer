@@ -103,3 +103,43 @@ The external folder `owner-review-2` contains two H.264 8-bit videos with panels
 ## Reproduction artifacts
 
 Measured data and comparison videos were generated in external working folders and are not committed. The task report records exact paths and reproduction commands for this run.
+
+## P1a-5 D2 extension (partial)
+
+This extension uses 150 full-resolution frames per clip: the middle 150 frames of clip A and all 150 frames of clip B. Values below are PSNR-Y / SSIM-Y / flicker ratio. Speed and peak Torch-reserved VRAM are included where measured; `N/A` means a CPU FFmpeg operation, and `Not run` means no measurement was made. Candidate deltas are omitted here until the full requested candidate set, including C10, has been evaluated consistently.
+
+| Clip | Candidate | PSNR-Y (dB) | SSIM-Y | Flicker ratio | Speed (fps) | Peak Torch reserved (GB, decimal) |
+|---|---|---:|---:|---:|---:|---:|
+| A | C1 | 32.019490 | 0.941709 | 0.873134 | 2.6 | 4.438 |
+| A | C2 | 29.968913 | 0.923556 | 0.905831 | 5.090 | Not recorded |
+| A | C5 | 32.045918 | 0.942190 | 0.876662 | 2.817 | 5.518 |
+| A | C8 | 31.274292 | 0.935033 | 0.876585 | 68.0 | N/A |
+| A | C9 (Track 1) | 31.480616 | 0.937026 | 0.856733 | 2.755 | 5.599 |
+| A | C9 + C1 (50/50) | 31.997449 | 0.940930 | 0.860363 | Not measured | N/A |
+| A | C11 | 31.875005 | 0.939550 | 0.872605 | 160.4 | N/A |
+| B | C1 | 33.298938 | 0.911173 | 0.850196 | 2.8 | 5.069 |
+| B | C2 | 31.084645 | 0.879882 | 0.843311 | 5.059 | Not recorded |
+| B | C5 | 33.236867 | 0.910927 | 0.857712 | 2.884 | 5.069 |
+| B | C8 | 32.654047 | 0.900408 | 0.837832 | 92.0 | N/A |
+| B | C9 (Track 1) | 32.694482 | 0.901530 | 0.821007 | 2.850 | 5.629 |
+| B | C9 + C1 (50/50) | 33.335030 | 0.910541 | 0.829304 | Not measured | N/A |
+| B | C11 | 33.134549 | 0.907302 | 0.847772 | 128.2 | N/A |
+
+Candidate deltas are PSNR-Y / SSIM-Y / flicker ratio, calculated as candidate minus baseline:
+
+| Clip | Candidate | Δ vs C0 | Δ vs C1 |
+|---|---|---:|---:|
+| A | C2 | −0.453276 / +0.000745 / +0.027637 | −2.050577 / −0.018153 / +0.032697 |
+| A | C5 | +1.623729 / +0.019379 / −0.001532 | +0.026428 / +0.000481 / +0.003528 |
+| A | C8 | +0.852103 / +0.012222 / −0.001609 | −0.745198 / −0.006676 / +0.003451 |
+| A | C9 | +1.058427 / +0.014215 / −0.021461 | −0.538874 / −0.004683 / −0.016401 |
+| A | C9 + C1 | +1.575260 / +0.018119 / −0.017831 | −0.022041 / −0.000779 / −0.012771 |
+| A | C11 | +1.452816 / +0.016739 / −0.005589 | −0.144485 / −0.002159 / −0.000529 |
+| B | C2 | −0.635163 / −0.000391 / +0.015604 | −2.214293 / −0.031291 / −0.006885 |
+| B | C5 | +1.517059 / +0.030654 / +0.030005 | −0.062071 / −0.000246 / +0.007516 |
+| B | C8 | +0.934239 / +0.020135 / +0.010125 | −0.644891 / −0.010765 / −0.012364 |
+| B | C9 | +0.974674 / +0.021257 / −0.006700 | −0.604456 / −0.009643 / −0.029189 |
+| B | C9 + C1 | +1.615222 / +0.030268 / +0.001597 | +0.036092 / −0.000632 / −0.020892 |
+| B | C11 | +1.414741 / +0.027029 / +0.020065 | −0.164389 / −0.003871 / −0.002424 |
+
+This is a partial comparison: C10 and the requested owner-review-3 videos were not completed. C11's SSIM-Y is below C1 for both clips, so it does not satisfy the explicit non-regression condition for recommendation. No default preset was changed. See `.ai/LAST_REPORT.md` for provenance, limitations, and external paths.

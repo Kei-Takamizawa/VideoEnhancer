@@ -35,6 +35,7 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--codec", choices=("hevc", "h264", "av1"), default="hevc")
         command.add_argument("--backend", choices=("auto", "cpu", "cuda"), default="auto")
         command.add_argument("--batch-size", type=int, default=2, metavar="N")
+        command.add_argument("--pipeline-queue-size", type=int, default=2, help=argparse.SUPPRESS)
         command.add_argument("--segment-seconds", type=float, default=180.0, metavar="SECONDS")
         command.add_argument("--keep-segments", action="store_true")
         command.add_argument("--lossless", action="store_true", help=argparse.SUPPRESS)
@@ -257,6 +258,7 @@ def _add(args: argparse.Namespace, home: Path, as_json: bool, run_now: bool) -> 
         "backend": backend,
         "keep_segments": args.keep_segments,
         "batch_size": min(4, max(1, args.batch_size)),
+        "pipeline_queue_size": min(16, max(1, args.pipeline_queue_size)),
         "lossless": args.lossless,
     }
     manifest = add_job(

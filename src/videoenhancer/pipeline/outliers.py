@@ -3,6 +3,36 @@
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
+
+
+def summarize_frames(frames: torch.Tensor, size: int = 16) -> torch.Tensor:
+    """Return per-channel spatial summaries for each frame."""
+    if frames.ndim != 4 or frames.shape[1] != 3:
+        raise ValueError("Frames must have shape (frames, 3, height, width).")
+    return F.interpolate(frames.float(), size=(size, size), mode="area")
+
+
+def invalid_frame_positions(
+    frames: torch.Tensor,
+    reference_out_of_range: list[bool] | None = None,
+) -> list[int]:
+    """Flag non-finite frames and unexpected values outside normalized RGB range."""
+    if frames.ndim != 4 or frames.shape[1] != 3:
+        raise ValueError("Frames must have shape (frames, 3, height, width).")
+    finite = torch.isfinite(frames).flatten(1).all(1)
+    bounded = ((frames >= 0.0) & (frames <= 1.0)).flatten(1).all(1)
+    if reference_out_of_range is None:
+        reference_out_of_range = [False] * len(frames)
+    if len(reference_out_of_range) != len(frames):
+        raise ValueError("Reference range flags must match the frame count.")
+    exempt_range = torch.tensor(reference_out_of_range, device=frames.device, dtype=torch.bool)
+    range_violation = ~bounded & finite & ~exempt_range
+    isolated_range = range_violation.clone()
+    if len(frames) > 1:
+        isolated_range[1:] &= ~range_violation[:-1]
+        isolated_range[:-1] &= ~range_violation[1:]
+    return (~finite | isolated_range).nonzero().flatten().cpu().tolist()
 
 
 def detect_frame_outliers(

@@ -8,7 +8,7 @@ from videoenhancer.models.basicvsr import BasicVSRRestoreStage
 from videoenhancer.models.rife import RifeInterpolateStage
 from videoenhancer.pipeline import runner as pipeline_runner
 from videoenhancer.pipeline.clips import StreamingClipBuffer, plan_restore_clips
-from videoenhancer.pipeline.outliers import detect_frame_outliers
+from videoenhancer.pipeline.outliers import detect_frame_outliers, invalid_frame_positions
 from videoenhancer.pipeline.stages import FrameBatch
 
 
@@ -55,6 +55,14 @@ def test_frame_outlier_detector_flags_chroma_glitch_with_stable_mean_luma():
     output[2, 1] = 0.352
     assert detect_frame_outliers(output, reference) == [2]
     assert detect_frame_outliers(reference, reference) == []
+
+
+def test_invalid_frame_check_flags_nonfinite_and_unexpected_range_values():
+    frames = torch.full((3, 3, 8, 8), 0.5)
+    frames[1, 0, 0, 0] = float("nan")
+    frames[2, 0, 0, 0] = 1.1
+    assert invalid_frame_positions(frames) == [1, 2]
+    assert invalid_frame_positions(frames, [False, False, True]) == [1]
 
 
 def test_clip_ownership_is_center_most_and_covers_each_frame_once():
@@ -274,6 +282,24 @@ class _FakeRestore:
         return batch
 
 
+class _CorruptOnceRestore(_FakeRestore):
+    def process(self, batch: FrameBatch) -> FrameBatch:
+        self.calls += 1
+        frames = batch.frames.clone()
+        if self.calls == 1 and len(frames) >= 3:
+            frames[2].fill_(1.0)
+        return FrameBatch(frames, batch.timestamps, batch.indices)
+
+
+class _CorruptEveryRestore(_FakeRestore):
+    def process(self, batch: FrameBatch) -> FrameBatch:
+        self.calls += 1
+        frames = batch.frames.clone()
+        if len(frames) >= 3:
+            frames[2].fill_(1.0)
+        return FrameBatch(frames, batch.timestamps, batch.indices)
+
+
 @pytest.mark.parametrize("out_of_memory_once", [False, True])
 def test_process_segment_uses_bounded_streaming_restore_and_retries_oom(
     video_factory, build_manifest, tmp_path, monkeypatch, out_of_memory_once
@@ -297,6 +323,43 @@ def test_process_segment_uses_bounded_streaming_restore_and_retries_oom(
         output, count_frames=True
     )
     assert result.frame_count == 24
+
+
+def test_process_segment_retries_an_injected_corrupt_clip_before_handoff(
+    video_factory, build_manifest, tmp_path, monkeypatch
+):
+    source = video_factory(width=64, height=64, frames=12)
+    manifest = build_manifest(
+        source, backend="cpu", preset="standard", fps="off", short_side="keep"
+    )
+    fake_restore = _CorruptOnceRestore()
+    monkeypatch.setattr(pipeline_runner, "create_stages", lambda *_args: [fake_restore])
+    output = tmp_path / "recovered.mp4"
+    stats = pipeline_runner.process_segment(
+        manifest, {"index": 0, "start": 0, "end": 12}, output, lambda: False
+    )
+    assert stats["corruption_retries"] == 1
+    assert stats["corruption_fallbacks"] == 0
+    assert fake_restore.calls >= 2
+    assert stats["luma_outliers"] == []
+
+
+def test_process_segment_records_fallback_when_corruption_persists(
+    video_factory, build_manifest, tmp_path, monkeypatch
+):
+    source = video_factory(width=64, height=64, frames=12)
+    manifest = build_manifest(
+        source, backend="cpu", preset="standard", fps="off", short_side="keep"
+    )
+    fake_restore = _CorruptEveryRestore()
+    monkeypatch.setattr(pipeline_runner, "create_stages", lambda *_args: [fake_restore])
+    output = tmp_path / "fallback.mp4"
+    stats = pipeline_runner.process_segment(
+        manifest, {"index": 0, "start": 0, "end": 12}, output, lambda: False
+    )
+    assert stats["corruption_retries"] > 0
+    assert stats["corruption_fallbacks"] > 0
+    assert all(event["action"] == "nearest_valid_frame" for event in stats["corruption_events"])
 
 
 @pytest.mark.gpu

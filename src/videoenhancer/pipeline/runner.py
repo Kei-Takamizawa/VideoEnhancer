@@ -11,7 +11,6 @@ from typing import Any
 
 import psutil
 import torch
-import torch.nn.functional as F
 
 from videoenhancer.jobs.gpu_memory import JobMemorySampler
 from videoenhancer.media.decode import IndexedDecoder, choose_backend
@@ -22,7 +21,11 @@ from videoenhancer.pipeline.clips import (
     StreamingClipBuffer,
     plan_restore_clips,
 )
-from videoenhancer.pipeline.outliers import detect_frame_outliers
+from videoenhancer.pipeline.outliers import (
+    detect_frame_outliers,
+    invalid_frame_positions,
+    summarize_frames,
+)
 from videoenhancer.pipeline.presets import create_stages
 from videoenhancer.pipeline.stages import FrameBatch
 
@@ -56,16 +59,23 @@ def process_segment(
     factor = int(output_rate(settings, media) / rate)
     # Two queue slots, two-frame batches, and at most one context frame keep
     # full-resolution tensors bounded independently of video duration.
-    decoded: queue.Queue[Any] = queue.Queue(maxsize=2)
-    processed: queue.Queue[Any] = queue.Queue(maxsize=2)
+    queue_size = max(1, int(settings.get("pipeline_queue_size", 2)))
+    decoded: queue.Queue[Any] = queue.Queue(maxsize=queue_size)
+    processed: queue.Queue[Any] = queue.Queue(maxsize=queue_size)
     stopped = threading.Event()
     errors: list[BaseException] = []
     written = 0
     peak_rss = 0
     decode_seconds = 0.0
     encode_seconds = 0.0
+    handoff_check_seconds = 0.0
+    reference_check_seconds = 0.0
+    corruption_retries = 0
+    corruption_fallbacks = 0
+    corruption_events: list[dict[str, Any]] = []
     stage_seconds: dict[str, float] = {}
     reference_summaries: dict[int, torch.Tensor] = {}
+    reference_out_of_range: set[int] = set()
     output_summaries: dict[int, torch.Tensor] = {}
     sentinel = object()
     restore_stage: Any = next((stage for stage in stages if stage.name == "restore"), None)
@@ -111,7 +121,7 @@ def process_segment(
             stopped.set()
 
     def decode() -> None:
-        nonlocal decode_seconds
+        nonlocal decode_seconds, reference_check_seconds
         decode_started = time.perf_counter()
         decoder = IndexedDecoder(manifest["input"]["path"], media, backend, manifest)
         try:
@@ -123,25 +133,36 @@ def process_segment(
                 pending.append(frame)
                 positions.append(index)
                 if len(pending) == batch_size:
+                    check_started = time.perf_counter()
                     batch = FrameBatch(
                         torch.stack(pending),
                         tuple(Fraction(i) / rate for i in positions),
                         tuple(positions),
                     )
-                    summaries = F.interpolate(batch.frames.float(), size=(16, 16), mode="area")
+                    summaries = summarize_frames(batch.frames)
                     reference_summaries.update(zip(batch.indices, summaries.cpu(), strict=True))
+                    reference_out_of_range.update(
+                        batch.indices[position]
+                        for position in invalid_frame_positions(batch.frames)
+                    )
+                    reference_check_seconds += time.perf_counter() - check_started
                     if backend == "cuda":
                         torch.cuda.synchronize()
                     put(decoded, batch)
                     pending, positions = [], []
             if pending:
+                check_started = time.perf_counter()
                 batch = FrameBatch(
                     torch.stack(pending),
                     tuple(Fraction(i) / rate for i in positions),
                     tuple(positions),
                 )
-                summaries = F.interpolate(batch.frames.float(), size=(16, 16), mode="area")
+                summaries = summarize_frames(batch.frames)
                 reference_summaries.update(zip(batch.indices, summaries.cpu(), strict=True))
+                reference_out_of_range.update(
+                    batch.indices[position] for position in invalid_frame_positions(batch.frames)
+                )
+                reference_check_seconds += time.perf_counter() - check_started
                 if backend == "cuda":
                     torch.cuda.synchronize()
                 put(decoded, batch)
@@ -156,6 +177,102 @@ def process_segment(
         stage_seconds[stage.name] = stage_seconds.get(stage.name, 0.0) + (
             time.perf_counter() - stage_started
         )
+        return result
+
+    def validate_handoff(
+        source: FrameBatch,
+        interpolation_input: FrameBatch | None,
+        result: FrameBatch,
+        retry_clip: Callable[[], FrameBatch],
+        retry_pair: Callable[[int], FrameBatch] | None,
+    ) -> FrameBatch:
+        """Validate final compute output, retry its producing unit once, then fall back."""
+        nonlocal handoff_check_seconds, corruption_retries, corruption_fallbacks
+        check_started = time.perf_counter()
+
+        def flagged_positions(candidate: FrameBatch) -> list[int]:
+            reference_indices = [index // factor for index in candidate.indices]
+            if any(index not in reference_summaries for index in reference_indices):
+                raise RuntimeError("No decoded reference summary for compute output.")
+            references: list[torch.Tensor] = []
+            input_range_flags: list[bool] = []
+            for index, reference_index in zip(candidate.indices, reference_indices, strict=True):
+                reference = reference_summaries[reference_index]
+                outside = reference_index in reference_out_of_range
+                if factor == 2 and index % 2 and reference_index + 1 in reference_summaries:
+                    reference = (reference + reference_summaries[reference_index + 1]) * 0.5
+                    outside |= reference_index + 1 in reference_out_of_range
+                references.append(reference)
+                input_range_flags.append(outside)
+            reference = torch.stack(references)
+            summary = summarize_frames(candidate.frames)
+            temporal = detect_frame_outliers(summary, reference)
+            return sorted(
+                set(temporal) | set(invalid_frame_positions(candidate.frames, input_range_flags))
+            )
+
+        flagged = flagged_positions(result)
+        if not flagged:
+            handoff_check_seconds += time.perf_counter() - check_started
+            return result
+
+        even_flags = [position for position in flagged if result.indices[position] % factor == 0]
+        odd_flags = [position for position in flagged if result.indices[position] % factor != 0]
+        if even_flags or retry_pair is None or interpolation_input is None:
+            corruption_retries += 1
+            result = retry_clip()
+        else:
+            # RIFE's odd output positions belong to one source-frame pair.
+            corruption_retries += len(odd_flags)
+            frames = result.frames.clone()
+            for position in odd_flags:
+                output_index = result.indices[position]
+                retried = retry_pair(output_index // factor)
+                try:
+                    retry_position = retried.indices.index(output_index)
+                except ValueError:
+                    continue
+                frames[position] = retried.frames[retry_position]
+            result = FrameBatch(frames, result.timestamps, result.indices)
+
+        persistent = flagged_positions(result)
+        if persistent:
+            frames = result.frames.clone()
+            valid = [
+                position for position in range(len(result.indices)) if position not in persistent
+            ]
+            for position in persistent:
+                if valid:
+                    nearest = min(
+                        valid, key=lambda candidate: (abs(candidate - position), candidate)
+                    )
+                    frames[position] = result.frames[nearest]
+                else:
+                    input_index = result.indices[position] // factor
+                    source_position = min(
+                        range(len(source.indices)),
+                        key=lambda candidate: abs(source.indices[candidate] - input_index),
+                    )
+                    fallback = source.frames[source_position]
+                    if fallback.shape != frames[position].shape:
+                        fallback = torch.nn.functional.interpolate(
+                            fallback.unsqueeze(0).float(),
+                            size=frames[position].shape[-2:],
+                            mode="bilinear",
+                            align_corners=False,
+                        )[0].to(frames.dtype)
+                    frames[position] = fallback
+                corruption_fallbacks += 1
+                corruption_events.append(
+                    {
+                        "stage": "rife" if result.indices[position] % factor else "restore",
+                        "frame_index": result.indices[position],
+                        "action": "nearest_valid_frame",
+                    }
+                )
+            result = FrameBatch(frames, result.timestamps, result.indices)
+
+        handoff_check_seconds += time.perf_counter() - check_started
         return result
 
     def compute() -> None:
@@ -250,10 +367,56 @@ def process_segment(
                         f"decoder ended before restoration clip [{clip.start}, {clip.end})."
                     ) from None
                 transformed = restore_with_retry(clip_batch, clip)
+                interpolation_input: FrameBatch | None = None
+                interpolation_stage: Any | None = next(
+                    (stage for stage in stages if stage.name == "rife"), None
+                )
                 for stage in stages:
                     if stage is active_restore:
                         continue
-                    transformed = apply_stage(stage, transformed)
+                    stage_input = transformed
+                    if stage is interpolation_stage:
+                        interpolation_input = stage_input
+                    transformed = apply_stage(stage, stage_input)
+
+                def retry_clip(
+                    clip_batch: FrameBatch = clip_batch,
+                    clip: RestoreClip = clip,
+                    active_restore: Any = active_restore,
+                ) -> FrameBatch:
+                    retried = restore_with_retry(clip_batch, clip)
+                    for retry_stage in stages:
+                        if retry_stage is active_restore:
+                            continue
+                        retried = apply_stage(retry_stage, retried)
+                    return retried
+
+                def retry_pair(
+                    left_index: int,
+                    interpolation_input: FrameBatch | None = interpolation_input,
+                    interpolation_stage: Any | None = interpolation_stage,
+                ) -> FrameBatch:
+                    if interpolation_input is None or interpolation_stage is None:
+                        raise RuntimeError("RIFE retry requested without an interpolation input.")
+                    try:
+                        left_position = interpolation_input.indices.index(left_index)
+                    except ValueError:
+                        raise RuntimeError("RIFE retry pair is outside the current clip.") from None
+                    right_position = min(left_position + 1, len(interpolation_input.indices) - 1)
+                    pair = FrameBatch(
+                        interpolation_input.frames[left_position : right_position + 1],
+                        interpolation_input.timestamps[left_position : right_position + 1],
+                        interpolation_input.indices[left_position : right_position + 1],
+                    )
+                    return apply_stage(interpolation_stage, pair)
+
+                transformed = validate_handoff(
+                    clip_batch,
+                    interpolation_input,
+                    transformed,
+                    retry_clip,
+                    retry_pair if interpolation_stage is not None else None,
+                )
                 owned = [
                     pos
                     for pos, index in enumerate(transformed.indices)
@@ -297,8 +460,54 @@ def process_segment(
                     batch.timestamps + following.timestamps[:context_after],
                     batch.indices + following.indices[:context_after],
                 )
+            input_batch = batch
+            interpolation_input: FrameBatch | None = None
+            interpolation_stage = next(
+                (stage for stage in stages if stage.name in {"rife", "blend2x"}), None
+            )
             for stage in stages:
-                batch = apply_stage(stage, batch)
+                stage_input = batch
+                if stage is interpolation_stage:
+                    interpolation_input = stage_input
+                batch = apply_stage(stage, stage_input)
+
+            def retry_clip_without_restore(
+                input_batch: FrameBatch = input_batch,
+                stages: list[Any] = stages,
+            ) -> FrameBatch:
+                retried = input_batch
+                for retry_stage in stages:
+                    retried = apply_stage(retry_stage, retried)
+                return retried
+
+            def retry_pair_without_restore(
+                left_index: int,
+                interpolation_input: FrameBatch | None = interpolation_input,
+                interpolation_stage: Any | None = interpolation_stage,
+            ) -> FrameBatch:
+                if interpolation_input is None or interpolation_stage is None:
+                    raise RuntimeError("Interpolation retry requested without an input pair.")
+                try:
+                    left_position = interpolation_input.indices.index(left_index)
+                except ValueError:
+                    raise RuntimeError(
+                        "Interpolation retry pair is outside the current batch."
+                    ) from None
+                right_position = min(left_position + 1, len(interpolation_input.indices) - 1)
+                pair = FrameBatch(
+                    interpolation_input.frames[left_position : right_position + 1],
+                    interpolation_input.timestamps[left_position : right_position + 1],
+                    interpolation_input.indices[left_position : right_position + 1],
+                )
+                return apply_stage(interpolation_stage, pair)
+
+            batch = validate_handoff(
+                input_batch,
+                interpolation_input,
+                batch,
+                retry_clip_without_restore,
+                retry_pair_without_restore if interpolation_stage is not None else None,
+            )
             # Clip context output and keep interpolation owned by its left frame.
             mask = [
                 position
@@ -333,7 +542,7 @@ def process_segment(
                 batch = get(processed)
                 if batch is sentinel:
                     break
-                summaries = F.interpolate(batch.frames.float(), size=(16, 16), mode="area").cpu()
+                summaries = summarize_frames(batch.frames).cpu()
                 output_indices = tuple(
                     range(start * factor + written, start * factor + written + len(batch.indices))
                 )
@@ -386,6 +595,8 @@ def process_segment(
         "decode_seconds": decode_seconds,
         "stage_seconds": stage_seconds,
         "encode_seconds": encode_seconds,
+        "handoff_check_seconds": handoff_check_seconds + reference_check_seconds,
+        "pipeline_queue_size": queue_size,
         "peak_rss_bytes": peak_rss,
         "peak_torch_vram_bytes": torch.cuda.max_memory_reserved() if backend == "cuda" else 0,
         "memory_samples": memory_samples,
@@ -394,6 +605,9 @@ def process_segment(
         ),
         "nan_retries": sum(int(getattr(stage, "nan_retries", 0)) for stage in stages),
         "oom_retries": oom_retries,
+        "corruption_retries": corruption_retries,
+        "corruption_fallbacks": corruption_fallbacks,
+        "corruption_events": corruption_events,
         "luma_outliers": [
             {
                 "frame_index": ordered_output[position],

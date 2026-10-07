@@ -1,15 +1,75 @@
 import os
 from fractions import Fraction
+from io import BytesIO
 
 import numpy as np
 import pytest
 import torch
 
+from videoenhancer.media import encode as encode_module
+from videoenhancer.media.encode import Encoder
 from videoenhancer.media.mux import _audio_duration_matches, assemble
 from videoenhancer.media.probe import probe
 from videoenhancer.media.timing import output_rate, output_size
 from videoenhancer.pipeline.runner import process_segment
 from videoenhancer.pipeline.stages import Blend2xStage, FrameBatch, ResizeStage
+
+
+def test_gpu_encoder_synchronizes_and_passes_owned_host_input_to_nvenc(monkeypatch):
+    class FakeStream:
+        def __init__(self):
+            self.synchronizations = 0
+
+        def synchronize(self):
+            self.synchronizations += 1
+
+    class FakeEncoder:
+        def Encode(self, surface):
+            assert stream.synchronizations == 1
+            assert isinstance(surface, np.ndarray)
+            assert np.array_equal(surface, nv12_surface.numpy())
+            return b"packet"
+
+    stream = FakeStream()
+    nv12_surface = torch.zeros((3, 4, 4), dtype=torch.uint8)
+    monkeypatch.setattr(torch.cuda, "current_stream", lambda: stream)
+    monkeypatch.setattr(encode_module, "rgb_to_nv12", lambda *_args: nv12_surface)
+    encoder = object.__new__(Encoder)
+    encoder.backend = "cuda"
+    encoder.media = {"color_matrix": "bt709"}
+    encoder.bit_depth = 8
+    encoder.encoder = FakeEncoder()
+    encoder.stream = BytesIO()
+
+    encoder.write(torch.zeros((3, 4, 4)))
+
+    assert stream.synchronizations == 1
+    assert encoder.stream.getvalue() == b"packet"
+
+
+def test_gpu_encoder_configures_nvenc_for_host_input(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeNvCodec:
+        @staticmethod
+        def CreateEncoder(*args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return object()
+
+    monkeypatch.setattr(encode_module.importlib, "import_module", lambda *_args: FakeNvCodec)
+    encoder = Encoder(
+        tmp_path / "output.mp4",
+        4,
+        4,
+        Fraction(30),
+        "hevc",
+        "cuda",
+        {"color_matrix": "bt709"},
+    )
+    assert captured["args"][:4] == (4, 4, "P010", True)
+    assert "cudastream" not in captured["kwargs"]
+    encoder.abort()
 
 
 @pytest.mark.parametrize("arrival", ["before", "during"])

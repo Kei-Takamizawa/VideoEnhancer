@@ -398,7 +398,7 @@ def _bench_nvenc(torch: Any) -> dict[str, Any]:
         import PyNvVideoCodec as nvc  # pyright: ignore[reportMissingImports]
 
         from videoenhancer.media.color import rgb_to_nv12
-        from videoenhancer.media.encode import NVENC_SETTINGS, DeviceSurface, packet_bytes
+        from videoenhancer.media.encode import NVENC_SETTINGS, packet_bytes
     except Exception as exc:
         return {
             name: {
@@ -426,15 +426,18 @@ def _bench_nvenc(torch: Any) -> dict[str, Any]:
             )
             encoder = nvc.CreateEncoder(1080, 1920, color_format, False, **settings)
             packed = rgb_to_nv12(rgb, matrix, depth)
-            surface = DeviceSurface(packed)
+            torch.cuda.current_stream().synchronize()
+            surface = packed.cpu().contiguous()
+            if surface.dtype == torch.uint16:
+                surface = surface.view(torch.uint8).reshape(-1)
             with torch.inference_mode():
                 for _ in range(8):
-                    encoder.Encode(surface)
+                    encoder.Encode(surface.numpy())
                 torch.cuda.synchronize()
                 timed_bytes = 0
                 started = time.perf_counter()
                 for _ in range(60):
-                    timed_bytes += len(packet_bytes(encoder.Encode(surface)))
+                    timed_bytes += len(packet_bytes(encoder.Encode(surface.numpy())))
                 torch.cuda.synchronize()
                 elapsed = time.perf_counter() - started
                 tail = packet_bytes(encoder.EndEncode())

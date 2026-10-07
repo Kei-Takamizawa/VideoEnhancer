@@ -123,6 +123,8 @@ def test_enhance_runs_only_newly_added_job(tmp_path: Path, monkeypatch: Any, cap
                 "9",
                 "--segment-seconds",
                 "90",
+                "--pipeline-queue-size",
+                "1",
                 "--json",
             ]
         )
@@ -130,6 +132,7 @@ def test_enhance_runs_only_newly_added_job(tmp_path: Path, monkeypatch: Any, cap
     )
     assert selected["backend"] == "cpu"
     assert selected["batch_size"] == 4
+    assert selected["pipeline_queue_size"] == 1
     assert json.loads(capsys.readouterr().out)["state"] == "done"
 
 
