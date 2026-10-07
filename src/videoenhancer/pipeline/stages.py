@@ -25,6 +25,16 @@ class Stage:
     def teardown(self) -> None:
         pass
 
+    def load(self) -> None:
+        self.setup()
+
+    def warmup(self, sample: FrameBatch) -> None:
+        """Exercise a caller-supplied representative batch without retaining its output."""
+        self.process(sample)
+
+    def release(self) -> None:
+        self.teardown()
+
     def estimate_cost(self, input_size: tuple[int, int], **features: float) -> dict[str, float]:
         return {"pixels": float(input_size[0] * input_size[1]), **features}
 

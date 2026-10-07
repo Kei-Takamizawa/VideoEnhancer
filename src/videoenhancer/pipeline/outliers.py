@@ -35,10 +35,19 @@ def invalid_frame_positions(
     return (~finite | isolated_range).nonzero().flatten().cpu().tolist()
 
 
+def reference_range_positions(frames: torch.Tensor) -> list[int]:
+    """Record every input range excursion, regardless of decoder batch boundaries."""
+    if frames.ndim != 4 or frames.shape[1] != 3:
+        raise ValueError("Frames must have shape (frames, 3, height, width).")
+    outside = ((frames < 0) | (frames > 1)).flatten(1).any(1)
+    return outside.nonzero().flatten().cpu().tolist()
+
+
 def detect_frame_outliers(
     output: torch.Tensor,
     reference: torch.Tensor,
     *,
+    scene_ids: list[int] | None = None,
     luma_threshold: float = 0.20,
     difference_threshold: float = 0.12,
     edge_luma_threshold: float = 15 / 255,
@@ -54,11 +63,31 @@ def detect_frame_outliers(
         raise ValueError("Frame summaries must have shape (frames, 3, height, width).")
     if output.shape != reference.shape or output.shape[1] != 3:
         raise ValueError("Output and reference summaries must have matching RGB geometry.")
+    if scene_ids is not None and len(scene_ids) != len(output):
+        raise ValueError("Scene IDs must match the output frame count.")
     if output.shape[0] < 3:
         return []
 
     out = output.detach().to(device="cpu", dtype=torch.float32).clamp(0, 1)
     ref = reference.detach().to(device="cpu", dtype=torch.float32).clamp(0, 1)
+    center = torch.arange(1, len(out) - 1)
+    left, right = center - 1, center + 1
+    missing_left = torch.zeros(len(center), dtype=torch.bool)
+    missing_right = missing_left.clone()
+    if scene_ids is not None:
+        scenes = torch.tensor(scene_ids)
+        same_left = scenes[left] == scenes[center]
+        same_right = scenes[right] == scenes[center]
+        # At a scene boundary, both comparisons use the available same-side
+        # neighbor. A one-frame scene has only its aligned source reference.
+        missing_left = ~same_left & ~same_right
+        missing_right = missing_left.clone()
+        left = torch.where(same_left, left, torch.where(same_right, right, center))
+        right = torch.where(same_right, right, torch.where(same_left, left, center))
+    previous, following = out[left].clone(), out[right].clone()
+    previous[missing_left] = ref[center][missing_left]
+    following[missing_right] = ref[center][missing_right]
+    ref_previous, ref_following = ref[left], ref[right]
     weights = out.new_tensor((0.2126, 0.7152, 0.0722)).view(1, 3, 1, 1)
     out_luma = (out * weights).sum(1)
     ref_luma = (ref * weights).sum(1)
@@ -78,9 +107,13 @@ def detect_frame_outliers(
 
     output_regions = region_means(out_luma)
     reference_regions = region_means(ref_luma)
+    previous_regions = region_means((previous * weights).sum(1))
+    following_regions = region_means((following * weights).sum(1))
+    ref_previous_regions = region_means((ref_previous * weights).sum(1))
+    ref_following_regions = region_means((ref_following * weights).sum(1))
     flagged = torch.zeros(output.shape[0] - 2, dtype=torch.bool)
-    output_difference = (out[1:-1] - (out[:-2] + out[2:]) * 0.5).abs().mean((1, 2, 3))
-    reference_difference = (ref[1:-1] - (ref[:-2] + ref[2:]) * 0.5).abs().mean((1, 2, 3))
+    output_difference = (out[1:-1] - (previous + following) * 0.5).abs().mean((1, 2, 3))
+    reference_difference = (ref[1:-1] - (ref_previous + ref_following) * 0.5).abs().mean((1, 2, 3))
     output_reference_difference = (out[1:-1] - ref[1:-1]).abs().mean((1, 2, 3))
     # Luma alone misses chroma corruption that changes the picture but preserves
     # its weighted mean. Keep the input-side temporal guard to exclude real cuts.
@@ -98,15 +131,13 @@ def detect_frame_outliers(
     ):
         values = output_regions[region]
         reference_values = reference_regions[region]
-        jump = (values[1:-1] - (values[:-2] + values[2:]) * 0.5).abs()
-        reference_jump = (
-            reference_values[1:-1] - (reference_values[:-2] + reference_values[2:]) * 0.5
-        ).abs()
+        out_neighbors = (previous_regions[region] + following_regions[region]) * 0.5
+        ref_neighbors = (ref_previous_regions[region] + ref_following_regions[region]) * 0.5
+        jump = (values[1:-1] - out_neighbors).abs()
+        reference_jump = (reference_values[1:-1] - ref_neighbors).abs()
         if region != "whole":
-            regional_out_diff = (values[1:-1] - (values[:-2] + values[2:]) * 0.5).abs()
-            regional_ref_diff = (
-                reference_values[1:-1] - (reference_values[:-2] + reference_values[2:]) * 0.5
-            ).abs()
+            regional_out_diff = (values[1:-1] - out_neighbors).abs()
+            regional_ref_diff = (reference_values[1:-1] - ref_neighbors).abs()
             regional_out_vs_ref = (values[1:-1] - reference_values[1:-1]).abs()
         else:
             regional_out_diff = output_difference
@@ -130,7 +161,9 @@ def detect_frame_outliers(
         )
         if region != "whole":
             center = output_regions["center"]
-            center_jump = (center[1:-1] - (center[:-2] + center[2:]) * 0.5).abs()
+            center_jump = (
+                center[1:-1] - (previous_regions["center"] + following_regions["center"]) * 0.5
+            ).abs()
             candidate &= center_jump <= edge_luma_threshold
         flagged |= candidate
     return (flagged.nonzero().flatten() + 1).tolist()

@@ -2,6 +2,10 @@
 
 ## Scope and status
 
+The owner selected C1 for the first release in P1a-6. Candidate evaluation stops
+here; the existing results and evaluation scripts are retained for future owner-led
+fine-tuning comparisons. No additional candidate is introduced by P1a-6.
+
 This report covers two anonymized source clips at their native 720×1280 resolution and 30000/1001 fps. The reported quality metrics use 150 aligned middle frames for each degradation. All source videos, frames, derived clips, and comparison videos remain outside the repository.
 
 ## Method

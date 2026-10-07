@@ -31,6 +31,8 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument(
             "--short-side", choices=("keep", "1080", "1440", "2160"), default="1080"
         )
+        command.add_argument("--restore-model", metavar="ID")
+        command.add_argument("--interp-model", metavar="ID")
         command.add_argument("--fps", choices=("off", "2x"), default="2x")
         command.add_argument("--codec", choices=("hevc", "h264", "av1"), default="hevc")
         command.add_argument("--backend", choices=("auto", "cpu", "cuda"), default="auto")
@@ -42,6 +44,25 @@ def _parser() -> argparse.ArgumentParser:
 
     add_video_options(commands.add_parser("add", help="Analyze and queue a video"))
     add_video_options(commands.add_parser("enhance", help="Queue and process this video now"))
+
+    trial = commands.add_parser("trial", help="Render a short labeled original/enhanced comparison")
+    trial.add_argument("input", type=Path)
+    trial.add_argument("--start", type=float)
+    trial.add_argument("--seconds", type=float, default=5)
+    trial.add_argument("--preset", choices=("fast", "standard"), default="standard")
+    trial.add_argument("--restore-model", metavar="ID")
+    trial.add_argument("--interp-model", metavar="ID")
+    trial.add_argument("--out", type=Path)
+    trial.add_argument("--backend", choices=("auto", "cpu", "cuda"), default="auto")
+    trial.add_argument("--short-side", choices=("keep", "1080", "1440", "2160"), default="1080")
+
+    models = commands.add_parser("models", help="Manage installed model manifests and weights")
+    model_commands = models.add_subparsers(dest="models_command", required=True)
+    model_commands.add_parser("list", help="List models and verified weights")
+    model_commands.add_parser("add", help="Install a data-only model folder").add_argument(
+        "folder", type=Path
+    )
+    model_commands.add_parser("remove", help="Remove a custom model").add_argument("model_id")
 
     commands.add_parser("queue", help="Show queued jobs")
     move = commands.add_parser("move", help="Move a job to a queue position")
@@ -261,6 +282,10 @@ def _add(args: argparse.Namespace, home: Path, as_json: bool, run_now: bool) -> 
         "pipeline_queue_size": min(16, max(1, args.pipeline_queue_size)),
         "lossless": args.lossless,
     }
+    if args.restore_model:
+        settings["restore_model"] = args.restore_model
+    if args.interp_model:
+        settings["interp_model"] = args.interp_model
     manifest = add_job(
         args.input,
         settings,
@@ -322,10 +347,13 @@ def main(argv: list[str] | None = None) -> int:
     home = get_home()
     try:
         if args.command == "probe":
+            from videoenhancer.media.decode import choose_backend
             from videoenhancer.media.probe import probe
 
+            backend = choose_backend("auto")
             info = probe(args.input, count_frames=True)
             data = info.to_dict()
+            data["processing_backend"] = backend
             human = (
                 f"File: {data['path']}\n"
                 f"Video: {data['display_width']}×{data['display_height']} "
@@ -337,11 +365,52 @@ def main(argv: list[str] | None = None) -> int:
                 f"{' estimated' if data['frame_count_estimated'] else ''}; "
                 f"duration {_duration(data['duration'])}\n"
                 f"Color: {data['color_matrix']}, {data['color_range']}; "
-                f"audio streams: {len(data['audio_streams'])}"
+                f"audio streams: {len(data['audio_streams'])}\n"
+                f"Processing backend: {backend}"
             )
             _emit(data, human, as_json)
         elif args.command in {"add", "enhance"}:
             return _add(args, home, as_json, args.command == "enhance")
+        elif args.command == "trial":
+            from videoenhancer.trial import run_trial
+
+            report = run_trial(
+                args.input,
+                start=args.start,
+                seconds=args.seconds,
+                preset=args.preset,
+                restore_model=args.restore_model,
+                interp_model=args.interp_model,
+                out=args.out,
+                backend=args.backend,
+                short_side="keep" if args.short_side == "keep" else int(args.short_side),
+            )
+            _emit(
+                report,
+                f"Trial written to {report['paths']['report.json']}\n"
+                f"Measured {report['pipeline']['fps']:.3f} input fps. At this speed the whole "
+                f"video would take about {_duration(report['projected_whole_file_seconds'])}.",
+                as_json,
+            )
+        elif args.command == "models":
+            from videoenhancer.models.registry import ModelRegistry
+
+            registry = ModelRegistry(home)
+            if args.models_command == "list":
+                models = registry.list_models()
+                lines = ["ID | Task | Architecture | Weights verified | Licence"]
+                lines.extend(
+                    f"{m['id']} | {m['task']} | {m['architecture']} | "
+                    f"{'yes' if m['weights_verified'] else 'no'} | {m['licence']}"
+                    for m in models
+                )
+                _emit(models, "\n".join(lines), as_json)
+            elif args.models_command == "add":
+                model = registry.add(args.folder)
+                _emit(model, f"Installed model {model['id']}.", as_json)
+            else:
+                registry.remove(args.model_id)
+                _emit({"removed": args.model_id}, f"Removed model {args.model_id}.", as_json)
         elif args.command == "schedule":
             return _schedule_command(args, home, as_json)
         elif args.command == "bench":

@@ -574,6 +574,26 @@ def run_queue(
                         if stop or store.load(job_id)["state"] not in {"queued", "running"}:
                             continue
                         manifest = store.load(job_id)
+                        if manifest["settings"].get("preset") in {"fast", "standard"}:
+                            from videoenhancer.pipeline.quality import measure_quality
+
+                            manifest["quality"] = measure_quality(
+                                manifest, result_path, abort=assembly_abort
+                            )
+                            manifest["detector"] = {
+                                "raw_flag_count": sum(
+                                    item.get("stats", {}).get("raw_flag_count", 0)
+                                    for item in manifest["segments"]
+                                ),
+                                "final_flag_count": sum(
+                                    item.get("stats", {}).get(
+                                        "final_flag_count",
+                                        len(item.get("stats", {}).get("luma_outliers", [])),
+                                    )
+                                    for item in manifest["segments"]
+                                ),
+                                "counting": "Owned indices per segment; final is post-repair.",
+                            }
                         manifest["state"] = "done"
                         manifest["result"] = str(result_path)
                         store.save(manifest)

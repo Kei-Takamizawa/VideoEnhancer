@@ -204,3 +204,26 @@ def test_machine_profile_requires_matching_gpu_and_driver(tmp_path: Path) -> Non
     (directory / "test.json").write_text(json.dumps(profile), encoding="utf-8")
     assert load_machine_profile(tmp_path, gpu_name="RTX Test", driver="999.1") == profile
     assert load_machine_profile(tmp_path, gpu_name="Other GPU", driver="999.1") is None
+
+
+def test_model_profile_identity_change_drops_stale_coefficient(tmp_path):
+    directory = tmp_path / "profiles"
+    directory.mkdir()
+    identity = {"id": "custom", "version": "1", "sha256": "a" * 64, "manifest_sha256": "b" * 64}
+    profile = dict(
+        schema_version=1,
+        gpu_name="RTX Test",
+        driver="999.1",
+        components={},
+        models={"custom": {"identity": identity, "seconds_per_pixel_frame": 1e-6}},
+    )
+    (directory / "test.json").write_text(json.dumps(profile), encoding="utf-8")
+    matching = load_machine_profile(
+        tmp_path, gpu_name="RTX Test", driver="999.1", models={"restore": identity}
+    )
+    assert matching["models"] == profile["models"]
+    changed = {**identity, "version": "2"}
+    stale = load_machine_profile(
+        tmp_path, gpu_name="RTX Test", driver="999.1", models={"restore": changed}
+    )
+    assert stale["models"] == {}

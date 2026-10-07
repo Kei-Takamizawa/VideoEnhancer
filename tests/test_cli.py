@@ -11,6 +11,36 @@ import pytest
 from videoenhancer import cli
 
 
+@pytest.mark.parametrize("command", ["probe", "enhance"])
+def test_smart_app_control_block_is_specific_in_probe_and_enhance(
+    command, video_factory, tmp_path, monkeypatch, capsys
+):
+    import importlib
+
+    import torch
+
+    from videoenhancer.media.decode import SMART_APP_CONTROL_MESSAGE
+
+    source = video_factory(frames=2)
+    monkeypatch.setenv("VE_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    original = importlib.import_module
+
+    def blocked(name, *args, **kwargs):
+        if name == "PyNvVideoCodec":
+            error = OSError("Simulated blocked VersionCheck.cp312-win_amd64.pyd")
+            error.winerror = 577
+            raise error
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib, "import_module", blocked)
+    args = ["--json", command, str(source)]
+    if command == "enhance":
+        args += ["-o", str(tmp_path / "output.mp4"), "--backend", "cuda"]
+    assert cli.main(args) == 1
+    assert SMART_APP_CONTROL_MESSAGE in json.loads(capsys.readouterr().err)["error"]
+
+
 def test_help_lists_engine_commands(capsys: Any) -> None:
     with pytest.raises(SystemExit) as result:
         cli.main(["--help"])
@@ -125,6 +155,10 @@ def test_enhance_runs_only_newly_added_job(tmp_path: Path, monkeypatch: Any, cap
                 "90",
                 "--pipeline-queue-size",
                 "1",
+                "--restore-model",
+                "my-finetune",
+                "--interp-model",
+                "rife-4.25",
                 "--json",
             ]
         )
@@ -133,6 +167,8 @@ def test_enhance_runs_only_newly_added_job(tmp_path: Path, monkeypatch: Any, cap
     assert selected["backend"] == "cpu"
     assert selected["batch_size"] == 4
     assert selected["pipeline_queue_size"] == 1
+    assert selected["restore_model"] == "my-finetune"
+    assert selected["interp_model"] == "rife-4.25"
     assert json.loads(capsys.readouterr().out)["state"] == "done"
 
 

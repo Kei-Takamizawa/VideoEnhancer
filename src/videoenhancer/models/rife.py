@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fractions import Fraction
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -16,7 +17,15 @@ class RifeInterpolateStage(Stage):
     name = "rife"
     context_after = 1
 
-    def __init__(self, rate: Fraction, scene_cuts: set[int], settings: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        rate: Fraction,
+        scene_cuts: set[int],
+        settings: dict[str, Any],
+        *,
+        manifest: dict[str, Any] | None = None,
+        weights: Path | None = None,
+    ) -> None:
         self.rate = rate
         self.scene_cuts = scene_cuts
         self.settings = settings
@@ -27,11 +36,16 @@ class RifeInterpolateStage(Stage):
         self.nan_fallback_count = 0
         self.model: Any = None
         self.last_padding = (0, 0)
+        self.weights = weights
+        self.precision = (manifest or {}).get("precision", "fp16")
 
     def setup(self) -> None:
-        self.model = load_rife_model().eval()
+        self.model = (
+            load_rife_model() if self.weights is None else load_rife_model(weights=self.weights)
+        ).eval()
         if self.backend == "cuda":
-            self.model = self.model.cuda().half()
+            self.model = self.model.cuda()
+            self.model = self.model.half() if self.precision == "fp16" else self.model.float()
         else:
             self.model = self.model.float()
 
@@ -54,6 +68,11 @@ class RifeInterpolateStage(Stage):
         self.last_padding = (pad_h, pad_w)
         pair = torch.cat((left, right), dim=0).unsqueeze(0)
         pair = F.pad(pair, (0, pad_w, 0, pad_h), mode="replicate")
+        pair = pair.to(
+            dtype=torch.float16
+            if self.backend == "cuda" and self.precision == "fp16"
+            else torch.float32
+        )
         flows, _mask, merged = self.model(pair, scale_list=[8, 4, 2, 1, 1], fastmode=True)
         interpolated = merged[-1][0, :, :height, :width]
         flow = flows[-1]

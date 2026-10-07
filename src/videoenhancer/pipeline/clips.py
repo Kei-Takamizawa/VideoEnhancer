@@ -82,7 +82,7 @@ def plan_restore_clips(
         ownership_edges = [scene_start]
         for previous, following in zip(windows[:-1], windows[1:], strict=True):
             overlap_start, overlap_end = following[0], previous[1]
-            if overlap_start >= overlap_end:
+            if overlap_start > overlap_end:
                 raise RuntimeError("Restoration clip plan contains a gap.")
             # At the midpoint, both windows are equally far from their nearest edge;
             # ties belong to the later clip, making ownership stable across runs.

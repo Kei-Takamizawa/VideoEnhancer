@@ -83,6 +83,56 @@ def _coefficient(name: str, backend: str, profile: dict[str, Any] | None) -> flo
     return value
 
 
+def _model_entry(
+    task: str, settings: dict[str, Any], profile: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    from videoenhancer.models.registry import C1, RIFE
+
+    model_id = (
+        settings.get("restore_model") or C1
+        if task == "restore"
+        else (settings.get("interp_model") or RIFE)
+    )
+    entry = (profile or {}).get("models", {}).get(model_id)
+    if (
+        isinstance(entry, dict)
+        and entry.get("status") == "measured"
+        and entry.get("task") == task
+        and entry.get("backend") == settings.get("backend", "cuda")
+    ):
+        return entry
+    return None
+
+
+def _model_coefficient(
+    task: str, settings: dict[str, Any], profile: dict[str, Any] | None
+) -> float:
+    entry = _model_entry(task, settings, profile)
+    if entry is None:
+        return _coefficient(task, settings.get("backend", "cuda"), profile)
+    value = float(entry["seconds_per_pixel_frame"])
+    if value < 0 or not math.isfinite(value):
+        raise ValueError(f"Invalid calibrated model cost for {task}.")
+    return value
+
+
+def _clip_factors(
+    settings: dict[str, Any], profile: dict[str, Any] | None, multiplier: float
+) -> tuple[float, float]:
+    from videoenhancer.models.registry import C1
+
+    entry = _model_entry("restore", settings, profile) or {}
+    builtin = (settings.get("restore_model") or C1) == C1
+    length = int(settings.get("clip_length", entry.get("clip_length", 15 if builtin else 1)))
+    overlap = int(settings.get("clip_overlap", entry.get("clip_overlap", 2 if builtin else 0)))
+    if length <= 2 * overlap or overlap < 0:
+        raise ValueError("Estimator clip length must exceed twice the nonnegative overlap.")
+    if entry.get("single_frame") or length == 1:
+        return (2.0 if multiplier > 1 else 1.0), 1.0
+    owned = length - 2 * overlap
+    return length / owned, max(1.0, (length - 1) / owned)
+
+
 def predict_segment(
     media: dict[str, Any],
     settings: dict[str, Any],
@@ -109,13 +159,32 @@ def predict_segment(
     )
     if normalized_pixels != input_pixels:
         costs.append(_coefficient("resize", backend, profile) * normalized_pixels)
-    if preset == "standard":
-        costs.append(_coefficient("restore", backend, profile) * input_pixels)
+    restore = preset == "standard" or bool(settings.get("restore_model"))
+    restore_factor, interpolation_factor = (
+        _clip_factors(settings, profile, multiplier) if restore else (1.0, 1.0)
+    )
+    if restore:
+        costs.append(
+            _model_coefficient("restore", settings, profile) * normalized_pixels * restore_factor
+        )
     if multiplier > 1:
         component = "interpolate" if preset in ("fast", "standard") else "blend2x"
-        costs.append(_coefficient(component, backend, profile) * output_pixels)
+        costs.append(
+            (
+                _model_coefficient(component, settings, profile) * interpolation_factor
+                if component == "interpolate"
+                else _coefficient(component, backend, profile)
+            )
+            * output_pixels
+        )
     # Sum is deliberately conservative before end-to-end overlap is calibrated.
     overhead = float((profile or {}).get("segment_overhead_seconds", 2.0))
+    if restore:
+        overhead += float((_model_entry("restore", settings, profile) or {}).get("load_seconds", 0))
+    if multiplier > 1 and preset in {"fast", "standard"}:
+        overhead += float(
+            (_model_entry("interpolate", settings, profile) or {}).get("load_seconds", 0)
+        )
     if overhead < 0 or not math.isfinite(overhead):
         raise ValueError("Segment overhead must be finite and nonnegative.")
     return (sum(costs) * frames + overhead) * correction
@@ -156,7 +225,7 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
     preset = settings.get("preset", "standard")
     if preset in ("resize", "p0-test", "fast", "standard"):
         needed.add("resize")
-    if preset == "standard":
+    if preset == "standard" or settings.get("restore_model"):
         needed.add("restore")
     if (
         int(media.get("display_width", media.get("width", 720)))
@@ -168,6 +237,9 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
         needed.add("interpolate" if preset in ("fast", "standard") else "blend2x")
 
     def measured(name: str) -> bool:
+        if name in {"restore", "interpolate"} and "models" in (profile or {}):
+            value = (_model_entry(name, settings, profile) or {}).get("seconds_per_pixel_frame")
+            return isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
         value = components.get(name)
         if isinstance(value, dict):
             value = value.get("seconds_per_pixel_frame")

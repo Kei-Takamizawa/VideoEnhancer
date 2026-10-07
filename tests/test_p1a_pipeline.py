@@ -8,7 +8,11 @@ from videoenhancer.models.basicvsr import BasicVSRRestoreStage
 from videoenhancer.models.rife import RifeInterpolateStage
 from videoenhancer.pipeline import runner as pipeline_runner
 from videoenhancer.pipeline.clips import StreamingClipBuffer, plan_restore_clips
-from videoenhancer.pipeline.outliers import detect_frame_outliers, invalid_frame_positions
+from videoenhancer.pipeline.outliers import (
+    detect_frame_outliers,
+    invalid_frame_positions,
+    reference_range_positions,
+)
 from videoenhancer.pipeline.stages import FrameBatch
 
 
@@ -38,6 +42,31 @@ def test_frame_outlier_detector_rejects_a_source_flash():
     assert detect_frame_outliers(source_flash, source_flash) == []
 
 
+def test_cut_detector_compares_only_same_scene_but_detects_adjacent_corruption():
+    reference = torch.full((8, 3, 16, 16), 0.20)
+    reference[4:] = 0.30
+    output = reference.clone()
+    output[4:] = 0.55  # Stable per-scene change, not an isolated flash.
+    scenes = [0] * 4 + [1] * 4  # Includes the left-owned inserted frame before cut.
+    assert detect_frame_outliers(output, reference) == [4]
+    assert detect_frame_outliers(output, reference, scene_ids=scenes) == []
+    output[4] = 1.0
+    assert 4 in detect_frame_outliers(output, reference, scene_ids=scenes)
+
+
+def test_cut_detector_keeps_edge_and_chroma_checks_next_to_cut():
+    reference = torch.full((10, 3, 40, 40), 0.25)
+    scenes = [0] * 5 + [1] * 5
+    for side in (4, 5):
+        output = reference.clone()
+        output[side, :, :, :4] = 1
+        assert side in detect_frame_outliers(output, reference, scene_ids=scenes)
+        output = reference.clone()
+        output[side, 0] = 1
+        output[side, 1] = 0
+        assert side in detect_frame_outliers(output, reference, scene_ids=scenes)
+
+
 def test_frame_outlier_detector_flags_edge_only_flash_but_not_natural_cut():
     reference = torch.full((5, 3, 40, 40), 0.25)
     reference[4:] = 0.75
@@ -63,6 +92,15 @@ def test_invalid_frame_check_flags_nonfinite_and_unexpected_range_values():
     frames[2, 0, 0, 0] = 1.1
     assert invalid_frame_positions(frames) == [1, 2]
     assert invalid_frame_positions(frames, [False, False, True]) == [1]
+
+
+def test_reference_range_flags_do_not_depend_on_decoder_batching():
+    frames = torch.full((4, 3, 8, 8), 1.001)
+    assert reference_range_positions(frames) == [0, 1, 2, 3]
+    assert reference_range_positions(frames[:2]) == [0, 1]
+    assert invalid_frame_positions(frames[:1], [True]) == []
+    frames[0, 0, 0, 0] = float("nan")
+    assert invalid_frame_positions(frames[:1], [True]) == [0]
 
 
 def test_clip_ownership_is_center_most_and_covers_each_frame_once():
@@ -382,7 +420,9 @@ def test_process_segment_records_fallback_when_corruption_persists(
     assert max(encoder_means) < 0.95
     assert stats["corruption_retries"] > 0
     assert stats["corruption_fallbacks"] > 0
-    assert all(event["action"] == "nearest_valid_frame" for event in stats["corruption_events"])
+    assert stats["raw_flag_count"] > 0
+    assert stats["final_flag_count"] == 0
+    assert all(event["action"] == "source_frame_resize" for event in stats["corruption_events"])
 
 
 @pytest.mark.gpu
@@ -405,3 +445,131 @@ def test_real_rife_gpu_padding_crop_and_original_frame_passthrough(gpu_available
         result = batch = original = None
         torch.cuda.empty_cache()
         stage.teardown()
+
+
+@pytest.mark.parametrize("preset", ["fast", "standard"])
+def test_persistent_inserted_flash_is_repaired_by_exact_endpoint_blend(
+    video_factory, build_manifest, tmp_path, monkeypatch, preset
+):
+    from videoenhancer.pipeline.stages import Blend2xStage
+
+    class CorruptRife(Blend2xStage):
+        name = "rife"
+
+        def process(self, batch):
+            result = super().process(batch)
+            if 5 in result.indices:
+                result.frames[result.indices.index(5)].fill_(1)
+            return result
+
+    source = video_factory(width=64, height=64, frames=12)
+    manifest = build_manifest(source, backend="cpu", preset=preset, fps="2x", short_side="keep")
+    stages = [CorruptRife(Fraction(30))]
+    if preset == "standard":
+        stages.insert(0, _FakeRestore())
+    monkeypatch.setattr(pipeline_runner, "create_stages", lambda *_args: stages)
+    captured = []
+    original = pipeline_runner.Encoder.write
+
+    def write(encoder, frame):
+        captured.append(frame.clone())
+        original(encoder, frame)
+
+    monkeypatch.setattr(pipeline_runner.Encoder, "write", write)
+    stats = pipeline_runner.process_segment(
+        manifest, {"index": 0, "start": 0, "end": 12}, tmp_path / "blend.mp4", lambda: False
+    )
+    assert len(captured) == 24
+    assert torch.equal(captured[5], (captured[4] + captured[6]) * 0.5)
+    assert stats["raw_flag_count"] == 1
+    assert stats["final_flag_count"] == 0
+    assert stats["corruption_fallbacks"] == 1
+    assert stats["corruption_events"][0]["action"] == "endpoint_blend_50_50"
+
+
+def test_persistent_restored_flash_fallback_matches_same_source_resize(
+    video_factory, build_manifest, tmp_path, monkeypatch
+):
+    from videoenhancer.media.decode import IndexedDecoder
+    from videoenhancer.pipeline.stages import ResizeStage
+
+    source = video_factory(width=64, height=64, frames=12)
+    manifest = build_manifest(source, backend="cpu", preset="standard", fps="off", short_side=96)
+    monkeypatch.setattr(
+        pipeline_runner,
+        "create_stages",
+        lambda *_args: [_CorruptEveryRestore(), ResizeStage(96, 96)],
+    )
+    captured = []
+    original = pipeline_runner.Encoder.write
+
+    def write(encoder, frame):
+        captured.append(frame.clone())
+        original(encoder, frame)
+
+    monkeypatch.setattr(pipeline_runner.Encoder, "write", write)
+    stats = pipeline_runner.process_segment(
+        manifest, {"index": 0, "start": 0, "end": 12}, tmp_path / "faithful.mp4", lambda: False
+    )
+    decoder = IndexedDecoder(source, manifest["media"], "cpu", manifest)
+    try:
+        originals = list(decoder.frames(manifest["cfr_map"], lambda: False))
+    finally:
+        decoder.close()
+    for event in stats["corruption_events"]:
+        index = event["frame_index"]
+        batch = FrameBatch(originals[index].unsqueeze(0), (Fraction(index, 30),), (index,))
+        expected = ResizeStage(96, 96).process(batch).frames[0]
+        assert torch.equal(captured[index], expected)
+    assert stats["raw_flag_count"] > 0
+    assert stats["final_flag_count"] == 0
+
+
+def test_rife_replicate_padding_and_crop_preserve_actual_border_coordinates():
+    class CapturePair(_FakeRife):
+        def __call__(self, pair, **options):
+            self.pair = pair.clone()
+            return super().__call__(pair, **options)
+
+    stage = RifeInterpolateStage(Fraction(30), set(), {"backend": "cpu"})
+    stage.model = CapturePair()
+    left = torch.rand((3, 33, 35))
+    right = torch.rand_like(left)
+    result = stage._interpolate(left, right)
+    pair = stage.model.pair
+    assert torch.equal(pair[0, :3, :33, :35], left)
+    assert torch.equal(pair[0, :3, :33, 35:], left[:, :, -1:].expand(-1, -1, 29))
+    assert torch.equal(pair[0, :3, 33:, :35], left[:, -1:, :].expand(-1, 31, -1))
+    assert torch.equal(result, (left + right) * 0.5)
+
+
+def test_corrupted_unowned_restore_context_cannot_contaminate_owned_inserted_frame(
+    video_factory, build_manifest, tmp_path, monkeypatch
+):
+    from videoenhancer.pipeline.stages import Blend2xStage
+
+    class FakeRifeBlend(Blend2xStage):
+        name = "rife"
+
+    source = video_factory(width=64, height=64, frames=12)
+    manifest = build_manifest(source, backend="cpu", preset="standard", fps="2x", short_side="keep")
+    monkeypatch.setattr(
+        pipeline_runner,
+        "create_stages",
+        lambda *_args: [_CorruptEveryRestore(-1), FakeRifeBlend(Fraction(30))],
+    )
+    captured = []
+    original = pipeline_runner.Encoder.write
+
+    def write(encoder, frame):
+        captured.append(frame.clone())
+        original(encoder, frame)
+
+    monkeypatch.setattr(pipeline_runner.Encoder, "write", write)
+    stats = pipeline_runner.process_segment(
+        manifest, {"index": 0, "start": 0, "end": 12}, tmp_path / "context-flash.mp4", lambda: False
+    )
+    # Frame 4 is unowned context in the first clip; its corrupt value must not
+    # escape through the owned midpoint frame 7 that interpolates sources 3/4.
+    assert torch.equal(captured[7], (captured[6] + captured[8]) * 0.5)
+    assert stats["final_flag_count"] == 0

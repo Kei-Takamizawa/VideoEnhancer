@@ -6,6 +6,56 @@ MEDIA = {"width": 720, "height": 1280, "average_fps": "30000/1001", "cfr_fps": "
 SETTINGS = {"preset": "p0-test", "short_side": 1080, "fps": "2x", "backend": "cuda"}
 
 
+def test_model_coefficients_follow_ids_and_include_overlap_work():
+    from videoenhancer.models.registry import C1, RIFE
+
+    settings = {**SETTINGS, "preset": "standard", "short_side": "keep"}
+    profile = {
+        "components": {name: 0 for name in ("decode", "color", "resize", "encode")},
+        "segment_overhead_seconds": 0,
+        "models": {
+            C1: dict(
+                status="measured",
+                task="restore",
+                backend="cuda",
+                seconds_per_pixel_frame=2e-6,
+                clip_length=15,
+                clip_overlap=2,
+                load_seconds=3,
+            ),
+            RIFE: dict(
+                status="measured",
+                task="interpolate",
+                backend="cuda",
+                seconds_per_pixel_frame=3e-6,
+                load_seconds=4,
+            ),
+        },
+    }
+    pixels = 720 * 1280
+    # Eleven owned frames require fifteen restored frames and fourteen RIFE pairs.
+    assert predict_segment(MEDIA, settings, 11, profile) == pytest.approx(
+        pixels * (15 * 2e-6 + 14 * 3e-6) + 7
+    )
+    job = {"media": MEDIA, "settings": settings, "segments": [{"start": 0, "end": 11}]}
+    assert estimate_job(job, profile).calibrated
+    job["settings"] = {**settings, "restore_model": "uncalibrated-custom"}
+    assert not estimate_job(job, profile).calibrated
+    profile["models"]["custom"] = dict(
+        status="measured",
+        task="restore",
+        backend="cuda",
+        seconds_per_pixel_frame=4e-6,
+        clip_length=1,
+        clip_overlap=0,
+        single_frame=True,
+    )
+    custom = {**settings, "restore_model": "custom", "fps": "off"}
+    assert predict_segment(MEDIA, custom, 11, profile) == pytest.approx(pixels * 11 * 4e-6)
+    custom["preset"] = "fast"
+    assert predict_segment(MEDIA, custom, 11, profile) == pytest.approx(pixels * 11 * 4e-6)
+
+
 def manifest():
     return {
         "media": MEDIA,

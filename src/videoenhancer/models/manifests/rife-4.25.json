@@ -1,0 +1,21 @@
+{
+  "id": "rife-4.25",
+  "display_name": "Practical-RIFE 4.25",
+  "version": "1",
+  "description": "Practical-RIFE 4.25",
+  "task": "interpolate",
+  "architecture": "rife",
+  "architecture_params": {},
+  "weights": {
+    "filename": "flownet.pkl",
+    "sha256": "6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2",
+    "url": "https://drive.google.com/uc?id=1ZKjcbmt1hypiFprJPIKW0Tt0lr_2i7bg"
+  },
+  "licence": "MIT (hzwer); verify rights for third-party weights and intended use.",
+  "commercial_use_allowed": true,
+  "scale": 1,
+  "temporal": true,
+  "clip_length": 3,
+  "clip_overlap": 1,
+  "precision": "fp16"
+}

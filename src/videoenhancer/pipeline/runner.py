@@ -4,6 +4,7 @@ import logging
 import queue
 import threading
 import time
+from bisect import bisect_right
 from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
@@ -24,10 +25,11 @@ from videoenhancer.pipeline.clips import (
 from videoenhancer.pipeline.outliers import (
     detect_frame_outliers,
     invalid_frame_positions,
+    reference_range_positions,
     summarize_frames,
 )
 from videoenhancer.pipeline.presets import create_stages
-from videoenhancer.pipeline.stages import FrameBatch
+from videoenhancer.pipeline.stages import FrameBatch, ResizeStage
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,9 @@ def process_segment(
     abort: Callable[[], bool],
     batch_size: int = 2,
 ) -> dict[str, Any]:
+    from videoenhancer.models.registry import validate_job_models
+
+    validate_job_models(manifest)
     started = time.perf_counter()
     settings, media = manifest["settings"], manifest["media"]
     backend = choose_backend(settings.get("backend", "auto"))
@@ -48,8 +53,14 @@ def process_segment(
     stages = create_stages(settings, media, set(manifest.get("scene_cuts", [])))
     memory_sampler = JobMemorySampler()
     memory_sampler.start()
-    for stage in stages:
-        stage.setup()
+    try:
+        for stage in stages:
+            stage.setup()
+    except BaseException:
+        for stage in stages:
+            stage.teardown()
+        memory_sampler.stop()
+        raise
     context_before = sum(s.context_before for s in stages)
     context_after = sum(s.context_after for s in stages)
     start, end = segment["start"], segment["end"]
@@ -57,6 +68,7 @@ def process_segment(
     source_start, source_end = max(0, start - context_before), min(count, end + context_after)
     rate = Fraction(media["cfr_fps"])
     factor = int(output_rate(settings, media) / rate)
+    source_cuts = sorted(set(manifest.get("scene_cuts", [])))
     # Two queue slots, two-frame batches, and at most one context frame keep
     # full-resolution tensors bounded independently of video duration.
     queue_size = max(1, int(settings.get("pipeline_queue_size", 2)))
@@ -73,6 +85,8 @@ def process_segment(
     corruption_retries = 0
     corruption_fallbacks = 0
     corruption_events: list[dict[str, Any]] = []
+    raw_flag_indices: set[int] = set()
+    postrepair_flag_indices: set[int] = set()
     stage_seconds: dict[str, float] = {}
     reference_summaries: dict[int, torch.Tensor] = {}
     reference_out_of_range: set[int] = set()
@@ -143,7 +157,7 @@ def process_segment(
                     reference_summaries.update(zip(batch.indices, summaries.cpu(), strict=True))
                     reference_out_of_range.update(
                         batch.indices[position]
-                        for position in invalid_frame_positions(batch.frames)
+                        for position in reference_range_positions(batch.frames)
                     )
                     reference_check_seconds += time.perf_counter() - check_started
                     if backend == "cuda":
@@ -160,7 +174,7 @@ def process_segment(
                 summaries = summarize_frames(batch.frames)
                 reference_summaries.update(zip(batch.indices, summaries.cpu(), strict=True))
                 reference_out_of_range.update(
-                    batch.indices[position] for position in invalid_frame_positions(batch.frames)
+                    batch.indices[position] for position in reference_range_positions(batch.frames)
                 )
                 reference_check_seconds += time.perf_counter() - check_started
                 if backend == "cuda":
@@ -185,6 +199,8 @@ def process_segment(
         result: FrameBatch,
         retry_clip: Callable[[], FrameBatch],
         retry_pair: Callable[[int], FrameBatch] | None,
+        owned_start: int,
+        owned_end: int,
     ) -> FrameBatch:
         """Validate final compute output, retry its producing unit once, then fall back."""
         nonlocal handoff_check_seconds, corruption_retries, corruption_fallbacks
@@ -199,7 +215,13 @@ def process_segment(
             for index, reference_index in zip(candidate.indices, reference_indices, strict=True):
                 reference = reference_summaries[reference_index]
                 outside = reference_index in reference_out_of_range
-                if factor == 2 and index % 2 and reference_index + 1 in reference_summaries:
+                if (
+                    factor == 2
+                    and index % 2
+                    and index + 1 in candidate.indices
+                    and reference_index + 1 in reference_summaries
+                    and reference_index + 1 not in source_cuts
+                ):
                     reference = (reference + reference_summaries[reference_index + 1]) * 0.5
                     outside |= reference_index + 1 in reference_out_of_range
                 references.append(reference)
@@ -220,6 +242,14 @@ def process_segment(
                         )
                     ),
                     torch.cat((reference[:1], reference, reference[-1:])),
+                    scene_ids=[
+                        bisect_right(source_cuts, index // factor)
+                        for index in (
+                            candidate.indices[0],
+                            *candidate.indices,
+                            candidate.indices[-1],
+                        )
+                    ],
                 )
             ]
             return sorted(
@@ -227,6 +257,11 @@ def process_segment(
             )
 
         flagged = flagged_positions(result)
+        raw_flag_indices.update(
+            result.indices[position]
+            for position in flagged
+            if start * factor <= result.indices[position] < end * factor
+        )
         if not flagged:
             handoff_check_seconds += time.perf_counter() - check_started
             return result
@@ -251,42 +286,59 @@ def process_segment(
             result = FrameBatch(frames, result.timestamps, result.indices)
 
         persistent = flagged_positions(result)
-        if persistent:
+        # A repaired context endpoint can reveal an anomaly in its inserted
+        # neighbor. Re-check and apply the same policy to that newly flagged frame.
+        for _repair_pass in range(2):
+            if not persistent:
+                break
             frames = result.frames.clone()
-            valid = [
-                position for position in range(len(result.indices)) if position not in persistent
-            ]
-            for position in persistent:
-                if valid:
-                    nearest = min(
-                        valid, key=lambda candidate: (abs(candidate - position), candidate)
-                    )
-                    frames[position] = result.frames[nearest]
+            output_positions = {index: position for position, index in enumerate(result.indices)}
+            # Restore source-aligned frames first, so a flagged inserted frame
+            # can blend the repaired, valid endpoints rather than corrupt data.
+            for position in sorted(persistent, key=lambda pos: result.indices[pos] % factor):
+                output_index = result.indices[position]
+                if factor == 2 and output_index % 2:
+                    left = output_positions[output_index - 1]
+                    right = output_positions.get(output_index + 1)
+                    if right is None and output_index // factor != count - 1:
+                        if not owned_start * factor <= output_index < owned_end * factor:
+                            continue  # Discarded terminal context has no inserted midpoint.
+                        raise RuntimeError("Flagged owned RIFE frame has no right endpoint.")
+                    frames[position] = (
+                        frames[left] + frames[left if right is None else right]
+                    ) * 0.5
+                    action = "endpoint_blend_50_50"
                 else:
-                    input_index = result.indices[position] // factor
-                    source_position = min(
-                        range(len(source.indices)),
-                        key=lambda candidate: abs(source.indices[candidate] - input_index),
+                    input_index = output_index // factor
+                    source_position = source.indices.index(input_index)
+                    faithful = FrameBatch(
+                        source.frames[source_position : source_position + 1],
+                        (source.timestamps[source_position],),
+                        (input_index,),
                     )
-                    fallback = source.frames[source_position]
-                    if fallback.shape != frames[position].shape:
-                        fallback = torch.nn.functional.interpolate(
-                            fallback.unsqueeze(0).float(),
-                            size=frames[position].shape[-2:],
-                            mode="bilinear",
-                            align_corners=False,
-                        )[0].to(frames.dtype)
-                    frames[position] = fallback
+                    frames[position] = (
+                        ResizeStage(*output_size(settings, media))
+                        .process(faithful)
+                        .frames[0]
+                        .to(frames.dtype)
+                    )
+                    action = "source_frame_resize"
                 corruption_fallbacks += 1
                 corruption_events.append(
                     {
-                        "stage": "rife" if result.indices[position] % factor else "restore",
-                        "frame_index": result.indices[position],
-                        "action": "nearest_valid_frame",
+                        "stage": "rife" if output_index % factor else "restore",
+                        "frame_index": output_index,
+                        "action": action,
                     }
                 )
             result = FrameBatch(frames, result.timestamps, result.indices)
+            persistent = flagged_positions(result)
 
+        postrepair_flag_indices.update(
+            result.indices[pos]
+            for pos in persistent
+            if owned_start * factor <= result.indices[pos] < owned_end * factor
+        )
         handoff_check_seconds += time.perf_counter() - check_started
         return result
 
@@ -373,6 +425,15 @@ def process_segment(
             for clip_index, clip in enumerate(restore_windows):
                 if check():
                     raise InterruptedError("The segment was interrupted.")
+                if (
+                    getattr(active_restore, "single_frame", False)
+                    and factor == 2
+                    and clip.end < source_end
+                    and clip.end not in source_cuts
+                ):
+                    # Single-frame adapters still supply RIFE's following-frame
+                    # context; ownership stays with the original one-frame clip.
+                    clip = RestoreClip(clip.start, clip.end + 1, clip.owned_start, clip.owned_end)
                 fill_until(clip.end)
                 try:
                     clip_batch = frame_cache.build(clip)
@@ -383,6 +444,7 @@ def process_segment(
                     ) from None
                 transformed = restore_with_retry(clip_batch, clip)
                 interpolation_input: FrameBatch | None = None
+                stage_input: FrameBatch | None = None
                 interpolation_stage: Any | None = next(
                     (stage for stage in stages if stage.name == "rife"), None
                 )
@@ -431,6 +493,8 @@ def process_segment(
                     transformed,
                     retry_clip,
                     retry_pair if interpolation_stage is not None else None,
+                    max(start, clip.owned_start),
+                    min(end, clip.owned_end),
                 )
                 owned = [
                     pos
@@ -448,12 +512,16 @@ def process_segment(
                     if backend == "cuda":
                         torch.cuda.synchronize()
                     put(processed, owned_batch)
+                    del owned_batch
                 next_start = (
                     restore_windows[clip_index + 1].start
                     if clip_index + 1 < len(restore_windows)
                     else source_end
                 )
                 frame_cache.release_before(next_start)
+                # Retry defaults and stage_input otherwise retain the previous
+                # full-resolution clip throughout the next restoration call.
+                del retry_clip, retry_pair, interpolation_input, stage_input
                 del transformed, clip_batch
             # Drain the decoder sentinel so the producer can close cleanly.
             while not decoder_finished:
@@ -522,6 +590,8 @@ def process_segment(
                 batch,
                 retry_clip_without_restore,
                 retry_pair_without_restore if interpolation_stage is not None else None,
+                max(start, input_batch.indices[0]),
+                min(end, input_batch.indices[0] + own),
             )
             # Clip context output and keep interpolation owned by its left frame.
             mask = [
@@ -596,11 +666,26 @@ def process_segment(
             f"{(end - start) * factor}. Retry the segment."
         )
     ordered_output = sorted(output_summaries)
-    aligned_reference = [reference_summaries[index // factor] for index in ordered_output]
+    aligned_reference = []
+    for index in ordered_output:
+        source_index = index // factor
+        reference = reference_summaries[source_index]
+        if (
+            factor == 2
+            and index % 2
+            and source_index + 1 in reference_summaries
+            and source_index + 1 not in source_cuts
+        ):
+            reference = (reference + reference_summaries[source_index + 1]) * 0.5
+        aligned_reference.append(reference)
     flagged_positions = detect_frame_outliers(
         torch.stack([output_summaries[index] for index in ordered_output]),
         torch.stack(aligned_reference),
+        scene_ids=[bisect_right(source_cuts, index // factor) for index in ordered_output],
     )
+    final_flag_indices = postrepair_flag_indices | {
+        ordered_output[pos] for pos in flagged_positions
+    }
     elapsed = time.perf_counter() - started
     return {
         "seconds": elapsed,
@@ -609,6 +694,9 @@ def process_segment(
         "fps": (end - start) / elapsed,
         "decode_seconds": decode_seconds,
         "stage_seconds": stage_seconds,
+        "clip_joints": [
+            clip.owned_start for clip in restore_windows if start < clip.owned_start < end
+        ],
         "encode_seconds": encode_seconds,
         "handoff_check_seconds": handoff_check_seconds + reference_check_seconds,
         "pipeline_queue_size": queue_size,
@@ -623,11 +711,20 @@ def process_segment(
         "corruption_retries": corruption_retries,
         "corruption_fallbacks": corruption_fallbacks,
         "corruption_events": corruption_events,
+        "raw_flag_count": len(raw_flag_indices),
+        "raw_flag_scope": (
+            "Unique pre-repair compute indices, including clip context within the segment."
+        ),
+        "final_flag_count": len(final_flag_indices),
+        "raw_luma_outliers": [
+            {"frame_index": index, "timestamp_seconds": index / float(output_rate(settings, media))}
+            for index in sorted(raw_flag_indices)
+        ],
         "luma_outliers": [
             {
-                "frame_index": ordered_output[position],
-                "timestamp_seconds": ordered_output[position] / float(output_rate(settings, media)),
+                "frame_index": index,
+                "timestamp_seconds": index / float(output_rate(settings, media)),
             }
-            for position in flagged_positions
+            for index in sorted(final_flag_indices)
         ],
     }

@@ -4,6 +4,10 @@ VideoEnhancer is a Windows app in development. From the command line, it can res
 
 Requires an NVIDIA RTX GPU. Your videos stay on your computer.
 
+Try a short labeled comparison before processing a whole video. You can also
+add your own compatible restoration models and choose them for a job. See the
+[developer guide](docs/DEVELOPMENT.md) for these commands.
+
 For development setup and commands, see the [developer guide](docs/DEVELOPMENT.md). Code is licensed under [MIT](LICENSE); optional AI models have separate licenses.
 
 ## Windows Smart App Control

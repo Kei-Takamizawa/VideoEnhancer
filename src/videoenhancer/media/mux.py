@@ -29,8 +29,8 @@ def _audio_duration_matches(original: dict[str, Any], actual: dict[str, Any]) ->
     return abs(delta - initial_padding / sample_rate) <= 0.020
 
 
-def _run(command: list[str], abort: Callable[[], bool] | None) -> None:
-    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+def _run(command: list[str], abort: Callable[[], bool] | None, *, cwd: Path | None = None) -> None:
+    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, cwd=cwd)
     try:
         while True:
             try:

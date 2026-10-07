@@ -152,15 +152,20 @@ def load_machine_profile(
     *,
     gpu_name: str | None = None,
     driver: str | None = None,
+    backend: str = "cuda",
+    models: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Load the newest calibration for this exact GPU and driver, if any."""
-    if gpu_name is None or driver is None:
+    import platform
+
+    cpu_name = platform.processor() or platform.machine()
+    if backend == "cuda" and (gpu_name is None or driver is None):
         from videoenhancer.logging import environment_info
 
         environment = environment_info()
         gpu_name = gpu_name or environment.get("gpu")
         driver = driver or environment.get("driver")
-    if not gpu_name or not driver:
+    if backend == "cuda" and (not gpu_name or not driver):
         return None
     directory = _home(home) / "profiles"
     if not directory.exists():
@@ -173,10 +178,30 @@ def load_machine_profile(
             profile = json.loads(path.read_text(encoding="utf-8"))
             if (
                 profile.get("schema_version") == 1
-                and profile.get("gpu_name") == gpu_name
-                and str(profile.get("driver")) == str(driver)
+                and profile.get("backend", "cuda") == backend
+                and (
+                    (
+                        profile.get("gpu_name") == gpu_name
+                        and str(profile.get("driver")) == str(driver)
+                    )
+                    if backend == "cuda"
+                    else profile.get("cpu_name") == cpu_name
+                )
                 and isinstance(profile.get("components"), dict)
             ):
+                if "models" in profile:
+                    entries = profile["models"]
+                    if not isinstance(entries, dict):
+                        continue
+                    if models is not None:
+                        identities = {value["id"]: value for value in models.values()}
+                        profile["models"] = {
+                            model_id: entry
+                            for model_id, entry in entries.items()
+                            if isinstance(entry, dict)
+                            and entry.get("identity") == identities.get(model_id)
+                            and model_id in identities
+                        }
                 return profile
         except (OSError, ValueError, TypeError):
             continue
@@ -274,6 +299,10 @@ class JobStore:
         directory = self.job_dir(job_id)
         with _manifest_lock(directory):
             job = self._load_unlocked(directory / "manifest.json")
+            if state == "queued":
+                from videoenhancer.models.registry import validate_job_models
+
+                validate_job_models(job, self.home)
             job["state"] = state
             job["control_generation"] = int(job.get("control_generation", 0)) + 1
             if state == "queued":
@@ -361,9 +390,12 @@ def add_job(
     output_bytes = estimated_output_size(identity["size"], media, chosen)
     require_disk_space(destination.parent, output_bytes, disk_free)
     require_disk_space(store.home, output_bytes, disk_free)
+    from videoenhancer.models.registry import record_models
+
+    models = record_models(chosen, store.home, media)
     from videoenhancer.estimate import predict_segment
 
-    profile = load_machine_profile(store.home) if chosen["backend"] == "cuda" else None
+    profile = load_machine_profile(store.home, backend=chosen["backend"], models=models)
     fps = float(Fraction(str(media["cfr_fps"])))
     typical_frames = max(1, round(fps * 10))
     cost_per_frame = max(
@@ -386,6 +418,7 @@ def add_job(
         "input": identity,
         "output": str(destination),
         "settings": chosen,
+        "models": models,
         "media": media,
         "cfr_map": analysis.get("cfr_map", []),
         "source_pts": analysis.get("source_pts", []),
