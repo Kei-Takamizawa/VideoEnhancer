@@ -160,15 +160,17 @@ The external `owner-review-3` videos show Original / Degraded / C1 / C5 / C9 + C
 | `ruff check src tests` | PASS |
 | `ruff format --check src tests` | PASS |
 | `pyright` | PASS, 0 errors / 0 warnings |
-| CPU suite, `-m "not gpu and not soak"` | PASS: 120 passed, 3 skipped, 15 deselected, 46.61 s |
-| GPU suite, `-m "gpu and not soak"` | PASS: 15 passed, 123 deselected, 38.72 s |
+| CPU suite, `-m "not gpu and not soak"` | PASS after CI polling-test correction: 121 passed, 3 skipped, 15 deselected, 46.98 s |
+| GPU suite, `-m "gpu and not soak"` | PASS: 15 passed, 123 deselected, 38.72 s; executed before the later CPU-only polling-test correction, with unchanged production/GPU test code |
 | Focused pixel/input safety regressions | PASS: 7 passed, 45 deselected, 9.40 s |
 | `git diff --check` | PASS |
 | Final benchmark color metadata | PASS: all 16 generated candidate files declare limited-range BT.709 |
 | Current-commit GitHub CI | PENDING push and checks; the older HEAD's green checks do not validate these changes |
 | Build | NOT RUN: Python source/test/benchmark changes; no native build was required |
 
-The suites cover 135 passing tests and 3 skipped tests; deselected tests are reported separately. The three CPU skips are two optional private-sample checks without `VE_SAMPLES_DIR`, and the Linux-only parent-death signal test on Windows. GPU execution used the local RTX 4060 Ti (8 GB), Python 3.12.14, Torch 2.14.1+cu130, PyNvVideoCodec 2.2.3 and FFmpeg 9.0.2. CI only supplies CPU jobs, not GPU validation.
+The executed suites cover 136 passing tests and 3 skipped tests, including the added CPU polling regression; deselected tests are reported separately. The three CPU skips are two optional private-sample checks without `VE_SAMPLES_DIR`, and the Linux-only parent-death signal test on Windows. GPU execution used the local RTX 4060 Ti (8 GB), Python 3.12.14, Torch 2.14.1+cu130, PyNvVideoCodec 2.2.3 and FFmpeg 9.0.2. CI only supplies CPU jobs, not GPU validation.
+
+The initial implementation push `e2118e5` produced 3 PASS / 1 FAIL CI checks. One Linux job failed because its parent-death polling test observed an existing PID, then the correctly exiting process disappeared before `Process.status()`: `psutil.NoSuchProcess`. The other Linux job and both Windows jobs passed. This was a test-side race, not evidence that the worker survived. The test helper now treats a disappearing process as inactive; an injected disappearance test fails with the historical helper (1 FAIL) and passes in the corrected full CPU suite. No controller/production behavior was changed. Initial failure log: external `completion/evidence/ci-e2118e5-linux-fail.log`; deterministic fail-before log: `fail-before-pid-poll.log`; passing full CPU log: `final-cpu-ci-fix.log`. Fresh CI is required for this correction.
 
 ## Changed files in this continuation
 
@@ -179,6 +181,7 @@ The suites cover 135 passing tests and 3 skipped tests; deselected tests are rep
 - `src/videoenhancer/pipeline/runner.py`: source-aligned endpoint neighbor comparisons.
 - `tests/test_bench.py`: host-input mode/buffer contract regression.
 - `tests/test_p1a_pipeline.py`: actual encoder pixel assertions and persistent first/middle/last frame cases.
+- `tests/test_controller.py`: fixes a test-side PID disappearance race exposed by Linux CI and adds a deterministic regression.
 
 The prior partial cycle already contained the production host-buffer path, queue controls and the main retry/fallback guard. This continuation does not present those files as newly changed. No private source filename, frame, generated video, model weight, cache or build artifact is staged.
 

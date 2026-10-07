@@ -358,6 +358,26 @@ def test_hard_killed_parent_reaps_segment_subprocess() -> None:
             psutil.Process(child_pid).kill()
 
 
+def _process_active(psutil, pid: int) -> bool:
+    try:
+        if not psutil.pid_exists(pid):
+            return False
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+
+
+def test_parent_death_poll_handles_process_disappearing_between_checks(monkeypatch):
+    psutil = pytest.importorskip("psutil")
+    monkeypatch.setattr(psutil, "pid_exists", lambda _pid: True)
+
+    def disappearing_process(pid):
+        raise psutil.NoSuchProcess(pid)
+
+    monkeypatch.setattr(psutil, "Process", disappearing_process)
+    assert not _process_active(psutil, 12345)
+
+
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux parent-death signal test")
 def test_linux_hard_killed_parent_reaps_ffmpeg_subtree(tmp_path: Path) -> None:
     psutil = pytest.importorskip("psutil")
@@ -395,9 +415,7 @@ def test_linux_hard_killed_parent_reaps_ffmpeg_subtree(tmp_path: Path) -> None:
         parent.wait(timeout=5)
 
         def active(pid: int) -> bool:
-            if not psutil.pid_exists(pid):
-                return False
-            return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+            return _process_active(psutil, pid)
 
         deadline = time.monotonic() + 5
         while (active(child_pid) or active(grandchild_pid)) and time.monotonic() < deadline:
