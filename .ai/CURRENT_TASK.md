@@ -1,81 +1,62 @@
-# CURRENT_TASK: Cycle P1a-6 (lock C1, pluggable models, finish engine hardening)
+# CURRENT_TASK: Cycle P1a-7 (finalization in the estimate, quality metrics without a second full pass)
 
-- **Task ID:** VE-P1a-6
-- **Date:** 2026-10-07
+- **Task ID:** VE-P1a-7
+- **Date:** 2026-10-08
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
-Save this file as `.ai/CURRENT_TASK.md`, commit it, and write `.ai/LAST_REPORT.md` (English) at the end. Continue on `p1-restoration-gui`; PR #2 stays a draft. Do not push to `main`. Do the tasks in order A → B → C → D; if time runs out, finish the earlier tasks completely and mark the rest NOT RUN.
+Save this file as `.ai/CURRENT_TASK.md`, commit it, and write `.ai/LAST_REPORT.md` (English) at the end. Continue on `p1-restoration-gui`; PR #2 stays a draft. Do not push to `main`. This is the last engine cycle before the GUI (P1b); after it, the owner merges PR #2.
 
-## Decisions by the owner (2026-10-07)
+## Background (P1a-6 result)
 
-- **C1 (BasicVSR++ NTIRE 2021 decompression, current `standard`) is the restoration model for the first release.** The benchmark work (C2–C11) stops here; keep the scripts and `docs/BENCHMARK_DEGRADED.md`, but add no more candidates.
-- The owner will later **train or fine-tune their own models** (for example, BasicVSR++ fine-tuned on beauty-filtered/made-up footage). The app must make adding such a model possible **without code changes to the pipeline**.
+Everything in P1a-6 passed except one criterion: the completed 2-hour `fast` soak took 17,658.9 active seconds, while the estimate at 10% progress was 13,965.0 s (−20.9%, target ±15%). The initial estimate was −23.0% (passes ±30%). The `standard` 15-minute completed run passed (−10.9% / −9.3%).
 
-Principles unchanged: the target look is the original before compression; keep beauty-filtered looks; no diffusion/generative models; bounded memory; no private names or frames in committed files.
+Your diagnosis: `estimate/model.py` sums only pending segment predictions; the final assembly, validation and the quality pass (`pipeline/quality.py`, full PSNR/SSIM and difference passes after all segments) are not predicted. The gap is 3,694 s (about 21% of the `fast` job). The thresholds and the actual-total reference stay as they are.
 
----
+## Design decisions (designer, 2026-10-08)
 
-## Task A. Pluggable restoration models (model registry)
+1. **No second full decode for quality metrics in normal jobs.** The fidelity/flicker metrics are diagnostics; a second pass over a 2-hour output costs the owner close to an hour of extra work per `fast` job. Compute them **inline during segment processing**, on frames that are already in memory (GPU), using a fixed stride (for example every 10th output frame for PSNR/SSIM, every frame for the cheap flicker and outlier summaries; you choose the stride, report it, and keep the inline overhead ≤ 2% of segment time). Store per-segment partial sums in the segment record and aggregate them at the end. The seam metric already uses joint frames; keep it inline too.
+   - Keep the full post-hoc pass available for development only: `ve report --full-quality <job>` (or a flag with the same effect), never run by default, not part of the job's time.
+2. **Finalization is a predicted stage.** After this change, finalization = assembly (concat/mux) + validation (exact frame count, audio presence, container checks) + aggregation of the inline metrics. Model it explicitly:
+   - `finalize_seconds = a + b × output_bytes + c × output_frames` (or an equivalent you justify), with coefficients per machine profile.
+   - `ve bench --calibrate` measures it on a short generated job (assemble and validate a few segments) and stores the coefficients.
+   - After each completed job, store the observed finalization time and use the ratio observed/predicted as a correction for the next job, the same way segment observations are used.
+   - The initial estimate, the remaining-time estimate, and the **day planner** include finalization. Because assembly is aborted outside operating hours, the planner must place finalization inside a window (if the remaining window is shorter than the predicted finalization, plan it in the next window).
+   - Progress reporting: a `phase` field (`processing` / `finalizing`) with the step name (assembling, validating, aggregating) and its own percent; the overall percent is weighted by predicted time, so the job never shows 100% while it is still finalizing.
+3. Validation should stay exact but cheap: for the frame count prefer a packet/frame count that does not decode every frame, if it is exact for our own outputs (prove it with a test that compares it with a decoded count on a short file); otherwise keep the decoded count and model its cost.
 
-Goal: a new model can be added by dropping files in a folder (plus, for a new architecture, one small adapter module), and selecting it in a preset or on the command line.
+## Tasks
 
-1. **Model manifest.** Every model is described by a manifest file (`model.toml` or `model.json`; your choice, but one format), stored under `%VE_HOME%\models\<model-id>\`. Fields, at least:
-   - `id`, `display_name`, `version`, `description`
-   - `task`: `restore` | `interpolate` (later also `face`, `upscale`)
-   - `architecture`: the name of a registered adapter (for example `basicvsrpp`, `rife`, `spandrel`)
-   - `architecture_params`: adapter-specific (for example channel count, block count for BasicVSR++)
-   - `weights`: file name, SHA-256, optional download URL
-   - `licence` (free text) and `commercial_use_allowed` (bool)
-   - `scale` (1 for same-size restoration), `temporal` (bool) and, for temporal models, the preferred clip length/overlap
-   - `precision` (`fp16`/`fp32`) and a declared `vram_estimate_mb` per frame size class (optional, filled by calibration)
-2. **Adapters.** A registry of architecture adapters. The existing BasicVSR++ and RIFE code becomes the first two adapters (`basicvsrpp`, `rife`) behind one interface (load, warm up, process a clip or frame pair, release). Add a `spandrel` adapter for single-frame models that spandrel can load (this covers most community restoration models). **A fine-tuned BasicVSR++ checkpoint with the same architecture must work just by adding a manifest that points to the new weights.**
-3. **Built-in manifests.** Ship manifests for the current C1 and RIFE 4.25 models; the first-run download keeps working and verifies SHA-256 as today.
-4. **Selection.** Presets refer to models by `id` (`standard` = restore `basicvsrpp-ntire21-decompress` + interpolate `rife-4.25`, or similar ids). CLI: `ve enhance … --restore-model <id>` and `--interp-model <id>` override the preset. `ve models list` shows installed models (id, task, architecture, licence, weights verified yes/no). `ve models add <folder>` validates a manifest, verifies the hash, and copies it into `%VE_HOME%\models`. `ve models remove <id>` refuses to remove a built-in model.
-5. **Validation and safety.** On load: manifest schema check, hash check, adapter exists, `task` matches the stage. Clear error messages. Loading weights uses `weights_only=True` (or the safest loader available) and never executes code from the model folder; new architectures are added only as adapter modules in the repository.
-6. **Job reproducibility.** The job manifest records the model ids, versions and weight hashes used, so a resumed job refuses (with a clear message) if a model changed between segments.
-7. **Fine-tuning readiness (documentation only, no training code):** add `docs/ADDING_MODELS.md` (English): how to add a fine-tuned BasicVSR++ checkpoint, how to add a spandrel-supported model, how to write a new adapter, and how to compare a new model with C1 using `scripts/make_degraded.py` and the existing benchmark script. Also state that licences of third-party weights are the user's responsibility and the field must be filled.
-8. Tests: manifest parsing and validation (good, missing field, wrong hash, unknown adapter, wrong task), a fake adapter registered in tests runs through the CPU pipeline, model override from the CLI, job-manifest model recording and the refusal on change. A GPU test: a copy of the C1 weights registered under a new id gives bit-identical output to the built-in C1 on a short clip.
+### Task A. Breakdown of the P1a-6 `fast` soak (no rerun needed)
 
-## Task B. Detector false positives and memory
+From the existing logs of `fast-soak-fixed`, report: total segment time, assembly time, validation time, quality-pass time, and any idle/wait time inside the active total. Show that these sum to 17,658.9 s. Also report the measured `fast` input fps (15.76) per stage and whether the slowdown against the earlier 17.4 fps comes from the host-input NVENC copy introduced in P1a-5 (report only; do not change it in this cycle unless it costs more than 10%, in which case report the numbers and a proposal).
 
-1. **Detector at scene cuts.** The P1a-5 runs report 8 raw flags at known source scene cuts on sample-05. Fix the rule so that frames at or adjacent to a detected source cut (and the RIFE frame between the two sides of a cut) are compared only against the same side of the cut. **Repair policy (decided 2026-10-07, replaces "nearest valid frame" duplication):** (a) for a flagged RIFE-inserted frame, the fallback is a plain 50/50 blend of the two adjacent output frames that come from source frames, not a copy of one side; (b) for a flagged restored frame, the fallback is the same source frame passed through the non-learned resize path of the preset (faithful, same size), not a neighbour copy; (c) the repaired frame is re-checked; report raw (pre-repair) and final (post-repair) flag counts separately. **Before repairing, find out why the frame was flagged**: for sample-05 at 26.276 s (not a scene cut), save the unrepaired frame and its neighbours as PNG, and check whether the defect is real and whether it is limited to the bottom band. Suspect first RIFE padding at the bottom/right (1080 is not a multiple of 32/64, so the frame is padded to 1088) and its pad mode/crop; fix the cause if it is in our code, with a test. A4 counts the **final** flags. Target: zero flags on all five samples for both presets, while the existing synthetic-flash, edge-flash, chroma-glitch and endpoint tests still pass.
-2. **Memory under 5 GB.** Standard peaks are still above the cap (Torch reserved up to 5.6 GB). Bring both Torch reserved peak and process dedicated memory (PDH) below **5.0 GB** on sample-04 and sample-05, with at most 5% speed loss. Report the table (clip, overlap, fps, Torch reserved peak, PDH peak) for the final default and two alternatives. The default clip/overlap must also pass the seam metric in Task C.
+Also, for `standard-stability-retry`, report the dedicated-memory growth **within each process** (before and after the stop/restart separately), because the 255.9 MB figure spans a restart.
 
-## Task C. Trial command and quality metrics
+### Task B. Implement decisions 1–3
 
-1. **Seam / fidelity / flicker metrics** per job (stored in the job report): seam ratio at clip and segment joints (target ≤ 1.3; **joints that coincide with a detected source scene cut, within ±1 source frame, are excluded from the pass/fail value**, because the source itself changes there and the metric would measure the cut, not a pipeline seam; report the number of excluded joints, and as a diagnostic also report for every joint, cut or not, the relative seam = output joint ratio ÷ source joint ratio at the same position; if a job has no non-cut joint, the seam value is N/A, not PASS), PSNR/SSIM of the output downscaled to the input size against the input, flicker ratio. Seam sweep for the nine clip/overlap combinations on sample-05: `clip_length` in {15, 21, 30} × `clip_overlap` in {2, 3, 4} (same grid as the original P1a instruction). For each: seconds per owned frame, Torch reserved and PDH peaks, seam ratio. If clip 30 exceeds 5 GB, record the memory and mark its seam as NOT RUN rather than forcing it.
-2. **`ve trial`**: `ve trial <input> [--start S] [--seconds N] [--preset fast|standard] [--restore-model ID] [--out DIR]` writes `original.mp4`, `enhanced.mp4`, `comparison_split.mp4` (original left half, enhanced right half, thin divider, labels) and `report.json` (speed, metrics, projected total time for the whole file). Works on CPU too (slow is fine).
+With tests: inline metrics equal the full post-hoc metrics on the sampled frames (exactly, or within a stated tolerance) on a short CPU job; finalization prediction and planner placement with a fake clock (finalization does not start when it cannot fit in the remaining window, and it starts in the next window); progress never reports 100% before the output is valid; `ve report --full-quality` works.
 
-## Task D. Calibration and long runs
+### Task C. Verification
 
-1. `ve bench --calibrate` measures restore and RIFE stage speed for the installed models and stores coefficients per model id; the estimator uses them. Accuracy: initial estimate within ±30%, within ±15% at 10% progress, checked on the 60-minute run.
-2. `fast` soak on a 2-hour synthetic 720×1280 input with audio and at least 2 scheduled pauses: memory growth between minute 10 and the end ≤ 150 MB dedicated, ≤ 100 MB Torch reserved, ≤ 200 MB RSS; exact frame count; detector count reported.
-3. `standard` ≥ 60 minutes wall time on a 2-hour input made from the samples (concatenated/looped), one pause/resume and one stop/resume; memory trends, fps, detector count. This run does **not** need to finish; it is the stability test.
-4. **Estimate accuracy (decided 2026-10-07):** measured against a **real completed total**, not a projection from the processed part (that would compare the estimator with itself). Use a separate **15-minute** input made the same way (≈ 27,000 frames, about 3 hours at 2.4 fps), run `standard` to completion with calibration applied, and compare the initial estimate and the estimate at 10% progress with the actual wall time (excluding paused time). Targets: ±30% initial, ±15% at 10%. Also do the same comparison on the completed `fast` 2-hour soak.
-4. Smart App Control mock test (simulated blocked PyNvVideoCodec import gives the specific message in `ve probe` and `ve enhance`); a job created by P0 still resumes.
+1. Run `ve bench --calibrate` again (fresh profile).
+2. A **fresh completed `fast` run on the same 2-hour synthetic input** with two scheduled pauses (overnight is fine). Report the initial and 10% estimates against the actual active wall time (targets ±30% / ±15%), the finalization prediction against the actual, frame count, detector counts and memory growth (same limits as P1a-6).
+3. Re-run the `standard` 15-minute completed accuracy run **only if** the inline metrics add more than 2% to `standard` segment time on sample-04/05; otherwise report the measured overhead and keep the P1a-6 result.
 
 ## Out of scope
 
-GUI and local API (next cycle, P1b), face processing (P2), training code, new benchmark candidates, changing the C1 model.
+GUI/API, training, face processing, new models, changes to presets or thresholds.
 
 ## Acceptance criteria
 
-- **A1** Model registry with manifests, adapters (`basicvsrpp`, `rife`, `spandrel`), CLI `models list/add/remove`, model override in `enhance` and `trial`; built-in C1 and RIFE served through it with unchanged output (bit-identical to before on a short clip).
-- **A2** A re-registered copy of C1 under a new id runs and matches; invalid manifests are rejected with clear messages; job manifests record model ids/hashes and resume refuses on change.
-- **A3** `docs/ADDING_MODELS.md` exists.
-- **A4** Zero detector flags on all five samples, both presets; all detector tests pass.
-- **A5** Standard Torch reserved and PDH peaks < 5.0 GB on sample-04/05 with ≤ 5% slowdown; memory table reported.
-- **A6** Seam ≤ 1.3 for the default on all samples; nine-combination sweep reported; `ve trial` works on GPU and CPU.
-- **A7** Calibration accuracy met; `fast` soak and `standard` 60-minute run pass; SAC mock and P0 resume pass.
-- **A8** `ruff`, `ruff format --check`, `pyright`, CPU and GPU suites pass; CI green on Windows and Ubuntu; nothing private committed.
+- **A1** Task A breakdown reported and sums to the actual total; within-process memory growth reported.
+- **A2** Inline metrics replace the default full pass; overhead ≤ 2%; equality test passes; `ve report --full-quality` exists.
+- **A3** Finalization is calibrated, predicted, corrected from observations, placed inside operating windows by the planner, and shown as its own phase.
+- **A4** Fresh completed `fast` 2-hour run: initial within ±30%, 10% within ±15%, exact frame count, detector 0 final flags, memory limits pass.
+- **A5** `standard` overhead reported; 15-minute run repeated if required and within targets.
+- **A6** `ruff`, `ruff format --check`, `pyright`, CPU and GPU suites pass; CI green on Windows and Ubuntu; nothing private committed.
 
 ## Report (`.ai/LAST_REPORT.md`, English)
 
-Summary per task; A1–A8 with PASS / FAIL / NOT RUN and numbers; memory, seam and calibration tables; soak results; the list of new CLI commands with one example each; output paths outside the repository; known issues and questions; exact reproduction steps. Never report a test as passed if it did not run.
-
-
-## Owner execution instruction (2026-10-07)
-
-The temporary pause is revoked. Start the long-duration tests now and continue until all work is finished. Do not use subagents.
+Summary; A1–A6 with PASS / FAIL / NOT RUN and numbers; the breakdown table; estimate table (initial, 10%, actual, finalization predicted vs actual); memory table; output paths outside the repository; known issues and questions; exact reproduction steps. Never report a test as passed if it did not run.
