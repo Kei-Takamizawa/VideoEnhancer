@@ -2,7 +2,7 @@
 
 Task ID: VE-P1a-6. Status: BLOCKED.
 Branch: `p1-restoration-gui`. PR #2 remains a draft. No main push or merge.
-CI for the final controller change is pending; this report will be updated after verification.
+Windows and Ubuntu CI passed for controller commit `1c00c8783ad4c4a1ba38228d555f397d4310af81` (run 37738629274).
 
 ## Implementation and acceptance
 
@@ -15,7 +15,7 @@ CI for the final controller change is pending; this report will be updated after
 | A5 | PASS | Default 15/2: Torch/PDH <5 decimal GB on sample-04/05; speed improves 2.6%/0.05% against 21/3 |
 | A6 | PASS | Five Standard seams 1.003–1.038; nine-case sweep below; CPU/GPU trial produces all four artifacts |
 | A7 | FAIL | Real completed accuracy runs, stability, scheduled pauses, P0 resume and SAC mock; detailed results below |
-| A8 | NOT RUN (final CI) | Local Ruff, format, Pyright, CPU/GPU suites and wheel pass; final Windows/Ubuntu CI pending |
+| A8 | PASS | Ruff, format, Pyright, CPU/GPU suites, wheel and Windows/Ubuntu CI pass; private source-name/media/weight diff scan passes |
 
 ### Task A
 
@@ -186,7 +186,7 @@ Actual local final checks after the control accessor correction:
 | GPU suite | PASS, 18 passed / 173 deselected, 45.06 seconds |
 | Controller focused suite | PASS, 14 passed / 1 skipped |
 | Wheel build | PASS, 52 entries; built-in manifests included; no weights/media |
-| Final Windows/Ubuntu CI | Pending |
+| Final Windows/Ubuntu CI | PASS, both jobs in https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/37738629274 |
 
 ## New CLI commands and reproduction
 
@@ -306,3 +306,12 @@ No more product changes or acceptance reruns were made after this design blocker
 - `tests/test_p1a_pipeline.py`
 - `tests/test_quality_trial.py`
 - `tests/test_soak.py`
+
+## Git record
+
+Checkpoint commit: 7be0cc372bbf3015020c90e7054bad341e16e452.
+Controller correction and completed evidence: 1c00c8783ad4c4a1ba38228d555f397d4310af81.
+Both were pushed to origin/p1-restoration-gui and remote SHA verified.
+PR #2 remains OPEN and draft. No main push, merge or history rewrite.
+The final report-only commit records the CI outcome; its identifier is available in Git history.
+
