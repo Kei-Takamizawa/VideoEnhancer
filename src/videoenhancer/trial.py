@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import tempfile
 import time
 from fractions import Fraction
 from pathlib import Path
@@ -19,7 +18,7 @@ from videoenhancer.media.encode import Encoder
 from videoenhancer.media.mux import _run
 from videoenhancer.media.timing import output_rate, output_size
 from videoenhancer.models.registry import record_models
-from videoenhancer.pipeline.quality import measure_quality
+from videoenhancer.pipeline.inline_quality import aggregate_quality
 from videoenhancer.pipeline.runner import process_segment
 from videoenhancer.pipeline.stages import FrameBatch, ResizeStage
 
@@ -81,41 +80,26 @@ def run_trial(
     enhanced = destination / "enhanced.mp4"
     stats = process_segment(job, job["segments"][0], enhanced, lambda: False)
     width, height = output_size(settings, media)
-    native_width, native_height = int(media["display_width"]), int(media["display_height"])
     original = destination / "original.mp4"
-    with tempfile.TemporaryDirectory(prefix="ve-trial-", dir=destination) as temporary:
-        native = Path(temporary) / "native.mp4"
-        encoder = Encoder(original, width, height, rate, "h264", "cpu", media, True)
-        reference_encoder = Encoder(
-            native, native_width, native_height, rate, "h264", "cpu", media, True
-        )
-        resize = ResizeStage(width, height)
-        decoder = IndexedDecoder(source, media, "cpu", job)
-        try:
-            for index, frame in zip(
-                range(first, last),
-                decoder.frames(job["cfr_map"][first:last], lambda: False),
-                strict=True,
-            ):
-                batch = FrameBatch(torch.stack([frame]), (Fraction(index) / rate,), (index,))
-                encoder.write(resize.process(batch).frames[0])
-                reference_encoder.write(frame)
-            encoder.finish()
-            reference_encoder.finish()
-        except BaseException:
-            encoder.abort()
-            reference_encoder.abort()
-            raise
-        finally:
-            decoder.close()
-        relative_stats = {**stats, "clip_joints": [frame - first for frame in stats["clip_joints"]]}
-        metric_job = {
-            **job,
-            "input": {"path": str(native)},
-            "scene_cuts": [cut - first for cut in job.get("scene_cuts", []) if first <= cut < last],
-            "segments": [{"start": 0, "end": last - first, "stats": relative_stats}],
-        }
-        metrics = measure_quality(metric_job, enhanced)
+    encoder = Encoder(original, width, height, rate, "h264", "cpu", media, True)
+    resize = ResizeStage(width, height)
+    decoder = IndexedDecoder(source, media, "cpu", job)
+    try:
+        for index, frame in zip(
+            range(first, last),
+            decoder.frames(job["cfr_map"][first:last], lambda: False),
+            strict=True,
+        ):
+            batch = FrameBatch(torch.stack([frame]), (Fraction(index) / rate,), (index,))
+            encoder.write(resize.process(batch).frames[0])
+        encoder.finish()
+    except BaseException:
+        encoder.abort()
+        raise
+    finally:
+        decoder.close()
+    job["segments"][0]["stats"] = stats
+    metrics = aggregate_quality(job)
     midpoint = (width // 2) // 2 * 2
     if midpoint < 2:
         raise ValueError("Trial video is too narrow for a split comparison.")

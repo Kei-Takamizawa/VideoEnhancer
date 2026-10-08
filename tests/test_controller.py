@@ -199,6 +199,8 @@ def test_resume_rejects_wrong_video_contract(
         "average_fps": "30",
         "codec": "hevc",
         "rotation": 0,
+        "container": "mov,mp4",
+        "audio_streams": [],
     }
     monkeypatch.setattr(media_probe, "probe", lambda *_args, **_kwargs: SimpleNamespace(**observed))
     assert controller.segment_file_valid(manifest, segment, path)
@@ -271,7 +273,8 @@ def test_worker_retries_oom_with_one_frame_batch(tmp_path: Path, monkeypatch: An
             output.write_bytes(b"complete")
             return controller.SegmentResult("done", stats={"frames": 300})
 
-    def assemble(manifest: dict, _job_dir: Path, abort: Any) -> Path:
+    def assemble(manifest: dict, _job_dir: Path, abort: Any, *, validation_started: Any) -> Path:
+        validation_started()
         assert not abort()
         output = Path(manifest["output"])
         output.write_bytes(b"assembled")
@@ -338,7 +341,8 @@ def test_worker_aborts_at_window_end_and_resumes_next_window(
             clock.value += timedelta(seconds=3)
             return controller.SegmentResult("done")
 
-    def assemble(manifest: dict, _job_dir: Path, abort: Any) -> Path:
+    def assemble(manifest: dict, _job_dir: Path, abort: Any, *, validation_started: Any) -> Path:
+        validation_started()
         assert not abort()
         output = Path(manifest["output"])
         output.write_bytes(b"assembled")
@@ -472,3 +476,21 @@ def test_linux_hard_killed_parent_reaps_ffmpeg_subtree(tmp_path: Path) -> None:
                         process.kill()
                 except psutil.NoSuchProcess:
                     pass
+
+
+def _send_large_result(
+    _manifest, _segment, _output, _batch_size, _parent_pid, start_event, _abort_event, sender
+):
+    assert start_event.wait(timeout=10)
+    sender.send(controller.SegmentResult("done", stats={"payload": "x" * 100_000}))
+    sender.close()
+
+
+def test_process_executor_drains_result_larger_than_pipe_buffer(tmp_path, monkeypatch):
+    monkeypatch.setattr(controller, "_child_run", _send_large_result)
+    deadline = time.monotonic() + 10
+    result = controller.ProcessExecutor().run(
+        {}, {}, tmp_path / "unused.mp4", lambda: time.monotonic() > deadline, batch_size=1
+    )
+    assert result.status == "done"
+    assert result.stats == {"payload": "x" * 100_000}

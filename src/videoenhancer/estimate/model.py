@@ -214,6 +214,8 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
         for s in manifest.get("segments", [])
         if s.get("state", "pending") != "done"
     )
+    if manifest.get("state") != "done":
+        seconds += predict_finalization(manifest, profile)
     ratios = _ratios(manifest)
     uncertainty = 0.25
     if len(ratios) >= 2:
@@ -245,7 +247,11 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
             value = value.get("seconds_per_pixel_frame")
         return isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
 
-    calibrated = bool(profile) and all(measured(name) for name in needed)
+    calibrated = (
+        bool(profile)
+        and all(measured(name) for name in needed)
+        and (profile or {}).get("finalization", {}).get("status") == "measured"
+    )
     return Estimate(seconds, seconds * (1 - uncertainty), seconds * (1 + uncertainty), calibrated)
 
 
@@ -260,3 +266,97 @@ def update_correction(manifest: dict[str, Any], predicted: float, actual: float)
     manifest.setdefault("timing", {}).setdefault("observations", []).append(
         {"predicted": predicted / current, "actual": actual}
     )
+
+
+def predict_finalization(manifest: dict[str, Any], profile: dict[str, Any] | None = None) -> float:
+    """Fixed startup + stream-copy bytes + exact packet enumeration cost."""
+    profile = profile if profile is not None else manifest.get("machine_profile") or {}
+    profile = profile or {}
+    coefficients = profile.get("finalization", {})
+    frames = sum(int(s["end"]) - int(s["start"]) for s in manifest.get("segments", []))
+    frames *= _geometry(manifest.get("media", {}), manifest.get("settings", {}))[2]
+    size = int(manifest.get("estimated_output_bytes", 0))
+    coefficients = {
+        "a": coefficients.get("a", 1.0),
+        "b": coefficients.get("b", 2e-8),
+        "c": coefficients.get("c", 2e-5),
+    }
+    if any(not math.isfinite(float(v)) or float(v) < 0 for v in coefficients.values()):
+        raise ValueError("Finalization coefficients must be finite and nonnegative.")
+    correction = float(profile.get("finalization_correction", 1.0))
+    if not math.isfinite(correction) or correction <= 0:
+        raise ValueError("Finalization correction must be finite and positive.")
+    return (
+        float(coefficients["a"])
+        + float(coefficients["b"]) * size
+        + float(coefficients["c"]) * frames
+    ) * correction
+
+
+def job_progress(manifest: dict[str, Any]) -> dict[str, Any]:
+    if manifest.get("state") == "done":
+        return dict(
+            progress_percent=100.0, phase="finalizing", step="aggregating", phase_percent=100.0
+        )
+    predictions = [
+        (
+            s,
+            predict_segment(
+                manifest.get("media", {}),
+                manifest.get("settings", {}),
+                int(s["end"]) - int(s["start"]),
+                manifest.get("machine_profile"),
+                float(manifest.get("correction_factor", 1)),
+            ),
+        )
+        for s in manifest.get("segments", [])
+    ]
+    processing = sum(p for _, p in predictions)
+    completed = sum(p for s, p in predictions if s.get("state") == "done")
+    phase = manifest.get("progress", {})
+    fraction = min(1.0, max(0.0, float(phase.get("finalization_fraction", 0))))
+    finalize = predict_finalization(manifest)
+    percent = 100 * (completed + fraction * finalize) / max(1e-9, processing + finalize)
+    return dict(
+        progress_percent=min(99.9, percent),
+        phase=phase.get("phase", "processing"),
+        step=phase.get("step", "segments"),
+        phase_percent=(
+            100 * fraction
+            if phase.get("phase") == "finalizing"
+            else 100 * completed / processing
+            if processing
+            else 0
+        ),
+        step_percent=phase.get("percent", 0),
+    )
+
+
+def observe_finalization(
+    manifest: dict[str, Any], predicted: float, actual: float, home: Any
+) -> None:
+    """Persist a baseline observation in the exact machine profile for the next job."""
+    import json
+    from pathlib import Path
+
+    if predicted <= 0 or actual < 0 or not all(map(math.isfinite, (predicted, actual))):
+        raise ValueError("Invalid finalization observation.")
+    observation = {"predicted": predicted, "actual": actual}
+    manifest.setdefault("timing", {})["finalization_observation"] = observation
+    profile = manifest.get("machine_profile") or {}
+    path = profile.get("profile_path")
+    if path is None:
+        return
+    path = Path(path)
+    if path.resolve().parent != (Path(home) / "profiles").resolve():
+        raise ValueError("Machine profile path is outside the profile directory.")
+    current_profile = json.loads(path.read_text(encoding="utf-8"))
+    if current_profile.get("finalization") != profile.get("finalization"):
+        return  # Do not correct a new calibration from an older queued job.
+    current = float(current_profile.get("finalization_correction", 1))
+    baseline = predicted / float(profile.get("finalization_correction", 1))
+    current_profile["finalization_correction"] = 0.7 * current + 0.3 * actual / baseline
+    current_profile.setdefault("finalization_observations", []).append(observation)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(current_profile, indent=2), encoding="utf-8")
+    temporary.replace(path)

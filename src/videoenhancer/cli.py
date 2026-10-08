@@ -64,6 +64,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     model_commands.add_parser("remove", help="Remove a custom model").add_argument("model_id")
 
+    report = commands.add_parser("report", help="Show job diagnostics")
+    report.add_argument(
+        "--full-quality",
+        action="store_true",
+        help="Run development-only full post-encode quality pass",
+    )
+    report.add_argument("job")
     commands.add_parser("queue", help="Show queued jobs")
     move = commands.add_parser("move", help="Move a job to a queue position")
     move.add_argument("job")
@@ -121,14 +128,9 @@ def _duration(seconds: float) -> str:
 
 
 def _progress(job: dict[str, Any]) -> float:
-    segments = job.get("segments", [])
-    total = sum(max(0, int(segment["end"]) - int(segment["start"])) for segment in segments)
-    done = sum(
-        int(segment["end"]) - int(segment["start"])
-        for segment in segments
-        if segment.get("state") == "done"
-    )
-    return 100 * done / total if total else 0.0
+    from videoenhancer.estimate.model import job_progress
+
+    return job_progress(job)["progress_percent"]
 
 
 def _window_label(window: dict[str, str], date: str) -> str:
@@ -428,7 +430,26 @@ def main(argv: list[str] | None = None) -> int:
             from videoenhancer.jobs.store import JobStore
 
             store = JobStore(home)
-            if args.command == "queue":
+            if args.command == "report":
+                job = store.load(args.job)
+                full_quality = None
+                if args.full_quality:
+                    from videoenhancer.pipeline.quality import measure_quality
+
+                    if job["state"] != "done":
+                        raise ValueError("Full quality requires a completed job.")
+                    full_quality = measure_quality(job, Path(job["result"]))
+                report = {
+                    "job_id": job["id"],
+                    "state": job["state"],
+                    "quality": job.get("quality"),
+                    "full_quality": full_quality,
+                    "timing": job.get("timing", {}),
+                }
+                _emit(report, json.dumps(report, indent=2), as_json)
+            elif args.command == "queue":
+                from videoenhancer.estimate.model import job_progress
+
                 jobs = store.list_jobs()
                 plan = _jobs_plan(jobs, home)
                 completion = {item["job_id"]: item["completion"] for item in plan["jobs"]}
@@ -436,7 +457,7 @@ def main(argv: list[str] | None = None) -> int:
                     {
                         "id": job["id"],
                         "state": job["state"],
-                        "progress_percent": _progress(job),
+                        **job_progress(job),
                         "eta": completion.get(job["id"]),
                         "output": job["output"],
                     }

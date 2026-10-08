@@ -202,7 +202,10 @@ def test_machine_profile_requires_matching_gpu_and_driver(tmp_path: Path) -> Non
         "components": {"decode": {"seconds_per_pixel_frame": None}},
     }
     (directory / "test.json").write_text(json.dumps(profile), encoding="utf-8")
-    assert load_machine_profile(tmp_path, gpu_name="RTX Test", driver="999.1") == profile
+    assert load_machine_profile(tmp_path, gpu_name="RTX Test", driver="999.1") == {
+        **profile,
+        "profile_path": str((directory / "test.json").resolve()),
+    }
     assert load_machine_profile(tmp_path, gpu_name="Other GPU", driver="999.1") is None
 
 

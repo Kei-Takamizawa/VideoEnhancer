@@ -1172,6 +1172,9 @@ def run_bench(
         from videoenhancer.bench.calibration import calibrate_models
 
         report["profile"]["models"] = calibrate_models(backend=device)
+        from videoenhancer.bench.finalization import calibrate_finalization
+
+        report["profile"]["finalization"] = calibrate_finalization(target)
     # Keep all estimator component keys present. Null timings stay visibly uncalibrated.
     for component in ("decode", "color", "resize", "blend2x", "encode"):
         profile_components.setdefault(component, {"seconds_per_pixel_frame": None})

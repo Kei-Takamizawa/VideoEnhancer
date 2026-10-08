@@ -90,7 +90,9 @@ def packet_timeline(path: str | Path, time_base: Fraction) -> tuple[list[Fractio
     )
 
 
-def probe(path: str | Path, count_frames: bool = False) -> MediaInfo:
+def probe(
+    path: str | Path, count_frames: bool = False, *, count_packets: bool = False
+) -> MediaInfo:
     source = Path(path).expanduser().resolve()
     if not source.is_file():
         raise FileNotFoundError(f"Input video does not exist: {source}")
@@ -129,6 +131,8 @@ def probe(path: str | Path, count_frames: bool = False) -> MediaInfo:
     count = int(count_text) if str(count_text).isdigit() else round(duration * float(rate))
     pts, durations = packet_timeline(source, tb)
     is_vfr = any(abs((b - a) - 1 / rate) > tb for a, b in zip(pts, pts[1:], strict=False))
+    if count_packets:
+        count = len(pts)
     if pts:
         # Packet count is exact for ordinary one-access-unit-per-packet video. A decode
         # count, when requested, takes precedence for unusual containers/codecs.

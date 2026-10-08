@@ -53,7 +53,11 @@ def _run(command: list[str], abort: Callable[[], bool] | None, *, cwd: Path | No
 
 
 def assemble(
-    manifest: dict[str, Any], job_dir: Path, abort: Callable[[], bool] | None = None
+    manifest: dict[str, Any],
+    job_dir: Path,
+    abort: Callable[[], bool] | None = None,
+    *,
+    validation_started: Callable[[], None] | None = None,
 ) -> Path:
     output = Path(manifest.get("output", manifest.get("output_path", "")))
     if not str(output) or output.resolve() == Path(manifest["input"]["path"]).resolve():
@@ -157,7 +161,9 @@ def assemble(
             str(temporary),
         ]
         _run(command, abort)
-        result = probe(temporary)
+        if validation_started:
+            validation_started()
+        result = probe(temporary, count_packets=True)
         expected = int(
             Fraction(len(manifest["cfr_map"])) * rate / Fraction(manifest["media"]["cfr_fps"])
         )

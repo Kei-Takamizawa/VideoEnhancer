@@ -1,6 +1,7 @@
 import pytest
 
 from videoenhancer.estimate import estimate_job, predict_segment, update_correction
+from videoenhancer.estimate.model import predict_finalization
 
 MEDIA = {"width": 720, "height": 1280, "average_fps": "30000/1001", "cfr_fps": "30000/1001"}
 SETTINGS = {"preset": "p0-test", "short_side": 1080, "fps": "2x", "backend": "cuda"}
@@ -38,7 +39,7 @@ def test_model_coefficients_follow_ids_and_include_overlap_work():
         pixels * (15 * 2e-6 + 14 * 3e-6) + 7
     )
     job = {"media": MEDIA, "settings": settings, "segments": [{"start": 0, "end": 11}]}
-    assert estimate_job(job, profile).calibrated
+    assert not estimate_job(job, profile).calibrated  # Finalization is not calibrated.
     job["settings"] = {**settings, "restore_model": "uncalibrated-custom"}
     assert not estimate_job(job, profile).calibrated
     profile["models"]["custom"] = dict(
@@ -70,7 +71,9 @@ def manifest():
 
 def test_initial_range_pending_sum_and_uncalibrated_flag():
     result = estimate_job(manifest())
-    assert result.seconds == pytest.approx(2 * predict_segment(MEDIA, SETTINGS, 100))
+    assert result.seconds == pytest.approx(
+        2 * predict_segment(MEDIA, SETTINGS, 100) + predict_finalization(manifest())
+    )
     assert result.low == result.seconds * 0.75
     assert result.high == result.seconds * 1.25
     assert not result.calibrated
@@ -91,7 +94,7 @@ def test_profile_uses_component_geometry_and_overhead():
     assert predict_segment(MEDIA, SETTINGS, 10, profile) == pytest.approx(
         720 * 1280 * 10 * 1e-7 + 4
     )
-    assert estimate_job(manifest(), profile).calibrated
+    assert not estimate_job(manifest(), profile).calibrated
 
 
 def test_ema_applies_actual_corrected_prediction_to_remaining():
@@ -99,7 +102,9 @@ def test_ema_applies_actual_corrected_prediction_to_remaining():
     original = estimate_job(job).seconds
     update_correction(job, predicted=10, actual=20)
     assert job["correction_factor"] == pytest.approx(1.3)
-    assert estimate_job(job).seconds == pytest.approx(original * 1.3)
+    assert estimate_job(job).seconds == pytest.approx(
+        (original - predict_finalization(job)) * 1.3 + predict_finalization(job)
+    )
     update_correction(job, predicted=13, actual=20)
     assert job["correction_factor"] == pytest.approx(1.51)
 
@@ -151,8 +156,8 @@ def test_job_profile_is_used_by_default():
         "segment_overhead_seconds": 7,
     }
     result = estimate_job(job)
-    assert result.calibrated
-    assert result.seconds == 14
+    assert not result.calibrated
+    assert result.seconds == 14 + predict_finalization(job)
 
 
 def test_sar_normalization_cost_is_included_for_passthrough():

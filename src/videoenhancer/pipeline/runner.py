@@ -22,6 +22,11 @@ from videoenhancer.pipeline.clips import (
     StreamingClipBuffer,
     plan_restore_clips,
 )
+from videoenhancer.pipeline.inline_quality import (
+    STRIDE,
+    FidelityAccumulator,
+    temporal_partial,
+)
 from videoenhancer.pipeline.outliers import (
     detect_frame_outliers,
     invalid_frame_positions,
@@ -91,6 +96,12 @@ def process_segment(
     reference_summaries: dict[int, torch.Tensor] = {}
     reference_out_of_range: set[int] = set()
     output_summaries: dict[int, torch.Tensor] = {}
+    quality_enabled = settings.get("preset") in {"fast", "standard"} and not settings.get(
+        "development_disable_inline_quality", False
+    )
+    quality_fidelity = FidelityAccumulator()
+    quality_references: dict[int, torch.Tensor] = {}
+    quality_seconds = 0.0
     sentinel = object()
     restore_stage: Any = next((stage for stage in stages if stage.name == "restore"), None)
     restore_windows = (
@@ -144,6 +155,8 @@ def process_segment(
             pending: list[torch.Tensor] = []
             positions: list[int] = []
             for index, frame in zip(range(source_start, source_end), iterator, strict=True):
+                if quality_enabled and start <= index < end and index * factor % STRIDE == 0:
+                    quality_references[index] = frame
                 pending.append(frame)
                 positions.append(index)
                 if len(pending) == batch_size:
@@ -193,6 +206,22 @@ def process_segment(
         )
         return result
 
+    def record_quality(result: FrameBatch, owned_start: int, owned_end: int) -> FrameBatch:
+        nonlocal quality_seconds
+        if quality_enabled:
+            metric_started = time.perf_counter()
+            for position, index in enumerate(result.indices):
+                if (
+                    owned_start * factor <= index < owned_end * factor
+                    and index % factor == 0
+                    and index % STRIDE == 0
+                ):
+                    quality_fidelity.add(
+                        quality_references.pop(index // factor), result.frames[position]
+                    )
+            quality_seconds += time.perf_counter() - metric_started
+        return result
+
     def validate_handoff(
         source: FrameBatch,
         interpolation_input: FrameBatch | None,
@@ -203,7 +232,7 @@ def process_segment(
         owned_end: int,
     ) -> FrameBatch:
         """Validate final compute output, retry its producing unit once, then fall back."""
-        nonlocal handoff_check_seconds, corruption_retries, corruption_fallbacks
+        nonlocal handoff_check_seconds, corruption_retries, corruption_fallbacks, quality_seconds
         check_started = time.perf_counter()
 
         def flagged_positions(candidate: FrameBatch) -> list[int]:
@@ -264,7 +293,7 @@ def process_segment(
         )
         if not flagged:
             handoff_check_seconds += time.perf_counter() - check_started
-            return result
+            return record_quality(result, owned_start, owned_end)
 
         even_flags = [position for position in flagged if result.indices[position] % factor == 0]
         odd_flags = [position for position in flagged if result.indices[position] % factor != 0]
@@ -340,7 +369,7 @@ def process_segment(
             if owned_start * factor <= result.indices[pos] < owned_end * factor
         )
         handoff_check_seconds += time.perf_counter() - check_started
-        return result
+        return record_quality(result, owned_start, owned_end)
 
     def compute() -> None:
         nonlocal oom_retries
@@ -686,8 +715,32 @@ def process_segment(
     final_flag_indices = postrepair_flag_indices | {
         ordered_output[pos] for pos in flagged_positions
     }
+    inline_quality = None
+    if quality_enabled:
+        metric_started = time.perf_counter()
+        clip_joints = {
+            clip.owned_start for clip in restore_windows if start < clip.owned_start < end
+        }
+        source_joints = clip_joints | {s["start"] for s in manifest.get("segments", [])[1:]}
+        source_excluded = {i for cut in source_cuts for i in (cut - 1, cut, cut + 1) if i >= 0}
+        inline_quality = {
+            "fidelity": quality_fidelity.partial(),
+            "source": temporal_partial(
+                {i: v for i, v in reference_summaries.items() if start <= i < end},
+                source_joints,
+                source_excluded,
+            ),
+            "output": temporal_partial(
+                output_summaries,
+                {i * factor for i in source_joints},
+                {i * factor + p for i in source_excluded for p in range(factor)},
+            ),
+        }
+        quality_seconds += time.perf_counter() - metric_started
     elapsed = time.perf_counter() - started
     return {
+        "inline_quality": inline_quality,
+        "inline_quality_seconds": quality_seconds,
         "seconds": elapsed,
         "input_frames": end - start,
         "output_frames": written,

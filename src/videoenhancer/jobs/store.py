@@ -202,6 +202,7 @@ def load_machine_profile(
                             and entry.get("identity") == identities.get(model_id)
                             and model_id in identities
                         }
+                profile["profile_path"] = str(path.resolve())
                 return profile
         except (OSError, ValueError, TypeError):
             continue

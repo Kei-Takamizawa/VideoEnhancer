@@ -6,6 +6,7 @@ from datetime import datetime, time, timedelta
 from typing import Any
 
 from videoenhancer.estimate import predict_segment
+from videoenhancer.estimate.model import predict_finalization
 
 from .windows import Schedule, instant, resolve_wall
 
@@ -55,19 +56,30 @@ def build_plan(
             int(s["end"]) - int(s["start"]) for s in segments if s.get("state") == "done"
         )
         remaining = [s for s in segments if s.get("state", "pending") != "done"]
+        effective_profile = profile if profile is not None else job.get("machine_profile")
+        finalization = predict_finalization(job, effective_profile)
+        predictions = {
+            id(s): predict_segment(
+                job.get("media", {}),
+                job.get("settings", {}),
+                int(s["end"]) - int(s["start"]),
+                effective_profile,
+                float(job.get("correction_factor", 1)),
+            )
+            for s in segments
+        }
+        total_time = sum(predictions.values()) + finalization
+        completed_time = sum(predictions[id(s)] for s in segments if s.get("state") == "done")
+        if finalization > 0:
+            remaining.append({"index": None, "start": 0, "end": 0, "phase": "finalizing"})
         completion: datetime | None = None
         for segment in remaining:
             if exhausted:
                 break
             frames = int(segment["end"]) - int(segment["start"])
-            predicted = predict_segment(
-                job.get("media", {}),
-                job.get("settings", {}),
-                frames,
-                profile if profile is not None else job.get("machine_profile"),
-                float(job.get("correction_factor", 1.0)),
-            )
-            required = timedelta(seconds=1.1 * predicted + 30)
+            is_finalizing = segment.get("phase") == "finalizing"
+            predicted = finalization if is_finalizing else predictions[id(segment)]
+            required = timedelta(seconds=predicted if is_finalizing else 1.1 * predicted + 30)
             admitted = False
             while window_index < len(windows):
                 interval = windows[window_index]
@@ -84,13 +96,14 @@ def build_plan(
                 {
                     "job_id": identity,
                     "segment_index": segment.get("index", 0),
+                    "phase": "finalizing" if is_finalizing else "processing",
                     "start": cursor.astimezone(schedule.zone).isoformat(),
                     "end": finish.astimezone(schedule.zone).isoformat(),
                     "seconds": predicted,
                 }
             )
-            before = 100 * completed_frames / total_frames if total_frames else 100.0
-            after = 100 * (completed_frames + frames) / total_frames if total_frames else 100.0
+            before = 100 * completed_time / total_time if total_time else 100.0
+            after = 100 * (completed_time + predicted) / total_time if total_time else 100.0
             split = cursor
             while split < finish:
                 day = split.astimezone(schedule.zone).date()
@@ -117,9 +130,10 @@ def build_plan(
                     progress["end_percent"] = right
                 split = stop
             completed_frames += frames
+            completed_time += predicted
             cursor = finish
             completion = finish
-        finished = len(remaining) == 0 or completed_frames >= total_frames
+        finished = len(remaining) == 0 or completed_time >= total_time
         if not finished:
             completion = None
         elif completion is None:

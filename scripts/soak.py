@@ -349,6 +349,8 @@ def main() -> int:
         "paused_intervals_epoch": paused_intervals,
         "clock_origin_epoch": started_epoch,
         "initial_estimate": initial,
+        "timing": job.get("timing", {}),
+        "quality": job.get("quality"),
         "prediction_at_ten_percent": prediction_ten,
         "initial_estimate_relative_error": initial_error,
         "ten_percent_estimate_relative_error": ten_error,

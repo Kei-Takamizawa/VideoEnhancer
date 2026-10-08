@@ -26,6 +26,12 @@ Your diagnosis: `estimate/model.py` sums only pending segment predictions; the f
    - Progress reporting: a `phase` field (`processing` / `finalizing`) with the step name (assembling, validating, aggregating) and its own percent; the overall percent is weighted by predicted time, so the job never shows 100% while it is still finalizing.
 3. Validation should stay exact but cheap: for the frame count prefer a packet/frame count that does not decode every frame, if it is exact for our own outputs (prove it with a test that compares it with a decoded count on a short file); otherwise keep the decoded count and model its cost.
 
+## Addendum (designer, 2026-10-08, after the first P1a-7 report)
+
+- **Task A is accepted as delivered.** Historical per-step durations (assembly, validation, quality pass, idle) are **unavailable** and must be reported as such; the recovered aggregate is sufficient: segments 13,943.3 s + combined finalization 3,416.4 s + controller residual 299.2 s = 17,658.9 s. The within-PID memory table resolves the 255.9 MB question (each segment runs in a new engine process; no persistent-process growth to assess). A1 = PASS on this basis.
+- **Proceed with Task B and Task C now.** Additionally, from now on every job must log a timed event for each finalization step (assembly start/end, validation start/end, metric aggregation start/end) and for the scheduler waits, in `job.jsonl` and in the job report, so that this breakdown is always recoverable. Add a test that these events exist with non-negative durations.
+- The 15.76 vs 17.4 fps question stays report-only; no encoder change in this cycle.
+
 ## Tasks
 
 ### Task A. Breakdown of the P1a-6 `fast` soak (no rerun needed)

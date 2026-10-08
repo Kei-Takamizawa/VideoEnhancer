@@ -26,10 +26,26 @@ source frame through the preset resize path. Repairs are checked again.
 Context frames are also validated and repaired so their corruption cannot leak
 into an owned midpoint. A repair is re-checked for newly exposed anomalies.
 
-Completed Fast/Standard jobs store post-encode PSNR-Y/SSIM-Y mean/minimum, flicker
-and clip/segment seam ratios in `quality`. Fidelity uses downscaled, source-aligned
-even outputs; temporal metrics include inserted frames. The seam formula includes
-non-cut joints for its pass/fail value. Joints within +/-1 source frame of a detected
-cut are excluded, counted, and retained in per-joint output/source relative diagnostics.
-No non-cut joint means N/A. These values are measurements,
-not automatic perceptual quality judgments. Undefined ratios/infinite PSNR use JSON null.
+Fast/Standard jobs measure quality inline before encoding. Fidelity samples every
+10th global output position that is source-aligned. PSNR uses normalized BT.709
+luminance at source resolution (area resize); SSIM uses 8x8 uniform windows at
+stride 4. Temporal diagnostics reuse every frame's existing 16x16 detector RGB
+summary. Segment records store partial sums and small first/last summaries, so
+aggregation includes segment boundaries without decoding output again. Clip and
+segment seam ratios exclude joints within +/-1 source frame of detected cuts;
+excluded joints remain visible in diagnostics. Undefined ratios and infinite
+PSNR use JSON null. These diagnostics exclude codec loss and are not perceptual
+quality judgments. For development, `ve report --full-quality JOB` explicitly
+runs the legacy full-resolution post-encode FFmpeg pass, outside job timing.
+
+Finalization is estimated separately as fixed startup + output bytes + output
+frames. Calibration measures concat/mux and exact packet validation on generated
+three-segment jobs, fitting nonnegative machine coefficients. Completed jobs
+persist finalization observations and an EMA correction in that machine profile.
+The initial ETA, remaining ETA and day planner include this stage, and finalization
+waits for a window large enough for its prediction. Overall progress is weighted
+by predicted time; `phase`, `step` and `phase_percent` expose processing and
+finalization. Step percent is reported at start/end boundaries. Finalization and
+scheduler wait start/end events are logged to job JSONL and retained in the job
+report. Output validation uses packet enumeration on our one-frame-per-packet
+MP4 outputs; tests compare it with decoded counts for H.264, HEVC and AV1.

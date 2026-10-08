@@ -117,5 +117,6 @@ def test_trial_actual_pipeline_has_four_outputs_and_exact_frames(
     comparison = probe(out / "comparison_split.mp4")
     assert comparison.frame_count == 12
     assert Fraction(comparison.cfr_fps) == 60
-    assert report["metrics"]["fidelity_frames"] == 6
+    assert report["metrics"]["fidelity_frames"] == 1
+    assert "Pre-encode" in report["metrics"]["method"]
     assert report["projected_whole_file_seconds"] > 0
