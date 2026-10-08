@@ -74,3 +74,8 @@ GUI and local API (next cycle, P1b), face processing (P2), training code, new be
 ## Report (`.ai/LAST_REPORT.md`, English)
 
 Summary per task; A1–A8 with PASS / FAIL / NOT RUN and numbers; memory, seam and calibration tables; soak results; the list of new CLI commands with one example each; output paths outside the repository; known issues and questions; exact reproduction steps. Never report a test as passed if it did not run.
+
+
+## Owner execution instruction (2026-10-07)
+
+The temporary pause is revoked. Start the long-duration tests now and continue until all work is finished. Do not use subagents.

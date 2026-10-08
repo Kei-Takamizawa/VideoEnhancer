@@ -138,6 +138,45 @@ def test_invalid_done_segment_is_requeued_and_stale_temp_removed(
     assert not finished.exists() and not stale.exists()
 
 
+def test_quality_control_poll_does_not_reload_large_manifest(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from videoenhancer.pipeline import quality
+
+    store = JobStore(tmp_path / "home")
+    manifest = _job(store, tmp_path)
+    manifest["settings"]["preset"] = "fast"
+    manifest["settings"]["keep_segments"] = True
+    manifest["segments"][0]["state"] = "done"
+    store.save(manifest)
+    Path(manifest["output"]).write_bytes(b"assembled")
+    monkeypatch.setattr(controller, "validate_done_segments", lambda *_args: False)
+    monkeypatch.setattr(controller, "_assembled_file_valid", lambda *_args: True)
+    original_load = JobStore.load
+    polling = False
+    control_state = "queued"
+
+    def guarded_load(self: JobStore, job_id: str) -> dict[str, Any]:
+        assert not polling, "Per-frame control polling must not deserialize the job manifest"
+        return original_load(self, job_id)
+
+    def measured(_manifest: Any, _path: Path, *, abort: Any) -> dict[str, Any]:
+        nonlocal polling, control_state
+        polling = True
+        assert not abort()
+        control_state = "paused"
+        assert abort()
+        control_state = "queued"
+        polling = False
+        return {"seam_ratio": None}
+
+    monkeypatch.setattr(JobStore, "load", guarded_load)
+    monkeypatch.setattr(JobStore, "read_control_state", lambda _self, _job_id: control_state)
+    monkeypatch.setattr(quality, "measure_quality", measured)
+    controller.run_queue(ignore_schedule=True, home=store.home)
+    assert store.load("unit-job")["state"] == "done"
+
+
 @pytest.mark.parametrize(
     ("wrong_field", "wrong_value"),
     [("width", 64), ("average_fps", "24"), ("codec", "h264")],

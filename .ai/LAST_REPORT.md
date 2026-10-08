@@ -1,97 +1,51 @@
-# VideoEnhancer Cycle P1a-6 Report
+# VE-P1a-6 — Engine hardening report
 
-- **Task ID / Cycle:** VE-P1a-6
-- **Status:** PARTIAL (paused at the owner's request; long-run acceptance remains incomplete)
-- **Branch:** `p1-restoration-gui`; PR #2 remains a draft.
-- **Validation date:** 2026-10-07 UTC.
+Task ID: VE-P1a-6. Status: BLOCKED.
+Branch: `p1-restoration-gui`. PR #2 remains a draft. No main push or merge.
+CI for the final controller change is pending; this report will be updated after verification.
 
-## Implementation so far
+## Implementation and acceptance
 
-Task A implements JSON manifests, verified model installation, built-in C1/RIFE,
-repository adapters for BasicVSR++, RIFE and Spandrel, preset/CLI selection,
-and model identity checks at job creation, resume and every segment.
-Architecture sources are pinned and verified separately from model data folders;
-model folders never supply executable code. Restricted Torch deserialization is
-used by all adapters. Fine-tuned BasicVSR++ wrapped and bare state dictionaries
-are accepted with strict parameter matching. `docs/ADDING_MODELS.md` documents
-installation, licensing, new adapters and the existing degraded comparison tools.
+| Criterion | Result | Evidence |
+|---|---|---|
+| A1 | PASS | JSON model registry; BasicVSR++, RIFE and Spandrel adapters; CLI selection and model management; unchanged built-in short-clip output |
+| A2 | PASS | Re-registered C1 is bit-identical; schema/hash/adapter/task rejection; model snapshots and changed-model resume refusal |
+| A3 | PASS | `docs/ADDING_MODELS.md`: fine-tuning checkpoints, Spandrel, adapters, licences and C1 comparison |
+| A4 | PASS | All five samples × both presets: zero final and independently scanned encoded flags across 10,820 output frames; detector regressions pass |
+| A5 | PASS | Default 15/2: Torch/PDH <5 decimal GB on sample-04/05; speed improves 2.6%/0.05% against 21/3 |
+| A6 | PASS | Five Standard seams 1.003–1.038; nine-case sweep below; CPU/GPU trial produces all four artifacts |
+| A7 | FAIL | Real completed accuracy runs, stability, scheduled pauses, P0 resume and SAC mock; detailed results below |
+| A8 | NOT RUN (final CI) | Local Ruff, format, Pyright, CPU/GPU suites and wheel pass; final Windows/Ubuntu CI pending |
 
-Task B adds same-scene detector neighbors and fixes retained prior-clip tensor
-references. The owner's revised repair policy replaces persistent restored
-frames with the same decoded source through the preset resize stage and persistent
-inserted frames with an exact 50/50 blend of source-aligned output endpoints.
-Repairs are checked again; raw and final flags are recorded separately. Raw counts
-include unique flagged compute-context indices inside the segment; final counts
-include only owned output frames. Compute-context defects are repaired before
-those frames can contaminate owned interpolation. A regression failed before
-this fix and passes afterwards.
-The flagged sample-05 source pair at 26.276 s was saved unrepaired before these
-repairs, and padding/crop conditions were tested on the same pair. No padding/crop
-implementation bug was demonstrated. Actual padding is bottom 0/right 8 px.
-The bottom-band luma deviation from the endpoint blend remains 0.1009 with current
-padding, 0.1000 with zero padding to 32, and 0.1003 with upstream helper padding to
-128. Difference is concentrated around fast-moving hands but not strictly confined
-to the bottom band. Intermediate ground-truth exposure is unavailable.
-Private PNG evidence remains external and is not committed.
+### Task A
 
-Task C implementation supplies per-job encoded Y fidelity, flicker, clip/segment
-seams, source-cut exclusions, excluded counts and every joint's relative diagnostic.
-No eligible joint yields N/A. `ve trial` supplies the required four output files,
-source context, selected model identities and projected whole-file time.
-Task B full sample measurements and the encoded scan are complete: all ten
-runs have zero final flags and exact 2x counts (10,820 total encoded frames).
-All five Standard seam values lie between 1.003 and 1.038. C1 default is now
-15/2 after the memory/speed and all-five guards passed. Task C
-segment-joint and nine-combination validation are complete. Task D is paused at the owner's request.
-The latest Task D instruction adds a separate completed 15-minute Standard
-accuracy job; its two-hour Standard input is a >=60-minute stability test.
-Estimate accuracy must use actual completed wall time excluding pauses.
+Manifests describe identity, version, architecture parameters, task, licence,
+commercial permission, precision, temporal preferences, scale and verified weights.
+Built-ins download and verify SHA-256. Model folders contain data, never executable
+adapter code. Architecture code is registered in the repository and cached in a
+separate verified adapter-source directory. Restricted weight loaders are used.
+Presets and overrides use model IDs. Jobs record model versions, weight hashes and
+manifest hashes and refuse changed models on resume or between segments.
 
-## Checks completed so far
+C1 SHA-256: `6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a`.
+RIFE SHA-256: `6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2`.
 
-- Ruff / format / Pyright: PASS on the current files (0 type errors/warnings).
-- CPU suite before the compute-context repair regression fix: 156 PASS, 3 SKIP,
-  18 GPU deselected. Current focused context/detector tests: 52 PASS, 4 GPU
-  deselected; redirected adapter source path test: 1 PASS. Full suites must be
-  re-run after final implementation.
-- GPU suite before the compute-context repair regression fix: 18 PASS,
-  159 CPU deselected; final-version full GPU suite is pending.
-- GPU C1: exact tensor equality between legacy loader, built-in registry ID,
-  re-registered checkpoint copy and bare state-dictionary checkpoint.
-- GPU RIFE: exact tensor equality between legacy and registry loader.
-- Repair tests: exact endpoint blend and exact same-source resize pixels; raw
-  and final counts; scene-cut, synthetic flash, edge flash, chroma and endpoints.
-- Real C1/RIFE CPU trial: PASS, 3 original / 6 enhanced / 6 comparison frames,
-  256x256, labeled split inspected; 0.165 input fps, zero detector flags.
-- Real GPU C1/RIFE CLI trial: PASS, 3 original / 6 enhanced / 6 split frames,
-  selected restoration override used, 0.655 input fps including initialization.
-  All four required files were written; trial seam is N/A (no non-cut joint).
-- Wheel build: PASS before the latest repair/report changes; 51 entries, both
-  built-in manifests included, no weights or videos.
-- CI at the final commit: NOT RUN yet.
+### Task B
 
-## Evidence and reproduction
+Scene-cut comparisons use the same source side, including inserted frames.
+Repairs follow the owner decision: inserted frames use the 50/50 adjacent-output
+blend; restored frames use the corresponding source through the preset resize path.
+Repaired frames are checked again. Overlap context is repaired before interpolation;
+raw unique flags and final owned-frame flags are recorded separately.
 
-External evidence root: `%USERPROFILE%/Documents/VideoEnhancer-P1a-6`.
-Unrepaired PNGs: `unrepaired-c15-o2-window-785-800/frame-1574.png`,
-`frame-1575.png`, `frame-1576.png`; padding alternatives and numeric JSONs are
-in the same external root. No private video names or frames are in tracked files.
-
-Commands added:
-
-```powershell
-ve models list
-ve models add C:\MyModels\finetune
-ve models remove my-basicvsr-finetune
-ve enhance input.mp4 -o enhanced.mp4 --restore-model basicvsrpp-ntire21-decompress --interp-model rife-4.25
-ve trial input.mp4 --seconds 5 --preset standard --out C:\Evaluation\trial
-```
-
-Full measurement tables, A1-A8 results, calibration, soak, unresolved issues,
-exact reproduction and final Git/CI results will replace this interim section.
-GUI, local API, training, face processing and additional benchmark candidates are
-intentionally out of scope. No subagents were used.
-
+Sample-05 raw/final counts: Fast 1/0, Standard 2/0; all other sample runs 0/0.
+Unrepaired PNGs at 26.276 seconds and neighbours were inspected outside Git.
+No white/mosaic corruption or implementation padding/crop error was established.
+Replicate-32, constant-32 and upstream constant-128 padding produced bottom-band
+luma deviations 0.10091, 0.09998 and 0.10032 versus a blend. Padding was unchanged.
+The discrepancy also extends beyond the bottom band; unknown true intermediate
+content prevents claiming the blend is ground truth.
+Tensor-lifetime regression verifies bounded clip ownership and release.
 ## Current-version memory results (fresh process per full sample)
 
 GB means decimal 1,000,000,000 bytes; PDH is sampled process-dedicated peak.
@@ -109,52 +63,6 @@ All six cases ran after the compute-context regression fix.
 15/2 passes the 5 GB cap and speed criteria on both clips, and all-five
 Standard seams and all-ten encoded detector scans pass. The built-in manifest
 and the local development installation now use 15/2.
-
-## Subsequent regression checks
-
-Current-version CPU full suite with 15/2 and the source-path safety check:
-158 PASS, 3 SKIP, 18 GPU deselected. A later expanded model-override check
-found 3 failures: resize, p0-test and passthrough recorded but did not invoke
-an explicitly selected restore adapter. The preset dispatch was corrected;
-final full-suite checks are still pending after Task D.
-
-The model-override regression re-check passes on all 5 presets. The separate
-three-segment sample-05 run (non-cut joints at source frames 300 and 600) gives
-segment seam 1.066986, clip seam 1.000968 and combined seam 1.002706;
-9 source-cut joints are excluded and all 85 joint diagnostics are retained.
-
-## Task D interim checkpoint
-
-- Corrected model calibration: PASS. C1 15/2, 720x1280, 15 computed frames:
-  median 3.718132 s (4.034 frames/s), coefficient 2.689621e-7 s/pixel/frame.
-  RIFE, 1080x1920, eight computed pairs: median 0.385726 s
-  (20.740 pairs/s), coefficient 2.325217e-8 s/pixel/pair.
-- Calibration initially omitted inference mode for RIFE. This implementation
-  error inflated its memory and timing; corrected results use inference mode,
-  matching the pipeline. A regression asserts inference mode is active.
-  Initial invalid calibration is retained externally and not used.
-- SAC blocked-import mocks: PASS in probe and enhance in the final CPU suite.
-- Actual historical P0 job compatibility: PASS on an isolated copy of the
-  2026-10-06 job without model fields; first resumed segment 1,139 source / 2,278
-  encoded output frames, 24.124 s. Original job and source unchanged.
-- Final local checks: Ruff PASS; format PASS (74 files); Pyright PASS (0 errors,
-  warnings or information); CPU suite 168 PASS, 3 SKIP, 18 GPU deselected;
-  GPU suite 18 PASS, 171 deselected. Wheel PASS, 52 entries, both manifests and
-  calibration present, C1 defaults 15/2, no media or weights.
-- A first GPU suite invocation encountered inaccessible pre-existing Windows
-  pytest temporary directories (15 fixture errors, 3 PASS). A fresh workspace
-  basetemp resolved the environment issue; the complete rerun passed.
-- Long experiments: RUNNING, not PASS. Standard accuracy job uses the completed
-  total as its reference. Its 15-minute input has 26,973 decoded input frames,
-  CFR-normalized to 26,980 frames because of concatenated timestamps. Initial
-  calibrated prediction: 11,367.293 s. Standard stability and Fast completion
-  are queued sequentially by the validation supervisor, on one GPU.
-- External inputs and per-job homes: C:/Users/pro/Documents/VideoEnhancer-P1a-6/.
-  Long-run progress and reports are under each home/reports directory.
-- Memory comparison helper fixed epoch/performance-clock mixing and compares
-  separated five-minute window peaks after minute 10. Targeted regression PASS.
-- CI, final commit and push: NOT RUN until the required long experiments finish.
-
 ## Completed nine-combination sweep
 
 All six 15/21-frame rows processed the full 911-source-frame sample-05.
@@ -173,7 +81,6 @@ the 5 GB cap was exceeded. PDH is sampled; Torch is max reserved.
 | 30/2 | 0.445880 | 5.096079 | 5.309133 | NOT RUN (memory cap) |
 | 30/3 | 0.444829 | 5.096079 | 5.309137 | NOT RUN (memory cap) |
 | 30/4 | 0.444654 | 5.096079 | 5.309137 | NOT RUN (memory cap) |
-
 ## Five-sample Standard metrics at final 15/2 defaults
 
 Encoded Y fidelity is against the compressed source, not pre-compression
@@ -191,78 +98,211 @@ inserted output frames. Every joint diagnostic remains in external JSON.
 Fast single-segment samples have no eligible joints; their seam is N/A,
 not PASS. Separate Standard non-cut segment-joint validation at 300 and
 600 source frames passed, segment ratio 1.066986.
+## Task C: trial and quality
 
-## Failed first Standard accuracy attempt and fixture correction
+Job reports include Y PSNR/SSIM, flicker, clip/segment seams, cut exclusions and
+output/source relative ratios at every joint. Source cuts within ±1 frame are
+excluded from pass/fail; jobs without eligible joints report N/A.
+Separate sample-05 segment boundaries at 300/600 frames gave segment seam 1.066986.
+Real CLI trials on CPU and GPU produced 3 original, 6 enhanced and 6 comparison
+frames plus report.json. CPU/GPU speeds including initialization were 0.165/0.655
+input fps on the small test. Labels and the thin divider were inspected.
 
-The first attempt processed all 26,980 CFR frames (20 raw / 0 final flags),
-2.350415 engine input fps, but final assembly FAILED at 11,636.343 s because
-source audio offset was -0.021333 s while the muxed offset was 0. It is not a
-completed accuracy run and neither estimate accuracy nor completion is PASS.
-The validation concat command omitted `-copyts`: FFmpeg normalized AAC's first
-priming packet and shifted video presentation to +0.021333 s. The source
-parts themselves have zero video/audio presentation origin. `-copyts`, without
-`-start_at_zero`, preserves that zero origin and 1,024-sample AAC priming.
-No product audio tolerance or mux policy was changed. The failed input, job,
-all rendered segments and logs remain external for inspection.
+## Task D: calibration and long runs
 
-Separate corrected 15-minute and two-hour inputs retain exact decoded counts
-26,973 and 215,784. Their video origin and relative audio offset are both zero.
-A corrected 60-frame input completed the actual CPU p0-test CLI pipeline and
-final assembly successfully before restarting the long experiments.
-The original Standard stability preparation was interrupted before creating
-its job; Fast had not started. New Standard homes are named
-standard-accuracy-retry and standard-stability-retry. The Fast home is unchanged.
+| Model | Calibration work | Median seconds | Throughput | Seconds/pixel/work item |
+|---|---|---:|---:|---:|
+| basicvsrpp-ntire21-decompress | 15 frames, 720×1280 | 3.718132 | 4.034 frames/s | 2.689621e-7 |
+| rife-4.25 | 8 pairs, 1080×1920 | 0.385726 | 20.740 pairs/s | 2.325217e-8 |
 
-A supervisor sampling race was corrected: process construction now occurs
-inside the NoSuchProcess guard. Both soak helper regression tests PASS.
-Core GPU implementation is unchanged; final CPU checks will include this test.
+Warm-up, inference mode and synchronization precede three measured samples.
+Profiles bind model/version/hash/parameters/backend/device; the estimator rejects
+stale profiles and accounts for geometry, overlap and actual interpolation pairs.
 
+| Completed case | Initial estimate s | Estimate at 10% s | Actual active wall s | Initial error | 10% error | Accuracy |
+|---|---:|---:|---:|---:|---:|---|
+| standard-accuracy-final | 11367.293 | 11572.704 | 12755.272 | -10.88% | -9.27% | PASS |
+| fast-soak-fixed | 13600.021 | 13964.986 | 17658.881 | -22.98% | -20.92% | FAIL |
 
-## Owner-requested pause checkpoint (2026-10-07)
+Actual values are completed wall time excluding observed pauses, including final assembly and validation; no projection substitutes for an actual total.
 
-The owner requested: stop now and continue tomorrow. No additional validation
-or improvement is being started. The long-run driver and its supervisors were
-stopped; the actual queue received the official `pause` command first. Its
-running second segment was aborted and returned to pending, while the verified
-first segment remains done. No model, input or completed segment was deleted.
+| Run | State / mode | Input frames completed | Output frames verified | Active seconds | Input fps | Raw/final flags | Pause / stop-resume |
+|---|---|---:|---:|---:|---:|---:|---|
+| standard-accuracy-final | done / complete | 26980/26980 | 53960 | 12755.272 | 2.352 | 10/0 | [] / False |
+| standard-stability-retry | paused / stability | 7202/215837 | N/A | 3607.268 | 2.334 | 2/0 | [True] / True |
+| fast-soak-fixed | done / complete | 215784/215784 | 431568 | 17658.881 | 15.761 | 0/0 | [True, True] / False |
 
-- Retry job: `fec4d764981b4df9ab0491303cf373ed`, state **paused**.
-- Completed: **1 / 60 segments, 531 / 26,980 CFR source frames (1.97%)**.
-- Standard 15-minute completion/estimate accuracy: **NOT RUN to completion**.
-- Standard two-hour stability retry: **NOT RUN**.
-- Fast two-hour soak: **NOT RUN**.
-- Local full checks last run: Ruff PASS, format PASS (74 files), Pyright PASS
-  (0 errors/warnings); CPU 168 PASS / 3 SKIP / 18 GPU deselected;
-  GPU 18 PASS / 171 deselected. The subsequent supervisor race regression
-  passed its two focused tests; the full CPU suite after that change is NOT RUN.
-- Wheel build: PASS, 52 entries; final CI for this checkpoint: NOT RUN.
-- GUI: NOT RUN, outside this cycle's scope.
+| Run | Dedicated growth MB | Reserved growth MB | Engine RSS growth MB | Tree RSS growth MB |
+|---|---:|---:|---:|---:|
+| standard-accuracy-final | -222.298 | -1010.827 | 3.801 | -45.961 |
+| standard-stability-retry | 255.857 | -413.139 | -39.035 | -20.554 |
+| fast-soak-fixed | 50.332 | 50.332 | 1.569 | 29.196 |
 
-External checkpoint:
-`C:/Users/pro/Documents/VideoEnhancer-P1a-6/user-pause-checkpoint.json`.
-Logs, inputs, models and previous measurements remain under that external root.
-Corrected fixture and retry driver reproduction scripts were saved under its
-`reproduction` folder. This pause is intentional, not a completed acceptance
-run or a new design blocker.
+Growth compares first/last five-minute windows after minute 10. Fast limits are
+150 MB dedicated, 100 MB reserved, 200 MB RSS. Standard records trends; these Fast
+growth limits are not applied to Standard. Dedicated memory is sampled (1 second
+for sample memory trials, approximately 60 seconds for long runs); Torch peaks
+are allocator max-reserved measurements. Output audio and exact frame counts are
+validated by the controller. The Standard two-hour stability job intentionally
+remains paused after more than 60 active minutes, including one scheduled pause
+and an actual stop/restart; completion is not required by its specification.
 
-### Continuation instructions
+SAC simulated blocked PyNvVideoCodec import reports the specific message in probe
+and enhance: PASS. An isolated copy of the original P0 schema-1 job with no model
+snapshot resumed and regenerated 1,139 source / 2,278 output frames: PASS. The
+original P0 job was preserved.
 
-1. Verify Git state and this report before starting; preserve all external
-   evidence. Do not rerun the already-completed Task A-C GPU measurements.
-2. For processing-only continuation, set `VE_HOME` to the external
-   `standard-accuracy-retry/home`, run `ve resume` with the job ID above, then
-   `ve run --ignore-schedule`. Completed segments are reusable.
-3. For acceptance accuracy, use a fresh isolated home and a fresh supervised
-   Standard 15-minute experiment using `standard-15min-zero-origin.mp4` and
-   the saved calibrated model coefficients. The interrupted supervisor's
-   wall-clock measurement cannot be used as a completed total. Do not simply
-   rerun `scripts/soak.py` against the existing home: it requires a fresh home.
-4. Complete Standard stability and Fast soak sequentially, including prescribed
-   pauses and stop/resume. Compare estimates against real completed totals;
-   record memory, detector counts and exact frame/audio validation.
-5. Run final checks, replace this interim report with final acceptance results,
-   commit and push on `p1-restoration-gui`; keep PR #2 draft and never merge.
+### Corrected failures and retained evidence
 
-Git checkpoint commit/push result is supplied in the chat; if either operation
-fails, record the exact failure here and stop. No final acceptance or CI success
-is claimed by this checkpoint.
+- The first Standard fixture had a 21.333 ms video/audio origin discrepancy from
+  concat without `-copyts`; final mux validation failed. Rebuilt zero-origin inputs
+  with `-copyts`, preserved AAC priming and verified a real assembly smoke test.
+  The fresh completed Standard accuracy result above replaces that failed fixture.
+- Initial calibration lacked inference mode; corrected and recalibrated. Old
+  invalid calibration is retained externally and was not used for acceptance.
+- The first Fast render finished, but quality control read a 7.4 MB job manifest
+  on every FFmpeg metadata line. This was an implementation accessor error:
+  40.797 ms/read versus 0.129 ms for existing lightweight control-state access.
+  Replaced the accessor and added a regression covering pause detection without
+  full manifest reload. Its output was resumed and validated separately; the fresh
+  Fast run above is the acceptance timing, not a mixed interrupted-run total.
+- A temporary controller-test fixture modified control generation and requeued
+  itself; fixed the fixture and reran the controller and full suites.
+
+## Validation, expected and actual
+
+Expected: registry safety/reproducibility, zero final flags, bounded memory,
+seams ≤1.3, completed-run estimate errors within ±30% initial / ±15% at 10%,
+pause/restart stability, clean local checks and Windows/Ubuntu CI.
+
+Actual local final checks after the control accessor correction:
+
+| Check | Result |
+|---|---|
+| Ruff | PASS |
+| Ruff format --check | PASS, 74 files |
+| Pyright | PASS, zero errors/warnings/information |
+| CPU suite | PASS, 170 passed / 3 skipped / 18 GPU deselected, 75.52 seconds |
+| GPU suite | PASS, 18 passed / 173 deselected, 45.06 seconds |
+| Controller focused suite | PASS, 14 passed / 1 skipped |
+| Wheel build | PASS, 52 entries; built-in manifests included; no weights/media |
+| Final Windows/Ubuntu CI | Pending |
+
+## New CLI commands and reproduction
+
+```powershell
+ve models list
+ve models add C:\MyModels\finetune
+ve models remove my-basicvsr-finetune
+ve enhance input.mp4 -o enhanced.mp4 --restore-model basicvsrpp-ntire21-decompress --interp-model rife-4.25
+ve trial input.mp4 --seconds 5 --preset standard --restore-model basicvsrpp-ntire21-decompress --out C:\Evaluation\trial
+ve trial trial-input.mp4 --start 0 --seconds 0.1 --preset standard --backend cpu --short-side keep --out C:\Evaluation\cpu-trial
+ve bench --calibrate --output-dir C:\Evaluation\calibration
+.venv\Scripts\ruff.exe check .
+.venv\Scripts\ruff.exe format --check .
+.venv\Scripts\pyright.exe
+.venv\Scripts\python.exe -m pytest -m "not gpu"
+.venv\Scripts\python.exe -m pytest -m gpu
+```
+
+Use a fresh VE_HOME for each soak, installing models, adapter sources and the
+verified calibration profile; do not reuse existing completed-job directories:
+
+```powershell
+python scripts/soak.py --input standard-15min-zero-origin.mp4 --output standard.mp4 --preset standard --mode complete --scheduled-pauses 0
+python scripts/soak.py --input standard-2h-zero-origin.mp4 --output stability.mp4 --preset standard --mode stability --scheduled-pauses 1
+python scripts/soak.py --input fast-synthetic-2h.mp4 --output fast.mp4 --preset fast --mode complete --scheduled-pauses 2
+```
+
+All videos, weights, raw-frame PNGs and detailed JSON/logs are outside the repository:
+`C:\Users\pro\Documents\VideoEnhancer-P1a-6`.
+Key folders: checked-samples, segment-joints, trial-cpu-real, trial-gpu-real,
+calibration-inference, p0-resume, standard-accuracy-final, standard-stability-retry,
+fast-soak-fixed. Each long-run home/reports holds soak_report.json and soak.log.
+Exact fixture recipe is preserved in prepare_D_retry.py; long-run orchestration
+in run_D_final.py / finish_fast_fixed.py; sample validation in final_B.py and
+continue_C.py. Original failed/interrupted reports remain in separate folders.
+
+## Limitations and intentionally unrun scope
+
+PSNR/SSIM against compressed input measure fidelity, not restoration gain against
+unavailable pre-compression ground truth. Exact VFR quality-reference alignment
+has not been validated. No proof of a padding implementation defect was found.
+30-frame seam measurements were intentionally NOT RUN after the memory cap,
+as explicitly required. GUI/API, training, face processing and new benchmark
+candidates were NOT RUN (out of scope). No subagents were used.
+
+## Blocking decision for Claude
+
+Fast completed in 17,658.881 active seconds (4 h 54 min 19 s). Initial prediction
+13,600.021 seconds is -22.985% (PASS at ±30%); the 10% prediction 13,964.986
+seconds is -20.918% (FAIL at ±15%). Standard completed accuracy passes both targets.
+Fast memory growth is 50.332 MB dedicated, 50.332 MB reserved, 1.569 MB engine RSS
+and 29.196 MB controller-tree RSS; all Fast growth limits pass. The two scheduled
+pauses were observed, exact 431,568 output frames were decoded, audio retained,
+and raw/final detector counts are 0/0.
+
+| Long run | Torch reserved peak GB | Sampled PDH peak GB |
+|---|---:|---:|
+| Standard completed accuracy | 4.718592 | 4.531409 |
+| Standard stability | 4.395631 | 4.353151 |
+| Fast fresh completed soak | 1.589641 | 1.823961 |
+
+Cause: `src/videoenhancer/estimate/model.py:212` sums pending segment predictions;
+it does not predict final assembly/validation/quality work. That work runs after
+all segments in `src/videoenhancer/schedule/controller.py:548` and includes full
+PSNR/SSIM and difference passes in `src/videoenhancer/pipeline/quality.py`.
+The full-manifest polling bug was corrected and regression-tested; the fresh run
+still misses the acceptance target. Do not alter the actual-total reference or
+the ±15% threshold to make this pass.
+
+Decision requested: specify how to calibrate and incorporate finalization into
+initial and remaining-time estimates (including geometry/backend dependence and
+progress reporting). A separate measured finalization coefficient/stage would
+address the missing work, but has not been implemented without design approval.
+Reproduce with the fresh-home Fast soak command above and compare the report's
+prediction_at_ten_percent with actual_wall_excluding_pauses_seconds. Exact report:
+`C:\Users\pro\Documents\VideoEnhancer-P1a-6\fast-soak-fixed\home\reports\soak_report.json`.
+No more product changes or acceptance reruns were made after this design blocker.
+
+## Changed files
+
+- `.ai/CURRENT_TASK.md`
+- `.ai/LAST_REPORT.md`
+- `README.md`
+- `docs/ADDING_MODELS.md`
+- `docs/ARCHITECTURE.md`
+- `docs/BENCHMARK_DEGRADED.md`
+- `docs/DEVELOPMENT.md`
+- `scripts/soak.py`
+- `src/videoenhancer/bench/basicvsr.py`
+- `src/videoenhancer/bench/calibration.py`
+- `src/videoenhancer/bench/rife.py`
+- `src/videoenhancer/bench/runner.py`
+- `src/videoenhancer/cli.py`
+- `src/videoenhancer/estimate/model.py`
+- `src/videoenhancer/jobs/store.py`
+- `src/videoenhancer/media/mux.py`
+- `src/videoenhancer/models/basicvsr.py`
+- `src/videoenhancer/models/manifests/basicvsrpp-ntire21-decompress.json`
+- `src/videoenhancer/models/manifests/rife-4.25.json`
+- `src/videoenhancer/models/registry.py`
+- `src/videoenhancer/models/rife.py`
+- `src/videoenhancer/models/sources.py`
+- `src/videoenhancer/models/spandrel.py`
+- `src/videoenhancer/pipeline/clips.py`
+- `src/videoenhancer/pipeline/outliers.py`
+- `src/videoenhancer/pipeline/presets.py`
+- `src/videoenhancer/pipeline/quality.py`
+- `src/videoenhancer/pipeline/runner.py`
+- `src/videoenhancer/pipeline/stages.py`
+- `src/videoenhancer/schedule/controller.py`
+- `src/videoenhancer/trial.py`
+- `tests/test_cli.py`
+- `tests/test_controller.py`
+- `tests/test_estimate.py`
+- `tests/test_jobs.py`
+- `tests/test_model_registry.py`
+- `tests/test_p1a_pipeline.py`
+- `tests/test_quality_trial.py`
+- `tests/test_soak.py`

@@ -546,7 +546,10 @@ def run_queue(
                         continue
 
                     def assembly_abort(target_job_id: str = job_id) -> bool:
-                        if stop or store.load(target_job_id)["state"] not in {"queued", "running"}:
+                        if stop or store.read_control_state(target_job_id) not in {
+                            "queued",
+                            "running",
+                        }:
                             return True
                         if ignore_schedule:
                             return False
