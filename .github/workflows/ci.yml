@@ -33,3 +33,24 @@ jobs:
       - run: uv run pytest -m "not gpu and not soak" --basetemp=.venv/testtmp
         env:
           VE_HOME: ${{ runner.temp }}/ve-home
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+      - run: npm ci
+        working-directory: gui
+      - run: npm run lint
+        working-directory: gui
+      - run: npm run typecheck
+        working-directory: gui
+      - run: npm test
+        working-directory: gui
+      - run: npm run build
+        working-directory: gui
+      - name: Electron CPU end-to-end
+        if: runner.os == 'Windows'
+        run: npm run test:e2e
+        working-directory: gui
+        env:
+          VE_GUI_EVIDENCE: ${{ runner.temp }}/ve-gui-evidence

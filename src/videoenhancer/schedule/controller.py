@@ -561,6 +561,8 @@ def run_queue(
     clock: Clock | None = None,
     executor: Any = None,
     disk_free: Callable[[Path], int] | int | None = None,
+    stopped: Callable[[], bool] = lambda: False,
+    between_segments: Callable[[], None] = lambda: None,
 ) -> None:
     """Process queued jobs until no runnable job remains.
 
@@ -615,7 +617,10 @@ def run_queue(
         signal.signal(signal.SIGINT, request_stop)
     try:
         with _worker_lock(store.home):
-            while not stop:
+            while not stop and not stopped():
+                between_segments()
+                if stopped():
+                    break
                 jobs = store.list_jobs()
                 if job_ids is not None:
                     jobs = [job for job in jobs if job["id"] in job_ids]
@@ -675,7 +680,7 @@ def run_queue(
                         continue
 
                     assembly_abort = finalization_abort(
-                        store, job_id, clock, ignore_schedule, lambda: stop
+                        store, job_id, clock, ignore_schedule, lambda: stop or stopped()
                     )
 
                     finalize_started = clock.now()
@@ -838,7 +843,7 @@ def run_queue(
                     path: Path = schedule_path,
                 ) -> bool:
                     nonlocal reason
-                    if stop:
+                    if stop or stopped():
                         reason = "interrupt"
                         return True
                     state = store.read_control_state(target_job_id)

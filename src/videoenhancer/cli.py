@@ -106,6 +106,7 @@ def _parser() -> argparse.ArgumentParser:
     bench.add_argument("--calibrate", action="store_true")
     bench.add_argument("--models", default=None, metavar="all|NAMES")
     bench.add_argument("--output-dir", type=Path)
+    commands.add_parser("serve", help="Run the authenticated local desktop engine service")
     return parser
 
 
@@ -348,7 +349,11 @@ def main(argv: list[str] | None = None) -> int:
 
     home = get_home()
     try:
-        if args.command == "probe":
+        if args.command == "serve":
+            from videoenhancer.service.server import serve
+
+            return serve(home)
+        elif args.command == "probe":
             from videoenhancer.media.decode import choose_backend
             from videoenhancer.media.probe import probe
 

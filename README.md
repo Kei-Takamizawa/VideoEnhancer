@@ -1,8 +1,12 @@
 # VideoEnhancer
 
-VideoEnhancer is a Windows app in development. From the command line, it can restore compression damage and make motion smoother. It can also resize videos, save progress, resume interrupted jobs, and work within your chosen hours. A graphical interface is planned.
+VideoEnhancer is a Windows app in development. It can restore compression damage and make motion smoother. It can also resize videos, save progress, resume interrupted jobs, and work within your chosen hours.
 
 Requires an NVIDIA RTX GPU. Your videos stay on your computer.
+
+## Using the app
+
+Add videos to your queue, choose Standard or Fast, and see when they are expected to finish. Set your preferred working hours, compare a short Trial before committing to a long video, and follow the daily plan. Closing the window keeps processing in the tray; Quit stops safely so you can continue later. The development app needs Windows 11 and an NVIDIA RTX graphics card; see the [app setup guide](docs/GUI.md).
 
 Try a short labeled comparison before processing a whole video. You can also
 add your own compatible restoration models and choose them for a job. See the
