@@ -44,6 +44,11 @@ def get_logger(home: Path, *, job_id: str | None = None, console: bool = True) -
     logger.setLevel(logging.INFO)
     logger.propagate = False
     global_path = home / "videoenhancer.jsonl"
+    settings_path = home / "settings.json"
+    if settings_path.exists():
+        preferences = json.loads(settings_path.read_text(encoding="utf-8"))
+        if preferences.get("log_folder"):
+            global_path = Path(preferences["log_folder"]) / "videoenhancer.jsonl"
     job_path = home / "jobs" / job_id / "job.jsonl" if job_id else None
     existing = {getattr(handler, "baseFilename", None) for handler in logger.handlers}
     if str(global_path) not in existing:

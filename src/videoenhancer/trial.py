@@ -34,6 +34,7 @@ def run_trial(
     out: Path | None = None,
     backend: str = "auto",
     short_side: str | int = 1080,
+    settings_patch: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if (
         not math.isfinite(seconds)
@@ -65,6 +66,9 @@ def run_trial(
     settings: dict[str, Any] = dict(
         preset=preset, backend=backend, short_side=short_side, fps="2x", codec="h264", lossless=True
     )
+    if settings_patch:
+        settings.update(settings_patch)
+        settings.update(preset=preset, backend=backend)
     if restore_model:
         settings["restore_model"] = restore_model
     if interp_model:
@@ -149,6 +153,7 @@ def run_trial(
     report = {
         "preset": preset,
         "backend": backend,
+        "output_fps": float(output_rate(settings, media)),
         "start_seconds": first / float(rate),
         "seconds": (last - first) / float(rate),
         "input_frames": last - first,
