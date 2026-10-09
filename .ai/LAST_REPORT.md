@@ -3,7 +3,7 @@
 Task ID / Cycle: VE-P1b / P1b. Date: 2026-10-08 (owner timezone).
 Status: PARTIAL — implementation and local checks complete; physical tray menu,
 Explorer drop, fresh network weight download and extended viewer interactions
-remain NOT RUN. CI verification is pending first publication.
+remain NOT RUN. Windows and Ubuntu CI both passed for the implementation commit.
 Branch: p1b-gui. Base: origin/main 0ee24505e000927be17bf64b30465701584a89a7.
 PR #2 was verified merged. Initial working tree was clean. No subagents used.
 CURRENT_TASK.md matches the uploaded instruction byte-for-byte, SHA-256
@@ -49,7 +49,7 @@ f088663284f46ca0f5ddc3d06222ada52d484389b919cb836afbb362491e3499.
 | A4 | PASS | Fake-clock saved-schedule controller test; API preview/persistence; component grid/list midnight, Save and exceptions |
 | A5 | PASS | Mocked retained Queue/Retry and blocking SAC/link tests; native retained-data disconnect and reload/reconnect observed |
 | A6 | PASS | Queue/Schedule component tests; Electron real CPU synthetic completion |
-| A7 | PARTIAL | Local engine/GUI checks PASS; Windows/Ubuntu CI pending publication |
+| A7 | PASS | Local engine/GUI checks and Windows/Ubuntu CI PASS |
 | A8a | PASS | Plan/scenario/timezone/DST tests; all-page Electron check; actual GPU calibration done |
 | A8b | PARTIAL | Real valid/invalid hash/add/remove/queued verify/cancel and consent persistence tests; UI licence/source/explicit acceptance/validation/removal tests. Fresh download and completed UI Verify again NOT RUN |
 | A8c | PASS | Settings persistence/new-job defaults; actual login-item registration/unregistration and clipboard diagnostics; advanced validation |
@@ -73,7 +73,7 @@ f088663284f46ca0f5ddc3d06222ada52d484389b919cb836afbb362491e3499.
 | GPU Trial/settings/calibrate e2e | PASS | One real-pipeline test, 2.3 minutes |
 | GPU Standard restart e2e | PASS | One test, 2.0 minutes; close/second launch/Quit/checkpoint/restart/done |
 | Packaged executable smoke | PASS | One test, 4.1 seconds; external engine, sandbox/isolation/no Node, graceful Quit |
-| Windows/Ubuntu CI | NOT RUN | Pending first publication; verify before stopping |
+| Windows/Ubuntu CI | PASS | Both matrix jobs succeeded on implementation commit d124330; PR run 37890299005 |
 
 CPU e2e's queue network fixture selects the existing CPU passthrough preset,
 with a Fast metadata estimate; CI has no production restoration weights. It
@@ -184,3 +184,16 @@ build and npm run test:e2e. GPU Trial uses VE_GUI_GPU_HOME and VE_GUI_EVIDENCE;
 restart uses VE_GUI_RESUME_HOME and VE_GUI_OWNER_CLIP; package smoke uses
 VE_GUI_PACKAGE_EXE. Commands are in docs/GUI.md. Use fresh isolated homes with
 verified model/adapter copies and external screenshots, never the owner queue.
+
+## Git and CI publication
+
+Implementation commit: d124330270b10e6efdf2477dffd3e38a54e7d3b4, pushed to
+origin/p1b-gui. Draft PR: https://github.com/Kei-Takamizawa/VideoEnhancer/pull/3.
+Windows and Ubuntu both succeeded:
+https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/37890299005.
+This follow-up changes only the report to record the observed CI result.
+Tracked-text privacy check passed after staging (one test, 0.42 seconds).
+The final local e2e selection passed CPU and packaged checks (two passed,
+two GPU opt-ins skipped, 16.4 seconds); scaling evidence was subsequently
+refreshed using Electron capturePage (CPU check passed in 11.8 seconds).
+No source changes are added after these validations, and no next cycle begins.
