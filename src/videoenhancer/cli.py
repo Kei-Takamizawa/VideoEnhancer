@@ -24,15 +24,20 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("input", type=Path)
         command.add_argument("-o", "--output", type=Path)
         command.add_argument(
-            "--preset", choices=("passthrough", "resize", "p0-test"), default="p0-test"
+            "--preset",
+            choices=("passthrough", "resize", "p0-test", "fast", "standard"),
+            default="standard",
         )
         command.add_argument(
             "--short-side", choices=("keep", "1080", "1440", "2160"), default="1080"
         )
+        command.add_argument("--restore-model", metavar="ID")
+        command.add_argument("--interp-model", metavar="ID")
         command.add_argument("--fps", choices=("off", "2x"), default="2x")
         command.add_argument("--codec", choices=("hevc", "h264", "av1"), default="hevc")
         command.add_argument("--backend", choices=("auto", "cpu", "cuda"), default="auto")
         command.add_argument("--batch-size", type=int, default=2, metavar="N")
+        command.add_argument("--pipeline-queue-size", type=int, default=2, help=argparse.SUPPRESS)
         command.add_argument("--segment-seconds", type=float, default=180.0, metavar="SECONDS")
         command.add_argument("--keep-segments", action="store_true")
         command.add_argument("--lossless", action="store_true", help=argparse.SUPPRESS)
@@ -40,6 +45,32 @@ def _parser() -> argparse.ArgumentParser:
     add_video_options(commands.add_parser("add", help="Analyze and queue a video"))
     add_video_options(commands.add_parser("enhance", help="Queue and process this video now"))
 
+    trial = commands.add_parser("trial", help="Render a short labeled original/enhanced comparison")
+    trial.add_argument("input", type=Path)
+    trial.add_argument("--start", type=float)
+    trial.add_argument("--seconds", type=float, default=5)
+    trial.add_argument("--preset", choices=("fast", "standard"), default="standard")
+    trial.add_argument("--restore-model", metavar="ID")
+    trial.add_argument("--interp-model", metavar="ID")
+    trial.add_argument("--out", type=Path)
+    trial.add_argument("--backend", choices=("auto", "cpu", "cuda"), default="auto")
+    trial.add_argument("--short-side", choices=("keep", "1080", "1440", "2160"), default="1080")
+
+    models = commands.add_parser("models", help="Manage installed model manifests and weights")
+    model_commands = models.add_subparsers(dest="models_command", required=True)
+    model_commands.add_parser("list", help="List models and verified weights")
+    model_commands.add_parser("add", help="Install a data-only model folder").add_argument(
+        "folder", type=Path
+    )
+    model_commands.add_parser("remove", help="Remove a custom model").add_argument("model_id")
+
+    report = commands.add_parser("report", help="Show job diagnostics")
+    report.add_argument(
+        "--full-quality",
+        action="store_true",
+        help="Run development-only full post-encode quality pass",
+    )
+    report.add_argument("job")
     commands.add_parser("queue", help="Show queued jobs")
     move = commands.add_parser("move", help="Move a job to a queue position")
     move.add_argument("job")
@@ -97,14 +128,9 @@ def _duration(seconds: float) -> str:
 
 
 def _progress(job: dict[str, Any]) -> float:
-    segments = job.get("segments", [])
-    total = sum(max(0, int(segment["end"]) - int(segment["start"])) for segment in segments)
-    done = sum(
-        int(segment["end"]) - int(segment["start"])
-        for segment in segments
-        if segment.get("state") == "done"
-    )
-    return 100 * done / total if total else 0.0
+    from videoenhancer.estimate.model import job_progress
+
+    return job_progress(job)["progress_percent"]
 
 
 def _window_label(window: dict[str, str], date: str) -> str:
@@ -255,8 +281,13 @@ def _add(args: argparse.Namespace, home: Path, as_json: bool, run_now: bool) -> 
         "backend": backend,
         "keep_segments": args.keep_segments,
         "batch_size": min(4, max(1, args.batch_size)),
+        "pipeline_queue_size": min(16, max(1, args.pipeline_queue_size)),
         "lossless": args.lossless,
     }
+    if args.restore_model:
+        settings["restore_model"] = args.restore_model
+    if args.interp_model:
+        settings["interp_model"] = args.interp_model
     manifest = add_job(
         args.input,
         settings,
@@ -265,12 +296,22 @@ def _add(args: argparse.Namespace, home: Path, as_json: bool, run_now: bool) -> 
         target_segment_seconds=args.segment_seconds,
     )
     estimate = estimate_job(manifest).to_dict()
+    comparisons = {}
+    for preset in ("fast", "standard"):
+        if isinstance(manifest.get("settings"), dict):
+            alternate = {**manifest, "settings": {**manifest["settings"], "preset": preset}}
+            comparisons[preset] = estimate_job(alternate).to_dict()
+        elif preset == "standard":
+            comparisons[preset] = estimate
+        else:
+            comparisons[preset] = estimate
     plan = _jobs_plan([manifest], home)
     result: dict[str, Any] = {
         "job_id": manifest["id"],
         "output": manifest["output"],
         "segments": len(manifest["segments"]),
         "estimate": estimate,
+        "preset_estimates": comparisons,
         "plan": plan,
     }
     if run_now:
@@ -289,6 +330,8 @@ def _add(args: argparse.Namespace, home: Path, as_json: bool, run_now: bool) -> 
             f"Added job {manifest['id']} ({len(manifest['segments'])} segments).\n"
             f"Estimated remaining time: {_duration(estimate['seconds'])}"
             f"{' (calibrated)' if estimate['calibrated'] else ' (uncalibrated)'}\n"
+            f"Fast: {_duration(comparisons['fast']['seconds'])}; "
+            f"Standard: {_duration(comparisons['standard']['seconds'])}\n"
             f"Output: {manifest['output']}\n{format_plan(plan)}"
         )
     _emit(result, human, as_json)
@@ -306,10 +349,13 @@ def main(argv: list[str] | None = None) -> int:
     home = get_home()
     try:
         if args.command == "probe":
+            from videoenhancer.media.decode import choose_backend
             from videoenhancer.media.probe import probe
 
+            backend = choose_backend("auto")
             info = probe(args.input, count_frames=True)
             data = info.to_dict()
+            data["processing_backend"] = backend
             human = (
                 f"File: {data['path']}\n"
                 f"Video: {data['display_width']}×{data['display_height']} "
@@ -321,11 +367,52 @@ def main(argv: list[str] | None = None) -> int:
                 f"{' estimated' if data['frame_count_estimated'] else ''}; "
                 f"duration {_duration(data['duration'])}\n"
                 f"Color: {data['color_matrix']}, {data['color_range']}; "
-                f"audio streams: {len(data['audio_streams'])}"
+                f"audio streams: {len(data['audio_streams'])}\n"
+                f"Processing backend: {backend}"
             )
             _emit(data, human, as_json)
         elif args.command in {"add", "enhance"}:
             return _add(args, home, as_json, args.command == "enhance")
+        elif args.command == "trial":
+            from videoenhancer.trial import run_trial
+
+            report = run_trial(
+                args.input,
+                start=args.start,
+                seconds=args.seconds,
+                preset=args.preset,
+                restore_model=args.restore_model,
+                interp_model=args.interp_model,
+                out=args.out,
+                backend=args.backend,
+                short_side="keep" if args.short_side == "keep" else int(args.short_side),
+            )
+            _emit(
+                report,
+                f"Trial written to {report['paths']['report.json']}\n"
+                f"Measured {report['pipeline']['fps']:.3f} input fps. At this speed the whole "
+                f"video would take about {_duration(report['projected_whole_file_seconds'])}.",
+                as_json,
+            )
+        elif args.command == "models":
+            from videoenhancer.models.registry import ModelRegistry
+
+            registry = ModelRegistry(home)
+            if args.models_command == "list":
+                models = registry.list_models()
+                lines = ["ID | Task | Architecture | Weights verified | Licence"]
+                lines.extend(
+                    f"{m['id']} | {m['task']} | {m['architecture']} | "
+                    f"{'yes' if m['weights_verified'] else 'no'} | {m['licence']}"
+                    for m in models
+                )
+                _emit(models, "\n".join(lines), as_json)
+            elif args.models_command == "add":
+                model = registry.add(args.folder)
+                _emit(model, f"Installed model {model['id']}.", as_json)
+            else:
+                registry.remove(args.model_id)
+                _emit({"removed": args.model_id}, f"Removed model {args.model_id}.", as_json)
         elif args.command == "schedule":
             return _schedule_command(args, home, as_json)
         elif args.command == "bench":
@@ -343,7 +430,26 @@ def main(argv: list[str] | None = None) -> int:
             from videoenhancer.jobs.store import JobStore
 
             store = JobStore(home)
-            if args.command == "queue":
+            if args.command == "report":
+                job = store.load(args.job)
+                full_quality = None
+                if args.full_quality:
+                    from videoenhancer.pipeline.quality import measure_quality
+
+                    if job["state"] != "done":
+                        raise ValueError("Full quality requires a completed job.")
+                    full_quality = measure_quality(job, Path(job["result"]))
+                report = {
+                    "job_id": job["id"],
+                    "state": job["state"],
+                    "quality": job.get("quality"),
+                    "full_quality": full_quality,
+                    "timing": job.get("timing", {}),
+                }
+                _emit(report, json.dumps(report, indent=2), as_json)
+            elif args.command == "queue":
+                from videoenhancer.estimate.model import job_progress
+
                 jobs = store.list_jobs()
                 plan = _jobs_plan(jobs, home)
                 completion = {item["job_id"]: item["completion"] for item in plan["jobs"]}
@@ -351,7 +457,7 @@ def main(argv: list[str] | None = None) -> int:
                     {
                         "id": job["id"],
                         "state": job["state"],
-                        "progress_percent": _progress(job),
+                        **job_progress(job),
                         "eta": completion.get(job["id"]),
                         "output": job["output"],
                     }

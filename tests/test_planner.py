@@ -7,7 +7,11 @@ from videoenhancer.schedule.planner import build_plan
 from videoenhancer.schedule.windows import Schedule
 
 ZONE = ZoneInfo("UTC")
-PROFILE = {"components": {"decode": 1, "color": 0, "encode": 0}, "segment_overhead_seconds": 0}
+PROFILE = {
+    "finalization": {"a": 0, "b": 0, "c": 0},
+    "components": {"decode": 1, "color": 0, "encode": 0},
+    "segment_overhead_seconds": 0,
+}
 
 
 def job(identity, frames, count=1, state="queued"):

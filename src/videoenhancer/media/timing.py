@@ -8,7 +8,7 @@ def output_rate(settings: dict[str, Any], media: dict[str, Any]) -> Fraction:
     rate = Fraction(media["cfr_fps"])
     if (
         settings.get("fps", "2x") == "2x"
-        and settings.get("preset", "p0-test") == "p0-test"
+        and settings.get("preset", "p0-test") in {"p0-test", "fast", "standard"}
         and rate <= 30
     ):
         return min(rate * 2, Fraction(60))

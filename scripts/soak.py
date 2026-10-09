@@ -42,9 +42,10 @@ def _schedule(windows: list[tuple[datetime, datetime]]) -> dict[str, Any]:
     }
 
 
-def _tree_rss(process: psutil.Process) -> int:
+def _tree_rss(pid: int) -> int:
     total = 0
     try:
+        process = psutil.Process(pid)
         for member in [process, *process.children(recursive=True)]:
             try:
                 total += member.memory_info().rss
@@ -71,239 +72,357 @@ def _write(path: Path, value: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+def _memory_growth(records: list[dict[str, Any]], key: str, started_epoch: float) -> int | None:
+    values = [
+        r for r in records if r.get(key) is not None and r["timestamp"] >= started_epoch + 600
+    ]
+    if not values:
+        return None
+    first, last = values[0]["timestamp"], values[-1]["timestamp"]
+    if last - first < 600:
+        return None
+    early = [r[key] for r in values if r["timestamp"] <= first + 300]
+    late = [r[key] for r in values if r["timestamp"] >= last - 300]
+    return max(late) - max(early)
+
+
+def _stop_owned(process: subprocess.Popen[str]) -> None:
+    """Terminate only the worker tree launched by this supervisor."""
+    try:
+        parent = psutil.Process(process.pid)
+        descendants = parent.children(recursive=True)
+        # Native controller closure reaps its Windows kill-on-close engine job.
+        for child in descendants:
+            try:
+                command = child.cmdline()
+                if "videoenhancer.cli" in command and "run" in command:
+                    child.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            for child in reversed(descendants):
+                try:
+                    child.kill()
+                except psutil.NoSuchProcess:
+                    pass
+            process.kill()
+            process.wait(timeout=15)
+    except psutil.NoSuchProcess:
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
-    parser.add_argument("--output", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--preset", choices=("fast", "standard"), default="fast")
+    parser.add_argument("--mode", choices=("complete", "stability"), default="complete")
+    parser.add_argument("--scheduled-pauses", type=int, choices=(0, 1, 2), default=2)
     parser.add_argument("--sample-seconds", type=float, default=10)
     args = parser.parse_args()
-    home = get_home()
+    home, cli = get_home(), [sys.executable, "-m", "videoenhancer.cli"]
     store = JobStore(home)
-    output = args.output or args.input.with_name(f"{args.input.stem}_enhanced.mp4")
-    cli = [sys.executable, "-m", "videoenhancer.cli"]
+    if store.list_jobs():
+        parser.error("Use a fresh VE_HOME; this supervisor records one uninterrupted experiment.")
     reports = home / "reports"
     reports.mkdir(parents=True, exist_ok=True)
-    report_path = reports / "soak_report.json"
-    prior_report = (
-        json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
+    report_path, log_path = reports / "soak_report.json", reports / "soak.log"
+    added = subprocess.run(
+        [
+            *cli,
+            "--json",
+            "add",
+            str(args.input),
+            "-o",
+            str(args.output),
+            "--backend",
+            "cuda",
+            "--preset",
+            args.preset,
+            "--keep-segments",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
     )
-    unfinished = [job for job in store.list_jobs() if job["state"] != "done"]
-    if unfinished:
-        if (
-            len(unfinished) != 1
-            or unfinished[0]["state"] not in {"queued", "paused"}
-            or Path(unfinished[0]["input"]["path"]).resolve() != args.input.resolve()
-            or Path(unfinished[0]["output"]).resolve() != output.resolve()
-        ):
-            parser.error("VE_HOME must contain only the matching queued or paused soak job.")
-        job_id = unfinished[0]["id"]
-        original = store.load(job_id)
-        if prior_report.get("job_id") != job_id:
-            prior_report = {}
-    else:
-        added = subprocess.run(
-            [*cli, "--json", "add", str(args.input), "-o", str(output), "--backend", "cuda"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if added.returncode:
-            print(added.stdout, end="")
-            print(added.stderr, end="", file=sys.stderr)
-            return added.returncode
-        job_id = json.loads(added.stdout)["job_id"]
-        original = store.load(job_id)
-    initial_estimate = estimate_job(original).to_dict()
-    if prior_report:
-        initial_estimate = prior_report["initial_estimate"]
-    if not initial_estimate["calibrated"]:
-        parser.error("Run ve bench --calibrate in this VE_HOME before the soak.")
+    if added.returncode:
+        print(added.stdout + added.stderr, flush=True)
+        return added.returncode
+    job_id = json.loads(added.stdout)["job_id"]
+    original = store.load(job_id)
+    initial = estimate_job(original).to_dict()
+    if not initial["calibrated"]:
+        parser.error("Run ve bench --calibrate before the soak; selected models must match.")
     now = datetime.now().astimezone()
     first_start = now.replace(minute=now.minute // 15 * 15, second=0, microsecond=0)
-    first_end = first_start + timedelta(minutes=15)
-    if (first_end - now).total_seconds() < 300:
-        first_end += timedelta(minutes=15)
-    second_start = first_end + timedelta(minutes=15)
-    second_end = second_start + timedelta(minutes=15)
+    first_end = first_start + timedelta(minutes=45)
+    second_start, second_end = first_end + timedelta(minutes=15), first_end + timedelta(minutes=30)
     third_start = second_end + timedelta(minutes=15)
-    windows = [
-        (first_start, first_end),
-        (second_start, second_end),
-        (third_start, third_start + timedelta(hours=12)),
-    ]
+    boundaries = [(first_end, second_start), (second_end, third_start)][: args.scheduled_pauses]
+    if args.scheduled_pauses == 2:
+        windows = [
+            (first_start, first_end),
+            (second_start, second_end),
+            (third_start, third_start + timedelta(days=2)),
+        ]
+    elif args.scheduled_pauses == 1:
+        windows = [(first_start, first_end), (second_start, second_start + timedelta(days=2))]
+    else:
+        windows = [(first_start, first_start + timedelta(days=2))]
     settings = _schedule(windows)
+    schedule = Schedule(settings)
     schedule_path = home / "schedule.json"
-    saved = schedule_path.read_bytes() if schedule_path.exists() else None
-    Schedule(settings)
     _write(schedule_path, settings)
-    log_path = reports / "soak.log"
-    samples: list[dict[str, Any]] = list(prior_report.get("samples", []))
-    checkpoints: list[dict[str, Any]] = list(prior_report.get("checkpoints", []))
-    seen_done = sum(s["state"] == "done" for s in original["segments"])
-    estimate_at_ten_percent: float | None = prior_report.get("prediction_at_ten_percent")
+    samples: list[dict[str, Any]] = []
+    checkpoints: list[dict[str, Any]] = []
+    paused_intervals: list[list[float]] = []
+    paused_start: float | None = None
+    prediction_ten: float | None = None
+    stop_event: dict[str, Any] | None = None
+    seen_done = 0
     total_frames = sum(s["end"] - s["start"] for s in original["segments"])
-    gpu_baseline = prior_report.get("nvml_baseline_bytes", _gpu())
-    wall_offset = float(prior_report.get("wall_seconds", 0.0))
-    started = time.perf_counter() - wall_offset
-    print(f"Job {job_id}; initial estimate {initial_estimate['seconds']:.1f} s", flush=True)
-    print(f"Windows: {windows}; report: {report_path}", flush=True)
-    try:
-        with log_path.open("a", encoding="utf-8") as log:
-            log.write(
-                f"\n--- soak worker restarted at {datetime.now().astimezone().isoformat()} ---\n"
-            )
-            log.flush()
-            process = subprocess.Popen([*cli, "run"], stdout=log, stderr=subprocess.STDOUT)
-            measured = psutil.Process(process.pid)
+    started, started_epoch = time.perf_counter(), time.time()
+
+    def active_wall() -> float:
+        paused = sum(b - a for a, b in paused_intervals)
+        if paused_start is not None:
+            paused += time.time() - paused_start
+        return time.perf_counter() - started - paused
+
+    def command(name: str) -> None:
+        result = subprocess.run(
+            [*cli, name, job_id], capture_output=True, text=True, encoding="utf-8", check=False
+        )
+        if result.returncode:
+            raise RuntimeError(result.stdout + result.stderr)
+
+    print(f"Job {job_id}; calibrated initial estimate {initial['seconds']:.1f} s", flush=True)
+    print(f"Schedule {windows}; mode {args.mode}; report {report_path}", flush=True)
+    with log_path.open("a", encoding="utf-8") as log:
+        process = subprocess.Popen([*cli, "run"], stdout=log, stderr=subprocess.STDOUT, text=True)
+        stability_finish = False
+        try:
             while process.poll() is None:
-                elapsed = time.perf_counter() - started
                 job = store.load(job_id)
                 done = [s for s in job["segments"] if s["state"] == "done"]
-                completed_frames = sum(s["end"] - s["start"] for s in done)
+                completed = sum(s["end"] - s["start"] for s in done)
                 active = any(s["state"] == "running" for s in job["segments"])
+                now = datetime.now().astimezone()
+                paused = (schedule.current_interval(now) is None and not active) or job[
+                    "state"
+                ] == "paused"
+                if paused and paused_start is None:
+                    paused_start = time.time()
+                elif not paused and paused_start is not None:
+                    paused_intervals.append([paused_start, time.time()])
+                    paused_start = None
+                elapsed = time.perf_counter() - started
                 samples.append(
                     {
                         "elapsed_seconds": elapsed,
-                        "time": datetime.now().astimezone().isoformat(),
-                        "rss_bytes": _tree_rss(measured),
-                        "nvml_used_bytes": _gpu(),
+                        "timestamp": time.time(),
+                        "time": now.isoformat(),
+                        "rss_bytes": _tree_rss(process.pid),
                         "active": active,
-                        "completed_frames": completed_frames,
+                        "paused": paused,
+                        "completed_frames": completed,
                     }
                 )
                 if len(done) != seen_done:
-                    actual = sum(s.get("actual_seconds", 0) for s in done)
-                    prediction = actual + estimate_job(job).seconds
+                    prediction = active_wall() + estimate_job(job).seconds
                     checkpoints.append(
                         {
                             "elapsed_seconds": elapsed,
-                            "completed_frames": completed_frames,
-                            "fraction": completed_frames / total_frames,
+                            "completed_frames": completed,
+                            "fraction": completed / total_frames,
                             "predicted_total_seconds": prediction,
                         }
                     )
-                    if completed_frames / total_frames >= 0.1 and estimate_at_ten_percent is None:
-                        estimate_at_ten_percent = prediction
+                    if completed / total_frames >= 0.1 and prediction_ten is None:
+                        prediction_ten = prediction
                     seen_done = len(done)
-                if len(samples) % 6 == 1:
-                    _write(
-                        reports / "soak_progress.json",
-                        {
-                            "job_id": job_id,
-                            "elapsed_seconds": elapsed,
-                            "state": job["state"],
-                            "completed_frames": completed_frames,
-                            "total_frames": total_frames,
-                            "completed_segments": len(done),
-                            "total_segments": len(job["segments"]),
-                            "initial_estimate": initial_estimate,
-                            "checkpoints": checkpoints,
-                            "latest_sample": samples[-1],
-                        },
+                # Abrupt stop during a running segment, followed by actual queue recovery.
+                if (
+                    args.mode == "stability"
+                    and stop_event is None
+                    and active_wall() >= 2700
+                    and active
+                ):
+                    stop_event = {
+                        "timestamp": time.time(),
+                        "completed_frames_before": completed,
+                        "running_segment": next(
+                            s["index"] for s in job["segments"] if s["state"] == "running"
+                        ),
+                    }
+                    _stop_owned(process)
+                    time.sleep(5)
+                    command("resume")
+                    process = subprocess.Popen(
+                        [*cli, "run"], stdout=log, stderr=subprocess.STDOUT, text=True
                     )
+                    stop_event["restarted_timestamp"] = time.time()
+                    paused_intervals.append(
+                        [stop_event["timestamp"], stop_event["restarted_timestamp"]]
+                    )
+                pause_verified = []
+                for end, restart in boundaries:
+                    during = [
+                        s for s in samples if end <= datetime.fromisoformat(s["time"]) < restart
+                    ]
+                    after = [s for s in samples if datetime.fromisoformat(s["time"]) >= restart]
+                    pause_verified.append(
+                        bool(
+                            during
+                            and after
+                            and any(s["paused"] for s in during)
+                            and after[-1]["completed_frames"] > during[0]["completed_frames"]
+                        )
+                    )
+                if (
+                    args.mode == "stability"
+                    and active_wall() >= 3600
+                    and all(pause_verified)
+                    and stop_event
+                    and completed > stop_event["completed_frames_before"]
+                ):
+                    command("pause")
+                    for _ in range(30):
+                        if not any(s["state"] == "running" for s in store.load(job_id)["segments"]):
+                            break
+                        time.sleep(1)
+                    _stop_owned(process)
+                    stability_finish = True
+                    break
+                _write(
+                    reports / "soak_progress.json",
+                    {
+                        "job_id": job_id,
+                        "mode": args.mode,
+                        "elapsed_seconds": elapsed,
+                        "active_wall_seconds": active_wall(),
+                        "state": job["state"],
+                        "completed_frames": completed,
+                        "total_frames": total_frames,
+                        "initial_estimate": initial,
+                        "prediction_at_ten_percent": prediction_ten,
+                        "scheduled_pauses_verified": pause_verified,
+                        "stop_event": stop_event,
+                        "latest_sample": samples[-1],
+                        "checkpoints": checkpoints,
+                    },
+                )
+                if job["state"] == "failed":
+                    _stop_owned(process)
+                    break
                 time.sleep(max(1, args.sample_seconds))
-    finally:
-        if saved is None:
-            schedule_path.unlink(missing_ok=True)
-        else:
-            schedule_path.write_bytes(saved)
-    elapsed = time.perf_counter() - started
+        finally:
+            if process.poll() is None:
+                _stop_owned(process)
     job = store.load(job_id)
     done = [s for s in job["segments"] if s["state"] == "done"]
-    actual_total = sum(s.get("actual_seconds", 0) for s in done)
-    engine_seconds = sum(s.get("stats", {}).get("seconds", 0) for s in done)
-    pauses = []
-    for end, restart in [(first_end, second_start), (second_end, third_start)]:
-        before = [s for s in samples if datetime.fromisoformat(s["time"]) < end]
-        during = [s for s in samples if end <= datetime.fromisoformat(s["time"]) < restart]
-        after = [s for s in samples if datetime.fromisoformat(s["time"]) >= restart]
-        last_before = before[-1]["completed_frames"] if before else 0
-        pauses.append(
-            bool(
-                during
-                and after
-                and last_before > 0
-                and any(not s["active"] for s in during)
-                and after[-1]["completed_frames"] > last_before
-            )
-        )
-    active_samples = [s for s in samples if s["elapsed_seconds"] >= 600 and s["active"]]
-    reference, ending = active_samples[:30], active_samples[-30:]
-
-    def growth(key: str) -> int | None:
-        early = [s[key] for s in reference if s[key] is not None]
-        late = [s[key] for s in ending if s[key] is not None]
-        return max(late) - max(early) if early and late else None
-
-    rss_growth, vram_growth = growth("rss_bytes"), growth("nvml_used_bytes")
-    info = probe(output).to_dict() if output.is_file() else None
-    expected = total_frames * 2
-    initial_error = (initial_estimate["seconds"] / actual_total - 1) if actual_total else None
-    corrected_error = (
-        (estimate_at_ten_percent / actual_total - 1)
-        if actual_total and estimate_at_ten_percent
-        else None
-    )
+    completed = sum(s["end"] - s["start"] for s in done)
+    memory = [r for s in done for r in s.get("stats", {}).get("memory_samples", [])]
+    rss_records = [{**s, "process_rss_bytes": s["rss_bytes"]} for s in samples if s["active"]]
+    growth = {
+        key: _memory_growth(memory, key, started_epoch)
+        for key in ("process_dedicated_gpu_bytes", "torch_reserved_bytes", "process_rss_bytes")
+    }
+    growth["tree_rss_bytes"] = _memory_growth(rss_records, "process_rss_bytes", started_epoch)
+    actual = active_wall()
+    complete = job["state"] == "done"
+    info = probe(args.output).to_dict() if complete else None
+    initial_error = initial["seconds"] / actual - 1 if complete else None
+    ten_error = prediction_ten / actual - 1 if complete and prediction_ten else None
+    engine = sum(s.get("stats", {}).get("seconds", 0) for s in done)
     report = {
         "job_id": job_id,
-        "input": str(args.input.resolve()),
-        "output": str(output.resolve()),
+        "mode": args.mode,
+        "preset": args.preset,
         "state": job["state"],
-        "exit_code": process.returncode,
-        "wall_seconds": elapsed,
-        "processing_seconds_including_worker_and_validation": actual_total,
-        "engine_seconds": engine_seconds,
-        "input_fps": total_frames / engine_seconds if engine_seconds else None,
-        "analysis_seconds": job["analysis_seconds"],
-        "scheduled_pauses_verified": pauses,
-        "schedule": settings,
-        "initial_estimate": initial_estimate,
-        "prediction_at_ten_percent": estimate_at_ten_percent,
+        "complete": complete,
+        "wall_seconds": time.perf_counter() - started,
+        "actual_wall_excluding_pauses_seconds": actual,
+        "paused_intervals_epoch": paused_intervals,
+        "clock_origin_epoch": started_epoch,
+        "initial_estimate": initial,
+        "timing": job.get("timing", {}),
+        "quality": job.get("quality"),
+        "prediction_at_ten_percent": prediction_ten,
         "initial_estimate_relative_error": initial_error,
-        "corrected_estimate_relative_error": corrected_error,
-        "rss_peak_bytes": max(s["rss_bytes"] for s in samples),
-        "rss_growth_bytes": rss_growth,
-        "nvml_baseline_bytes": gpu_baseline,
-        "nvml_peak_bytes": max((s["nvml_used_bytes"] or 0) for s in samples),
-        "vram_growth_bytes": vram_growth,
-        "torch_peak_bytes": max(
-            (s.get("stats", {}).get("peak_torch_vram_bytes", 0) for s in done), default=0
+        "ten_percent_estimate_relative_error": ten_error,
+        "scheduled_pauses_verified": pause_verified,
+        "stop_resume_verified": bool(
+            stop_event and completed > stop_event["completed_frames_before"]
         ),
-        "expected_output_frames": expected,
+        "stop_event": stop_event,
+        "completed_input_frames": completed,
+        "total_input_frames": total_frames,
+        "expected_output_frames": total_frames * 2,
         "output_probe": info,
-        "crashes": sum(s["state"] == "failed" for s in job["segments"]),
-        "temp_files_remaining": len(list(store.job_dir(job_id).glob("*.tmp.*"))),
+        "engine_seconds": engine,
+        "input_fps": completed / engine if engine else None,
+        "raw_flag_count": sum(s.get("stats", {}).get("raw_flag_count", 0) for s in done),
+        "final_flag_count": sum(s.get("stats", {}).get("final_flag_count", 0) for s in done),
+        "memory_growth_bytes": growth,
+        "job_memory_samples": memory,
+        "memory_comparison": (
+            "Maximum in first and last five-minute windows after minute 10; epoch timestamps. "
+            "Engine-PID PDH/Torch/RSS and separately sampled controller-tree RSS."
+        ),
         "checkpoints": checkpoints,
         "samples": samples,
-        "memory_comparison": (
-            "Maximum of first/last 30 active samples after minute 10; "
-            "whole worker process tree RSS; total device NVML memory."
-        ),
         "log_path": str(log_path),
+        "input": str(args.input.resolve()),
+        "output": str(args.output.resolve()),
+        "schedule": settings,
+        "analysis_seconds_excluded": job.get("analysis_seconds"),
     }
-    report["soak_pass"] = bool(
-        job["state"] == "done"
-        and all(pauses)
-        and info
-        and info["frame_count"] == expected
-        and rss_growth is not None
-        and rss_growth <= 200_000_000
-        and vram_growth is not None
-        and vram_growth <= 100_000_000
-        and not report["crashes"]
-    )
     report["estimate_pass"] = bool(
-        initial_error is not None
+        complete
+        and initial_error is not None
         and abs(initial_error) <= 0.3
-        and corrected_error is not None
-        and abs(corrected_error) <= 0.15
+        and ten_error is not None
+        and abs(ten_error) <= 0.15
+    )
+    memory_pass = all(
+        growth[k] is not None and growth[k] <= cap
+        for k, cap in (
+            ("process_dedicated_gpu_bytes", 150_000_000),
+            ("torch_reserved_bytes", 100_000_000),
+            ("tree_rss_bytes", 200_000_000),
+        )
+    )
+    report["soak_pass"] = bool(
+        complete
+        and info
+        and info["frame_count"] == total_frames * 2
+        and info.get("audio_streams")
+        and all(pause_verified)
+        and memory_pass
+    )
+    report["stability_pass"] = bool(
+        stability_finish
+        and actual >= 3600
+        and all(pause_verified)
+        and report["stop_resume_verified"]
     )
     _write(report_path, report)
     print(
-        f"Report: {report_path}; soak PASS={report['soak_pass']}; "
-        f"estimate PASS={report['estimate_pass']}"
+        f"Report {report_path}: complete={complete}, soak={report['soak_pass']}, "
+        f"estimate={report['estimate_pass']}, stability={report['stability_pass']}",
+        flush=True,
     )
-    return 0 if report["soak_pass"] and report["estimate_pass"] else 1
+    if args.mode == "stability":
+        return 0 if report["stability_pass"] else 1
+    return (
+        0
+        if report["estimate_pass"] and (report["soak_pass"] if args.scheduled_pauses else complete)
+        else 1
+    )
 
 
 if __name__ == "__main__":

@@ -28,47 +28,6 @@ def packet_bytes(packets: Any) -> bytes:
     return bytes(packets)
 
 
-class DeviceSurface:
-    """Bridge positional DLPack stream calls to PyTorch's keyword-only API."""
-
-    def __init__(self, tensor: torch.Tensor):
-        self.tensor = tensor
-
-    def __dlpack__(self, stream=None):
-        return self.tensor.__dlpack__(stream=stream)
-
-    def __dlpack_device__(self):
-        return self.tensor.__dlpack_device__()
-
-    def cuda(self):
-        height = self.tensor.shape[0] * 2 // 3
-        width = self.tensor.shape[1]
-        return [
-            CudaPlane(self.tensor[:height].reshape(height, width, 1)),
-            CudaPlane(self.tensor[height:].reshape(height // 2, width // 2, 2)),
-        ]
-
-
-class CudaPlane:
-    def __init__(self, tensor: torch.Tensor):
-        self.tensor = tensor
-
-    @property
-    def __cuda_array_interface__(self):
-        return {
-            "shape": tuple(self.tensor.shape),
-            "strides": (
-                self.tensor.stride(0) * self.tensor.element_size(),
-                2 if self.tensor.shape[-1] == 2 else self.tensor.element_size(),
-                1,
-            ),
-            "typestr": "|u2" if self.tensor.dtype == torch.uint16 else "|u1",
-            "data": (self.tensor.data_ptr(), False),
-            "version": 3,
-            "stream": 1,
-        }
-
-
 def color_flags(media: dict[str, Any]) -> list[str]:
     matrix = "smpte170m" if media["color_matrix"] == "bt601" else "bt709"
     primaries = media.get("color_primaries", "bt709")
@@ -164,10 +123,9 @@ class Encoder:
                 fps=str(round(float(rate))),
                 gop=str(max(1, round(float(rate) * 2))),
                 profile="high" if codec == "h264" else "main10" if codec == "hevc" else "main",
-                cudastream=torch.cuda.current_stream().cuda_stream,
             )
             self.encoder = nvc.CreateEncoder(
-                width, height, "NV12" if self.bit_depth == 8 else "P010", False, **options
+                width, height, "NV12" if self.bit_depth == 8 else "P010", True, **options
             )
             self.stream = self.raw_path.open("wb")
         else:
@@ -232,8 +190,17 @@ class Encoder:
     def write(self, frame: torch.Tensor) -> None:
         surface = rgb_to_nv12(frame, self.media["color_matrix"], self.bit_depth)
         if self.backend == "cuda":
-            torch.cuda.current_stream().synchronize()
-            self.stream.write(packet_bytes(self.encoder.Encode(DeviceSurface(surface))))
+            stream = torch.cuda.current_stream()
+            stream.synchronize()
+            # Keep model/color work on CUDA, then hand NVENC an owned host
+            # buffer. PyNvVideoCodec does not document when its encoder stops
+            # reading CUDA Array Interface input surfaces, and rare post-encode
+            # artifacts were observed with that path.
+            host_surface = surface.cpu().contiguous()
+            if host_surface.dtype == torch.uint16:
+                host_surface = host_surface.view(torch.uint8).reshape(-1)
+            packets = self.encoder.Encode(host_surface.numpy())
+            self.stream.write(packet_bytes(packets))
         else:
             assert self.process is not None and self.process.stdin is not None
             try:

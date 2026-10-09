@@ -12,8 +12,24 @@ from videoenhancer.media.timing import output_rate, output_size
 
 # Seconds per megapixel-frame. Calibration replaces these provisional values.
 DEFAULT_COMPONENTS = {
-    "cpu": {"decode": 0.018, "color": 0.025, "resize": 0.04, "blend2x": 0.025, "encode": 0.15},
-    "cuda": {"decode": 0.004, "color": 0.004, "resize": 0.005, "blend2x": 0.003, "encode": 0.008},
+    "cpu": {
+        "decode": 0.018,
+        "color": 0.025,
+        "resize": 0.04,
+        "blend2x": 0.025,
+        "restore": 0.32,
+        "interpolate": 0.046,
+        "encode": 0.15,
+    },
+    "cuda": {
+        "decode": 0.004,
+        "color": 0.004,
+        "resize": 0.005,
+        "blend2x": 0.003,
+        "restore": 0.32,
+        "interpolate": 0.046,
+        "encode": 0.008,
+    },
 }
 
 
@@ -67,6 +83,56 @@ def _coefficient(name: str, backend: str, profile: dict[str, Any] | None) -> flo
     return value
 
 
+def _model_entry(
+    task: str, settings: dict[str, Any], profile: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    from videoenhancer.models.registry import C1, RIFE
+
+    model_id = (
+        settings.get("restore_model") or C1
+        if task == "restore"
+        else (settings.get("interp_model") or RIFE)
+    )
+    entry = (profile or {}).get("models", {}).get(model_id)
+    if (
+        isinstance(entry, dict)
+        and entry.get("status") == "measured"
+        and entry.get("task") == task
+        and entry.get("backend") == settings.get("backend", "cuda")
+    ):
+        return entry
+    return None
+
+
+def _model_coefficient(
+    task: str, settings: dict[str, Any], profile: dict[str, Any] | None
+) -> float:
+    entry = _model_entry(task, settings, profile)
+    if entry is None:
+        return _coefficient(task, settings.get("backend", "cuda"), profile)
+    value = float(entry["seconds_per_pixel_frame"])
+    if value < 0 or not math.isfinite(value):
+        raise ValueError(f"Invalid calibrated model cost for {task}.")
+    return value
+
+
+def _clip_factors(
+    settings: dict[str, Any], profile: dict[str, Any] | None, multiplier: float
+) -> tuple[float, float]:
+    from videoenhancer.models.registry import C1
+
+    entry = _model_entry("restore", settings, profile) or {}
+    builtin = (settings.get("restore_model") or C1) == C1
+    length = int(settings.get("clip_length", entry.get("clip_length", 15 if builtin else 1)))
+    overlap = int(settings.get("clip_overlap", entry.get("clip_overlap", 2 if builtin else 0)))
+    if length <= 2 * overlap or overlap < 0:
+        raise ValueError("Estimator clip length must exceed twice the nonnegative overlap.")
+    if entry.get("single_frame") or length == 1:
+        return (2.0 if multiplier > 1 else 1.0), 1.0
+    owned = length - 2 * overlap
+    return length / owned, max(1.0, (length - 1) / owned)
+
+
 def predict_segment(
     media: dict[str, Any],
     settings: dict[str, Any],
@@ -85,18 +151,40 @@ def predict_segment(
         _coefficient("color", backend, profile) * (input_pixels + output_pixels * multiplier),
         _coefficient("encode", backend, profile) * output_pixels * multiplier,
     ]
-    preset = settings.get("preset", "p0-test")
-    if preset in ("resize", "p0-test"):
+    preset = settings.get("preset", "standard")
+    if preset in ("resize", "p0-test", "fast", "standard"):
         costs.append(_coefficient("resize", backend, profile) * output_pixels)
     normalized_pixels = int(media.get("display_width", media.get("width", 720))) * int(
         media.get("display_height", media.get("height", 1280))
     )
     if normalized_pixels != input_pixels:
         costs.append(_coefficient("resize", backend, profile) * normalized_pixels)
+    restore = preset == "standard" or bool(settings.get("restore_model"))
+    restore_factor, interpolation_factor = (
+        _clip_factors(settings, profile, multiplier) if restore else (1.0, 1.0)
+    )
+    if restore:
+        costs.append(
+            _model_coefficient("restore", settings, profile) * normalized_pixels * restore_factor
+        )
     if multiplier > 1:
-        costs.append(_coefficient("blend2x", backend, profile) * output_pixels)
+        component = "interpolate" if preset in ("fast", "standard") else "blend2x"
+        costs.append(
+            (
+                _model_coefficient(component, settings, profile) * interpolation_factor
+                if component == "interpolate"
+                else _coefficient(component, backend, profile)
+            )
+            * output_pixels
+        )
     # Sum is deliberately conservative before end-to-end overlap is calibrated.
     overhead = float((profile or {}).get("segment_overhead_seconds", 2.0))
+    if restore:
+        overhead += float((_model_entry("restore", settings, profile) or {}).get("load_seconds", 0))
+    if multiplier > 1 and preset in {"fast", "standard"}:
+        overhead += float(
+            (_model_entry("interpolate", settings, profile) or {}).get("load_seconds", 0)
+        )
     if overhead < 0 or not math.isfinite(overhead):
         raise ValueError("Segment overhead must be finite and nonnegative.")
     return (sum(costs) * frames + overhead) * correction
@@ -126,6 +214,8 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
         for s in manifest.get("segments", [])
         if s.get("state", "pending") != "done"
     )
+    if manifest.get("state") != "done":
+        seconds += predict_finalization(manifest, profile)
     ratios = _ratios(manifest)
     uncertainty = 0.25
     if len(ratios) >= 2:
@@ -134,8 +224,11 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
         uncertainty = min(0.25, max(0.05, relative_std * 1.96, 0.25 / math.sqrt(len(ratios))))
     components = (profile or {}).get("components", {})
     needed = {"decode", "color", "encode"}
-    if settings.get("preset", "p0-test") in ("resize", "p0-test"):
+    preset = settings.get("preset", "standard")
+    if preset in ("resize", "p0-test", "fast", "standard"):
         needed.add("resize")
+    if preset == "standard" or settings.get("restore_model"):
+        needed.add("restore")
     if (
         int(media.get("display_width", media.get("width", 720)))
         * int(media.get("display_height", media.get("height", 1280)))
@@ -143,15 +236,22 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
     ):
         needed.add("resize")
     if _geometry(media, settings)[2] > 1:
-        needed.add("blend2x")
+        needed.add("interpolate" if preset in ("fast", "standard") else "blend2x")
 
     def measured(name: str) -> bool:
+        if name in {"restore", "interpolate"} and "models" in (profile or {}):
+            value = (_model_entry(name, settings, profile) or {}).get("seconds_per_pixel_frame")
+            return isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
         value = components.get(name)
         if isinstance(value, dict):
             value = value.get("seconds_per_pixel_frame")
         return isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
 
-    calibrated = bool(profile) and all(measured(name) for name in needed)
+    calibrated = (
+        bool(profile)
+        and all(measured(name) for name in needed)
+        and (profile or {}).get("finalization", {}).get("status") == "measured"
+    )
     return Estimate(seconds, seconds * (1 - uncertainty), seconds * (1 + uncertainty), calibrated)
 
 
@@ -166,3 +266,97 @@ def update_correction(manifest: dict[str, Any], predicted: float, actual: float)
     manifest.setdefault("timing", {}).setdefault("observations", []).append(
         {"predicted": predicted / current, "actual": actual}
     )
+
+
+def predict_finalization(manifest: dict[str, Any], profile: dict[str, Any] | None = None) -> float:
+    """Fixed startup + stream-copy bytes + exact packet enumeration cost."""
+    profile = profile if profile is not None else manifest.get("machine_profile") or {}
+    profile = profile or {}
+    coefficients = profile.get("finalization", {})
+    frames = sum(int(s["end"]) - int(s["start"]) for s in manifest.get("segments", []))
+    frames *= _geometry(manifest.get("media", {}), manifest.get("settings", {}))[2]
+    size = int(manifest.get("estimated_output_bytes", 0))
+    coefficients = {
+        "a": coefficients.get("a", 1.0),
+        "b": coefficients.get("b", 2e-8),
+        "c": coefficients.get("c", 2e-5),
+    }
+    if any(not math.isfinite(float(v)) or float(v) < 0 for v in coefficients.values()):
+        raise ValueError("Finalization coefficients must be finite and nonnegative.")
+    correction = float(profile.get("finalization_correction", 1.0))
+    if not math.isfinite(correction) or correction <= 0:
+        raise ValueError("Finalization correction must be finite and positive.")
+    return (
+        float(coefficients["a"])
+        + float(coefficients["b"]) * size
+        + float(coefficients["c"]) * frames
+    ) * correction
+
+
+def job_progress(manifest: dict[str, Any]) -> dict[str, Any]:
+    if manifest.get("state") == "done":
+        return dict(
+            progress_percent=100.0, phase="finalizing", step="aggregating", phase_percent=100.0
+        )
+    predictions = [
+        (
+            s,
+            predict_segment(
+                manifest.get("media", {}),
+                manifest.get("settings", {}),
+                int(s["end"]) - int(s["start"]),
+                manifest.get("machine_profile"),
+                float(manifest.get("correction_factor", 1)),
+            ),
+        )
+        for s in manifest.get("segments", [])
+    ]
+    processing = sum(p for _, p in predictions)
+    completed = sum(p for s, p in predictions if s.get("state") == "done")
+    phase = manifest.get("progress", {})
+    fraction = min(1.0, max(0.0, float(phase.get("finalization_fraction", 0))))
+    finalize = predict_finalization(manifest)
+    percent = 100 * (completed + fraction * finalize) / max(1e-9, processing + finalize)
+    return dict(
+        progress_percent=min(99.9, percent),
+        phase=phase.get("phase", "processing"),
+        step=phase.get("step", "segments"),
+        phase_percent=(
+            100 * fraction
+            if phase.get("phase") == "finalizing"
+            else 100 * completed / processing
+            if processing
+            else 0
+        ),
+        step_percent=phase.get("percent", 0),
+    )
+
+
+def observe_finalization(
+    manifest: dict[str, Any], predicted: float, actual: float, home: Any
+) -> None:
+    """Persist a baseline observation in the exact machine profile for the next job."""
+    import json
+    from pathlib import Path
+
+    if predicted <= 0 or actual < 0 or not all(map(math.isfinite, (predicted, actual))):
+        raise ValueError("Invalid finalization observation.")
+    observation = {"predicted": predicted, "actual": actual}
+    manifest.setdefault("timing", {})["finalization_observation"] = observation
+    profile = manifest.get("machine_profile") or {}
+    path = profile.get("profile_path")
+    if path is None:
+        return
+    path = Path(path)
+    if path.resolve().parent != (Path(home) / "profiles").resolve():
+        raise ValueError("Machine profile path is outside the profile directory.")
+    current_profile = json.loads(path.read_text(encoding="utf-8"))
+    if current_profile.get("finalization") != profile.get("finalization"):
+        return  # Do not correct a new calibration from an older queued job.
+    current = float(current_profile.get("finalization_correction", 1))
+    baseline = predicted / float(profile.get("finalization_correction", 1))
+    current_profile["finalization_correction"] = 0.7 * current + 0.3 * actual / baseline
+    current_profile.setdefault("finalization_observations", []).append(observation)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(current_profile, indent=2), encoding="utf-8")
+    temporary.replace(path)

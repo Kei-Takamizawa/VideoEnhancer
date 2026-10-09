@@ -1,6 +1,6 @@
 # Third-party models
 
-This table records the candidate model sources used by `ve bench`. The repository does not include model source code or weights. In particular, CodeFormer, KEEP, and InsightFace are treated as external projects; their implementations are not copied here.
+This table records model sources used in production and optional candidates used by `ve bench`. The repository does not include model source code or weights. BasicVSR++ and Practical-RIFE are production models; CodeFormer, KEEP, and InsightFace are benchmark-only external projects, and their implementations are not copied here.
 
 | Candidate | Code license | Weight terms | Source and weight location | SHA-256 status |
 |---|---|---|---|---|

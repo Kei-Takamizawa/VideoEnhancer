@@ -1,0 +1,24 @@
+{
+  "id": "basicvsrpp-ntire21-decompress",
+  "display_name": "BasicVSR++ NTIRE 2021 decompression (C1)",
+  "version": "1",
+  "description": "BasicVSR++ NTIRE 2021 decompression (C1)",
+  "task": "restore",
+  "architecture": "basicvsrpp",
+  "architecture_params": {
+    "mid_channels": 128,
+    "num_blocks": 25
+  },
+  "weights": {
+    "filename": "weights.pth",
+    "sha256": "6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a",
+    "url": "https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track3_20210304-6daf4a40.pth"
+  },
+  "licence": "Apache-2.0 (OpenMMLab); verify rights for training data and intended use.",
+  "commercial_use_allowed": true,
+  "scale": 1,
+  "temporal": true,
+  "clip_length": 15,
+  "clip_overlap": 2,
+  "precision": "fp16"
+}

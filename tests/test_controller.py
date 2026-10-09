@@ -138,6 +138,45 @@ def test_invalid_done_segment_is_requeued_and_stale_temp_removed(
     assert not finished.exists() and not stale.exists()
 
 
+def test_quality_control_poll_does_not_reload_large_manifest(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from videoenhancer.pipeline import quality
+
+    store = JobStore(tmp_path / "home")
+    manifest = _job(store, tmp_path)
+    manifest["settings"]["preset"] = "fast"
+    manifest["settings"]["keep_segments"] = True
+    manifest["segments"][0]["state"] = "done"
+    store.save(manifest)
+    Path(manifest["output"]).write_bytes(b"assembled")
+    monkeypatch.setattr(controller, "validate_done_segments", lambda *_args: False)
+    monkeypatch.setattr(controller, "_assembled_file_valid", lambda *_args: True)
+    original_load = JobStore.load
+    polling = False
+    control_state = "queued"
+
+    def guarded_load(self: JobStore, job_id: str) -> dict[str, Any]:
+        assert not polling, "Per-frame control polling must not deserialize the job manifest"
+        return original_load(self, job_id)
+
+    def measured(_manifest: Any, _path: Path, *, abort: Any) -> dict[str, Any]:
+        nonlocal polling, control_state
+        polling = True
+        assert not abort()
+        control_state = "paused"
+        assert abort()
+        control_state = "queued"
+        polling = False
+        return {"seam_ratio": None}
+
+    monkeypatch.setattr(JobStore, "load", guarded_load)
+    monkeypatch.setattr(JobStore, "read_control_state", lambda _self, _job_id: control_state)
+    monkeypatch.setattr(quality, "measure_quality", measured)
+    controller.run_queue(ignore_schedule=True, home=store.home)
+    assert store.load("unit-job")["state"] == "done"
+
+
 @pytest.mark.parametrize(
     ("wrong_field", "wrong_value"),
     [("width", 64), ("average_fps", "24"), ("codec", "h264")],
@@ -160,6 +199,8 @@ def test_resume_rejects_wrong_video_contract(
         "average_fps": "30",
         "codec": "hevc",
         "rotation": 0,
+        "container": "mov,mp4",
+        "audio_streams": [],
     }
     monkeypatch.setattr(media_probe, "probe", lambda *_args, **_kwargs: SimpleNamespace(**observed))
     assert controller.segment_file_valid(manifest, segment, path)
@@ -232,7 +273,8 @@ def test_worker_retries_oom_with_one_frame_batch(tmp_path: Path, monkeypatch: An
             output.write_bytes(b"complete")
             return controller.SegmentResult("done", stats={"frames": 300})
 
-    def assemble(manifest: dict, _job_dir: Path, abort: Any) -> Path:
+    def assemble(manifest: dict, _job_dir: Path, abort: Any, *, validation_started: Any) -> Path:
+        validation_started()
         assert not abort()
         output = Path(manifest["output"])
         output.write_bytes(b"assembled")
@@ -299,7 +341,8 @@ def test_worker_aborts_at_window_end_and_resumes_next_window(
             clock.value += timedelta(seconds=3)
             return controller.SegmentResult("done")
 
-    def assemble(manifest: dict, _job_dir: Path, abort: Any) -> Path:
+    def assemble(manifest: dict, _job_dir: Path, abort: Any, *, validation_started: Any) -> Path:
+        validation_started()
         assert not abort()
         output = Path(manifest["output"])
         output.write_bytes(b"assembled")
@@ -358,6 +401,26 @@ def test_hard_killed_parent_reaps_segment_subprocess() -> None:
             psutil.Process(child_pid).kill()
 
 
+def _process_active(psutil, pid: int) -> bool:
+    try:
+        if not psutil.pid_exists(pid):
+            return False
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+
+
+def test_parent_death_poll_handles_process_disappearing_between_checks(monkeypatch):
+    psutil = pytest.importorskip("psutil")
+    monkeypatch.setattr(psutil, "pid_exists", lambda _pid: True)
+
+    def disappearing_process(pid):
+        raise psutil.NoSuchProcess(pid)
+
+    monkeypatch.setattr(psutil, "Process", disappearing_process)
+    assert not _process_active(psutil, 12345)
+
+
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux parent-death signal test")
 def test_linux_hard_killed_parent_reaps_ffmpeg_subtree(tmp_path: Path) -> None:
     psutil = pytest.importorskip("psutil")
@@ -395,9 +458,7 @@ def test_linux_hard_killed_parent_reaps_ffmpeg_subtree(tmp_path: Path) -> None:
         parent.wait(timeout=5)
 
         def active(pid: int) -> bool:
-            if not psutil.pid_exists(pid):
-                return False
-            return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+            return _process_active(psutil, pid)
 
         deadline = time.monotonic() + 5
         while (active(child_pid) or active(grandchild_pid)) and time.monotonic() < deadline:
@@ -415,3 +476,21 @@ def test_linux_hard_killed_parent_reaps_ffmpeg_subtree(tmp_path: Path) -> None:
                         process.kill()
                 except psutil.NoSuchProcess:
                     pass
+
+
+def _send_large_result(
+    _manifest, _segment, _output, _batch_size, _parent_pid, start_event, _abort_event, sender
+):
+    assert start_event.wait(timeout=10)
+    sender.send(controller.SegmentResult("done", stats={"payload": "x" * 100_000}))
+    sender.close()
+
+
+def test_process_executor_drains_result_larger_than_pipe_buffer(tmp_path, monkeypatch):
+    monkeypatch.setattr(controller, "_child_run", _send_large_result)
+    deadline = time.monotonic() + 10
+    result = controller.ProcessExecutor().run(
+        {}, {}, tmp_path / "unused.mp4", lambda: time.monotonic() > deadline, batch_size=1
+    )
+    assert result.status == "done"
+    assert result.stats == {"payload": "x" * 100_000}

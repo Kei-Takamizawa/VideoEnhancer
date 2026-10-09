@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import json
 import multiprocessing
 import os
 import signal
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
+from videoenhancer.estimate.model import observe_finalization, predict_finalization
 from videoenhancer.jobs.segments import expected_duration, expected_frames
 from videoenhancer.jobs.store import JobStore, require_disk_space, validate_input
 from videoenhancer.logging import get_logger, log_job_header
@@ -272,6 +274,7 @@ class ProcessExecutor:
         aborted = False
         abort_started = 0.0
         forced = False
+        received_result: Any = None
         try:
             if os.name == "nt" and process.pid is not None:
                 try:
@@ -283,6 +286,13 @@ class ProcessExecutor:
                     )
             start_event.set()
             while process.is_alive():
+                # Drain before joining: a result larger than the pipe buffer blocks
+                # the child in send(), so waiting for its exit first deadlocks.
+                if received_result is None and receiver.poll():
+                    try:
+                        received_result = receiver.recv()
+                    except EOFError:
+                        pass
                 if abort() and not aborted:
                     aborted = True
                     abort_started = time.monotonic()
@@ -296,6 +306,8 @@ class ProcessExecutor:
                 process.join(timeout=0.25)
             if aborted:
                 return SegmentResult("aborted")
+            if isinstance(received_result, SegmentResult):
+                return received_result
             if receiver.poll():
                 result = receiver.recv()
                 if isinstance(result, SegmentResult):
@@ -401,7 +413,7 @@ def segment_file_valid(manifest: dict[str, Any], segment: dict[str, Any], path: 
     if not path.is_file():
         return False
     try:
-        observed = probe(path)
+        observed = probe(path, count_packets=True)
         count = int(observed.frame_count)
         target = expected_duration(manifest, segment)
         tolerance = 1.1 * target / max(1, expected_frames(manifest, segment))
@@ -415,12 +427,13 @@ def segment_file_valid(manifest: dict[str, Any], segment: dict[str, Any], path: 
 
 
 def _assembled_file_valid(manifest: dict[str, Any], path: Path) -> bool:
+    from videoenhancer.media.mux import _audio_duration_matches
     from videoenhancer.media.probe import probe
 
     if not path.is_file():
         return False
     try:
-        observed = probe(path)
+        observed = probe(path, count_packets=True)
         expected_count = sum(expected_frames(manifest, segment) for segment in manifest["segments"])
         expected_time = sum(
             expected_duration(manifest, segment) for segment in manifest["segments"]
@@ -430,6 +443,15 @@ def _assembled_file_valid(manifest: dict[str, Any], path: Path) -> bool:
             int(observed.frame_count) == expected_count
             and abs(float(observed.duration) - expected_time) <= tolerance
             and _video_contract_valid(manifest, observed)
+            and "mp4" in observed.container
+            and len(observed.audio_streams) == len(manifest["media"].get("audio_streams", []))
+            and all(
+                abs(original["start_offset"] - actual["start_offset"]) <= 0.020
+                and _audio_duration_matches(original, actual)
+                for original, actual in zip(
+                    manifest["media"].get("audio_streams", []), observed.audio_streams, strict=True
+                )
+            )
         )
     except (OSError, ValueError, ZeroDivisionError, AttributeError, subprocess.CalledProcessError):
         return False
@@ -462,6 +484,75 @@ def _schedule(home: Path, now: datetime, ignore: bool) -> Any:
     return Schedule.from_file(home / "schedule.json", zone=zone)
 
 
+def finalization_abort(
+    store: JobStore, job_id: str, clock: Clock, ignore_schedule: bool, stopped: Callable[[], bool]
+) -> Callable[[], bool]:
+    def abort() -> bool:
+        if stopped() or store.read_control_state(job_id) not in {"queued", "running"}:
+            return True
+        now = clock.now()
+        return (
+            not ignore_schedule and _schedule(store.home, now, False).current_interval(now) is None
+        )
+
+    return abort
+
+
+class FinalizationTimer:
+    def __init__(self, store: JobStore, job_id: str, clock: Clock) -> None:
+        self.store, self.job_id, self.clock = store, job_id, clock
+        self.step: str | None = None
+        self.started = clock.now()
+        self.logger = get_logger(store.home, job_id=job_id)
+
+    def begin(self, name: str) -> None:
+        self.step, self.started = name, self.clock.now()
+        job = self.store.load(self.job_id)
+        calibration = (job.get("machine_profile") or {}).get("finalization", {})
+        samples = calibration.get("samples", [])
+        assembly = sum(s["assembling_seconds"] for s in samples)
+        validation = sum(s["validating_seconds"] for s in samples)
+        share = assembly / (assembly + validation) if assembly + validation else 0.65
+        fractions = {"assembling": 0.0, "validating": share * 0.99, "aggregating": 0.99}
+        job["progress"] = dict(
+            phase="finalizing", step=name, percent=0.0, finalization_fraction=fractions[name]
+        )
+        self.store.save(job)
+        self.logger.info(
+            "Finalization %s start", name, extra={"job_id": self.job_id, "action": f"{name}_start"}
+        )
+
+    def end(self) -> None:
+        if self.step is None:
+            return
+        duration = max(0.0, (_utc(self.clock.now()) - _utc(self.started)).total_seconds())
+        job = self.store.load(self.job_id)
+        job.setdefault("timing", {}).setdefault("events", []).append(
+            dict(
+                step=self.step,
+                start=self.started.isoformat(),
+                end=self.clock.now().isoformat(),
+                elapsed_seconds=duration,
+            )
+        )
+        job["progress"]["percent"] = 100.0
+        self.store.save(job)
+        self.logger.info(
+            "Finalization %s end",
+            self.step,
+            extra={
+                "job_id": self.job_id,
+                "action": f"{self.step}_end",
+                "elapsed_seconds": duration,
+            },
+        )
+        self.step = None
+
+    def validation(self) -> None:
+        self.end()
+        self.begin("validating")
+
+
 def run_queue(
     ignore_schedule: bool = False,
     home: Path | str | None = None,
@@ -485,6 +576,36 @@ def run_queue(
     headers_logged: set[str] = set()
     previous_handler = None
 
+    def timed_wait(job: dict[str, Any], seconds: float, reason: str) -> None:
+        logger = get_logger(store.home, job_id=job["id"])
+        started = clock.now()
+        logger.info(
+            "Scheduler wait start: %s",
+            reason,
+            extra={"job_id": job["id"], "action": "scheduler_wait_start"},
+        )
+        clock.sleep(seconds)
+        duration = max(0.0, (_utc(clock.now()) - _utc(started)).total_seconds())
+        latest = store.load(job["id"])
+        event = dict(
+            step="scheduler_wait",
+            reason=reason,
+            start=started.isoformat(),
+            end=clock.now().isoformat(),
+            elapsed_seconds=duration,
+        )
+        latest.setdefault("timing", {}).setdefault("events", []).append(event)
+        store.save(latest)
+        logger.info(
+            "Scheduler wait end: %s",
+            reason,
+            extra={
+                "job_id": job["id"],
+                "action": "scheduler_wait_end",
+                "elapsed_seconds": duration,
+            },
+        )
+
     def request_stop(_signum: int, _frame: Any) -> None:
         nonlocal stop
         stop = True
@@ -501,7 +622,9 @@ def run_queue(
                 runnable = [job for job in jobs if job["state"] in {"queued", "running"}]
                 if not runnable:
                     if any(job["state"] == "paused" for job in jobs):
-                        clock.sleep(2)
+                        timed_wait(
+                            next(job for job in jobs if job["state"] == "paused"), 2, "paused"
+                        )
                         continue
                     return
                 manifest = runnable[0]
@@ -534,29 +657,38 @@ def run_queue(
 
                     now = clock.now()
                     schedule = _schedule(store.home, now, ignore_schedule)
-                    if schedule is not None and schedule.current_interval(now) is None:
+                    prediction = predict_finalization(manifest)
+                    interval = schedule.current_interval(now) if schedule is not None else None
+                    if schedule is not None and (
+                        interval is None
+                        or _utc(now) + timedelta(seconds=prediction) > _utc(interval.end)
+                    ):
                         upcoming = schedule.next_interval(now)
                         wait = (
                             max(0.1, (_utc(upcoming.start) - _utc(now)).total_seconds())
                             if upcoming
                             else 30
                         )
-                        clock.sleep(min(wait, 30))
+                        if interval is not None:
+                            wait = max(0.1, (_utc(interval.end) - _utc(now)).total_seconds())
+                        timed_wait(manifest, min(wait, 30), "finalization admission")
                         continue
 
-                    def assembly_abort(target_job_id: str = job_id) -> bool:
-                        if stop or store.load(target_job_id)["state"] not in {"queued", "running"}:
-                            return True
-                        if ignore_schedule:
-                            return False
-                        current = clock.now()
-                        return (
-                            _schedule(store.home, current, False).current_interval(current) is None
-                        )
+                    assembly_abort = finalization_abort(
+                        store, job_id, clock, ignore_schedule, lambda: stop
+                    )
+
+                    finalize_started = clock.now()
+                    timer = FinalizationTimer(store, job_id, clock)
+                    begin_step = timer.begin
+                    end_step = timer.end
+                    start_validation = timer.validation
 
                     try:
+                        begin_step("assembling")
                         destination = Path(manifest["output"])
                         if destination.exists():
+                            start_validation()
                             if not _assembled_file_valid(manifest, destination):
                                 raise ValueError(
                                     f"Existing output is invalid: {destination}. "
@@ -569,10 +701,46 @@ def run_queue(
                                 int(manifest["estimated_output_bytes"]),
                                 disk_free,
                             )
-                            result_path = assemble(manifest, job_dir, abort=assembly_abort)
+                            result_path = assemble(
+                                manifest,
+                                job_dir,
+                                abort=assembly_abort,
+                                validation_started=start_validation,
+                            )
+                        end_step()
+                        if assembly_abort():
+                            raise InterruptedError("Finalization was interrupted.")
                         if stop or store.load(job_id)["state"] not in {"queued", "running"}:
                             continue
+                        begin_step("aggregating")
                         manifest = store.load(job_id)
+                        if manifest["settings"].get("preset") in {"fast", "standard"}:
+                            from videoenhancer.pipeline.inline_quality import aggregate_quality
+
+                            manifest["quality"] = aggregate_quality(manifest)
+                            manifest["detector"] = {
+                                "raw_flag_count": sum(
+                                    item.get("stats", {}).get("raw_flag_count", 0)
+                                    for item in manifest["segments"]
+                                ),
+                                "final_flag_count": sum(
+                                    item.get("stats", {}).get(
+                                        "final_flag_count",
+                                        len(item.get("stats", {}).get("luma_outliers", [])),
+                                    )
+                                    for item in manifest["segments"]
+                                ),
+                                "counting": "Owned indices per segment; final is post-repair.",
+                            }
+                        store.save(manifest)
+                        end_step()
+                        if assembly_abort():
+                            raise InterruptedError("Finalization was interrupted.")
+                        manifest = store.load(job_id)
+                        observed = max(
+                            0.0, (_utc(clock.now()) - _utc(finalize_started)).total_seconds()
+                        )
+                        observe_finalization(manifest, prediction, observed, store.home)
                         manifest["state"] = "done"
                         manifest["result"] = str(result_path)
                         store.save(manifest)
@@ -586,12 +754,14 @@ def run_queue(
                             "Job %s completed: %s", job_id, result_path, extra={"job_id": job_id}
                         )
                     except InterruptedError:
+                        end_step()
                         job_logger.warning(
                             "Job %s assembly interrupted; it will resume later",
                             job_id,
                             extra={"job_id": job_id},
                         )
                     except Exception as error:
+                        end_step()
                         manifest = store.load(job_id)
                         manifest["state"] = "failed"
                         manifest["error"] = f"Assembly failed: {error}. Check disk space and retry."
@@ -612,7 +782,7 @@ def run_queue(
                         if upcoming
                         else 30
                     )
-                    clock.sleep(min(seconds, 30))
+                    timed_wait(manifest, min(seconds, 30), "outside operating hours")
                     continue
                 from videoenhancer.estimate import predict_segment, update_correction
 
@@ -626,7 +796,11 @@ def run_queue(
                 if interval is not None and _utc(now) + timedelta(
                     seconds=prediction * 1.1 + 30
                 ) > _utc(interval.end):
-                    clock.sleep(min(30, max(0.1, (_utc(interval.end) - _utc(now)).total_seconds())))
+                    timed_wait(
+                        manifest,
+                        min(30, max(0.1, (_utc(interval.end) - _utc(now)).total_seconds())),
+                        "segment admission",
+                    )
                     continue
                 latest = store.load(job_id)
                 if latest["state"] not in {"queued", "running"}:
@@ -640,6 +814,7 @@ def run_queue(
                     job_logger.error(latest["error"], extra={"job_id": job_id})
                     continue
                 manifest = latest
+                manifest["progress"] = dict(phase="processing", step="segments", percent=0.0)
                 segment = manifest["segments"][pending["index"]]
                 segment["state"] = "running"
                 manifest["state"] = "running"
@@ -737,6 +912,14 @@ def run_queue(
                         segment["state"] = "done"
                         segment["actual_seconds"] = elapsed
                         segment["stats"] = result.stats or {}
+                        memory_samples = segment["stats"].get("memory_samples", [])
+                        if memory_samples:
+                            job_logger.info(
+                                "Memory samples for segment %d: %s",
+                                index,
+                                json.dumps(memory_samples, separators=(",", ":")),
+                                extra={"job_id": job_id, "segment": index},
+                            )
                         update_correction(manifest, prediction, elapsed)
                         if manifest["state"] == "running":
                             manifest["state"] = "queued"

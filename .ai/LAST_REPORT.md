@@ -1,120 +1,309 @@
-# VideoEnhancer P0 実装・検証レポート
+# VE-P1a-7 — Inline quality and predicted finalization
 
-## 概要（R1–R9）
+Task ID / Cycle: VE-P1a-7 / P1a-7. Date: 2026-10-08.
+Status: PARTIAL (CI is pending publication at report-writing time).
+Branch: p1-restoration-gui. PR #2 remains draft. Start HEAD: bbfd49c8a080b1510851478ef658fb1126678a5f.
 
-- R1: Windows/NVIDIA向けPythonプロジェクト、CLI、依存ロック、CIを追加。`p0-test` はGPUリサイズ＋フレーム平均による2倍化で、AIモデルは出力経路に組み込んでいない。
-- R2: FFprobe解析、CFR正規化、音声メタデータ保持を実装。実サンプル5本のフレーム数は設計値（532、326、375、561、911）と一致。2997/100の入力は規定の30000/1001に正規化。
-- R3: NVDEC→GPUテンソル処理→NVENC経路とCPUテスト用経路、色変換、Main10出力を実装。
-- R4: フレーム境界セグメント、原音声の最終mux、ジョブ保存・再開・破損セグメント検証を実装。HE-AACのencoder primingをprobeし、音声オフセットと、primingを考慮した提示尺を検証する。出力muxを原音声トラック終端まで継続し、音声をセグメント処理せずストリームコピー。
-- R5: 入力サイズ・ハッシュと空き容量を確認してジョブ作成。
-- R6: 週次時間帯、日付例外、手動オーバーライド、タイムゾーン対応スケジューラーを実装。
-- R7: GPU計測プロファイルと区間コストから所要時間を予測。
-- R8: キュー順の複数ジョブ日程表を実装。
-- R9: I/O、テンソル段階、E2E、候補AIモデルの計測と第三者モデル一覧を実装。
+## Summary and acceptance
 
-## 環境
+Default jobs and trials aggregate inline quality instead of running a post-encode
+full pass. Fidelity samples every 10th global source-aligned output frame.
+Temporal diagnostics reuse every frame's existing 16x16 detector summaries.
+The full FFmpeg pass is explicit development-only `ve report --full-quality JOB`.
+Finalization is calibrated, included in initial/remaining ETA and the day planner,
+corrected from completed observations in the machine profile, and exposes its phase.
+Finalization steps and scheduler waits have timed start/end events in job JSONL
+and timed intervals retained in the job report.
 
-- Windows 11 Home build 26300、NVIDIA GeForce RTX 4060 Ti 8 GB、driver 617.14。
-- Python 3.12.14、PyTorch 2.14.1+cu130、CUDA 13.0、PyNvVideoCodec 2.2.3、FFmpeg 9.0.2。
-- GPU利用可能。Smart App Controlが有効な間はWindowsがPyNvVideoCodecのunsigned `VersionCheck.cp312-win_amd64.pyd` を遮断し、ネイティブデコーダーのimportを妨げていた。ユーザーがSmart App Controlを無効化した後、import成功、`CUDA True`、RTX 4060 Ti検出、GPUテスト13件成功を確認。
-
-## 受け入れ基準（A–L）
-
-| ID | 結果 | 検証・数値 |
+| Criterion | Result | Evidence |
 |---|---|---|
-| A Setup | PASS | `uv lock --check`、Ruff、Pyright、CLI。GitHub Actions run 16 はWindows/Ubuntu両方の全job成功。|
-| B Probe | PASS | 合成テストとVideosの5本。各入力720×1280、フレーム数532/326/375/561/911。2997/100は30000/1001へ正規化。|
-| C Geometry/timing | PASS | CPU全体テストとGPUテスト。5本すべて1080×1920、HEVC Main10、出力2Nフレーム。音声の開始オフセットを保持し、HE-AACのpriming分以外の尺差20 ms以内、デコードPCMは元と完全一致。GPU出力fpsは60000/1001または60。|
-| D Color | PASS | GPU lossless往復テスト（8-bit/10-bit）。YUV誤差0、PSNRは無限大（完全一致）。|
-| E Resume | PASS | 3分合成素材でCPU 3回・GPU 3回の強制終了後に再開。各10,800出力フレームで基準との比較一致、残存一時ファイル0。|
-| F Scheduler | PASS | DST、日跨ぎ、例外、15分制約、実行時間外の停止・再開をテスト。|
-| G Planner | PASS | 複数ジョブ・日程、順序変更、スケジュール変更のテスト。|
-| H Estimate | PASS | 初期推定3,275.94秒に対し処理実績2,763.30秒（誤差+18.55%）。10%地点の再推定2,781.53秒（誤差+0.66%）。許容±30%/±15%以内。|
-| I Soak | FAIL（GPUメモリ条件） | 2時間合成入力215,784フレーム、121/121区間成功、停止・再開2回成功、出力431,568フレーム/7,199.993秒、wall 4,821.18秒、GPU engine 2,525.03秒（85.46入力fps）、解析224.46秒。クラッシュ/一時ファイル0。RSSピーク1.832GB、比較窓のRSS増加8.05MB（上限200MB以内）。全デバイスNVMLは基準からの増加234.87MBで上限100MBを超過。WDDM下でNVMLに当該プロセス別メモリがなく他プロセスも動作していたため、アプリ起因かを分離できず、基準は未達として記録。Torch allocatorの先頭/末尾30区間ピーク差は+37.75MBだが、NVDEC/NVENC等ネイティブメモリを含まないので代替合格にはしない。|
-| J Bench | PASS | Part A完了。必須のBasicVSR++、Real-ESRGAN、RIFE、CodeFormer、SCRFDを実測。KEEPとBiSeNetは権利確認済みの互換アダプターがないため重みを取得せずスキップ。|
-| K Disk check | PASS | 注入した空き容量値で`ve add`が明確なエラーを返すテスト。|
-| L Hygiene | PASS | `git status`対象に動画、モデル重み、出力動画を含めず。LICENSE未変更。|
+| A1 | PASS | Designer accepted historical aggregate reconciliation and within-PID table below |
+| A2 | PASS | Sampled offline replay test; Fast inline mean 0.6162% / maximum 0.6466%; Standard maximum 0.2364%; explicit full-quality CLI test |
+| A3 | PASS | Fresh generated-job calibration; profile observation correction; fake-clock admission/planner and progress tests |
+| A4 | PASS | Fresh completed Fast run, exact output frames, two verified pauses, estimates and memory below |
+| A5 | PASS | Standard overhead below 2%; retain accepted P1a-6 completed 15-minute accuracy result |
+| A6 | NOT RUN (CI pending) | Local ruff/format/pyright, CPU and GPU suites and build PASS; Windows/Ubuntu CI checked after push in the final chat |
 
-CPUテスト最終結果: `pytest -m "not gpu and not soak"` → 96 passed, 3 skipped, 13 deselected (13.48 s、最終GitHub Linux run 17.73 s)。GPUスイート: `pytest -m gpu` → 13 passed, 99 deselected (8.81 s)。Lint/format/type: Ruff全件成功、61ファイル整形済み、Pyright 0 errors/warnings/informations。`uv lock --check`成功。GitHub Actions run 16はWindows/Ubuntu両job成功。
+No thresholds, presets, model weights, encoder behavior, GUI/API or training changed.
+No subagents used.
 
-Soak判定は設計書の条件を適用し、デバイス全体NVMLの+234.87MBが100MB上限を超えたためFAILとした。WDDMではNVMLのプロセス別メモリ値が取得できず、システム全体の値を当該アプリに帰属できない。Torch allocatorは先頭/末尾30区間の最大値が551.55/589.30MB（+37.75MB）だが、NVDEC/NVENC等のネイティブ割当を含まないため、NVML条件の合格代用とはしていない。
+## Task A: accepted historical reconstruction
 
-GPU有効化の原因: Smart App ControlがPyNvVideoCodecのunsigned `VersionCheck.cp312-win_amd64.pyd`を遮断していた。ユーザーが同機能を無効化後、PyNvVideoCodec import、CUDA利用可能、RTX 4060 Ti検出を確認した。
+Individual historical assembly, validation, quality-pass and idle-only durations
+are UNAVAILABLE. The designer explicitly accepted the recovered aggregate.
 
-## 実行コマンド
+| Component | Seconds |
+|---|---:|
+| Controller segment actual_seconds | 13943.255627 |
+| Combined finalization (last segment event to completed event) | 3416.376805 |
+| Controller/supervisor/scheduling residual (idle-only portion unknown) | 299.248568 |
+| Total | 17658.881000 |
 
-- 環境/静的検査: `uv sync --locked`; `uv lock --check`; `ruff check .`; `ruff format --check`; `pyright src`; `pytest -m "not gpu and not soak"`。
-- GPU: `pytest -m gpu`; 各サンプルへ `ve enhance <input> --backend cuda`。
-- Soak: `python scripts/soak.py --input <2h synthetic> --output <destination>`。実測ジョブID `e91d16763b0d4109890d5c7336123422`、結果JSON `.ve-home/reports/soak_report.json`。
-- ベンチ: `ve bench --calibrate`; `ve bench --models all`; `ve bench --models rife`（RIFE再計測）。
+Engine-only segment time: 13691.167134 s, nested within controller segment time;
+controller minus engine is 252.088493 s and must not be added again.
+215784 / 13691.167134 = 15.760818 input fps. Versus 17.4 fps this is a 9.4206%
+throughput decrease / 10.4004% more time per frame. Isolated host-copy cost and
+causality are UNKNOWN. No matched before/after host-copy measurements exist;
+no encoder change or unsupported attribution is made (designer addendum: report-only).
 
-## 実動画5本でのGPU出力
+| Overlapped counter | Seconds | Source-frame-equivalent fps |
+|---|---:|---:|
+| Decode worker lifetime, including backpressure | 13371.490594 | 16.137617 |
+| Resize calls | 195.518633 | 1103.649287 |
+| RIFE calls | 12056.081095 | 17.898353 |
+| Encode calls, including finish/copy/conversion | 3192.690188 | 67.586890 |
+| Handoff/reference checks | 1775.577565 | 121.528907 |
 
-すべてRTX 4060 Ti、NVDEC/NVENC、HEVC Main10/P010、P7/high_quality、constqp 18、1080×1920。各出力は2倍フレーム数。検出カット数はnoachan1が9。
+Encode processed 431568 output frames; its output-frame equivalent rate is
+135.173780 fps. These counters overlap and are not additive stage durations
+or independent throughput benchmarks.
 
-| 入力 | 入力フレーム | 出力fps | NVENC出力ビットレート | 実処理秒 | 全体秒 | PyTorch予約VRAMピーク | NVML増分ピーク |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| HaYeon1.MP4 | 532 | 60 | 24,903,849 bps | 7.84 | 未記録 | 552 MB | 未計測 |
-| HaYeon2.MP4 | 326 | 60000/1001 | 17,057,334 bps | 3.69 | 8.63 | 501 MB | 900 MB |
-| JooBin+Sullin1.MP4 | 375 | 60 | 18,601,547 bps | 6.00 | 未記録 | 501 MB | 未計測 |
-| Kotone+Lynn1.MP4 | 561 | 60000/1001 | 32,706,411 bps | 6.23 | 11.44 | 539 MB | 933 MB |
-| noachan1.MP4 | 911 | 60000/1001 | 26,609,041 bps | 9.94 | 15.56 | 539 MB | 938 MB |
+## Dedicated memory within each engine process
 
-既知事項・リスク: Soakのデバイス全体NVML使用量増加が条件を超え、プロセス帰属もできないためGPUメモリ漏れ条件は未達。修正にはWDDM対応のプロセス別GPUメモリ採取を次回Soakで記録して再計測する必要がある。Real-ESRGAN batch 16の7.64GBピークは8GB GPUで余裕が小さく、後続統合時にbatch/tile制御が必要。GPU SoakがFAILのためPRはdraftのまま。
+ProcessExecutor.run spawns a new engine process for each segment. The earlier
++255.856640 MB is a comparison across processes and time windows, not growth of
+one persistent GPU engine. Grouping actual samples by PID gives the table below.
+MB is decimal. Samples are approximately 60 seconds apart (only 3–4 per engine).
+First-loaded means first recorded dedicated sample >100 MB; the initial 24576-byte
+pre-load sample is excluded. Deltas include normal clip/allocation variations;
+they are not measured leaks or minute-10-to-end steady-state trends.
 
-NVML増分は当該プロセスのNVML基準値との差で、PyTorch予約量とは別指標。入力映像に対して音声トラックが0.105–0.146秒長いHE-AAC素材を含む。出力は音声を再エンコードせずコピーし、AAC primingを含む入力のデコードPCMサンプル列を保つ。FFprobeのトラック尺はAAC priming相当（最大約115 ms）短く表示される場合がある。動画トラックは規定のフレーム数・FPSで保持する。
+| PID | Controller restart side | Samples | First-loaded MB | Last MB | Delta MB | Peak MB |
+|---|---|---:|---:|---:|---:|---:|
+| 23884 | Before | 4 | 4353.151 | 3489.120 | -864.031 | 4353.151 |
+| 23972 | Before | 3 | 3226.968 | 2327.290 | -899.678 | 3226.968 |
+| 17792 | Before | 3 | 4246.196 | 2205.651 | -2040.545 | 4246.196 |
+| 14652 | Before | 4 | 3401.036 | 3596.071 | 195.035 | 3596.071 |
+| 12480 | Before | 3 | 2314.703 | 3373.777 | 1059.074 | 3373.777 |
+| 8164 | Before | 4 | 3384.263 | 3356.996 | -27.267 | 3384.263 |
+| 20160 | Before | 4 | 3533.156 | 3470.242 | -62.915 | 3866.608 |
+| 10740 | Before | 3 | 3516.379 | 2499.256 | -1017.123 | 3516.379 |
+| 10648 | Before | 3 | 3533.160 | 2337.780 | -1195.381 | 3533.160 |
+| 10500 | Before | 4 | 3556.229 | 3474.440 | -81.789 | 3556.229 |
+| 19840 | Before | 3 | 2348.261 | 3289.883 | 941.621 | 3289.883 |
+| 22432 | Before | 4 | 3222.778 | 3868.701 | 645.923 | 3868.701 |
+| 16532 | After | 4 | 3537.355 | 4101.497 | 564.142 | 4101.497 |
+| 24832 | After | 3 | 4114.076 | 2352.460 | -1761.616 | 4114.076 |
+| 17156 | After | 3 | 3545.743 | 2444.730 | -1101.013 | 3545.743 |
+| 9556 | After | 4 | 3331.830 | 3851.928 | 520.098 | 3851.928 |
 
-## ベンチマーク
+Controller stop epoch 1791397015.7821596; restart epoch 1791397022.9582138.
+There is no engine PID spanning the restart. Missing samples are not treated as zero.
 
-`ve bench --models all` のPart Aと、修正後のRIFE単独50回計測を統合。詳細なURL、SHA-256、測定形状・batch/tile、ライセンス、スキップ理由は以下の同梱レポートを参照。
 
-# VideoEnhancer benchmark report
+## Task B: implementation and tests
 
-Created: 2026-10-06T08:48:41Z
+- Inline partial fidelity sums/minima and temporal sums/boundary summaries persist per segment.
+- Aggregation includes clip and segment joints, including cross-segment differences and cut exclusions.
+- Initial and remaining ETA include finalization; the planner admits it as a whole stage inside a window.
+- Machine finalization coefficients and an EMA correction persist; stale calibration observations do not overwrite a newer calibration.
+- Packet enumeration validates own MP4 outputs without decoding all frames; short H.264, HEVC and AV1 outputs matched decoded counts exactly (13/13 for each).
+- Output validation retains exact counts, duration, audio-presence/timing and container/video contract checks.
+- Progress is weighted by predicted time, capped at 99.9% before done (including textual rounding), with phase/step percentages.
+- The optional full-quality command ran successfully on a 12-frame CPU file; it does not modify job timing or stored inline quality.
 
-GPU: NVIDIA GeForce RTX 4060 Ti; driver: 617.14; VRAM: 8585216000 bytes.
-OS: Windows 11 (AMD64); Python: 3.12.14; PyTorch: 2.14.1+cu130; CUDA: 13.0; TensorRT: None.
+Equality test: independently re-decode source and replay captured pre-encode output
+frames on a 24-input-frame / 48-output-frame CPU job, comparing five global
+samples. PSNR mean tolerance 1e-5 dB, SSIM mean tolerance 2e-5. Temporal split/full
+replay equality is tested at clip/segment joints and cut exclusions, within 1e-7.
+These use the defined inline measurements. Numerical equivalence with the legacy
+FFmpeg post-encode diagnostic is NOT CLAIMED: that includes codec loss, 8-bit Y
+quantization and full-resolution temporal differences. The inline method is
+normalized BT.709 Y, area resize to source resolution, 8x8 SSIM windows at stride 4
+(smaller windows for inputs below 8 pixels), and 16x16 temporal summaries.
 
-## Part A: I/O and placeholder stages
+Step percent is reported at start/end boundaries; finalization phase share uses
+calibration step durations. This is engine reporting, not a GUI redesign.
 
-Timings marked skipped were not measured. Tensor-only timings exclude video I/O.
+## Verification, warnings and resolved failure
 
-| Component | Status | Result |
-|---|---|---|
-| NVDEC: h264_720x1280 | measured | 1849.99 fps |
-| NVDEC: hevc_1080x1920 | measured | 1173.94 fps |
-| NVENC: hevc_main10 | measured | 190.77 fps |
-| NVENC: h264 | measured | 431.84 fps |
-| NVENC: av1 | measured | 375.95 fps |
-| Tensor stages: resize | measured | median 0.832 ms; p90 0.838 ms |
-| Tensor stages: color_nv12_to_rgb | measured | median 0.477 ms; p90 0.505 ms |
-| Tensor stages: color_rgb_to_nv12 | measured | median 0.484 ms; p90 0.517 ms |
-| Tensor stages: color_rgb_to_nv12_1080p | measured | median 0.774 ms; p90 0.789 ms |
-| Tensor stages: resize_stage | measured | median 1.271 ms; p90 1.579 ms |
-| Tensor stages: blend2x | measured | median 0.744 ms; p90 0.788 ms |
-| Tensor stages: p0_test_end_to_end | measured | 2058.57 fps |
+| Check | Result |
+|---|---|
+| ruff check . | PASS |
+| ruff format --check . | PASS (77 files) |
+| pyright | PASS (0 errors / warnings) |
+| CPU suite, not gpu and not soak | PASS: 182 passed, 3 skipped, 18 deselected |
+| GPU suite, gpu and not soak | PASS: 18 passed, 185 deselected |
+| 100000-byte subprocess result regression | PASS |
+| Real GPU subprocess smoke, 60 Fast input frames | PASS: 7.976780 s, inline 0.071169 s (0.8922%) |
+| Hatchling wheel and sdist build | PASS; wheel 54 entries, includes both new modules, no weights/media |
+| Final tracked-text privacy check | PASS: 1 test after staging the 22 cycle files |
+| Windows / Ubuntu Actions CI | NOT RUN at writing time; requires publication; result reported in final chat |
+| GUI / Computer Use | NOT RUN; explicitly out of scope |
 
-## Part B: candidate models
+The first fresh Fast attempt (job acd75e10cbe34908823d2af290bae0e6) exposed an
+existing IPC deadlock: a measured 11329-byte result exceeded the 8192-byte Windows
+pipe buffer, but the parent joined the child before receiving. It was cancelled
+through the CLI, with zero completed segments, at 351.439389 active seconds.
+Its report says incomplete / soak FAIL / estimate FAIL and remains external.
+The parent now drains results while the child is alive. A 100000-byte regression
+and a real 60-frame GPU subprocess verified the fix before the fresh acceptance
+run in `fast-soak-fixed`; no resumption was presented as a fresh run.
 
-No weights are downloaded unless a trusted expected SHA-256 is configured.
+Early test failures were fixed without changing acceptance thresholds: missing
+finalization fields in old test expectations; mock callback/metadata signatures;
+a test timezone/import; fidelity collection initially bypassed by the no-repair
+return; SSIM cancellation for flat areas (bounded covariance); and IPC backpressure.
+Initial sandbox attempts could not execute FFmpeg/build dependencies. The listed
+successful checks ran with the required execution access. `uv` was not on PATH;
+builds used the existing local Hatchling 1.32.4 tools. No dangerous authentication
+or permission workaround was used.
 
-| Model | License | Source / weights | SHA-256 | Result | Peak VRAM | Input / batch / tile | Precision / loader |
-|---|---|---|---|---|---|---|---|
-| BasicVSR++ NTIRE 2021 compressed-video enhancement | Apache-2.0 | Source: https://codeload.github.com/open-mmlab/mmagic/zip/0a560bba9b79ebe78574e1d4cbbdd0e798e63568<br>Weights: https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track3_20210304-6daf4a40.pth | actual: 6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a<br>source: faf15899d1a558a80a2b835e9efc1dff517d27070b06b3f265258ae0adceb9b1 | measured; median 4819.271 ms; p90 4836.055 ms | 1033895936 bytes | input_shape: [1, 15, 3, 1280, 720]; inference_resolution: "720x1280 (width x height)"; batch_size: 1; clip_frames: 15; tile: [1280, 720] | precision: float16; adapter: torchvision.ops.deform_conv2d; pinned external MMagic source |
-| CelebAMask-HQ face parsing (BiSeNet) | Dataset/model terms must be confirmed for the selected checkpoint | Source: https://github.com/zllrunning/face-parsing.PyTorch<br>Weights: https://github.com/zllrunning/face-parsing.PyTorch | not published | skipped; No compatible, rights-reviewed benchmark adapter is implemented for this model; no checkpoint download or inference was attempted. | not reported | not recorded | not recorded |
-| CodeFormer | NTU S-Lab License 1.0 (non-commercial) | Source: https://github.com/sczhou/CodeFormer<br>Weights: https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/codeformer.pth | actual: 1009e537e0c2a07d4cabce6355f53cb66767cd4b4297ec7a4a64ca4b8a5684b7<br>source: a67033e34186f05599caed7ae24abea1b18335ca21591741f1d66f1ccc592eae | measured; median 459.765 ms; p90 460.362 ms; batch 1: measured, median 55.575 ms / batch 4: measured, median 229.047 ms / batch 8: measured, median 459.765 ms | 4815060992 bytes | input_shape: [8, 3, 512, 512]; batch_size: 8; largest_tested_working_batch: 8 | precision: float16; adapter: External original network; FP16 embedding lookup replaces its float32 one-hot multiply. |
-| KEEP | NTU S-Lab License 1.0 (non-commercial) | Source: https://github.com/jnjaby/KEEP<br>Weights: https://github.com/jnjaby/KEEP/releases | not published | skipped; No compatible, rights-reviewed benchmark adapter is implemented for this model; no checkpoint download or inference was attempted. | not reported | not recorded | not recorded |
-| Real-ESRGAN realesr-general-x4v3 | BSD-3-Clause | Source: https://github.com/xinntao/Real-ESRGAN<br>Weights: https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth | expected: 8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292<br>actual: 8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292 | measured; median 3368.433 ms; p90 3381.120 ms | 7640747520 bytes | input_shape: [16, 3, 1280, 720]; output_shape: [16, 3, 5120, 2880]; batch_size: 16; tile: "whole frame" | precision: float16; loader: spandrel ModelLoader |
-| Practical-RIFE 4.25 | MIT | Source: https://github.com/hzwer/Practical-RIFE<br>Weights: https://drive.google.com/file/d/1ZKjcbmt1hypiFprJPIKW0Tt0lr_2i7bg/view | expected: 6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2<br>actual: 6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2<br>source: 88a04ad797a8e831110b771fdcd56b6be4ad66a0ad99c8e82be2a92834bdebc2<br>archive: e63d481b7ae5d4a4e6ad7ac5b410ff78f3bf7be3b51b2e38ca8152747abde5b4 | measured; median 46.249 ms; p90 46.477 ms | 1155530752 bytes | input_shape: [1, 6, 1920, 1088] (8 px horizontal padding); source_resolution: 1080x1920; batch_size: 1; tile: "whole frame" | precision: float16; backend: Practical-RIFE IFNet; external original source |
-| SCRFD 500m buffalo_sc detector | InsightFace public model weights: non-commercial research only | Source: https://github.com/deepinsight/insightface<br>Weights: https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_sc.zip | actual: 5e4447f50245bbd7966bd6c0fa52938c61474a04ec7def48753668a9d8b4ea3a<br>archive: 57d31b56b6ffa911c8a73cfc1707c73cab76efe7f13b675a05223bf42de47c72 | measured; median 4.573 ms; p90 4.776 ms | 1333972992 bytes | input_shape: [1280, 720, 3]; input_source_resolution: "720x1280"; inference_resolution: "640x640 letterboxed"; batch_size: 1; tile: "whole frame" | precision: float32; backend: ONNX Runtime with CUDAExecutionProvider and CPUExecutionProvider; provider_placement_note: CUDAExecutionProvider is requested and CPUExecutionProvider is enabled as fallback; per-node placement was not profiled, so some graph nodes may run on CPU. |
+## Fresh Fast estimates and finalization
 
-Peak NVML VRAM: 8561672192 bytes; peak torch VRAM: 7640747520 bytes; peak RSS: 2740043776 bytes.
+Job: 59bedc111e08460fa68b0e0f117fa3b3. Same P1a-6 synthetic input, 215784 source
+frames. State: done. Expected / actual output frames:
+431568 / 431568.
+Detector raw/final flags: 0 / 0.
+Scheduled pauses verified: [True, True].
+Engine input rate: 15.703019 fps.
+Inline fidelity samples: 43,157 (stride 10 across 431,568 output frames).
 
-## 既知事項・再現手順
+| Estimate/reference | Seconds | Relative error |
+|---|---:|---:|
+| Initial | 13699.916142 | -5.1597% (target +/-30%) |
+| At first completed progress >=10% | 14092.287628 | -2.4435% (target +/-15%) |
+| Actual active wall time | 14445.254722 | Reference unchanged |
+| Finalization predicted at admission | 50.783482 | Actual/predicted - 1: 141.6290% |
+| Finalization observed | 122.707609 | Includes timing persistence overhead |
 
-- Real-ESRGAN batch 16のピークTorch VRAMは7.64 GBで、8 GBカードのVRAMを大きく消費する。P0処理経路の実測ピークは5サンプルで約0.50–0.55 GB Torch予約、約0.90–1.00 GB NVML増分。
-- SCRFDはCUDAとCPU fallback providerを要求したが、ONNX graphのnode配置をprofileしていないため、一部nodeがCPUで実行された可能性がある。
-- RIFEは内部encoderのstride条件に合わせて1920×1088でベンチし、中央値46.249 ms、p90 46.477 ms、Torch予約1.156 GB。実動画はP0のblend placeholderのままでRIFE推論を適用していない。
-- `ve bench --models all --output-dir <dir>`。RIFEだけ再計測する場合は`ve bench --models rife --output-dir <dir>`。
-- `VE_SAMPLES_DIR=Videos`を設定し、各サンプルに`ve enhance <input> --backend cuda`を実行。生成動画は作業フォルダへ追加しない。
-- GPUテスト: `pytest -m gpu`。2時間耐久: `python scripts/soak.py --input <2h synthetic> --output <destination>`。校正プロファイルは同じ`VE_HOME`に置く。
+Calibration: a=0.152323518157 s,
+b=2.452197337e-09 s/byte, c=1.00108037086e-05 s/frame;
+8 generated three-segment assembly/validation samples; residual RMS
+0.006645845 s. Profile correction and observation are retained
+under the fresh home/profiles folder.
+The saved next-job finalization correction is 1.424886937 (one observation,
+EMA 0.7 previous + 0.3 observed/baseline). It was verified in the profile file;
+the first full-job finalization prediction remains an underprediction.
+
+| Recoverable new timing | Seconds |
+|---|---:|
+| Controller segment time | 14006.569638 |
+| Combined observed finalization | 122.707609 |
+| Active controller/supervisor/scheduling residual | 315.977475 |
+| Active total | 14445.254722 |
+| Timed assembling step | 110.737223 |
+| Timed validating step | 9.621585 |
+| Timed aggregating step | 0.868308 |
+| All timed scheduler waits (includes excluded scheduled pauses) | 2007.882211 |
+
+The first three rows reconcile exactly. Timed step intervals are nested within
+combined finalization. Scheduler waits include off-hours and must not be added
+to active time. Engine time 13741.561034 s and inline metric time
+84.673717 s are nested inside controller segment time.
+
+## Fresh Fast memory
+
+These are the unchanged P1a-6 acceptance comparisons: peak in the first and last
+five-minute windows after minute 10. Engine processes change per segment;
+these resource comparisons are not proof of persistent-process leakage.
+
+| Resource | Growth MB | Limit MB | Result |
+|---|---:|---:|---|
+| process_dedicated_gpu_bytes | 12.582912 | 150 | PASS |
+| torch_reserved_bytes | 12.582912 | 100 | PASS |
+| tree_rss_bytes | 145.6128 | 200 | PASS |
+
+## Standard overhead and retained accuracy run
+
+Each sample used 90 input frames, two enabled and two disabled fresh processes.
+
+| Sample | Disabled mean s | Enabled mean s | A/B delta | Measured inline fraction range |
+|---|---:|---:|---:|---:|
+| sample-04 | 40.388017 | 40.447805 | 0.1480% | 0.1817%–0.2364% |
+| sample-05 | 39.110651 | 39.207238 | 0.2470% | 0.1886%–0.1890% |
+
+A/B differences contain normal run variance; directly timed inline work was
+0.073189–0.096000 s per segment, at most 0.2364%. The >2% condition was not met,
+so the Standard 15-minute run was intentionally not repeated. Retained accepted
+P1a-6 result: initial 11367.293360 s
+(-10.8816%), at 10%
+11572.703614 s
+(-9.2712%), actual
+12755.272370 s;
+26980 source / 53960 output
+frames, detector 10/0 raw/final.
+This is historical evidence, not a new P1a-7 Standard accuracy measurement.
+
+## Changed files
+
+- .ai/CURRENT_TASK.md
+- .ai/LAST_REPORT.md
+- docs/ARCHITECTURE.md
+- scripts/soak.py
+- src/videoenhancer/bench/finalization.py
+- src/videoenhancer/bench/runner.py
+- src/videoenhancer/cli.py
+- src/videoenhancer/estimate/model.py
+- src/videoenhancer/jobs/store.py
+- src/videoenhancer/media/mux.py
+- src/videoenhancer/media/probe.py
+- src/videoenhancer/pipeline/inline_quality.py
+- src/videoenhancer/pipeline/runner.py
+- src/videoenhancer/schedule/controller.py
+- src/videoenhancer/schedule/planner.py
+- src/videoenhancer/trial.py
+- tests/test_controller.py
+- tests/test_estimate.py
+- tests/test_finalization.py
+- tests/test_jobs.py
+- tests/test_planner.py
+- tests/test_quality_trial.py
+
+## External outputs, logs and reproduction
+
+All videos, model weights, calibration data and measurement JSON stay outside
+Git at C:\Users\pro\Documents\VideoEnhancer-P1a-7.
+
+- calibration/bench_report.json and calibrate.log
+- overhead-00 through overhead-07/report.json and overhead.json
+- ipc-smoke.mp4 and ipc-smoke.json
+- fast-soak/home/reports/soak_report.json (cancelled IPC failure, preserved)
+- fast-soak-fixed/home/reports/soak_report.json (fresh completed acceptance run)
+- fast-soak-fixed/home/jobs/59bedc111e08460fa68b0e0f117fa3b3/manifest.json and job.jsonl
+- fast-soak-fixed/enhanced.mp4 and fast-soak-fixed-supervisor.log
+
+Historical Standard evidence is in VideoEnhancer-P1a-6/standard-accuracy-final/
+home/reports/soak_report.json. Historical Task A evidence is in fast-soak-fixed and
+standard-stability-retry beneath that P1a-6 folder.
+Local verification logs are ignored .tmp/p1a7-cpu5.log and .tmp/p1a7-gpu2.log.
+
+Reproduce with installed verified C1/RIFE models and FFmpeg, using a fresh external
+VE_HOME with models and adapter-sources copied from the existing development home:
+
+```powershell
+$env:VE_HOME = 'C:\Users\pro\Documents\VideoEnhancer-P1a-7-reproduction\home'
+$env:VE_FFMPEG_DIR = '<installed FFmpeg bin directory>'
+.venv/Scripts/python.exe -m videoenhancer.cli bench --calibrate --output-dir '<external calibration directory>'
+.venv/Scripts/python.exe -u scripts/soak.py --input 'C:\Users\pro\Documents\VideoEnhancer-P1a-6\long-inputs\fast-synthetic-2h.mp4' --output '<fresh external output.mp4>' --preset fast --mode complete --scheduled-pauses 2
+.venv/Scripts/python.exe -m videoenhancer.cli --json report <job-id>
+# Development-only, outside acceptance timing:
+.venv/Scripts/python.exe -m videoenhancer.cli --json report --full-quality <job-id>
+.venv/Scripts/ruff.exe check .
+.venv/Scripts/ruff.exe format --check .
+.venv/Scripts/pyright.exe
+.venv/Scripts/python.exe -m pytest -m 'not gpu and not soak' --basetemp .tmp/p1a7-cpu-reproduction -p no:cacheprovider
+.venv/Scripts/python.exe -m pytest -m 'gpu and not soak' --basetemp .tmp/p1a7-gpu-reproduction -p no:cacheprovider
+$env:PYTHONPATH = (Resolve-Path .tmp/build-tools).Path
+.venv/Scripts/python.exe -m hatchling build
+```
+
+Expected: exact frames, zero final detector flags, estimates within +/-30% / +/-15%,
+inline overhead <=2%, finalization inside operating hours, recoverable stage/wait
+intervals, local suites and both CI platforms green. Actual: numbers above;
+CI remains unexecuted at the instant this report is committed and is checked after push.
+
+Unresolved / Claude decisions: no new architecture or product-policy decision
+was made. The designer reviews diagnostic definitions and measured limitations
+above and decides when to merge draft PR #2. No claim of legacy post-encode numeric
+equivalence or perceptual restoration quality is made. Finalization extrapolates
+short calibration through bytes/frames; the completed observation corrects the
+next job, and the measured prediction error is reported without changing limits.
+
+Intentionally not run: GUI/API; training/new models; encoder changes; a second
+full quality pass on the 2-hour acceptance output; another Standard 15-minute
+run (the conditional overhead threshold was not exceeded).
+
+Git: the 22 listed cycle files are the intended stage/commit scope, including full
+CURRENT_TASK and this report. Private media/cache/weights are excluded. The final
+chat records the actual branch commit/push and post-publication CI result. No main push, force push, history rewrite or merge.

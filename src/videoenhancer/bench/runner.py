@@ -398,7 +398,7 @@ def _bench_nvenc(torch: Any) -> dict[str, Any]:
         import PyNvVideoCodec as nvc  # pyright: ignore[reportMissingImports]
 
         from videoenhancer.media.color import rgb_to_nv12
-        from videoenhancer.media.encode import NVENC_SETTINGS, DeviceSurface, packet_bytes
+        from videoenhancer.media.encode import NVENC_SETTINGS, packet_bytes
     except Exception as exc:
         return {
             name: {
@@ -422,19 +422,21 @@ def _bench_nvenc(torch: Any) -> dict[str, Any]:
                 fps="30",
                 gop="60",
                 profile="high" if codec == "h264" else "main10" if codec == "hevc" else "main",
-                cudastream=torch.cuda.current_stream().cuda_stream,
             )
-            encoder = nvc.CreateEncoder(1080, 1920, color_format, False, **settings)
+            encoder = nvc.CreateEncoder(1080, 1920, color_format, True, **settings)
             packed = rgb_to_nv12(rgb, matrix, depth)
-            surface = DeviceSurface(packed)
+            torch.cuda.current_stream().synchronize()
+            surface = packed.cpu().contiguous()
+            if surface.dtype == torch.uint16:
+                surface = surface.view(torch.uint8).reshape(-1)
             with torch.inference_mode():
                 for _ in range(8):
-                    encoder.Encode(surface)
+                    encoder.Encode(surface.numpy())
                 torch.cuda.synchronize()
                 timed_bytes = 0
                 started = time.perf_counter()
                 for _ in range(60):
-                    timed_bytes += len(packet_bytes(encoder.Encode(surface)))
+                    timed_bytes += len(packet_bytes(encoder.Encode(surface.numpy())))
                 torch.cuda.synchronize()
                 elapsed = time.perf_counter() - started
                 tail = packet_bytes(encoder.EndEncode())
@@ -955,6 +957,25 @@ def _write_markdown(report: dict[str, Any], path: Path) -> None:
         f"peak RSS: {report['resources'].get('peak_rss_bytes') or 'unavailable'} bytes.",
         "",
     ]
+    installed_models = report.get("profile", {}).get("models", {})
+    if installed_models:
+        lines += [
+            "## Installed model calibration",
+            "",
+            "Inference-mode adapter calls; restore computed frames and interpolation pairs.",
+            "Model identities and coefficient details are retained in the JSON profile.",
+            "",
+            "| ID | Status | Geometry | Computed frames/pairs per second | Clip/overlap |",
+            "|---|---|---|---|---|",
+        ]
+        for model_id, entry in installed_models.items():
+            value = entry.get("processed_frames_or_pairs_per_second")
+            speed = f"{value:.3f}" if value is not None else entry.get("reason", "unavailable")
+            speed = str(speed).replace("|", "\\|").replace("\n", " ")
+            geometry = f"{entry.get('width', '?')} x {entry.get('height', '?')}"
+            clip = f"{entry.get('clip_length', '?')}/{entry.get('clip_overlap', '?')}"
+            lines.append(f"| {model_id} | {entry.get('status')} | {geometry} | {speed} | {clip} |")
+        lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -1145,6 +1166,15 @@ def run_bench(
         elif name == "p0_test_end_to_end" and item.get("median_ms"):
             item["fps"] = item["output_frames_per_second"]
     report["profile"]["segment_overhead_seconds"] = 2.0
+    report["profile"]["backend"] = device
+    report["profile"]["cpu_name"] = platform.processor() or platform.machine()
+    if calibrate:
+        from videoenhancer.bench.calibration import calibrate_models
+
+        report["profile"]["models"] = calibrate_models(backend=device)
+        from videoenhancer.bench.finalization import calibrate_finalization
+
+        report["profile"]["finalization"] = calibrate_finalization(target)
     # Keep all estimator component keys present. Null timings stay visibly uncalibrated.
     for component in ("decode", "color", "resize", "blend2x", "encode"):
         profile_components.setdefault(component, {"seconds_per_pixel_frame": None})
@@ -1159,7 +1189,7 @@ def run_bench(
     json_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     _write_markdown(report, markdown_path)
     if calibrate:
-        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", gpu["name"] or "uncalibrated")
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", gpu["name"] or report["profile"]["cpu_name"])
         safe_driver = re.sub(r"[^A-Za-z0-9._-]+", "_", gpu["driver"] or "unknown-driver")
         profile_dir = _get_home() / "profiles"
         profile_dir.mkdir(parents=True, exist_ok=True)

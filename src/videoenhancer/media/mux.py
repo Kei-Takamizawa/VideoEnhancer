@@ -29,8 +29,8 @@ def _audio_duration_matches(original: dict[str, Any], actual: dict[str, Any]) ->
     return abs(delta - initial_padding / sample_rate) <= 0.020
 
 
-def _run(command: list[str], abort: Callable[[], bool] | None) -> None:
-    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+def _run(command: list[str], abort: Callable[[], bool] | None, *, cwd: Path | None = None) -> None:
+    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, cwd=cwd)
     try:
         while True:
             try:
@@ -53,7 +53,11 @@ def _run(command: list[str], abort: Callable[[], bool] | None) -> None:
 
 
 def assemble(
-    manifest: dict[str, Any], job_dir: Path, abort: Callable[[], bool] | None = None
+    manifest: dict[str, Any],
+    job_dir: Path,
+    abort: Callable[[], bool] | None = None,
+    *,
+    validation_started: Callable[[], None] | None = None,
 ) -> Path:
     output = Path(manifest.get("output", manifest.get("output_path", "")))
     if not str(output) or output.resolve() == Path(manifest["input"]["path"]).resolve():
@@ -157,7 +161,9 @@ def assemble(
             str(temporary),
         ]
         _run(command, abort)
-        result = probe(temporary)
+        if validation_started:
+            validation_started()
+        result = probe(temporary, count_packets=True)
         expected = int(
             Fraction(len(manifest["cfr_map"])) * rate / Fraction(manifest["media"]["cfr_fps"])
         )

@@ -1,6 +1,6 @@
 """Pinned BasicVSR++ benchmark using external Apache-licensed source and weights.
 
-The official MMagic source is loaded from VE_HOME/models at benchmark time. Its
+The official MMagic source is loaded from VE_HOME/adapter-sources at benchmark time. Its
 MMCV deformable convolution is connected to the prebuilt torchvision operator;
 no original source or compiled extension is added to this repository.
 """
@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from videoenhancer.config import get_home
+from videoenhancer.models.sources import source_cache, source_path
 
 COMMIT = "0a560bba9b79ebe78574e1d4cbbdd0e798e63568"
 CODE_URL = f"https://codeload.github.com/open-mmlab/mmagic/zip/{COMMIT}"
@@ -62,7 +63,9 @@ def _verified_download(path: Path, url: str, expected: str) -> Path:
 
 
 def _source_files(models: Path) -> tuple[Path, Path]:
-    archive = _verified_download(models / "mmagic-code.zip", CODE_URL, CODE_SHA256)
+    archive = _verified_download(
+        source_path(models, models / "mmagic-code.zip"), CODE_URL, CODE_SHA256
+    )
     root = models / SOURCE_NAME
     basic = root / "mmagic/models/editors/basicvsr/basicvsr_net.py"
     plus = root / "mmagic/models/editors/basicvsr_plusplus_net/basicvsr_plusplus_net.py"
@@ -70,10 +73,12 @@ def _source_files(models: Path) -> tuple[Path, Path]:
         members = bundle.namelist()
         if any(Path(name).is_absolute() or ".." in Path(name).parts for name in members):
             raise ValueError("Pinned MMagic archive contains an unsafe path")
-        if not basic.is_file() or not plus.is_file():
-            bundle.extractall(models)
         for path in (basic, plus):
+            source_path(models, path)
             archive_name = f"{SOURCE_NAME}/{path.relative_to(root).as_posix()}"
+            if not path.is_file():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(bundle.read(archive_name))
             if path.read_bytes() != bundle.read(archive_name):
                 raise ValueError(f"External MMagic source differs from pinned archive: {path}")
     return basic, plus
@@ -307,7 +312,19 @@ def _load_source(name: str, path: Path) -> types.ModuleType:
     return module
 
 
-def _model_from_checkpoint(torch: Any, basic_path: Path, plus_path: Path, weights: Path) -> Any:
+def _model_from_checkpoint(
+    torch: Any,
+    basic_path: Path,
+    plus_path: Path,
+    weights: Path,
+    cpu_cache_length: int = 0,
+    architecture_params: dict[str, Any] | None = None,
+) -> Any:
+    params = {"mid_channels": 128, "num_blocks": 25, **(architecture_params or {})}
+    if set(params) != {"mid_channels", "num_blocks"} or any(
+        type(value) is not int or value < 1 for value in params.values()
+    ):
+        raise ValueError("Invalid BasicVSR++ architecture parameters.")
     helpers = _helpers(torch)
     with _temporary_modules(helpers, torch):
         _load_source("mmagic.models.editors.basicvsr.basicvsr_net", basic_path)
@@ -315,24 +332,53 @@ def _model_from_checkpoint(torch: Any, basic_path: Path, plus_path: Path, weight
             "mmagic.models.editors.basicvsr_plusplus_net.basicvsr_plusplus_net", plus_path
         )
         model = module.BasicVSRPlusPlusNet(
-            mid_channels=128,
-            num_blocks=25,
+            **params,
             is_low_res_input=False,
-            cpu_cache_length=0,
+            cpu_cache_length=cpu_cache_length,
         )
     checkpoint = torch.load(weights, map_location="cpu", weights_only=True)
-    state = checkpoint["state_dict"]
-    if not isinstance(state, dict) or not all(
-        key.startswith("generator.") for key in state if key != "step_counter"
-    ):
-        raise ValueError("Checkpoint does not contain the expected BasicVSR++ generator weights")
+    if not isinstance(checkpoint, dict):
+        raise ValueError("BasicVSR++ checkpoint must contain a state dictionary.")
+    state = checkpoint.get("state_dict", checkpoint)
+    if not isinstance(state, dict) or not state or not all(isinstance(key, str) for key in state):
+        raise ValueError("Checkpoint does not contain BasicVSR++ weights.")
     generator = {
         key.removeprefix("generator."): value
         for key, value in state.items()
-        if key.startswith("generator.")
+        if key != "step_counter"
     }
     model.load_state_dict(generator, strict=True)
     return model
+
+
+def load_basicvsr_model(
+    torch: Any | None = None,
+    *,
+    cpu_cache_length: int = 0,
+    weights: Path | None = None,
+    architecture_params: dict[str, Any] | None = None,
+) -> Any:
+    """Load the pinned benchmark model for production inference."""
+    if torch is None:
+        import torch as torch_module
+
+        torch = torch_module
+    models = get_home() / "models"
+    basic_path, plus_path = _source_files(source_cache(("mmagic-code.zip",)))
+    if weights is None:
+        weights = _verified_download(
+            models / "basicvsrpp-ntire-track3.pth", WEIGHTS_URL, WEIGHTS_SHA256
+        )
+    if cpu_cache_length < 0:
+        raise ValueError("cpu_cache_length cannot be negative.")
+    return _model_from_checkpoint(
+        torch,
+        basic_path,
+        plus_path,
+        weights,
+        cpu_cache_length=cpu_cache_length,
+        architecture_params=architecture_params,
+    )
 
 
 def bench_basicvsr(torch: Any) -> dict[str, Any]:
@@ -353,7 +399,7 @@ def bench_basicvsr(torch: Any) -> dict[str, Any]:
         return {**result, "status": "skipped", "reason": "CUDA is unavailable"}
     models = get_home() / "models"
     try:
-        basic_path, plus_path = _source_files(models)
+        basic_path, plus_path = _source_files(source_cache(("mmagic-code.zip",)))
         weights = _verified_download(
             models / "basicvsrpp-ntire-track3.pth", WEIGHTS_URL, WEIGHTS_SHA256
         )
