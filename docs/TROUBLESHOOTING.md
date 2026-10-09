@@ -19,3 +19,28 @@ Options include installing a signed compatible component if NVIDIA provides one,
 FFmpeg can expose NVIDIA hardware codecs through `*_cuvid` decoders and `*_nvenc` encoders. Such a path could avoid importing PyNvVideoCodec, but VideoEnhancer does not currently use those codecs as a fallback. The existing CPU decode/encode path uses FFmpeg software codecs; the direct CUDA path uses PyNvVideoCodec.
 
 No FFmpeg executable/build was tested for this investigation, so this repository has no verified finding about the signature status of a particular FFmpeg build or whether Smart App Control accepts it. A future investigation should record the exact FFmpeg build/source, inspect its Authenticode signature and each loaded DLL, verify that its build includes the desired CUVID/NVENC codecs, and test it on a machine with Smart App Control enabled. A signed FFmpeg executable alone would not establish that every dependent component is trusted or that the full fallback works.
+
+## Processing remains at zero or stops responding
+
+The segment watchdog allows 300 seconds for the first frame. After frames start,
+no new frame for `max(180 seconds, 20 * predicted seconds per frame)` or a total
+wall time over `3 * predicted seconds + 300` stops the child tree. One retry uses
+a fresh child; another stall fails that job. A child that returns a result but
+will not exit is killed after a 15-second grace, retaining its result.
+
+Copy details includes the last 40 lines of the segment log. Memory samples are
+logged during processing every 30 seconds and identify the process PID. Missing
+Windows GPU counters are recorded as unavailable, not zero. Avoid concluding
+that a job is hung from a screenshot alone: compare progress, timestamps and
+raw-segment file growth over at least 60 seconds.
+
+Short-lived file sharing errors are retried after 0.2, 0.5, 1, 2 and 4 seconds.
+A file-open error asks you to check whether another app owns it or whether a
+cloud folder has downloaded it. Controller errors include their traceback in
+local logs. Persistent manifest-lock failures still require attention; full
+failure quarantine is not implemented in this draft.
+
+After a service restart, unfinished previews show **Interrupted. Try again.**.
+Trial rendering ignores your operating hours and waits only for the current
+segment. Long-file Trial startup still performs whole-file analysis pending a
+range-decoder design decision; the requested 30-second bound is unverified.

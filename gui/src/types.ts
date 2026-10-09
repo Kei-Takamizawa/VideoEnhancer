@@ -76,7 +76,7 @@ export type Health = {
   job_id?: string;
   next_change?: string;
   next_change_kind: string;
-  last_error?: string;
+  last_error?: { time: string; job_id: string | null; message: string };
   home: string;
   smart_app_control: { status: string; blocked: boolean; message?: string };
 };

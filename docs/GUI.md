@@ -58,8 +58,9 @@ pages and renderer Node.js access are disabled. See [API.md](API.md).
    folder and repository available for that startup entry.
 
 Trial runs between segments under the existing controller's worker lease. It
-may wait for an active segment or allowed hours; it is cancellable. If it reaches
-the operating-window deadline plus its own excerpt length, it aborts. Its
+may wait for an active segment; allowed hours do not delay owner-requested Trials.
+It is cancellable, with a hard timeout of at least ten minutes (four times the
+estimated render duration when longer). Its
 previews are H.264 8-bit and stay outside Git, under the engine home. Removing a
 job removes its associated previews while keeping the finished output.
 
@@ -103,3 +104,19 @@ needed, while the last snapshot remains visible. Startup diagnostics are in
 Control failures show troubleshooting instructions. The app never changes
 Windows security settings. Reports and screenshots must use synthetic footage
 and exclude private sample names.
+
+## P1c partial reliability update
+
+Queue adds return immediately as **Preparing…**, then become ready or show a
+preparation error. The current segment reports its step and frame-based progress.
+Copy details includes the tail of the segment diagnostics. Controller errors
+are visible with their timestamp. Interrupted previews become retryable after
+service restart.
+
+If no event or heartbeat arrives for 30 seconds, the client keeps its last
+snapshot, shows **Reconnecting…**, and retries after 1, 2, 5 and 10 seconds.
+Retries refresh the service discovery; restoring/focusing the window also
+reconnects. This cycle retains the P1b Queue/Plan/Schedule/Models/Settings screens.
+Home, History, redesigned hours editing and multi-model Compare are not shipped.
+Console-free Electron cold start is not established; the Electron launch still
+needs the planned pythonw selection. Do not treat this draft as P1c completion.

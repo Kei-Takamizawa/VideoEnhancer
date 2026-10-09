@@ -314,9 +314,25 @@ def job_progress(manifest: dict[str, Any]) -> dict[str, Any]:
     processing = sum(p for _, p in predictions)
     completed = sum(p for s, p in predictions if s.get("state") == "done")
     phase = manifest.get("progress", {})
+    active = next((s for s in manifest.get("segments", []) if s.get("state") == "running"), None)
+    if active and phase.get("segment") == active["index"]:
+        active_frames = min(
+            active["end"] - active["start"], max(0.0, float(phase.get("frames_done", 0)))
+        )
+        active_prediction = next(p for s, p in predictions if s is active)
+        completed += active_prediction * active_frames / max(1, active["end"] - active["start"])
     fraction = min(1.0, max(0.0, float(phase.get("finalization_fraction", 0))))
     finalize = predict_finalization(manifest)
     percent = 100 * (completed + fraction * finalize) / max(1e-9, processing + finalize)
+    if active:
+        total_frames = sum(s["end"] - s["start"] for s, _ in predictions)
+        done_frames = sum(s["end"] - s["start"] for s, _ in predictions if s["state"] == "done")
+        live_frames = (
+            min(active["end"] - active["start"], max(0.0, float(phase.get("frames_done", 0))))
+            if phase.get("segment") == active["index"]
+            else 0
+        )
+        percent = 100 * (done_frames + live_frames) / max(1, total_frames)
     return dict(
         progress_percent=min(99.9, percent),
         phase=phase.get("phase", "processing"),

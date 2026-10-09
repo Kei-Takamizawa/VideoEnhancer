@@ -45,6 +45,7 @@ def process_segment(
     output_path: Path,
     abort: Callable[[], bool],
     batch_size: int = 2,
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     from videoenhancer.models.registry import validate_job_models
 
@@ -56,7 +57,12 @@ def process_segment(
     if backend == "cuda":
         torch.cuda.reset_peak_memory_stats()
     stages = create_stages(settings, media, set(manifest.get("scene_cuts", [])))
-    memory_sampler = JobMemorySampler()
+
+    def memory_progress(memory: dict[str, Any]) -> None:
+        if progress is not None:
+            progress({"memory": memory})
+
+    memory_sampler = JobMemorySampler(interval_seconds=30, on_sample=memory_progress)
     memory_sampler.start()
     try:
         for stage in stages:
@@ -669,7 +675,11 @@ def process_segment(
                     encode_seconds += time.perf_counter() - encode_started
                     written += 1
                 peak_rss = max(peak_rss, psutil.Process().memory_info().rss)
+                if progress is not None:
+                    progress({"frames_done": written / factor, "step": "Processing"})
             encode_started = time.perf_counter()
+            if progress is not None:
+                progress({"frames_done": written / factor, "step": "Encoding"})
             encoder.finish()
             encode_seconds += time.perf_counter() - encode_started
         except BaseException:

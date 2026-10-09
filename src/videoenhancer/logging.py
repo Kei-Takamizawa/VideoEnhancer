@@ -13,6 +13,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
+from videoenhancer import proc
+
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -55,9 +57,14 @@ def get_logger(home: Path, *, job_id: str | None = None, console: bool = True) -
         logger.addHandler(_handler(global_path))
     if job_path is not None and str(job_path) not in existing:
         logger.addHandler(_handler(job_path))
-    if console and not any(
-        isinstance(handler, logging.StreamHandler) and not isinstance(handler, RotatingFileHandler)
-        for handler in logger.handlers
+    if (
+        console
+        and sys.stderr is not None
+        and not any(
+            isinstance(handler, logging.StreamHandler)
+            and not isinstance(handler, RotatingFileHandler)
+            for handler in logger.handlers
+        )
     ):
         handler = logging.StreamHandler(sys.stderr)
         handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
@@ -77,7 +84,7 @@ def environment_info() -> dict[str, str]:
     except ImportError:
         info["torch"] = "unavailable"
     try:
-        result = subprocess.run(
+        result = proc.run(
             ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
             capture_output=True,
             text=True,
@@ -91,7 +98,7 @@ def environment_info() -> dict[str, str]:
     try:
         from videoenhancer.config import executable
 
-        result = subprocess.run(
+        result = proc.run(
             [executable("ffmpeg"), "-version"],
             capture_output=True,
             text=True,

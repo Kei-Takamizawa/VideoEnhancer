@@ -15,10 +15,12 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from videoenhancer.files import retry_permission
+
 from .segments import plan_segments
 
 SCHEMA_VERSION = 1
-JOB_STATES = {"queued", "running", "paused", "cancelled", "failed", "done"}
+JOB_STATES = {"preparing", "queued", "running", "paused", "cancelled", "failed", "done"}
 
 
 @contextmanager
@@ -136,10 +138,14 @@ def require_disk_space(
         )
 
 
-def _require_unreserved_output(store: JobStore, destination: Path) -> None:
+def _require_unreserved_output(
+    store: JobStore, destination: Path, skip_job_id: str | None = None
+) -> None:
     if destination.exists():
         raise FileExistsError(f"Output already exists: {destination}. Choose another output path.")
     for job in store.list_jobs():
+        if job["id"] == skip_job_id:
+            continue
         if job["state"] != "done" and Path(job["output"]).expanduser().resolve() == destination:
             raise FileExistsError(
                 f"Output is reserved by unfinished job {job['id']}: {destination}. "
@@ -241,17 +247,22 @@ class JobStore:
         directory.mkdir(parents=True, exist_ok=True)
         with _manifest_lock(directory):
             target = directory / "manifest.json"
+            preparation_finished = False
             if target.exists():
                 current = self._load_unlocked(target)
+                preparation_finished = (
+                    current["state"] == "preparing" and manifest["state"] != "preparing"
+                )
                 if "position" in current:
                     manifest["position"] = current["position"]
                 if int(current.get("control_generation", 0)) > int(
                     manifest.get("control_generation", 0)
                 ):
-                    manifest["state"] = current["state"]
+                    if current["state"] != "preparing":
+                        manifest["state"] = current["state"]
                     manifest["control_generation"] = current["control_generation"]
             self._write_unlocked(manifest)
-            if not (directory / "control.json").exists():
+            if preparation_finished or not (directory / "control.json").exists():
                 self._write_control_unlocked(manifest)
 
     def _write_unlocked(self, manifest: dict[str, Any]) -> None:
@@ -265,7 +276,7 @@ class JobStore:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, target)
+            retry_permission(os.replace, temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -304,6 +315,8 @@ class JobStore:
                 from videoenhancer.models.registry import validate_job_models
 
                 validate_job_models(job, self.home)
+                if not job.get("cfr_map") and not job.get("media", {}).get("frame_count"):
+                    state = "preparing"
             job["state"] = state
             job["control_generation"] = int(job.get("control_generation", 0)) + 1
             if state == "queued":
@@ -327,7 +340,7 @@ class JobStore:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, target)
+            retry_permission(os.replace, temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -347,6 +360,7 @@ def add_job(
     *,
     disk_free: Callable[[Path], int] | int | None = None,
     target_segment_seconds: float = 180.0,
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """Analyze an input and enqueue a durable, frame-exact conversion plan."""
     source = Path(path).expanduser().resolve(strict=True)
@@ -378,7 +392,7 @@ def add_job(
         raise ValueError("backend must be cpu or cuda")
     store = JobStore(home)
     with _manifest_lock(store.jobs_dir):
-        _require_unreserved_output(store, destination)
+        _require_unreserved_output(store, destination, job_id)
     identity = input_identity(source)
     # Check before the potentially long analysis pass, then again with the
     # measured media geometry before storing the job.
@@ -415,7 +429,7 @@ def add_job(
     now = _now()
     manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
-        "id": uuid.uuid4().hex,
+        "id": job_id or uuid.uuid4().hex,
         "input": identity,
         "output": str(destination),
         "settings": chosen,
@@ -438,7 +452,7 @@ def add_job(
         "estimated_output_bytes": output_bytes,
     }
     with _manifest_lock(store.jobs_dir):
-        _require_unreserved_output(store, destination)
+        _require_unreserved_output(store, destination, job_id)
         manifest["position"] = len(store.list_jobs()) + 1
         store.save(manifest)
     return manifest

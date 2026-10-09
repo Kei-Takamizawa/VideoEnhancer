@@ -8,7 +8,7 @@ import json
 import os
 import secrets
 import signal
-import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from videoenhancer import proc
 from videoenhancer.service.engine import Engine
 
 APP_ORIGIN = "app://videoenhancer"
@@ -67,7 +68,7 @@ def discovery(home: Path, port: int, token: str) -> None:
         import csv
         import io
 
-        identity = subprocess.run(
+        identity = proc.run(
             ["whoami", "/user", "/fo", "csv", "/nh"],
             capture_output=True,
             text=True,
@@ -75,7 +76,7 @@ def discovery(home: Path, port: int, token: str) -> None:
             timeout=5,
         )
         sid = next(csv.reader(io.StringIO(identity.stdout)))[1]
-        subprocess.run(
+        proc.run(
             ["icacls", str(temporary), "/inheritance:r", "/grant:r", f"*{sid}:(F)"],
             capture_output=True,
             check=True,
@@ -200,8 +201,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"stopped": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
-            with self.server.engine.lock:
-                result = self.server.engine.dispatch(self.command, parts, value)
+            result = self.server.engine.dispatch(self.command, parts, value)
             self._json(200, result)
         except (BrokenPipeError, ConnectionResetError):
             pass
@@ -218,12 +218,11 @@ class Handler(BaseHTTPRequestHandler):
         heartbeat = time.monotonic()
         while not self.server.engine.stop.is_set():
             try:
-                with self.server.engine.lock:
-                    data = {
-                        "queue": self.server.engine.queue(),
-                        "health": self.server.engine.health(),
-                        "plan": self.server.engine.dispatch("GET", ["plan"], {}),
-                    }
+                data = {
+                    "queue": self.server.engine.queue(),
+                    "health": self.server.engine.health(),
+                    "plan": self.server.engine.dispatch("GET", ["plan"], {}),
+                }
                 raw = json.dumps(data, default=str, allow_nan=False)
                 if raw != previous:
                     self.wfile.write(f"event: update\ndata: {raw}\n\n".encode())
@@ -235,6 +234,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.server.engine.stop.wait(1)
             except (BrokenPipeError, ConnectionResetError):
                 return
+            except Exception:
+                from videoenhancer.logging import get_logger
+
+                get_logger(self.server.engine.home).exception("SSE snapshot failed")
+                try:
+                    self.wfile.write(b"event: error\ndata: Snapshot unavailable. Retrying.\n\n")
+                    self.wfile.flush()
+                except OSError:
+                    return
+                self.server.engine.stop.wait(1)
 
     do_GET = _request
     do_POST = _request
@@ -256,7 +265,11 @@ def serve(home: Path) -> int:
 
             signal.signal(signal.SIGINT, stop)
             signal.signal(signal.SIGTERM, stop)
-            print(f"VideoEnhancer service on 127.0.0.1:{server.server_port}", flush=True)
+            from videoenhancer.logging import get_logger
+
+            get_logger(home).info("Service executable: %s", sys.executable)
+            if sys.stdout is not None:
+                print(f"VideoEnhancer service on 127.0.0.1:{server.server_port}", flush=True)
             try:
                 server.serve_forever(poll_interval=0.25)
             finally:
@@ -265,5 +278,6 @@ def serve(home: Path) -> int:
                 (home / "serve.json").unlink(missing_ok=True)
         return 0
     except RuntimeError as error:
-        print(str(error), flush=True)
+        if sys.stdout is not None:
+            print(str(error), flush=True)
         return 1

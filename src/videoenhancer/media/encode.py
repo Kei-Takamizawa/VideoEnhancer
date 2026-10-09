@@ -8,6 +8,7 @@ from typing import Any
 
 import torch
 
+from videoenhancer import proc
 from videoenhancer.config import executable
 from videoenhancer.media.color import rgb_to_nv12
 
@@ -105,7 +106,7 @@ class Encoder:
             rate,
         )
         self.bit_depth = 8 if codec == "h264" else 10
-        self.process: subprocess.Popen | None = None
+        self.process: proc.Popen | None = None
         self.encoder: Any = None
         self.stream: Any = None
         self.raw_path = path.with_suffix(
@@ -185,7 +186,7 @@ class Encoder:
                 "mp4",
                 str(path),
             ]
-            self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.process = proc.Popen(command, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def write(self, frame: torch.Tensor) -> None:
         surface = rgb_to_nv12(frame, self.media["color_matrix"], self.bit_depth)
@@ -206,11 +207,7 @@ class Encoder:
             try:
                 self.process.stdin.write(surface.numpy().tobytes())
             except BrokenPipeError:
-                stderr = (
-                    self.process.stderr.read().decode(errors="replace")
-                    if self.process.stderr
-                    else ""
-                )
+                stderr = proc.stderr_text(self.process)
                 raise RuntimeError(
                     f"CPU encode failed: {stderr}. Check FFmpeg codec support."
                 ) from None
@@ -246,7 +243,7 @@ class Encoder:
                 "mp4",
                 str(self.path),
             ]
-            result = subprocess.run(command, capture_output=True, text=True)
+            result = proc.run(command, capture_output=True, text=True)
             if result.returncode:
                 raise RuntimeError(
                     f"GPU segment mux failed: {result.stderr}. "

@@ -1,12 +1,12 @@
 """Probe stream metadata and exact packet presentation times."""
 
 import json
-import subprocess
 from dataclasses import asdict, dataclass, field
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from videoenhancer import proc
 from videoenhancer.config import executable
 
 STANDARD_RATES = tuple(
@@ -77,7 +77,7 @@ def packet_timeline(path: str | Path, time_base: Fraction) -> tuple[list[Fractio
         "csv=p=0",
         str(path),
     ]
-    result = subprocess.run(command, capture_output=True, text=True, check=True)
+    result = proc.run(command, capture_output=True, text=True, check=True)
     records: list[tuple[int, int]] = []
     for line in result.stdout.splitlines():
         fields = line.split(",")
@@ -99,7 +99,7 @@ def probe(
     command = [executable("ffprobe"), "-v", "error", "-show_format", "-show_streams", "-of", "json"]
     if count_frames:
         command += ["-count_frames"]
-    result = subprocess.run([*command, str(source)], capture_output=True, text=True, check=True)
+    result = proc.run([*command, str(source)], capture_output=True, text=True, check=True)
     raw = json.loads(result.stdout)
     streams = raw.get("streams", [])
     video = next(

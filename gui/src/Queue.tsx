@@ -82,7 +82,9 @@ export function QueuePage({
                   ? `Finalizing: ${job.step}`
                   : job.state === "queued"
                     ? "Waiting"
-                    : job.state.charAt(0).toUpperCase() + job.state.slice(1)}
+                    : job.state === "preparing"
+                      ? "Preparing…"
+                      : job.state.charAt(0).toUpperCase() + job.state.slice(1)}
               </strong>
               <button
                 aria-label={`Actions for ${filename(job.input)}`}

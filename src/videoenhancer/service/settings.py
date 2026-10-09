@@ -9,6 +9,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from videoenhancer.files import retry_permission
+
 DEFAULTS: dict[str, Any] = {
     "output_folder": "",
     "preset": "standard",
@@ -35,7 +37,7 @@ def write_json(path: Path, data: Any) -> None:
             json.dump(data, stream, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
-        temporary.replace(path)
+        retry_permission(temporary.replace, path)
     finally:
         temporary.unlink(missing_ok=True)
 

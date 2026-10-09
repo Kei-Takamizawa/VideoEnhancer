@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from videoenhancer import __version__
+from videoenhancer import __version__, proc
 from videoenhancer.cli import _jobs_plan, _save_schedule, _schedule_payload
 from videoenhancer.estimate import estimate_job
 from videoenhancer.estimate.model import job_progress
@@ -24,6 +27,7 @@ from videoenhancer.jobs.store import (
     input_identity,
     load_machine_profile,
 )
+from videoenhancer.logging import get_logger
 from videoenhancer.media.decode import choose_backend
 from videoenhancer.media.probe import probe
 from videoenhancer.media.timing import output_size
@@ -50,15 +54,75 @@ class Engine:
         self.lock = threading.RLock()
         self.operations: dict[str, dict[str, Any]] = {}
         self.processes: dict[str, subprocess.Popen[Any]] = {}
-        self.last_error: str | None = None
+        self.last_error: dict[str, Any] | None = None
+        self.live_progress: dict[str, dict[str, Any]] = {}
+        self._preparations: list[threading.Thread] = []
         self.paused = False
         self.environment: dict[str, Any] = {}
         self.worker = threading.Thread(target=self._worker, name="engine-controller", daemon=True)
         self._health_thread = threading.Thread(target=self._environment, daemon=True)
 
     def start(self) -> None:
+        self._recover()
         self._health_thread.start()
         self.worker.start()
+
+    def _recover(self) -> None:
+        for job in self.store.list_jobs():
+            if job["state"] == "running":
+                for segment in job["segments"]:
+                    if segment["state"] == "running":
+                        segment["state"] = "pending"
+                job["state"] = "queued"
+                job["progress"] = {}
+                self.store.save(job)
+                for path in self.store.job_dir(job["id"]).glob("seg_*.tmp.*"):
+                    path.unlink(missing_ok=True)
+            elif job["state"] == "preparing":
+                job.update(state="failed", error="Preparation was interrupted. Try again.")
+                self.store.save(job)
+        for folder in (self.home / "previews").glob("*"):
+            state_path = folder / "state.json"
+            if state_path.is_file():
+                op = json.loads(state_path.read_text(encoding="utf-8"))
+                if op["state"] in {"waiting", "running"}:
+                    op.update(
+                        state="failed",
+                        phase="Interrupted. Try again.",
+                        error="Interrupted. Try again.",
+                    )
+            elif (folder / "request.json").is_file():
+                saved = json.loads((folder / "request.json").read_text(encoding="utf-8"))
+                op = dict(
+                    id=folder.name,
+                    kind=saved["kind"],
+                    request=saved["request"],
+                    state="failed",
+                    phase="Interrupted. Try again.",
+                    error="Interrupted. Try again.",
+                )
+            else:
+                continue
+            self.operations[op["id"]] = op
+            self._save_operation(op)
+
+    def _save_operation(self, op: dict[str, Any]) -> None:
+        folder = self.home / "previews" / op["id"]
+        folder.mkdir(parents=True, exist_ok=True)
+        write_json(folder / "state.json", op)
+
+    def _error(self, job_id: str | None, error: Exception) -> None:
+        self.last_error = {
+            "time": datetime.now(UTC).isoformat(),
+            "job_id": job_id,
+            "message": str(error),
+        }
+        get_logger(self.home, job_id=job_id).error(
+            "Controller error: %s", error, exc_info=(type(error), error, error.__traceback__)
+        )
+
+    def _progress(self, job: dict[str, Any], value: dict[str, Any]) -> None:
+        self.live_progress[job["id"]] = value
 
     def _environment(self) -> None:
         from videoenhancer.logging import environment_info
@@ -72,7 +136,7 @@ class Engine:
                 choose_backend("cuda")
                 from videoenhancer.config import executable
 
-                result = subprocess.run(
+                result = proc.run(
                     [
                         executable("ffmpeg"),
                         "-v",
@@ -95,7 +159,7 @@ class Engine:
                 )
                 self.environment["av1_supported"] = result.returncode == 0
         except Exception as error:
-            self.last_error = str(error)
+            self._error(None, error)
 
     def _worker(self) -> None:
         while not self.stop.is_set():
@@ -105,9 +169,12 @@ class Engine:
                     clock=ServiceClock(self.stop),
                     stopped=self.stop.is_set,
                     between_segments=self._auxiliary,
+                    on_error=self._error,
+                    on_progress=self._progress,
                 )
             except Exception as error:
-                self.last_error = str(error)
+                self._error(None, error)
+                self.stop.wait(5)
             self.stop.wait(0.5)
 
     def close(self) -> None:
@@ -144,7 +211,7 @@ class Engine:
             if running
             else "Paused"
             if self.paused or any(j["state"] == "paused" for j in jobs) and not queued
-            else "Waiting for operating hours"
+            else "Waiting for your hours"
             if queued and window is None
             else "Idle"
         )
@@ -162,7 +229,9 @@ class Engine:
                 sac["status"] = {0: "off", 1: "enforced", 2: "evaluation"}.get(value, "unknown")
             except OSError:
                 pass
-        errors = [str(j.get("error", "")) for j in jobs] + [self.last_error or ""]
+        errors = [str(j.get("error", "")) for j in jobs] + [
+            self.last_error["message"] if self.last_error else ""
+        ]
         problem = next((e for e in errors if "Smart App Control" in e), None)
         if problem:
             sac.update(blocked=True, message=problem)
@@ -190,13 +259,21 @@ class Engine:
 
     def queue(self) -> dict[str, Any]:
         jobs = self.store.list_jobs()
-        plan = _jobs_plan(jobs, self.home, days=120)
+        plan = _jobs_plan([j for j in jobs if j["state"] != "preparing"], self.home, days=120)
         completion = {j["job_id"]: j for j in plan["jobs"]}
         rows = []
         for j in jobs:
+            if j["state"] == "running" and j["id"] in self.live_progress:
+                j["progress"] = self.live_progress[j["id"]]
             done = [s for s in j["segments"] if s["state"] == "done"]
             active = next((s for s in j["segments"] if s["state"] == "running"), None)
             stats = done[-1].get("stats", {}) if done else {}
+            preview_running = any(
+                op["kind"] == "trial" and op["state"] == "running"
+                for op in list(self.operations.values())
+            )
+            if preview_running and j["state"] == "queued":
+                j["progress"] = dict(phase="processing", step="Paused for a preview")
             rows.append(
                 {
                     "id": j["id"],
@@ -206,7 +283,11 @@ class Engine:
                     "settings": j["settings"],
                     "media": j["media"],
                     "error": j.get("error"),
-                    "estimate": estimate_job(j).to_dict(),
+                    "estimate": (
+                        estimate_job(j).to_dict()
+                        if j["state"] != "preparing"
+                        else dict(seconds=0, low=0, high=0, calibrated=False)
+                    ),
                     "eta": (
                         max(
                             (
@@ -220,7 +301,7 @@ class Engine:
                         else completion.get(j["id"], {}).get("completion")
                     ),
                     "position": j.get("position"),
-                    "fps": stats.get("fps"),
+                    "fps": j.get("progress", {}).get("fps", stats.get("fps")),
                     "segment": active["index"] + 1 if active else len(done),
                     "segments": len(j["segments"]),
                     **job_progress(j),
@@ -228,10 +309,29 @@ class Engine:
                 }
             )
         completions = [j["eta"] for j in rows if j["state"] not in {"cancelled", "failed"}]
+        operations = copy.deepcopy(list(self.operations.values()))
+        current = next((j for j in jobs if j["state"] == "running"), None)
+        remaining = 0.0
+        if current:
+            active = next((s for s in current["segments"] if s["state"] == "running"), None)
+            if active:
+                remaining = max(
+                    0.0,
+                    float(active.get("predicted_seconds", 180))
+                    - float(current.get("progress", {}).get("elapsed_seconds", 0)),
+                )
+        for op in operations:
+            if op["state"] == "waiting":
+                op["phase"] = (
+                    f"Starts after the current step, about {int(remaining) // 60} min "
+                    f"{int(remaining) % 60} s"
+                    if current
+                    else "Starting preview…"
+                )
         return {
             "jobs": rows,
             "completion": max(completions) if completions and all(completions) else None,
-            "operations": list(self.operations.values()),
+            "operations": operations,
         }
 
     def chosen(self, value: dict[str, Any]) -> dict[str, Any]:
@@ -319,23 +419,61 @@ class Engine:
         }
 
     def add(self, value: dict[str, Any]) -> dict[str, Any]:
-        settings = self.chosen(value.get("settings", {}))
-        registry = ModelRegistry(self.home)
-        for task, model_id in selected_models(settings).items():
-            registry.weights(registry.manifest(model_id, task), download=False)
         source = Path(value["file"]).resolve(strict=True)
-        geometry = self.geometry_warning(probe(source).to_dict(), settings)
-        if geometry:
-            raise ValueError(geometry)
-        job = add_job(
-            source,
-            settings,
-            output=self.output(source, value),
-            home=self.home,
-            target_segment_seconds=float(value.get("segment_seconds", 180)),
+        job_id = uuid.uuid4().hex
+        now = datetime.now(UTC).isoformat()
+        settings = {**read_settings(self.home), **value.get("settings", {})}
+        output = self.output(source, value)
+        job = dict(
+            schema_version=1,
+            id=job_id,
+            input={"path": str(source)},
+            output=str(output),
+            settings=settings,
+            media=dict(display_width=0, display_height=0, cfr_fps="30", frame_count=0, duration=0),
+            segments=[],
+            state="preparing",
+            created_at=now,
+            updated_at=now,
+            estimated_output_bytes=0,
+            correction_factor=1,
+            control_generation=0,
         )
-        if self.paused:
-            return self.store.set_state(job["id"], "paused")
+        with self.lock:
+            from videoenhancer.jobs.store import _require_unreserved_output
+
+            _require_unreserved_output(self.store, output)
+            job["position"] = len(self.store.list_jobs()) + 1
+            self.store.save(job)
+
+        def prepare() -> None:
+            try:
+                chosen = self.chosen(value.get("settings", {}))
+                registry = ModelRegistry(self.home)
+                for task, model_id in selected_models(chosen).items():
+                    registry.weights(registry.manifest(model_id, task), download=False)
+                geometry = self.geometry_warning(probe(source).to_dict(), chosen)
+                if geometry:
+                    raise ValueError(geometry)
+                add_job(
+                    source,
+                    chosen,
+                    output=output,
+                    home=self.home,
+                    job_id=job_id,
+                    target_segment_seconds=float(value.get("segment_seconds", 180)),
+                )
+                if self.paused:
+                    self.store.set_state(job_id, "paused")
+            except Exception as error:
+                self._error(job_id, error)
+                latest = self.store.load(job_id)
+                latest.update(state="failed", error=f"Preparation failed: {error}")
+                self.store.save(latest)
+
+        thread = threading.Thread(target=prepare, name=f"prepare-{job_id}", daemon=True)
+        self._preparations.append(thread)
+        thread.start()
         return job
 
     def geometry_warning(self, media: dict[str, Any], settings: dict[str, Any]) -> str | None:
@@ -418,6 +556,7 @@ class Engine:
             "created_at": datetime.now().astimezone().isoformat(),
         }
         self.operations[op["id"]] = op
+        self._save_operation(op)
         return op
 
     def cancel_operation(self, op_id: str) -> dict[str, Any]:
@@ -425,6 +564,7 @@ class Engine:
         op["cancel_requested"] = True
         if op["state"] == "waiting":
             op["state"] = "cancelled"
+        self._save_operation(op)
         process = self.processes.get(op_id)
         if process and process.poll() is None:
             _kill_process_tree(process.pid)
@@ -434,12 +574,8 @@ class Engine:
         op = next((o for o in self.operations.values() if o["state"] == "waiting"), None)
         if not op or self.stop.is_set():
             return
-        if op["kind"] == "trial":
-            schedule = Schedule.from_file(self.home / "schedule.json")
-            if schedule.current_interval(datetime.now(schedule.zone)) is None:
-                op["phase"] = "Waiting for operating hours"
-                return
         op.update(state="running", phase="Processing")
+        self._save_operation(op)
         try:
             self._run_operation(op)
             op.update(state="cancelled" if op.get("cancel_requested") else "done", phase="Complete")
@@ -449,40 +585,35 @@ class Engine:
             )
         finally:
             self.processes.pop(op["id"], None)
+            self._save_operation(op)
 
     def _run_operation(self, op: dict[str, Any]) -> None:
         folder = self.home / "previews" / op["id"]
-        folder.mkdir(parents=True)
+        folder.mkdir(parents=True, exist_ok=True)
         value = op["request"]
         request_path = folder / "request.json"
         write_json(request_path, {"kind": op["kind"], "request": value, "folder": str(folder)})
         command = [sys.executable, "-m", "videoenhancer.service.operation", str(request_path)]
-        schedule = Schedule.from_file(self.home / "schedule.json")
-        interval = schedule.current_interval(datetime.now(schedule.zone))
-        deadline = (
-            interval.end.astimezone(UTC) + timedelta(seconds=value.get("seconds", 5))
-            if op["kind"] == "trial" and interval
-            else None
-        )
+        from videoenhancer.estimate import predict_segment
+
+        predicted = 0.0
+        if op["kind"] == "trial":
+            media = probe(Path(value["file"])).to_dict()
+            frames = max(1, round(value.get("seconds", 5) * float(Fraction(media["cfr_fps"]))))
+            predicted = predict_segment(
+                media, value["settings"], frames, load_machine_profile(self.home)
+            )
+        deadline = time.monotonic() + max(600, 4 * predicted)
 
         def abort() -> bool:
-            nonlocal deadline
-            if op["kind"] == "trial":
-                current = Schedule.from_file(self.home / "schedule.json").current_interval(
-                    datetime.now().astimezone()
-                )
-                candidate = (
-                    current.end.astimezone(UTC) if current else datetime.now(UTC)
-                ) + timedelta(seconds=value.get("seconds", 5))
-                if deadline is None or candidate < deadline:
-                    deadline = candidate
-                if datetime.now(UTC) >= deadline:
-                    op["cancel_requested"] = True
-                    op["phase"] = "Operating window ended; retry in the next window"
+            if op["kind"] == "trial" and time.monotonic() >= deadline:
+                op["cancel_requested"] = True
+                op["phase"] = "The preview took too long. Try again."
+                op["error"] = op["phase"]
             return self.stop.is_set() or bool(op.get("cancel_requested"))
 
         with (folder / "operation.log").open("wb") as errors:
-            process = subprocess.Popen(
+            process = proc.Popen(
                 command,
                 stdout=subprocess.PIPE,
                 stderr=errors,
@@ -556,6 +687,18 @@ class Engine:
         op["result"] = result
 
     def dispatch(self, method: str, parts: list[str], value: dict[str, Any]) -> Any:
+        if method == "GET" or "/".join(parts) in {"estimate", "trial/thumbnails", "queue"}:
+            return self._dispatch(method, parts, value)
+        with self.lock:
+            started = time.monotonic()
+            try:
+                return self._dispatch(method, parts, value)
+            finally:
+                elapsed = time.monotonic() - started
+                if elapsed > 0.5:
+                    get_logger(self.home).warning("Mutation lock held for %.3f seconds", elapsed)
+
+    def _dispatch(self, method: str, parts: list[str], value: dict[str, Any]) -> Any:
         route = "/".join(parts)
         if method == "GET":
             if route == "health":
@@ -563,7 +706,7 @@ class Engine:
             if route == "queue":
                 return self.queue()
             if route == "plan":
-                jobs = self.store.list_jobs()
+                jobs = [j for j in self.store.list_jobs() if j["state"] != "preparing"]
                 scenario = value.get("scenario", "expected")
                 if scenario not in {"best", "expected", "worst"}:
                     raise ValueError("Estimate scenario must be best, expected or worst.")
@@ -608,115 +751,123 @@ class Engine:
                 ]
             if len(parts) == 2 and parts[0] == "operations":
                 return self.operations[parts[1]]
-        with self.lock:
-            if route == "trial/thumbnails" and method == "POST":
-                import base64
-
-                from videoenhancer.config import executable
-
-                source = Path(value["file"]).resolve(strict=True)
-                media = probe(source)
-                thumbnails = []
-                for index in range(8):
-                    result = subprocess.run(
-                        [
-                            executable("ffmpeg"),
-                            "-v",
-                            "error",
-                            "-nostdin",
-                            "-ss",
-                            str(max(0, media.duration - 0.1) * index / 7),
-                            "-i",
-                            str(source),
-                            "-frames:v",
-                            "1",
-                            "-vf",
-                            "scale=160:-2",
-                            "-f",
-                            "image2pipe",
-                            "-c:v",
-                            "mjpeg",
-                            "-threads",
-                            "1",
-                            "-",
-                        ],
-                        capture_output=True,
-                        check=True,
-                        timeout=15,
-                    )
-                    thumbnails.append(
-                        "data:image/jpeg;base64," + base64.b64encode(result.stdout).decode()
-                    )
-                return {"thumbnails": thumbnails, "duration": media.duration}
-            if route == "estimate" and method == "POST":
-                return self.estimate(value)
-            if route == "queue" and method == "POST":
-                return self.add(value)
-            if len(parts) == 2 and parts[0] == "queue" and method == "DELETE":
-                return self.remove(parts[1])
-            if len(parts) == 3 and parts[0] == "queue" and method == "POST":
-                job_id, action = parts[1:]
-                if action == "move":
-                    self.store.move(job_id, int(value["position"]))
-                    return {"moved": job_id}
-                if action in {"pause", "resume", "cancel"}:
-                    return self.store.set_state(
-                        job_id,
-                        {"pause": "paused", "resume": "queued", "cancel": "cancelled"}[action],
-                    )
-            if route == "processing" and method == "POST":
-                self.paused = bool(value["paused"])
-                for job in self.store.list_jobs():
-                    if self.paused and job["state"] in {"queued", "running"}:
-                        self.store.set_state(job["id"], "paused")
-                    elif not self.paused and job["state"] == "paused":
-                        self.store.set_state(job["id"], "queued")
-                return {"paused": self.paused}
-            if route == "settings" and method == "PUT":
-                return save_settings(self.home, value)
-            if route == "schedule" and method == "PUT":
-                return _save_schedule(self.home, value)
-            if route == "schedule/preview" and method == "POST":
-                schedule = Schedule.from_dict(value)
-                now = datetime.now(schedule.zone)
-                window = schedule.next_interval(now)
+            if len(parts) == 3 and parts[0] == "queue" and parts[2] == "details":
+                job = self.store.load(parts[1])
+                logs = []
+                for path in sorted((self.store.job_dir(parts[1]) / "logs").glob("seg_*.log")):
+                    logs.extend(path.read_text(encoding="utf-8", errors="replace").splitlines())
                 return {
-                    "plan": build_plan(self.store.list_jobs(), schedule, now, 120),
-                    "next_window": window.to_dict() if window else None,
+                    "text": json.dumps(job, indent=2)
+                    + "\nSegment log (last 40 lines):\n"
+                    + "\n".join(logs[-40:])
                 }
-            if route == "schedule/override" and method == "POST":
-                schedule = _schedule_payload(self.home)
-                schedule["override_until"] = value.get("until")
-                return _save_schedule(self.home, schedule)
-            if route in {"trial", "calibrate"} and method == "POST":
-                return self.operation(route, value)
-            if len(parts) == 3 and parts[0] == "operations" and parts[2] == "cancel":
-                return self.cancel_operation(parts[1])
-            if route == "models" and method == "POST":
-                return ModelRegistry(self.home).add(Path(value["folder"]))
-            if len(parts) >= 2 and parts[0] == "models":
-                registry = ModelRegistry(self.home)
-                model = registry.manifest(parts[1])
-                if method == "DELETE":
-                    registry.remove(parts[1])
-                    return {"removed": parts[1]}
-                if len(parts) == 3 and parts[2] in {"download", "verify"}:
-                    if parts[2] == "download":
-                        from videoenhancer.models.registry import BUILTINS
+        if route == "trial/thumbnails" and method == "POST":
+            import base64
 
-                        if parts[1] not in BUILTINS:
-                            raise ValueError("Downloads are for built-in models only.")
-                        if not value.get("agree") or value.get("licence") != model["licence"]:
-                            raise ValueError(
-                                "Explicit licence consent is required before downloading."
-                            )
-                        write_json(
-                            self.home / "consent" / f"{parts[1]}.json",
-                            {
-                                "licence": model["licence"],
-                                "url": model["weights"].get("url"),
-                                "accepted_at": datetime.now().astimezone().isoformat(),
-                            },
-                        )
-                    return self.operation(parts[2], {"model_id": parts[1]})
+            from videoenhancer.config import executable
+
+            source = Path(value["file"]).resolve(strict=True)
+            media = probe(source)
+            thumbnails = []
+            for index in range(8):
+                result = proc.run(
+                    [
+                        executable("ffmpeg"),
+                        "-v",
+                        "error",
+                        "-nostdin",
+                        "-ss",
+                        str(max(0, media.duration - 0.1) * index / 7),
+                        "-i",
+                        str(source),
+                        "-frames:v",
+                        "1",
+                        "-vf",
+                        "scale=160:-2",
+                        "-f",
+                        "image2pipe",
+                        "-c:v",
+                        "mjpeg",
+                        "-threads",
+                        "1",
+                        "-",
+                    ],
+                    capture_output=True,
+                    check=True,
+                    timeout=15,
+                )
+                thumbnails.append(
+                    "data:image/jpeg;base64," + base64.b64encode(result.stdout).decode()
+                )
+            return {"thumbnails": thumbnails, "duration": media.duration}
+        if route == "estimate" and method == "POST":
+            return self.estimate(value)
+        if route == "queue" and method == "POST":
+            return self.add(value)
+        if len(parts) == 2 and parts[0] == "queue" and method == "DELETE":
+            return self.remove(parts[1])
+        if len(parts) == 3 and parts[0] == "queue" and method == "POST":
+            job_id, action = parts[1:]
+            if action == "move":
+                self.store.move(job_id, int(value["position"]))
+                return {"moved": job_id}
+            if action in {"pause", "resume", "cancel"}:
+                return self.store.set_state(
+                    job_id,
+                    {"pause": "paused", "resume": "queued", "cancel": "cancelled"}[action],
+                )
+        if route == "processing" and method == "POST":
+            self.paused = bool(value["paused"])
+            for job in self.store.list_jobs():
+                if self.paused and job["state"] in {"queued", "running"}:
+                    self.store.set_state(job["id"], "paused")
+                elif not self.paused and job["state"] == "paused":
+                    self.store.set_state(job["id"], "queued")
+            return {"paused": self.paused}
+        if route == "settings" and method == "PUT":
+            return save_settings(self.home, value)
+        if route == "schedule" and method == "PUT":
+            return _save_schedule(self.home, value)
+        if route == "schedule/preview" and method == "POST":
+            schedule = Schedule.from_dict(value)
+            now = datetime.now(schedule.zone)
+            window = schedule.next_interval(now)
+            return {
+                "plan": build_plan(self.store.list_jobs(), schedule, now, 120),
+                "next_window": window.to_dict() if window else None,
+            }
+        if route == "schedule/override" and method == "POST":
+            schedule = _schedule_payload(self.home)
+            schedule["override_until"] = value.get("until")
+            return _save_schedule(self.home, schedule)
+        if route in {"trial", "calibrate"} and method == "POST":
+            return self.operation(route, value)
+        if len(parts) == 3 and parts[0] == "operations" and parts[2] == "cancel":
+            return self.cancel_operation(parts[1])
+        if route == "models" and method == "POST":
+            return ModelRegistry(self.home).add(Path(value["folder"]))
+        if len(parts) >= 2 and parts[0] == "models":
+            registry = ModelRegistry(self.home)
+            model = registry.manifest(parts[1])
+            if method == "DELETE":
+                registry.remove(parts[1])
+                return {"removed": parts[1]}
+            if len(parts) == 3 and parts[2] in {"download", "verify"}:
+                if parts[2] == "download":
+                    from videoenhancer.models.registry import BUILTINS
+
+                    if parts[1] not in BUILTINS:
+                        raise ValueError("Downloads are for built-in models only.")
+                    if not value.get("agree") or value.get("licence") != model["licence"]:
+                        raise ValueError("Explicit licence consent is required before downloading.")
+                    write_json(
+                        self.home / "consent" / f"{parts[1]}.json",
+                        {
+                            "licence": model["licence"],
+                            "url": model["weights"].get("url"),
+                            "accepted_at": datetime.now().astimezone().isoformat(),
+                        },
+                    )
+                return self.operation(parts[2], {"model_id": parts[1]})
+
         raise KeyError("Unknown endpoint.")

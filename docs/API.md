@@ -40,7 +40,7 @@ failure, 413 unsupported/oversized body. Routes below omit the `/v1/` prefix.
 | --- | --- | --- |
 | GET health | Engine version, environment versions, GPU/driver/VRAM, Smart App Control, engine state, current job, next change and last error | `Invoke-VeApi 'health'` |
 | GET queue | Compact durable jobs with phase/step/percent, segments, fps, ETA, estimates; all-job completion and auxiliary operations | `Invoke-VeApi 'queue'` |
-| POST queue | Analyze and add to the existing JobStore; requires already verified selected weights. Returns durable manifest | `Invoke-VeApi 'queue' 'POST' @{file='C:\Video\clip.mp4'; settings=@{preset='standard'; codec='hevc'; short_side=1080; fps='2x'}; output_folder='C:\Video\enhanced'}` |
+| POST queue | Return a durable preparing manifest immediately; analyze and validate selected weights in a background thread, then queue or fail the job | `Invoke-VeApi 'queue' 'POST' @{file='C:\Video\clip.mp4'; settings=@{preset='standard'; codec='hevc'; short_side=1080; fps='2x'}; output_folder='C:\Video\enhanced'}` |
 | POST queue/{id}/move | Reorder using one-based position | `Invoke-VeApi 'queue/JOB_ID/move' 'POST' @{position=1}` |
 | POST queue/{id}/pause | Persist paused state; active segment aborts | `Invoke-VeApi 'queue/JOB_ID/pause' 'POST' @{}` |
 | POST queue/{id}/resume | Persist queued state, respecting the schedule | `Invoke-VeApi 'queue/JOB_ID/resume' 'POST' @{}` |
@@ -130,3 +130,32 @@ data: {"queue":{"jobs":[],"operations":[],"completion":null},"health":{"engine_s
 The desktop uses header-authenticated fetch streaming, retains the last snapshot
 on disconnect, and provides Retry. Tokens and private paths must be redacted
 before sharing logs.
+
+## P1c reliability changes (partial cycle)
+
+`POST queue` now returns a `preparing` job. Poll queue/SSE until it becomes
+queued or failed. Preparation does not download weights. Cancel and pause are
+preserved across preparation. A preparing job cannot run before its frame map
+and input fingerprint have been stored.
+
+Health `last_error` is null or `{time, job_id, message}`. Running jobs from an
+interrupted service are reset at startup, including jobs behind the head.
+Operations are persisted in `previews/<id>/state.json`; interrupted operations
+are returned as failed with `Interrupted. Try again.`. Trial admission ignores
+operating hours but retains the between-segment lease. Trials have a hard
+`max(600 seconds, 4 * prediction)` deadline. Whole-file Trial analysis is still
+present pending a designer decision; no bounded-start latency claim is made.
+
+Segment children send frame/step/memory heartbeats every two seconds. Queue/SSE
+use live frames for processing percent (capped at 99.9% before completion) and
+fps. Manifests receive heartbeat updates at most every ten seconds. Dedicated
+and shared Windows GPU counters can be unavailable and are then null; RSS is
+per PID. Segment stdout/stderr are in `jobs/<id>/logs/seg_NNNNN.log`, trimmed to
+the last 1 MiB by the parent. `GET queue/<id>/details` returns `{text}` containing
+the manifest and the last 40 segment-log lines.
+
+SSE snapshot exceptions emit `event: error` with plain text and are retried
+within the same stream. Heartbeats remain every ten seconds. Snapshot generation,
+estimates, thumbnails and input analysis do not hold the shared mutation lock.
+The redesigned screens and compare/catalog endpoints are not implemented by
+this partial cycle. See `.ai/LAST_REPORT.md` for the remaining acceptance gaps.

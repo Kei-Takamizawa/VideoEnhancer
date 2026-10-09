@@ -63,6 +63,7 @@ export default function App() {
   const [page, setPage] = useState("Queue");
   const [api, setApi] = useState<Api>();
   const [error, setError] = useState("");
+  const [reconnecting, setReconnecting] = useState(false);
   const [actionError, setActionError] = useState("");
   const [queue, setQueue] = useState(empty);
   const [health, setHealth] = useState<Health>();
@@ -113,7 +114,7 @@ export default function App() {
       .connection()
       .then(async (connection) => {
         if (!alive) return;
-        const next = client(connection);
+        let next = client(connection);
         setApi(next);
         await refresh(next);
         if (!alive) return;
@@ -128,6 +129,11 @@ export default function App() {
               .call<Plan>(`plan?scenario=${scenario}`)
               .then(setPlan)
               .catch((e) => setError(e.message));
+        }, setReconnecting, async () => {
+          const restored = await window.desktop.connection();
+          next = client(restored);
+          if (alive) setApi(next);
+          return restored;
         });
       })
       .catch((e) => {
@@ -152,6 +158,17 @@ export default function App() {
     dark.addEventListener("change", apply);
     return () => dark.removeEventListener("change", apply);
   }, [settings?.theme]);
+  useEffect(() => {
+    const restore = () => {
+      if (document.visibilityState === "visible") setGeneration((v) => v + 1);
+    };
+    document.addEventListener("visibilitychange", restore);
+    window.addEventListener("focus", restore);
+    return () => {
+      document.removeEventListener("visibilitychange", restore);
+      window.removeEventListener("focus", restore);
+    };
+  }, []);
   const retry = () => setGeneration((v) => v + 1);
   const operate = async (route: string, data?: unknown) => {
     try {
@@ -163,7 +180,10 @@ export default function App() {
   };
   const perform = async (job: Job, name: string, data?: unknown) => {
     try {
-      if (["copy", "folder"].includes(name)) await localAction(job, name);
+      if (name === "copy") {
+        const details = await api!.call<{ text: string }>(`queue/${job.id}/details`);
+        await window.desktop.copy(details.text);
+      } else if (name === "folder") await localAction(job, name);
       else if (name === "log")
         setLog((await api!.call<{ text: string }>(`queue/${job.id}/log`)).text);
       else if (name === "remove") await api!.call(`queue/${job.id}`, "DELETE");
@@ -205,8 +225,14 @@ export default function App() {
         <p className="local-note">On this computer</p>
       </aside>
       <main>
+        {reconnecting && <div role="status">Reconnecting…</div>}
         <ConnectionBanner error={error} retry={retry} />
         <ControlWarning health={health} retry={retry} />
+        {health?.last_error && (
+          <div className="error" role="alert">
+            {health.last_error.time} · {health.last_error.message}
+          </div>
+        )}
         {actionError && (
           <div role="alert" className="error">
             {actionError}

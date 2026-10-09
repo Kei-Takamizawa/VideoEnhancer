@@ -9,8 +9,7 @@ Requires an NVIDIA RTX GPU. Your videos stay on your computer.
 Add videos to your queue, choose Standard or Fast, and see when they are expected to finish. Set your preferred working hours, compare a short Trial before committing to a long video, and follow the daily plan. Closing the window keeps processing in the tray; Quit stops safely so you can continue later. The development app needs Windows 11 and an NVIDIA RTX graphics card; see the [app setup guide](docs/GUI.md).
 
 Try a short labeled comparison before processing a whole video. You can also
-add your own compatible restoration models and choose them for a job. See the
-[developer guide](docs/DEVELOPMENT.md) for these commands.
+add your own compatible restoration models and choose them for a job.
 
 For development setup and commands, see the [developer guide](docs/DEVELOPMENT.md). Code is licensed under [MIT](LICENSE); optional AI models have separate licenses.
 

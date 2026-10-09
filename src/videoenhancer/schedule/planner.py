@@ -47,7 +47,15 @@ def build_plan(
     cursor = instant(now)
     exhausted = False
     for ordinal, job in enumerate(jobs):
-        if job.get("state") in ("paused", "cancelled", "canceled", "done", "completed", "failed"):
+        if job.get("state") in (
+            "preparing",
+            "paused",
+            "cancelled",
+            "canceled",
+            "done",
+            "completed",
+            "failed",
+        ):
             continue
         identity = str(job.get("job_id", job.get("id", ordinal)))
         segments = job.get("segments", [])

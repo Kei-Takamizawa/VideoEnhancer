@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from videoenhancer.files import retry_permission
+
 UTC = UTC
 DAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
@@ -159,7 +161,7 @@ class Schedule:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, source)
+            retry_permission(os.replace, temporary, source)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)

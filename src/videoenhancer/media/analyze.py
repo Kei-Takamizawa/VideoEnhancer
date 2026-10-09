@@ -11,6 +11,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from videoenhancer import proc
 from videoenhancer.config import executable
 from videoenhancer.media.decode import choose_backend, read_exact, validate_pixel_format
 from videoenhancer.media.probe import packet_timeline, probe
@@ -73,7 +74,7 @@ def _thumbnails(path: Path, media: dict[str, Any], backend: str):
         "rawvideo",
         "pipe:1",
     ]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = proc.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert process.stdout is not None
     try:
         while raw := read_exact(process.stdout, 90 * 160):
@@ -142,9 +143,7 @@ def analyze(path: str | Path, backend: str = "auto") -> dict[str, Any]:
         "csv=p=0",
         str(path),
     ]
-    packets = subprocess.run(
-        command, capture_output=True, text=True, check=True
-    ).stdout.splitlines()
+    packets = proc.run(command, capture_output=True, text=True, check=True).stdout.splitlines()
     key_pts = {
         int(row.split(",")[0])
         for row in packets
