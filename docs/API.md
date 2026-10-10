@@ -36,6 +36,19 @@ failure, 413 unsupported/oversized body. Routes below omit the `/v1/` prefix.
 
 ## Health, queue and estimates
 
+Queue items include `preview_ready`, `starts`, `overrun_seconds`, and, when
+available, `started_at`, `finished_at`, `took_seconds` and finished `output_bytes`.
+Remaining estimates and schedule previews include the active step's live frames.
+`GET queue/<id>/thumbnail` returns an authenticated cached JPEG from the source,
+or from the output for a finished job. `POST queue/<id>/preview` starts a persisted
+CPU-only `result-preview` operation and returns its operation ID; the existing
+operation/file routes provide status and Original/Enhanced video URLs.
+`schedule/override` accepts `{"until":"queue-complete"}` to continue until all
+queue jobs are terminal. A paused or preparing job keeps that override active.
+The older `job-complete` value remains supported.
+`POST queue/<id>/retry` requires a failed job and requeues it while preserving
+valid completed segments; it also clears a released-lock quarantine.
+
 | Method / route | Response or effect | Example |
 | --- | --- | --- |
 | GET health | Engine version, environment versions, GPU/driver/VRAM, Smart App Control, engine state, current job, next change and last error | `Invoke-VeApi 'health'` |

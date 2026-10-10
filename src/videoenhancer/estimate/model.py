@@ -211,11 +211,14 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
     media, settings = manifest.get("media", {}), manifest.get("settings", {})
     seconds = sum(
         predict_segment(media, settings, int(s["end"]) - int(s["start"]), profile, correction)
+        * remaining_fraction(manifest, s)
         for s in manifest.get("segments", [])
         if s.get("state", "pending") != "done"
     )
     if manifest.get("state") != "done":
-        seconds += predict_finalization(manifest, profile)
+        phase = manifest.get("progress", {})
+        fraction = min(1.0, max(0.0, float(phase.get("finalization_fraction", 0))))
+        seconds += predict_finalization(manifest, profile) * (1 - fraction)
     ratios = _ratios(manifest)
     uncertainty = 0.25
     if len(ratios) >= 2:
@@ -291,6 +294,14 @@ def predict_finalization(manifest: dict[str, Any], profile: dict[str, Any] | Non
         + float(coefficients["b"]) * size
         + float(coefficients["c"]) * frames
     ) * correction
+
+
+def remaining_fraction(manifest: dict[str, Any], segment: dict[str, Any]) -> float:
+    phase = manifest.get("progress", {})
+    if segment.get("state") != "running" or phase.get("segment") != segment.get("index"):
+        return 1.0
+    total = max(1, int(segment["end"]) - int(segment["start"]))
+    return 1 - min(1.0, max(0.0, float(phase.get("frames_done", 0)) / total))
 
 
 def job_progress(manifest: dict[str, Any]) -> dict[str, Any]:

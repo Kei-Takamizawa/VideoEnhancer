@@ -143,3 +143,11 @@ Jobs record model ID, version, weight SHA-256 and a canonical manifest digest.
 Resume and every segment refuse a changed selection, manifest, or weights.
 Install a new version under a new ID and create a new job; do not edit a model
 between segments. P0 jobs with no model stages retain their existing resume path.
+
+## P1c-2 catalog status
+
+The additional cleanup, motion and size catalog proposed for P1c-2 is not yet
+implemented. Existing built-ins and compatible local-folder models remain
+available. No optional entry is advertised with unmeasured speed or memory.
+The current trial viewer supports Original/Enhanced rather than three model
+variants. See `.ai/LAST_REPORT.md` for the implemented scope and pending checks.

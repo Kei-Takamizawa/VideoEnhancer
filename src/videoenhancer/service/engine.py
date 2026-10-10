@@ -47,8 +47,12 @@ class ServiceClock(SystemClock):
 
 
 class Engine:
-    def __init__(self, home: Path):
+    def __init__(
+        self, home: Path, *, test_stuck_trial: bool = False, test_trial_timeout: float | None = None
+    ):
         self.home = home.resolve()
+        self._test_stuck_trial = test_stuck_trial
+        self._test_trial_timeout = test_trial_timeout
         self.store = JobStore(home)
         self.stop = threading.Event()
         self.lock = threading.RLock()
@@ -259,6 +263,9 @@ class Engine:
 
     def queue(self) -> dict[str, Any]:
         jobs = self.store.list_jobs()
+        for job in jobs:
+            if job["state"] == "running" and job["id"] in self.live_progress:
+                job["progress"] = self.live_progress[job["id"]]
         plan = _jobs_plan([j for j in jobs if j["state"] != "preparing"], self.home, days=120)
         completion = {j["job_id"]: j for j in plan["jobs"]}
         rows = []
@@ -301,11 +308,30 @@ class Engine:
                         else completion.get(j["id"], {}).get("completion")
                     ),
                     "position": j.get("position"),
+                    "overrun_seconds": max(
+                        (
+                            step.get("overrun_seconds", 0)
+                            for step in plan["timeline"]
+                            if step["job_id"] == j["id"]
+                        ),
+                        default=0,
+                    ),
                     "fps": j.get("progress", {}).get("fps", stats.get("fps")),
                     "segment": active["index"] + 1 if active else len(done),
                     "segments": len(j["segments"]),
                     **job_progress(j),
                     "log": str(self.store.job_dir(j["id"]) / "job.jsonl"),
+                    "started_at": j.get("started_at"),
+                    "finished_at": j.get("finished_at"),
+                    "took_seconds": j.get("took_seconds"),
+                    "output_bytes": Path(j["output"]).stat().st_size
+                    if j["state"] == "done" and Path(j["output"]).is_file()
+                    else None,
+                    "preview_ready": bool(done),
+                    "starts": next(
+                        (step["start"] for step in plan["timeline"] if step["job_id"] == j["id"]),
+                        None,
+                    ),
                 }
             )
         completions = [j["eta"] for j in rows if j["state"] not in {"cancelled", "failed"}]
@@ -333,6 +359,50 @@ class Engine:
             "completion": max(completions) if completions and all(completions) else None,
             "operations": operations,
         }
+
+    def thumbnail(self, job_id: str) -> Path:
+        import hashlib
+
+        from videoenhancer.config import executable
+
+        job = self.store.load(job_id)
+        source = Path(job["output"] if job["state"] == "done" else job["input"]["path"])
+        stat = source.stat()
+        key = hashlib.sha256(
+            f"{source.resolve()}:{stat.st_size}:{stat.st_mtime_ns}".encode()
+        ).hexdigest()
+        folder = self.home / "cache" / "thumbnails"
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / f"{key}.jpg"
+        if not target.exists():
+            temporary = folder / f"{key}.{uuid.uuid4().hex}.jpg"
+            try:
+                proc.run(
+                    [
+                        executable("ffmpeg"),
+                        "-v",
+                        "error",
+                        "-nostdin",
+                        "-ss",
+                        str(float(job["media"].get("duration", 0)) * 0.1),
+                        "-i",
+                        str(source),
+                        "-vf",
+                        "scale=266:266:force_original_aspect_ratio=decrease",
+                        "-frames:v",
+                        "1",
+                        "-threads",
+                        "2",
+                        str(temporary),
+                    ],
+                    capture_output=True,
+                    check=True,
+                    timeout=30,
+                )
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
+        return target
 
     def chosen(self, value: dict[str, Any]) -> dict[str, Any]:
         prefs = read_settings(self.home)
@@ -537,7 +607,7 @@ class Engine:
             if value["settings"]["preset"] not in {"standard", "fast"}:
                 raise ValueError("Trial preset must be Standard or Fast.")
             geometry = self.geometry_warning(
-                probe(Path(value["file"])).to_dict(), value["settings"]
+                probe(Path(value["file"]), read_timeline=False).to_dict(), value["settings"]
             )
             if geometry:
                 raise ValueError(geometry)
@@ -557,6 +627,44 @@ class Engine:
         }
         self.operations[op["id"]] = op
         self._save_operation(op)
+        return op
+
+    def result_preview(self, job_id: str) -> dict[str, Any]:
+        job = self.store.load(job_id)
+        if not any(s["state"] == "done" for s in job["segments"]):
+            raise ValueError("The first completed step is not ready yet.")
+        op: dict[str, Any] = dict(
+            id=uuid.uuid4().hex,
+            kind="result-preview",
+            state="running",
+            job_id=job_id,
+            request=dict(job_id=job_id),
+            phase="Reading the completed result…",
+            created_at=datetime.now().astimezone().isoformat(),
+        )
+        self.operations[op["id"]] = op
+        self._save_operation(op)
+
+        def render() -> None:
+            from videoenhancer.service.preview import render_result_preview
+
+            try:
+                result = render_result_preview(
+                    job, self.store.job_dir(job_id), self.home / "previews" / op["id"]
+                )
+                result["preview"] = {
+                    name: f"/v1/operations/{op['id']}/files/{name}"
+                    for name in ("original", "enhanced")
+                }
+                op.update(result=result, state="done", phase="Complete")
+            except Exception as error:
+                op.update(state="failed", error=str(error))
+            finally:
+                self._save_operation(op)
+
+        thread = threading.Thread(target=render, name="result-preview", daemon=True)
+        self._preparations.append(thread)
+        thread.start()
         return op
 
     def cancel_operation(self, op_id: str) -> dict[str, Any]:
@@ -581,7 +689,10 @@ class Engine:
             op.update(state="cancelled" if op.get("cancel_requested") else "done", phase="Complete")
         except Exception as error:
             op.update(
-                state="cancelled" if op.get("cancel_requested") else "failed", error=str(error)
+                state="cancelled"
+                if op.get("cancel_requested") and not op.get("timed_out")
+                else "failed",
+                error=str(error),
             )
         finally:
             self.processes.pop(op["id"], None)
@@ -594,20 +705,31 @@ class Engine:
         request_path = folder / "request.json"
         write_json(request_path, {"kind": op["kind"], "request": value, "folder": str(folder)})
         command = [sys.executable, "-m", "videoenhancer.service.operation", str(request_path)]
+        if op["kind"] == "trial" and self._test_stuck_trial:
+            command.append("--test-stuck-trial")
         from videoenhancer.estimate import predict_segment
 
         predicted = 0.0
         if op["kind"] == "trial":
-            media = probe(Path(value["file"])).to_dict()
+            media = (
+                self.store.load(value["job_id"])["media"]
+                if value.get("job_id")
+                else probe(Path(value["file"]), read_timeline=False).to_dict()
+            )
             frames = max(1, round(value.get("seconds", 5) * float(Fraction(media["cfr_fps"]))))
             predicted = predict_segment(
                 media, value["settings"], frames, load_machine_profile(self.home)
             )
-        deadline = time.monotonic() + max(600, 4 * predicted)
+        deadline = time.monotonic() + (
+            self._test_trial_timeout
+            if self._test_stuck_trial and self._test_trial_timeout is not None
+            else max(600, 4 * predicted)
+        )
 
         def abort() -> bool:
             if op["kind"] == "trial" and time.monotonic() >= deadline:
                 op["cancel_requested"] = True
+                op["timed_out"] = True
                 op["phase"] = "The preview took too long. Try again."
                 op["error"] = op["phase"]
             return self.stop.is_set() or bool(op.get("cancel_requested"))
@@ -625,8 +747,13 @@ class Engine:
                     process.communicate(timeout=0.25)
                     break
                 except subprocess.TimeoutExpired:
+                    progress_path = folder / "progress.json"
+                    if progress_path.is_file():
+                        op.update(json.loads(progress_path.read_text(encoding="utf-8")))
                     if abort():
                         _kill_process_tree(process.pid)
+        if op.get("timed_out"):
+            raise TimeoutError(op["error"])
         if process.returncode:
             raise RuntimeError((folder / "operation.log").read_text(errors="replace")[-4000:])
         result = json.loads((folder / "result.json").read_text())
@@ -707,6 +834,9 @@ class Engine:
                 return self.queue()
             if route == "plan":
                 jobs = [j for j in self.store.list_jobs() if j["state"] != "preparing"]
+                for job in jobs:
+                    if job["state"] == "running" and job["id"] in self.live_progress:
+                        job["progress"] = self.live_progress[job["id"]]
                 scenario = value.get("scenario", "expected")
                 if scenario not in {"best", "expected", "worst"}:
                     raise ValueError("Estimate scenario must be best, expected or worst.")
@@ -811,6 +941,10 @@ class Engine:
             if action == "move":
                 self.store.move(job_id, int(value["position"]))
                 return {"moved": job_id}
+            if action == "retry":
+                if self.store.load(job_id)["state"] != "failed":
+                    raise ValueError("Retry is available for failed videos only.")
+                return self.store.set_state(job_id, "queued")
             if action in {"pause", "resume", "cancel"}:
                 return self.store.set_state(
                     job_id,
@@ -832,8 +966,12 @@ class Engine:
             schedule = Schedule.from_dict(value)
             now = datetime.now(schedule.zone)
             window = schedule.next_interval(now)
+            jobs = self.store.list_jobs()
+            for job in jobs:
+                if job["state"] == "running" and job["id"] in self.live_progress:
+                    job["progress"] = self.live_progress[job["id"]]
             return {
-                "plan": build_plan(self.store.list_jobs(), schedule, now, 120),
+                "plan": build_plan(jobs, schedule, now, 120),
                 "next_window": window.to_dict() if window else None,
             }
         if route == "schedule/override" and method == "POST":
@@ -842,6 +980,8 @@ class Engine:
             return _save_schedule(self.home, schedule)
         if route in {"trial", "calibrate"} and method == "POST":
             return self.operation(route, value)
+        if len(parts) == 3 and parts[0] == "queue" and parts[2] == "preview" and method == "POST":
+            return self.result_preview(parts[1])
         if len(parts) == 3 and parts[0] == "operations" and parts[2] == "cancel":
             return self.cancel_operation(parts[1])
         if route == "models" and method == "POST":

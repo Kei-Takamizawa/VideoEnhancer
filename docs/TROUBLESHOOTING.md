@@ -1,5 +1,14 @@
 # Troubleshooting
 
+## A video's work files are locked
+
+After three consecutive manifest-lock timeouts, VideoEnhancer quarantines that
+job and continues other jobs. History shows "Needs attention: this video's work
+files are locked by another program. Close that program, then Retry." Close the
+program holding the work files and use Retry. Valid completed steps are retained.
+The engine records `quarantine.json` beside the job manifest without taking the
+blocked manifest lock. Do not delete completed video files to recover the job.
+
 ## Windows Smart App Control blocks video startup
 
 ### What you may see

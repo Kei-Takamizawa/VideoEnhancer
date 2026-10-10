@@ -37,12 +37,12 @@ def schedule(start="22:00", end="00:00"):
 def test_multi_day_queue_and_midnight_summary():
     now = datetime(2026, 10, 5, 21, tzinfo=ZONE)
     plan = build_plan([job("A", 3600, 2), job("B", 1800)], schedule(), now, 3, PROFILE)
-    assert [s["job_id"] for s in plan["timeline"]] == ["A", "A", "B"]
+    assert [s["job_id"] for s in plan["timeline"]] == ["A", "B", "A"]
     assert plan["jobs"][0]["completion"] == "2026-10-06T23:00:00+00:00"
-    assert plan["jobs"][1]["completion"] == "2026-10-06T23:30:00+00:00"
-    assert plan["days"][0]["run_hours"] == 1
+    assert plan["jobs"][1]["completion"] == "2026-10-05T23:30:00+00:00"
+    assert plan["days"][0]["run_hours"] == 1.5
     assert plan["days"][0]["jobs"][0]["end_percent"] == 50
-    assert plan["days"][1]["run_hours"] == 1.5
+    assert plan["days"][1]["run_hours"] == 1
 
 
 def test_admission_reserves_safety_margin_and_overhead():

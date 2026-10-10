@@ -48,10 +48,15 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
     env,
   });
   const page = await app.firstWindow();
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.webContents.setZoomFactor(1);
+    window.setContentSize(1280, 800);
+  });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   try {
-    await expect(page.getByText("Your queue is empty.")).toBeVisible({
+    await expect(page.getByText("Nothing in the queue.")).toBeVisible({
       timeout: 40000,
     });
     await app.evaluate(({ dialog }, file) => {
@@ -76,27 +81,88 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
       await route.continue({ postData: JSON.stringify(body) });
     });
     await page.getByRole("button", { name: "+ Add videos" }).click();
-    await page.getByRole("combobox", { name: /Preset/ }).selectOption("fast");
-    await expect(page.getByText("Reading live estimates…")).not.toBeVisible();
+    await page.getByRole("button", { name: /^Fast/ }).click();
     await expect(
       page.getByRole("button", { name: "Add to queue" }),
     ).toBeEnabled({ timeout: 30000 });
     await page.screenshot({ path: path.join(evidence, "add-synthetic.png") });
     await page.getByRole("button", { name: "Add to queue" }).click();
-    await expect(page.locator(".state")).toHaveText("Done", { timeout: 40000 });
-    await expect(page.getByText("100.0%")).toBeVisible();
-    await page.screenshot({ path: path.join(evidence, "queue-synthetic.png") });
-    for (const name of ["Plan", "Schedule", "Models", "Settings"]) {
-      await page
-        .getByRole("navigation")
-        .getByRole("button", { name, exact: true })
-        .click();
+    await page.getByRole("button", { name: "History", exact: true }).click();
+    await expect(page.getByText("Finished", { exact: true })).toBeVisible({
+      timeout: 40000,
+    });
+    await page.screenshot({
+      path: path.join(evidence, "history-synthetic.png"),
+    });
+    for (const name of ["Home", "History", "Schedule", "Models", "Settings"]) {
+      await page.getByRole("button", { name, exact: true }).click();
       await expect(
         page.getByRole("heading", { name, exact: true }),
       ).toBeVisible();
       await page.screenshot({
         path: path.join(evidence, `${name.toLowerCase()}-synthetic.png`),
       });
+    }
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByLabel("Theme").selectOption("dark");
+    await page
+      .getByRole("button", { name: "Save settings", exact: true })
+      .click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    for (const size of [
+      { width: 1280, height: 800 },
+      { width: 1100, height: 700 },
+    ]) {
+      await app.evaluate(
+        ({ BrowserWindow }, dimensions) =>
+          BrowserWindow.getAllWindows()[0].setContentSize(
+            dimensions.width,
+            dimensions.height,
+          ),
+        size,
+      );
+      for (const theme of ["dark", "light"]) {
+        await page
+          .getByRole("button", { name: "Settings", exact: true })
+          .click();
+        await page.getByLabel("Theme").selectOption(theme);
+        await page
+          .getByRole("button", { name: "Save settings", exact: true })
+          .click();
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+        for (const name of [
+          "Home",
+          "History",
+          "Schedule",
+          "Models",
+          "Settings",
+        ]) {
+          await page.getByRole("button", { name, exact: true }).click();
+          await expect(
+            page.getByRole("heading", { name, exact: true }),
+          ).toBeVisible();
+          expect(
+            await page.evaluate(
+              () => document.documentElement.scrollWidth > innerWidth,
+            ),
+          ).toBe(false);
+          await page.screenshot({
+            path: path.join(
+              evidence,
+              `${name.toLowerCase()}-${theme}-${size.width}x${size.height}.png`,
+            ),
+          });
+        }
+        await page.getByRole("button", { name: "Home", exact: true }).click();
+        await page.getByRole("button", { name: "+ Add videos" }).click();
+        await page.screenshot({
+          path: path.join(
+            evidence,
+            `add-${theme}-${size.width}x${size.height}.png`,
+          ),
+        });
+        await page.getByRole("button", { name: "Close", exact: true }).click();
+      }
     }
     const discovery = JSON.parse(
       readFileSync(path.join(env.VE_HOME!, "serve.json"), "utf8"),
@@ -119,11 +185,8 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].show(),
     );
-    await page
-      .getByRole("navigation")
-      .getByRole("button", { name: "Queue", exact: true })
-      .click();
-    await expect(page.locator(".state")).toHaveText("Done");
+    await page.getByRole("button", { name: "History", exact: true }).click();
+    await expect(page.getByText("Finished", { exact: true })).toBeVisible();
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].setSize(1100, 700),
     );
@@ -133,15 +196,30 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
           BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor),
         zoom,
       );
-      for (const name of ["Queue", "Plan", "Schedule", "Models", "Settings"]) {
-        await page
-          .getByRole("navigation")
-          .getByRole("button", { name, exact: true })
-          .click();
-        const bounds = await page.locator("footer").boundingBox();
-        const height = await page.evaluate(() => innerHeight);
-        expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(height + 1);
+      for (const name of [
+        "Home",
+        "History",
+        "Schedule",
+        "Models",
+        "Settings",
+      ]) {
+        await page.getByRole("button", { name, exact: true }).click();
+        await expect(
+          page.getByRole("heading", { name, exact: true }),
+        ).toBeVisible();
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth > innerWidth,
+        );
+        expect(overflow).toBe(false);
       }
+      // Electron page zoom changes CDP screenshot clipping. Capture the physical
+      // window only after the renderer has committed two animation frames.
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
       const png = await app.evaluate(async ({ BrowserWindow }) =>
         (await BrowserWindow.getAllWindows()[0].capturePage())
           .toPNG()

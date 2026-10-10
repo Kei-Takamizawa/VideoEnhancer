@@ -23,7 +23,7 @@ test("unsigned owner folder finds the external engine and enforces renderer isol
   });
   try {
     const page = await app.firstWindow();
-    await expect(page.getByText("Your queue is empty.")).toBeVisible({
+    await expect(page.getByText("Nothing in the queue.")).toBeVisible({
       timeout: 40000,
     });
     await expect

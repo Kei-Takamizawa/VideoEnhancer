@@ -30,6 +30,7 @@ export function timelineHour(value: string, date: string, timezone: string) {
       : Number(part("hour")) + Number(part("minute")) / 60;
 }
 export function PlanPage({
+  title = "Plan",
   plan,
   jobs,
   scenario,
@@ -37,6 +38,7 @@ export function PlanPage({
   calibrate,
   operation,
 }: {
+  title?: string;
   plan?: Plan;
   jobs: Job[];
   scenario: string;
@@ -51,7 +53,7 @@ export function PlanPage({
     <section>
       <div className="page-heading">
         <div>
-          <h1>Plan</h1>
+          <h1>{title}</h1>
           <p>All jobs finish {when(completion(plan))}</p>
         </div>
         <label>
@@ -169,7 +171,13 @@ export function PlanPage({
                               y="7"
                               height="10"
                               fill={color(t.job_id)}
-                            />
+                            >
+                              <title>
+                                {t.overrun_seconds
+                                  ? `Finishing one step after your hours, about ${Math.ceil(t.overrun_seconds / 60)} min`
+                                  : `${filename(jobs.find((j) => j.id === t.job_id)?.input || t.job_id)} · ${when(t.end)}`}
+                              </title>
+                            </rect>
                           ))}
                         {[0, 6, 12, 18, 24].map((h) => (
                           <line
@@ -213,6 +221,13 @@ export function OperationStatus({
         {operation.state}
       </strong>
       <p>{operation.error || operation.phase}</p>
+      {operation.percent !== undefined && operation.state === "running" && (
+        <progress
+          aria-label="Operation progress"
+          max="100"
+          value={operation.percent}
+        />
+      )}
       {["waiting", "running"].includes(operation.state) && (
         <>
           <progress aria-label={`${operation.kind} in progress`} />

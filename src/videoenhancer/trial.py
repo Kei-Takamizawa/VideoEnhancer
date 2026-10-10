@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -12,10 +13,10 @@ from typing import Any
 import torch
 
 from videoenhancer.config import executable, get_home
-from videoenhancer.media.analyze import analyze
 from videoenhancer.media.decode import IndexedDecoder, choose_backend
 from videoenhancer.media.encode import Encoder
 from videoenhancer.media.mux import _run
+from videoenhancer.media.source_index import analyze_range, source_index
 from videoenhancer.media.timing import output_rate, output_size
 from videoenhancer.models.registry import record_models
 from videoenhancer.pipeline.inline_quality import aggregate_quality
@@ -35,6 +36,8 @@ def run_trial(
     backend: str = "auto",
     short_side: str | int = 1080,
     settings_patch: dict[str, Any] | None = None,
+    source_manifest: dict[str, Any] | None = None,
+    progress: Callable[[str, float], None] | None = None,
 ) -> dict[str, Any]:
     if (
         not math.isfinite(seconds)
@@ -53,7 +56,9 @@ def run_trial(
         if (destination / name).exists():
             raise ValueError(f"Trial output already exists: {name}; choose a fresh directory.")
     backend = choose_backend(backend)
-    analysis = analyze(source, backend=backend)
+    index_started = time.perf_counter()
+    analysis = source_index(source.resolve(), source_manifest, progress)
+    index_seconds = time.perf_counter() - index_started
     media = analysis["media"]
     rate = Fraction(media["cfr_fps"])
     total_frames = len(analysis["cfr_map"])
@@ -63,6 +68,16 @@ def run_trial(
     last = min(total_frames, first + max(1, round(seconds * float(rate))))
     if first >= total_frames:
         raise ValueError("Trial start is beyond the end of the video.")
+    if progress:
+        progress("Checking the preview range…", 0)
+    analysis = analyze_range(
+        source,
+        analysis,
+        first,
+        last,
+        backend,
+        context_frames=2 * int((settings_patch or {}).get("clip_length", 15)),
+    )
     settings: dict[str, Any] = dict(
         preset=preset, backend=backend, short_side=short_side, fps="2x", codec="h264", lossless=True
     )
@@ -82,7 +97,20 @@ def run_trial(
         "segments": [{"index": 0, "start": first, "end": last}],
     }
     enhanced = destination / "enhanced.mp4"
-    stats = process_segment(job, job["segments"][0], enhanced, lambda: False)
+    if progress:
+        progress("Processing", 0)
+
+    def render_progress(value: dict[str, Any]) -> None:
+        if progress and "frames_done" in value:
+            progress(value["step"], min(100.0, 100 * value["frames_done"] / (last - first)))
+
+    stats = process_segment(
+        job,
+        job["segments"][0],
+        enhanced,
+        lambda: False,
+        progress=render_progress if progress else None,
+    )
     width, height = output_size(settings, media)
     original = destination / "original.mp4"
     encoder = Encoder(original, width, height, rate, "h264", "cpu", media, True)
@@ -158,6 +186,10 @@ def run_trial(
         "seconds": (last - first) / float(rate),
         "input_frames": last - first,
         "whole_file_frames": total_frames,
+        "index_seconds": index_seconds,
+        "range_analysis_seconds": analysis["analysis_seconds"],
+        "analysis_span": analysis.get("analysis_span"),
+        "range_fallback": analysis.get("range_fallback"),
         "models": job["models"],
         "pipeline": stats,
         "metrics": metrics,

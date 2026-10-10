@@ -24,8 +24,14 @@ from videoenhancer import proc
 from videoenhancer.estimate.model import observe_finalization, predict_finalization
 from videoenhancer.files import retry_permission
 from videoenhancer.jobs.segments import expected_duration, expected_frames
-from videoenhancer.jobs.store import JobStore, require_disk_space, validate_input
+from videoenhancer.jobs.store import (
+    JobQuarantinedError,
+    JobStore,
+    require_disk_space,
+    validate_input,
+)
 from videoenhancer.logging import get_logger, log_job_header
+from videoenhancer.schedule.admission import admit_step
 
 
 class Clock(Protocol):
@@ -658,7 +664,6 @@ def unit_admission(job: dict[str, Any], now: datetime, interval: Any) -> tuple[b
     pending = next((s for s in job["segments"] if s["state"] != "done"), None)
     if pending is None:
         prediction = predict_finalization(job)
-        reserve = prediction
     else:
         from videoenhancer.estimate import predict_segment
 
@@ -669,14 +674,7 @@ def unit_admission(job: dict[str, Any], now: datetime, interval: Any) -> tuple[b
             job.get("machine_profile"),
             float(job.get("correction_factor", 1)),
         )
-        reserve = prediction * 1.1 + 30
-    beginning = getattr(interval, "start", None)
-    overrun = (
-        beginning is not None
-        and prediction > (_utc(interval.end) - _utc(beginning)).total_seconds()
-        and 0 <= (_utc(now) - _utc(beginning)).total_seconds() < 30
-    )
-    return overrun or _utc(now) + timedelta(seconds=reserve) <= _utc(interval.end), overrun
+    return admit_step(prediction, pending is None, now, interval)
 
 
 class FinalizationTimer:
@@ -845,6 +843,9 @@ def run_queue(
                             break
                 job_id = manifest["id"]
                 try:
+                    if overrun and selection_interval is not None:
+                        manifest["admitted_window_end"] = selection_interval.end.isoformat()
+                        store.save(manifest)
                     job_dir = store.job_dir(job_id)
                     job_logger = get_logger(store.home, job_id=job_id)
                     if job_id not in headers_logged:
@@ -974,7 +975,13 @@ def run_queue(
                                     path.unlink(missing_ok=True)
                             from videoenhancer.schedule.windows import Schedule
 
-                            Schedule.clear_job_complete_override(store.home / "schedule.json")
+                            Schedule.clear_job_complete_override(
+                                store.home / "schedule.json",
+                                queue_complete=all(
+                                    j["state"] in {"done", "failed", "cancelled"}
+                                    for j in store.list_jobs()
+                                ),
+                            )
                             job_logger.info(
                                 "Job %s completed: %s",
                                 job_id,
@@ -1222,6 +1229,10 @@ def run_queue(
                         job_logger.error(
                             manifest["error"], extra={"job_id": job_id, "segment": index}
                         )
+                except JobQuarantinedError as error:
+                    if on_error is not None:
+                        on_error(job_id, error)
+                    continue
                 except Exception as error:
                     job_logger = get_logger(store.home, job_id=job_id)
                     job_logger.exception("Controller error", extra={"job_id": job_id})
@@ -1230,6 +1241,8 @@ def run_queue(
                     failures[job_id] = failures.get(job_id, 0) + 1
                     clock.sleep(5 if failures[job_id] == 1 else 30)
                     latest = store.load(job_id)
+                    if latest.get("quarantined"):
+                        continue
                     for item in latest["segments"]:
                         if item["state"] == "running":
                             item["state"] = "pending"

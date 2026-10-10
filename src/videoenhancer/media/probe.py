@@ -91,7 +91,11 @@ def packet_timeline(path: str | Path, time_base: Fraction) -> tuple[list[Fractio
 
 
 def probe(
-    path: str | Path, count_frames: bool = False, *, count_packets: bool = False
+    path: str | Path,
+    count_frames: bool = False,
+    *,
+    count_packets: bool = False,
+    read_timeline: bool = True,
 ) -> MediaInfo:
     source = Path(path).expanduser().resolve()
     if not source.is_file():
@@ -129,7 +133,7 @@ def probe(
     duration = float(video.get("duration", raw.get("format", {}).get("duration", 0)))
     count_text = video.get("nb_read_frames") if count_frames else video.get("nb_frames")
     count = int(count_text) if str(count_text).isdigit() else round(duration * float(rate))
-    pts, durations = packet_timeline(source, tb)
+    pts, durations = packet_timeline(source, tb) if read_timeline else ([], [])
     is_vfr = any(abs((b - a) - 1 / rate) > tb for a, b in zip(pts, pts[1:], strict=False))
     if count_packets:
         count = len(pts)

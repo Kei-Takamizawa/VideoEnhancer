@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
-import { client, events, filename, when } from "./api";
+import { client, events, filename } from "./api";
 import type { Api } from "./api";
 import type {
   Health,
   Job,
   Media,
   Model,
+  Operation,
   Plan,
   Queue,
   Schedule,
   Settings,
 } from "./types";
-import { AddDialog, localAction, QueuePage } from "./Queue";
-import { SchedulePage } from "./Schedule";
-import { ModelsPage, PlanPage, SettingsPage } from "./Pages";
-import { TrialDialog } from "./Trial";
+import { AddDialog, localAction } from "./Queue";
+import { HomePage, HistoryPage, Icon } from "./Home";
+import { ScheduleView } from "./ScheduleView";
+import { ModelsPage, OperationStatus, SettingsPage } from "./Pages";
+import { Compare, TrialDialog } from "./Trial";
 import { useDialogFocus } from "./focus";
 
 const empty: Queue = { jobs: [], operations: [], completion: null };
@@ -60,7 +62,8 @@ export function ControlWarning({
 }
 export default function App() {
   useDialogFocus();
-  const [page, setPage] = useState("Queue");
+  const [page, setPage] = useState("Home");
+  const [dropCount, setDropCount] = useState(0);
   const [api, setApi] = useState<Api>();
   const [error, setError] = useState("");
   const [reconnecting, setReconnecting] = useState(false);
@@ -68,7 +71,7 @@ export default function App() {
   const [queue, setQueue] = useState(empty);
   const [health, setHealth] = useState<Health>();
   const [plan, setPlan] = useState<Plan>();
-  const [scenario, setScenario] = useState("expected");
+  const scenario = "expected";
   const [settings, setSettings] = useState<Settings>();
   const [schedule, setSchedule] = useState<Schedule>();
   const [models, setModels] = useState<Model[]>([]);
@@ -82,6 +85,22 @@ export default function App() {
   }>();
   const [confirm, setConfirm] = useState<{ job: Job; name: string }>();
   const [log, setLog] = useState<string>();
+  const [resultPreview, setResultPreview] = useState<string>();
+  const resultOperation = queue.operations.find(
+    (op) => op.id === resultPreview,
+  );
+  const showPreview = async (job: Job) => {
+    try {
+      const op = await api!.call<Operation>(
+        `queue/${job.id}/preview`,
+        "POST",
+        {},
+      );
+      setResultPreview(op.id);
+    } catch (error) {
+      setActionError((error as Error).message);
+    }
+  };
   const modelVersion = queue.operations
     .filter((o) => ["download", "verify"].includes(o.kind))
     .map((o) => `${o.id}:${o.state}`)
@@ -119,22 +138,32 @@ export default function App() {
         await refresh(next);
         if (!alive) return;
         setError("");
-        await events(connection, abort.signal, (raw) => {
-          const snapshot = raw as { queue: Queue; health: Health; plan: Plan };
-          setQueue(snapshot.queue);
-          setHealth(snapshot.health);
-          if (scenario === "expected") setPlan(snapshot.plan);
-          else
-            void next
-              .call<Plan>(`plan?scenario=${scenario}`)
-              .then(setPlan)
-              .catch((e) => setError(e.message));
-        }, setReconnecting, async () => {
-          const restored = await window.desktop.connection();
-          next = client(restored);
-          if (alive) setApi(next);
-          return restored;
-        });
+        await events(
+          connection,
+          abort.signal,
+          (raw) => {
+            const snapshot = raw as {
+              queue: Queue;
+              health: Health;
+              plan: Plan;
+            };
+            setQueue(snapshot.queue);
+            setHealth(snapshot.health);
+            if (scenario === "expected") setPlan(snapshot.plan);
+            else
+              void next
+                .call<Plan>(`plan?scenario=${scenario}`)
+                .then(setPlan)
+                .catch((e) => setError(e.message));
+          },
+          setReconnecting,
+          async () => {
+            const restored = await window.desktop.connection();
+            next = client(restored);
+            if (alive) setApi(next);
+            return restored;
+          },
+        );
       })
       .catch((e) => {
         if (alive) setError(e.message);
@@ -181,9 +210,12 @@ export default function App() {
   const perform = async (job: Job, name: string, data?: unknown) => {
     try {
       if (name === "copy") {
-        const details = await api!.call<{ text: string }>(`queue/${job.id}/details`);
+        const details = await api!.call<{ text: string }>(
+          `queue/${job.id}/details`,
+        );
         await window.desktop.copy(details.text);
       } else if (name === "folder") await localAction(job, name);
+      else if (name === "play") await window.desktop.play(job.output);
       else if (name === "log")
         setLog((await api!.call<{ text: string }>(`queue/${job.id}/log`)).text);
       else if (name === "remove") await api!.call(`queue/${job.id}`, "DELETE");
@@ -206,23 +238,63 @@ export default function App() {
     }
   };
   const calibration = queue.operations.findLast((o) => o.kind === "calibrate");
-  const current = queue.jobs.find((j) => j.id === health?.job_id);
   return (
-    <div className="app">
+    <div
+      className="app"
+      onDragEnter={(e) => {
+        if (Array.from(e.dataTransfer.types).includes("Files"))
+          setDropCount(Math.max(1, e.dataTransfer.items.length));
+      }}
+      onDragOver={(e) => {
+        if (Array.from(e.dataTransfer.types).includes("Files"))
+          e.preventDefault();
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropCount(0);
+      }}
+      onDrop={(e) => {
+        setDropCount(0);
+        if (e.dataTransfer.files.length) {
+          e.preventDefault();
+          void add(
+            Array.from(e.dataTransfer.files).map((file) =>
+              window.desktop.filePath(file),
+            ),
+          );
+        }
+      }}
+    >
+      {!!dropCount && (
+        <div className="drop-overlay">Drop to add {dropCount} videos</div>
+      )}
       <aside>
-        <div className="brand">VideoEnhancer</div>
+        <div className="brand" aria-label="VideoEnhancer">
+          VE
+        </div>
         <nav aria-label="Main navigation">
-          {["Queue", "Plan", "Schedule", "Models", "Settings"].map((name) => (
+          {["Home", "History", "Schedule", "Models"].map((name) => (
             <button
               key={name}
               aria-current={page === name ? "page" : undefined}
               onClick={() => setPage(name)}
             >
-              {name}
+              <Icon name={name} />
+              <span>{name}</span>
+              {name === "Home" &&
+                queue.jobs.some((j) => j.state === "failed") && (
+                  <span className="warning-dot" />
+                )}
             </button>
           ))}
         </nav>
-        <p className="local-note">On this computer</p>
+        <button
+          className="settings-nav"
+          aria-label="Settings"
+          aria-current={page === "Settings" ? "page" : undefined}
+          onClick={() => setPage("Settings")}
+        >
+          <Icon name="Settings" />
+        </button>
       </aside>
       <main>
         {reconnecting && <div role="status">Reconnecting…</div>}
@@ -239,9 +311,20 @@ export default function App() {
             <button onClick={() => setActionError("")}>Dismiss</button>
           </div>
         )}
-        {page === "Queue" && (
-          <QueuePage
+        {page === "Home" && (
+          <HomePage
             queue={queue}
+            health={health}
+            plan={plan}
+            api={api}
+            reconnecting={reconnecting}
+            navigate={setPage}
+            pauseAll={() =>
+              void operate("processing", {
+                paused: health?.engine_state !== "Paused",
+              })
+            }
+            preview={(job) => void showPreview(job)}
             add={(paths) => void add(paths)}
             action={action}
             trial={(job) =>
@@ -254,22 +337,28 @@ export default function App() {
             }
           />
         )}
-        {page === "Plan" && (
-          <PlanPage
-            plan={plan}
-            jobs={queue.jobs}
-            scenario={scenario}
-            change={setScenario}
-            calibrate={() => void operate("calibrate")}
-            operation={calibration}
+        {page === "History" && (
+          <HistoryPage
+            queue={queue}
+            api={api}
+            action={action}
+            trial={(job) =>
+              setTrial({
+                file: job.input,
+                settings: job.settings,
+                media: job.media,
+                job_id: job.id,
+              })
+            }
           />
         )}
         {page === "Schedule" && api && schedule && (
-          <SchedulePage
+          <ScheduleView
             api={api}
             value={schedule}
             applied={() => void refresh()}
-            currentFinish={queue.completion}
+            plan={plan}
+            jobs={queue.jobs}
           />
         )}
         {page === "Models" && api && (
@@ -295,18 +384,6 @@ export default function App() {
         )}
         {!api && !error && <p role="status">Connecting to the engine…</p>}
       </main>
-      <footer className="status-strip">
-        <strong>{health?.engine_state || "Connecting"}</strong>
-        <span>
-          {current
-            ? `${filename(current.input)} · Segment ${current.segment}/${current.segments} · ${current.fps?.toFixed(1) || "—"} fps`
-            : "No current job"}
-        </span>
-        <span>
-          {health?.next_change &&
-            `${health.next_change_kind} at ${when(health.next_change)}`}
-        </span>
-      </footer>
       {files && api && settings && (
         <AddDialog
           api={api}
@@ -328,6 +405,24 @@ export default function App() {
           operations={queue.operations}
           close={() => setTrial(undefined)}
         />
+      )}
+      {resultPreview && api && (
+        <div className="modal-shade">
+          <div
+            className="dialog wide"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Preview result"
+          >
+            <h2>Preview result</h2>
+            <p>This uses the completed result and leaves processing running.</p>
+            {resultOperation && <OperationStatus operation={resultOperation} />}
+            {resultOperation?.state === "done" && (
+              <Compare api={api} operation={resultOperation} />
+            )}
+            <button onClick={() => setResultPreview(undefined)}>Close</button>
+          </div>
+        </div>
       )}
       {confirm && (
         <div className="modal-shade">

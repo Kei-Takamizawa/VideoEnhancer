@@ -37,18 +37,24 @@ ffmpeg.exe and ffprobe.exe. Set these variables before launching the app; it
 passes them to the detached engine. Do not point test runs at the owner's queue.
 
 The main process attaches to an authenticated existing service, or starts
-`python -m videoenhancer.cli serve`. Connection discovery remains user-private;
+`pythonw.exe -m videoenhancer.cli serve` on Windows, using the sibling of the
+configured Python executable. If that sibling is missing, it logs a fallback to
+console Python with hidden-window spawning. Connection discovery remains user-private;
 the renderer receives only the connection and a narrow preload bridge. Remote
 pages and renderer Node.js access are disabled. See [API.md](API.md).
 
 ## Workflow
 
-1. Add videos or drop multiple files on Queue. One dialog shows estimates for
-   both presets, output choices, warnings, and Trial.
+1. Add videos or drop multiple files on any page. One dialog offers Standard and
+   Fast, incremental estimates, more output options, warnings, and Trial. Home
+   shows current work and the next videos; completed and failed work moves to History.
 2. Download missing built-in weights on Models after reviewing the licence;
    adding a job never silently downloads missing model weights.
-3. Paint Schedule or edit its list, then Save. Exceptions and temporary overrides
-   use the same engine schedule as CLI processing. Plan shows engine projections.
+3. On Schedule, use a preset or drag a time block and its edges in 15-minute
+   increments. Edits save automatically, with an eight-second Undo. Custom opens
+   the exact list editor, which has an explicit Save button. Exceptions and
+   temporary overrides use the same engine schedule as CLI processing. Planned
+   work includes partly processed steps and steps that finish after allowed hours.
 4. Close hides the window in the system tray. Open restores it; Pause/Resume
    affects the durable queue. Quit requests a graceful engine shutdown. Reopen
    resumes queued work from validated segments. Closing/crashing the GUI alone
@@ -63,6 +69,17 @@ It is cancellable, with a hard timeout of at least ten minutes (four times the
 estimated render duration when longer). Its
 previews are H.264 8-bit and stay outside Git, under the engine home. Removing a
 job removes its associated previews while keeping the finished output.
+
+Trial builds a demux-only source index on first use and decodes scene analysis
+only near the selected range. Index progress is reported at completed demux
+milestones. A matching job manifest takes precedence over the 1 GB oldest-first
+index cache. A count mismatch falls back to whole-file analysis and records why.
+Full-job analysis still checks the entire video's decoded frame count.
+
+Home's Preview result reads a completed segment or finished output and produces
+a short CPU-encoded comparison. It does not run restoration again or acquire the
+GPU worker lease. The current viewer compares Original and Enhanced; the proposed
+multi-model catalog and multi-model Compare workflow are not implemented yet.
 
 The comparison canvas uses WebCodecs and one integer frame clock. It draws only
 matching frame pairs, rather than trusting two independent video clocks. Arrow

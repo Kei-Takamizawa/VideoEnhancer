@@ -12,6 +12,7 @@ window.desktop = {
   connection: vi.fn(),
   files: vi.fn(),
   openFolder: vi.fn(async () => {}),
+  play: vi.fn(async () => {}),
   copy: vi.fn(async () => {}),
   filePath: vi.fn(),
 };

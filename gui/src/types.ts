@@ -43,12 +43,19 @@ export type Job = {
   segments: number;
   fps?: number;
   log: string;
+  overrun_seconds?: number;
+  finished_at?: string;
+  took_seconds?: number;
+  output_bytes?: number;
+  starts?: string;
+  preview_ready?: boolean;
 };
 export type Operation = {
   id: string;
   kind: string;
   state: string;
   phase: string;
+  percent?: number;
   error?: string;
   job_id?: string;
   request?: { file?: string };
@@ -102,7 +109,11 @@ export type Plan = {
       completion?: string;
     }[];
   }[];
-  timeline: (Window & { job_id: string; phase: string })[];
+  timeline: (Window & {
+    job_id: string;
+    phase: string;
+    overrun_seconds?: number;
+  })[];
   jobs: { job_id: string; completion: string | null }[];
 };
 export type Model = {
@@ -122,6 +133,7 @@ export interface Desktop {
   connection(): Promise<Connection>;
   files(kind: "videos" | "folder"): Promise<string[]>;
   openFolder(folder: string): Promise<void>;
+  play(file: string): Promise<void>;
   copy(text: string): Promise<void>;
   filePath(file: File): string;
 }

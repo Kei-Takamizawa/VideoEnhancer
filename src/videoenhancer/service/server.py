@@ -176,6 +176,17 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["events"] and self.command == "GET":
                 self._events()
                 return
+            if (
+                len(parts) == 3
+                and parts[0] == "queue"
+                and parts[2] == "thumbnail"
+                and self.command == "GET"
+            ):
+                path = self.server.engine.thumbnail(parts[1])
+                raw = path.read_bytes()
+                self._headers(200, "image/jpeg", len(raw))
+                self.wfile.write(raw)
+                return
             if len(parts) == 4 and parts[0] == "operations" and parts[2] == "files":
                 op_id, name = parts[1], parts[3]
                 operation = self.server.engine.operations[op_id]

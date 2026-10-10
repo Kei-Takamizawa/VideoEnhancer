@@ -69,7 +69,7 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
     return response.json();
   };
   try {
-    await expect(page.getByText("Your queue is empty.")).toBeVisible({
+    await expect(page.getByText("Nothing in the queue.")).toBeVisible({
       timeout: 40000,
     });
     await expect
@@ -92,6 +92,7 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
       });
     }, source);
     await page.getByRole("button", { name: "+ Add videos" }).click();
+    await page.getByText("More options", { exact: true }).click();
     await page
       .getByRole("combobox", { name: /Output short side/ })
       .selectOption("keep");
@@ -99,24 +100,26 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
       page.getByRole("button", { name: "Add to queue" }),
     ).toBeEnabled({ timeout: 30000 });
     await page.getByRole("button", { name: "Add to queue" }).click();
-    await expect(page.locator(".state")).toHaveText("Running", {
-      timeout: 30000,
-    });
+    await expect(page.getByText("Now processing", { exact: true })).toBeVisible(
+      {
+        timeout: 30000,
+      },
+    );
     const before = ((await call("queue")) as Queue).jobs[0];
     const openTrial = async () => {
       await page
         .getByRole("button", { name: "Actions for gpu-synthetic.mp4" })
         .click();
-      await page.getByRole("button", { name: "Trial", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Try models on this video", exact: true })
+        .click();
       await expect(
         page.getByRole("button", { name: "Render trial" }),
       ).toBeEnabled({ timeout: 15000 });
     };
     await openTrial();
     await page.getByRole("button", { name: "Render trial" }).click();
-    await expect(
-      page.getByText(/Waiting for the current segment/),
-    ).toBeVisible();
+    await expect(page.getByText(/Starts after the current step/)).toBeVisible();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Cancel", exact: true })
@@ -128,15 +131,13 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
       .click();
     await openTrial();
     await page.getByRole("button", { name: "Render trial" }).click();
-    await expect(
-      page.getByText(/Waiting for the current segment/),
-    ).toBeVisible();
+    await expect(page.getByText(/Starts after the current step/)).toBeVisible();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await page
-      .locator(".job-bottom")
+      .locator(".now-card")
       .getByRole("button", { name: "Pause", exact: true })
       .click();
     await expect
@@ -180,17 +181,15 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await page
-      .locator(".job-bottom")
+      .locator(".now-card")
       .getByRole("button", { name: "Resume" })
       .click();
-    await expect(page.locator(".state")).toHaveText("Done", {
+    await page.getByRole("button", { name: "History", exact: true }).click();
+    await expect(page.getByText("Finished", { exact: true })).toBeVisible({
       timeout: 100000,
     });
-    for (const name of ["Queue", "Plan", "Schedule", "Models", "Settings"]) {
-      await page
-        .getByRole("navigation")
-        .getByRole("button", { name, exact: true })
-        .click();
+    for (const name of ["Home", "History", "Schedule", "Models", "Settings"]) {
+      await page.getByRole("button", { name, exact: true }).click();
       await page.screenshot({
         path: path.join(evidence, `${name.toLowerCase()}-gpu-synthetic.png`),
       });
