@@ -1,112 +1,72 @@
-# CURRENT_TASK: Cycle P1c (redesigned GUI, reliable queue, no console windows, model catalog and compare)
+# CURRENT_TASK: Cycle P1c-2 (finish reliability and hidden consoles, then the redesigned GUI, model catalog and compare)
 
-- **Task ID:** VE-P1c
+- **Task ID:** VE-P1c-2
 - **Date:** 2026-10-09
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
-**Start condition:** the owner has merged PR #3 (`p1b-gui`) into `main`. Create a new branch `p1c-redesign` from the latest `main` and open a **draft** PR. Save this file as `.ai/CURRENT_TASK.md`, commit it, and write `.ai/LAST_REPORT.md` (English) at the end. Do not push to `main`.
+**Start condition:** continue on branch `p1c-redesign` (draft PR #4, last commit `ca81232`, CI green on Windows and Ubuntu). Save this file as `.ai/CURRENT_TASK.md` (it replaces the P1c text; the P1c text stays in Git history at `ca81232`), commit it, and write `.ai/LAST_REPORT.md` (English) at the end. Do not push to `main`.
 
-**Work order:** Part S (jobs that never start or stay at 0%) → Part W (no console windows) → Part U (redesigned GUI) → Part M (model catalog) → Part C (compare models). If time runs out, finish earlier parts completely and mark the rest NOT RUN. Do not start Part U before S and W pass their tests.
+## Working rules for this cycle (new)
 
-## 0. Facts from P1a and P1b (already in `main`)
+1. **Do not stop the cycle for one blocked item.** If an item needs a designer decision that this file does not answer, write the question in the report under "Questions for the designer", choose the safest option that keeps every existing output unchanged (or skip only that item), and continue with all other items. Stop early only if every remaining item is blocked.
+2. **Order:** Part D (the trial range decision) → Part S (remaining reliability items) → Part W (hidden consoles) → Part U (redesigned GUI) → Part M (model catalog) → Part C (compare). Part U may start as soon as the S and W tests pass on CPU; the owner-PC GPU acceptance checks (A2, A3, A4) can run later in the cycle, for example during a long build or overnight.
+3. If time runs out, finish earlier parts completely and mark the rest NOT RUN. Never report a test as passed if it did not run.
 
-- Presets: `standard` = BasicVSR++ NTIRE21 decompression (clip 15 / overlap 2, Torch peak about 4.4 GB) + RIFE 4.25; `fast` = resize + RIFE. On the owner's RTX 4060 Ti 8 GB: `standard` about 2.35 input fps, `fast` about 15.7 input fps.
-- Jobs are split into segments of about 3 minutes of predicted work (at most 60 s of source); each segment runs in a new child process (`ProcessExecutor`, multiprocessing spawn). The estimator includes finalization; jobs report `phase` (`processing` / `finalizing`), `step`, and progress capped at 99.9%.
-- `ve serve`: stdlib HTTP on 127.0.0.1, random port, bearer token in user-private `serve.json`, Host/Origin checks, SSE `events` with a 10 s heartbeat, one instance per `VE_HOME`. API is documented in `docs/API.md`.
-- GUI: Electron + React + TypeScript + Vite in `gui/` (pages Queue, Plan, Schedule, Models, Settings, Trial viewer with a WebCodecs frame clock), tray, detached engine started by `gui/electron/main.cjs`.
-- Model registry: JSON manifests in `src/videoenhancer/models/manifests/`, adapters `basicvsrpp`, `rife`, `spandrel`; `ve models list/add/remove`; consent-recorded download of built-ins.
+## 0. Status after P1c (review of `ca81232`)
 
-## 1. Why this cycle (owner feedback after the P1b manual check, 2026-10-09)
+Accepted as done (keep, do not redo):
 
-The P1b checklist passed, but the owner reported:
+- S0 evidence: no active stuck job on the owner's PC; one five-second Standard trial (operation `91446f2a…`) wrote both preview files at 07:59 and then never wrote `result.json` or a state file. That pattern fits a trial child that stopped after rendering, or a service restart, which the new persisted operation state and watchdogs now cover. No further S0 work is needed.
+- S1 heartbeats, live percent and fps, watchdogs (first frame 300 s, frame stall `max(180 s, 20 × per-frame prediction)`, wall `3 × predicted + 300 s`, 15 s exit grace), one retry, segment diagnostics.
+- S2 tracebacks and structured `last_error`, per-job backoff and failure, input sharing message, permission retries, recovery of running jobs at start.
+- S3 admission of other jobs in owner order, oversized units admitted at window start, rate-limited wait events, "Waiting for your hours".
+- S4 trials ignore operating hours, live waiting text, "Paused for a preview", persisted and recovered operations, hard timeout.
+- S5 background preparation on add, snapshots and estimates without the broad lock, SSE recovery, client silence detection and reconnect. **Estimates and thumbnails may keep returning through their HTTP request threads**: they no longer hold the mutation lock, so no new asynchronous contract is needed for them.
+- S6 drained stderr and `videoenhancer/proc.py` with `CREATE_NO_WINDOW`; the static subprocess-routing test.
+- README duplicate link fixed.
 
-1. The screens look dated and are hard to read. They want a smart, minimal, modern UI where the main task is immediate, the main things are big, finished work moves to a **History** instead of staying in the queue, and the **Schedule** is modern and easy to read. The owner approved a new design (described completely in Part U).
-2. Some videos added to the queue, and some added as Trial, never start. Some finish normally; others show "Running" but stay at 0% forever.
-3. More models should be available, installed optionally, each with an easy description of its character, and the owner wants to process a short piece of a video with several models and see the differences side by side.
-4. Opening the GUI must not also open a console (command prompt) window.
+Still open (this cycle): D1, the S items in Part S below, all of Part W except W2, the GPU acceptance checks, and Parts U, M and C.
 
-## 2. Part S: jobs that never start or stay at 0%
+## 1. Part D: trial range analysis (designer decision)
 
-### S0. Evidence first (read-only on the owner's PC)
+Today `run_trial` calls the whole-file `analyze`, which (a) reads the packet timeline with ffprobe, (b) **decodes every frame** to find scene cuts and to check that the decoded frame count equals the packet count, and (c) runs a second ffprobe packet pass for keyframe flags. Only (b) is expensive. The decision:
 
-Before changing code, collect evidence from the owner's engine home (`%LOCALAPPDATA%\VideoEnhancer` or `VE_HOME`) for every job or trial that stayed at 0% or never started. Collect: `jobs\<id>\job.jsonl`, `manifest.json`, `control.json`, a folder listing with sizes taken twice 60 s apart (is `seg_NNNNN.tmp.raw.hevc` growing?), `videoenhancer.jsonl`, `service-start.log`, `schedule.json`, `settings.json`, `previews\<op>\request.json`, `operation.log`, `result.json`, and `GET /v1/health` (`engine_state`, `last_error`). Classify each case against H1 to H5 below and report counts and timestamps. Never commit these files; in the report refer to jobs by id, not by file name, and remove private paths. If no stuck case is left on disk, write NOT FOUND and continue: all fixes below are required anyway.
+### D1. Split analysis into a whole-file source index and a range scene analysis
 
-Designer's code review of `936c99b` found these likely causes (line numbers are from that commit):
+- **Source index (whole file, demux only, no decoding):** probe data, `source_pts`, packet durations, keyframe flags, and the resulting `cfr_map` built with the existing `nearest_mapping`. This is exactly the data the full analysis produces today, so absolute source-frame indices and the CFR lattice are identical to a full job's. Read pts, durations and flags in one ffprobe pass if the result is identical to today's two passes (prove it with the fixtures); otherwise keep two passes.
+- **Range scene analysis (decoding only near the trial):** for the CFR range `[first, last)`, map to source frames `[mapping[first], mapping[last − 1]]`, extend by a margin of `max(2 s, the temporal context the trial segment reads outside its own range)` on both sides, start decoding at the keyframe at or before the start of the extended span, and discard frames before that span. Run the existing cut detector unchanged on that span. Report cuts only for source frames whose previous frame was decoded in the span. Check that the decoded frame count equals the packet count **within the span**. The whole-file count check stays in the full job analysis.
+- **Where the source index comes from, in this order:** (1) the job manifest when the trial or compare belongs to a queued or finished job (it already holds `source_pts`, `cfr_map` and `keyframes`); (2) a cache under `%VE_HOME%\cache\source-index\`, keyed by the resolved path, file size and modification time, invalidated when any of them changes, total size limited to 1 GB (oldest first); (3) a fresh demux-only build, then stored in the cache.
+- **First-use latency policy:** a trial or compare for a file with a known index starts rendering within 30 s of being admitted. For a file never seen before, the index build adds a demux-only pass. The GUI shows "Reading the video (first time only)…" with progress while it runs. Target: under 60 s for a 2-hour, 3 Mbps H.264 file on the owner's SSD. Report the measured time, and a 30-minute file's time.
+- **Full jobs are unchanged.** The queue's analysis keeps decoding the whole file for cuts and the count check. It may reuse a cached source index only if the fixtures prove the job manifest is identical either way.
 
-- **H1, no watchdog.** `ProcessExecutor` waits for the child with no deadline (`schedule/controller.py:288-306`) and keeps waiting for the child to exit after its result already arrived (291-295). A child that hangs (CUDA, NVDEC or NVML teardown, VRAM spill into shared memory, or an ffmpeg stderr pipe that is never read: `media/decode.py:186`, `media/encode.py:188`) leaves the job "Running" forever, and every later job and every trial waits behind it. The trial waiting text is computed once and never updated (`service/engine.py:406-417`).
-- **H2, invisible controller errors retried forever.** `_worker` stores every exception in `last_error` (`service/engine.py:100-111`), nothing logs it and the GUI never shows it. Errors outside the executor (for example `PermissionError`/`OSError` from `validate_input`, which only catches `FileNotFoundError` and `ValueError` at `controller.py:643-651`; `os.replace` at 916 while antivirus holds the file; the 5 s manifest lock timeout in `jobs/store.py:29-49`) restart the controller every 0.5 s on the same head job, which resets and re-runs segment 1 forever.
-- **H3, frozen view.** The SSE loop catches only `BrokenPipeError`/`ConnectionResetError` (`service/server.py:215-237`); any other exception writes an error response into the open stream and the stream goes silent. The client ignores heartbeats and never reconnects by itself (`gui/src/api.ts:46-60`, `gui/src/App.tsx:121-135`). Every request and every stream tick share `engine.lock`, and adding a video runs a whole-file analysis under it (`jobs/store.py:389`). Operations live only in memory (`service/engine.py:51`), so after a service restart the Trial dialog stays "waiting" forever (`gui/src/Trial.tsx:416, 488`).
-- **H4, schedule starvation.** A unit is admitted only when `now + 1.1 × prediction + 30 s` fits before the window ends (`controller.py:801-809`; finalization 667-680). A unit longer than the whole window is never admitted, and only the head job is considered (`controller.py:635`), so every job behind it starves while the status shows "Idle". Each wait also appends an event to the manifest (up to every 2 s).
-- **H5, progress only per segment.** Progress counts completed segments only (`estimate/model.py:296-332`) and fps shows "—" until a segment ends, so a correct job shows 0% for about 3 minutes, plus model loading. A trial first analyses the whole file (`trial.py:56`).
+### D2. Equivalence requirements and tests
 
-### S1. Live progress and a segment watchdog
+- For every CPU fixture (including VFR fixtures with irregular pts, B-frames and a trailing short frame), and for at least three ranges (start, middle, end of the file) per fixture:
+  - the range analysis gives the same `cfr_map`, `source_pts` and `keyframes` as the full analysis;
+  - its scene cuts equal the full analysis's cuts inside the range plus margin;
+  - the trial's `original.mp4` and `enhanced.mp4` are byte-identical to those of a trial run with the whole-file analysis.
+- If any case differs, the trial falls back to whole-file analysis for that file. Log why, and report the case. Do not ship a trial that can show frames different from what the full job would produce.
+- On the owner's GPU, one Standard trial on an authorized long source: report the analysis time, the time to the first rendered frame, and whether the enhanced frames match a whole-file-analysis trial (same frame hashes).
 
-- The segment child reports progress to the controller at least every 2 s: frames done, current step (`Loading model`, `Processing`, `Encoding`), and memory. `GET queue` and SSE show percent, fps and ETA moving inside a segment (percent = processed frames of the whole job, still capped at 99.9%). The first visible change must appear within 30 s of the segment start, including model load. Write the manifest at most every 10 s for this.
-- Watchdog per segment:
-  - no new frame for `max(180 s, 20 × predicted seconds per frame)` after the first frame, or no first frame within 300 s of start → stalled;
-  - wall time over `3 × predicted + 300 s` → stalled;
-  - a stalled child's process tree is killed, the event is logged, and the segment is retried once in a fresh child. A second stall marks the job failed with: "Processing stopped responding at segment k of N. Retry, or use Copy details to report it."
-  - after the child's result has arrived, it gets 15 s to exit; then its tree is killed and the result is kept (not a failure).
-- Log memory samples (dedicated and shared GPU memory where Windows reports it, process RSS) every 30 s during a segment, not only at its end, so a stuck segment leaves evidence.
-- Save each segment child's stdout and stderr to `jobs\<id>\logs\seg_NNNNN.log` (keep the last 1 MB). Copy details includes its last 40 lines.
-- The heartbeat must not change any output: the CPU fixture output must be byte-identical before and after this change.
+**Clarification of the P1c constraint:** "a Standard trial on the GPU gives the same frames as before for the same settings" means the same source range and settings must produce the same frames as the current whole-file trial. D2 is how you prove it. It does not forbid the new index or the range scene analysis.
 
-### S2. One bad job never blocks the others
+## 2. Part S: remaining reliability items
 
-- Every exception in the controller loop is logged with its traceback to the service log and, when it belongs to a job, to that job's log. `last_error` becomes `{time, job_id, message}` and is shown in the GUI (Part U).
-- A job that raises a controller-level error twice in a row is marked failed with a plain-English message; the controller backs off (5 s, then 30 s) between attempts and moves on to the next job.
-- `validate_input` maps `PermissionError`/`OSError` to a failed job with: "The file could not be opened. It may be in use, or in a cloud folder that is not downloaded to this PC."
-- `os.replace` and the other finishing file operations retry on `PermissionError` (0.2, 0.5, 1, 2, 4 s) before failing.
-- At service start, every job left in `running` is reset to `queued` (unfinished segment discarded as today), not only when it reaches the head.
+- **S1 rest:** remaining work, ETA and the plan account for partly finished segments (use the live frame count), so the Home "Work left" and "Finishes" values move during a segment, not only at segment ends.
+- **S2 rest:** a persistent `manifest.lock` failure must not escape recovery and restart the whole controller. When a job's manifest lock times out three times in a row, write `jobs\<id>\quarantine.json` atomically without the lock, skip that job, continue with the others, and show it as "Needs attention: this video's work files are locked by another program. Close that program, then Retry." Retry removes the quarantine. Test: hold the lock past the timeout, then check that the next job still finishes and that the quarantined job recovers after the lock is released and Retry is used.
+- **S3 rest:** the planner uses the same admission rule as the controller: an oversized unit starts at a window start and runs past its end. The Home card and the Schedule tooltip say "Finishing one step after your hours, about N min". Test: the planner and a fake-clock controller run agree on start and end times within 1 s.
+- **S4 rest:** D1 and D2, then the GPU measurements: the hard timeout firing on a real stuck trial (use a test-only fault injection flag that is never active in normal runs), and the outside-hours start.
 
-### S3. The schedule never starves the queue
+## 3. Part W: no console windows (W2 is done)
 
-- If the head job's next unit cannot be admitted in the current window but another job's unit can, run the other job; otherwise keep the owner's order.
-- A unit (segment or finalization) whose prediction is longer than the whole current window is admitted at the start of that window and may run past its end; the GUI says "Finishing one step after your hours, about N min".
-- While waiting for allowed hours, `engine_state` is "Waiting for your hours" with the next start time, never "Idle".
-- Write a waiting event when the waiting reason changes, and at most once every 10 minutes while it stays the same.
-
-### S4. Trials and compare renders start when the owner asks
-
-- **Designer decision:** a trial or compare render is started by the owner at the PC, so it runs immediately even outside operating hours. It never runs at the same time as a segment: if a segment is running, the trial starts right after that segment ends (the queue pauses between segments for the trial and resumes after it). The waiting text is live: "Starts after the current step, about 1 min 20 s". Remove the "operating-window deadline" abort for trials.
-- A trial analyses only its own time range (plus the margin scene detection needs), never the whole file: a 5 s trial on a 2 h file starts rendering within 30 s.
-- Hard timeout: `max(10 min, 4 × predicted)`; then it is cancelled with a plain message.
-- Operations are persisted (`previews\<op>\state.json`). After a service restart the GUI shows a lost operation as "Interrupted. Try again." and re-enables its start button.
-- While a trial runs, the job that waits shows "Paused for a preview".
-
-### S5. Live updates never freeze
-
-- Snapshots are built without holding the mutation lock during slow work. Adding a video (analysis), estimates and thumbnails become background work: adding returns at once with the job in a `preparing` state, and the GUI shows "Preparing…". The lock is held only for short in-memory changes (target under 50 ms; log any hold over 500 ms).
-- The SSE loop catches every exception, logs it, sends `event: error` with a short text, and keeps the stream open. It never writes an HTTP error response into an open stream.
-- The client reconnects automatically when no event and no heartbeat arrived for 30 s (backoff 1, 2, 5, 10 s), shows a small "Reconnecting…" state, keeps the last snapshot, and also reconnects when the window is restored from the tray.
-
-### S6. Pipes cannot deadlock
-
-Every engine subprocess with a piped stderr drains it continuously in a thread into a bounded buffer (last 64 KB), used in error messages and the segment log.
-
-### S7. Tests (CPU, no GPU, fake children and fake clock)
-
-1. Child hangs before its result: killed by the watchdog, retried once, then the job fails; the next job still finishes.
-2. Child hangs after sending its result: result kept, child killed after the grace period.
-3. Progress percent moves during a segment while frames advance.
-4. Controller-level `PermissionError` on job A (input and `os.replace`): A fails with the message after retries; job B finishes.
-5. Finalization predicted longer than the whole window: admitted at the window start and finishes.
-6. Head job not admissible, second job admissible: the second job runs.
-7. Trial requested outside operating hours while idle: starts within 5 s. Trial requested while a fake segment runs: starts right after that segment.
-8. Exception while building an SSE snapshot: the stream continues. Client reconnects after 30 s of silence (fake timers).
-9. Service restart with a job in `running`: reset to `queued` at start.
-10. Fake process writing more than 1 MB to stderr: no deadlock.
-
-## 3. Part W: no console windows
-
-- **W1 (Electron).** Start the service with `pythonw.exe` (the sibling of the configured `python.exe`; use `VE_PYTHON` as is when it already points to `pythonw.exe`; fall back to `python.exe` with `windowsHide: true` only if `pythonw.exe` is missing, and log that). Node's documentation states that a `detached` child on Windows gets its own console window, and the engine's own children then open new consoles; `pythonw.exe` has no console at all.
-- **W2 (engine).** One small module (for example `videoenhancer/proc.py`) wraps `subprocess.run` and `subprocess.Popen` and adds `creationflags=subprocess.CREATE_NO_WINDOW` on Windows. Every engine subprocess (ffmpeg, ffprobe, nvidia-smi, PowerShell, icacls and others) goes through it. A test (or ruff banned-api) fails when `subprocess.run/Popen/call/check_output` is used anywhere else under `src/`.
-- **W3 (segment children).** On Windows, when the parent is `pythonw.exe`, the multiprocessing spawn context uses `pythonw.exe` (`context.set_executable`). Child stdout and stderr go to the segment log (S1). `sys.stdout`/`sys.stderr` can be `None` under `pythonw.exe`; logging and any prints must handle that.
+- **W1 (Electron).** Start the service with `pythonw.exe`: use the sibling of the configured `python.exe`; if `VE_PYTHON` already points to `pythonw.exe`, use it as is. Fall back to `python.exe` with `windowsHide: true` only if `pythonw.exe` is missing, and log that. Node's documentation states that a `detached` child on Windows gets its own console window; `pythonw.exe` has no console.
+- **W3 (segment children).** On Windows, when the parent runs under `pythonw.exe`, the multiprocessing spawn context uses `pythonw.exe` (`context.set_executable`). Child stdout and stderr go to the segment log. Under `pythonw.exe`, `sys.stdout` and `sys.stderr` can be `None`, so logging and any prints must handle that (exercise it in a test that really spawns under `pythonw.exe` on the Windows CI runner).
 - **W4.** `ve` used from a terminal keeps its console output unchanged.
+- Log at service start, and for each segment child, which executable runs it.
 
-## 4. Part U: redesigned GUI
+## 4. Part U: redesigned GUI (unchanged from P1c)
 
 The owner approved the design canvas "VideoEnhancer UI Redesign" (screens Home, Add videos, History, Schedule, Models, Compare). You cannot open it, so this part is the complete specification. Replace the P1b look and layout; keep every P1b capability unless this part removes it. The wireframes below show structure; follow the tokens and the rules in the text for the exact look.
 
@@ -256,7 +216,7 @@ Same content as the P1b Settings page in the new style, grouped as: Defaults (mo
 
 English, short, no jargon on the main screens. Times are always concrete ("Done Thu 23:10", "8 h 15 m"), never only a percent. Use "mode" (Standard / Fast), "cleanup", "smoother motion", "your hours".
 
-## 5. Part M: optional model catalog
+## 5. Part M: optional model catalog (unchanged from P1c)
 
 ### M1. What the catalog is
 
@@ -334,13 +294,13 @@ Rules:
 - The Add dialog's More options lists installed models per category (Cleanup model, Smoother motion, Bigger picture).
 - "Add my own model…" keeps the P1b validation; user models choose their category in their manifest (`docs/ADDING_MODELS.md` explains the new fields).
 
-## 6. Part C: compare models on the owner's video
+## 6. Part C: compare models on the owner's video (unchanged from P1c except the analysis line)
 
 ### C1. Engine
 
 - `POST compare` with `{file, start, seconds (3/5/10, default 5), models: [up to 3 model ids of the same category], settings}` returns one operation. It renders the source excerpt once ("Original", resized with the pipeline's own resize to the output size) and then each model through the real pipeline with that model in place of the stage it belongs to (other stages as in the settings). Previews are H.264 8-bit, as the Trial previews are.
 - Per model: progress, measured speed, and "about X h Y m for this video" from the measured speed and the estimator. Each model's preview is available as soon as it is done.
-- Scheduling as in S4. A model that is not installed is installed first, only after its licence dialog.
+- Scheduling as in S4 and analysis as in D1 (one source index and one range scene analysis per compare, shared by all models). A model that is not installed is installed first, only after its licence dialog.
 - Keep previews of the last 5 compare sessions (at most 2 GB, oldest removed first); previews tied to a job are removed with the job. Outside Git, under the engine home.
 - The P1b Trial (`POST trial`) stays for the API, and the GUI's Trial becomes Compare with one model (classic Original vs result).
 
@@ -379,29 +339,29 @@ Rules:
 
 - Windows 11, no WSL. All code, comments, UI text and docs in English.
 - Never commit media, weights, previews, generated videos, `node_modules`, build output, the owner's logs, or private sample names. Screenshots use synthetic footage only and stay outside the repository.
-- Do not change what the existing presets produce: the CPU fixture outputs stay byte-identical, and a Standard trial on the GPU gives the same frames as before for the same settings.
+- Do not change what the existing presets produce: the CPU fixture outputs stay byte-identical. A trial or compare for a given source range and settings produces the same frames as the whole-file trial (proved by D2).
 - Keep the service security model (localhost only, token, Host/Origin checks). No telemetry, no auto-update.
-- The CLI keeps working on the same store; CLI behaviour stays the same apart from the bug fixes above.
-- README (for non-engineers): fix the duplicated "developer guide" link and update "Using the app" for Home, History, Schedule and comparing models. No technical terms beyond "NVIDIA RTX graphics card".
+- The CLI keeps working on the same store; CLI behaviour stays the same apart from the bug fixes.
+- README (for non-engineers): update "Using the app" for Home, History, Schedule and comparing models. No technical terms beyond "NVIDIA RTX graphics card".
 - Update `docs/API.md`, `docs/GUI.md`, `docs/ADDING_MODELS.md` and `docs/TROUBLESHOOTING.md` for everything that changed.
 
 ## 8. Acceptance criteria
 
-- **A1** S0 evidence report: each stuck case classified against H1 to H5 (or NOT FOUND).
-- **A2** S7 tests pass. On the RTX 4060 Ti, a Standard job shows a changing percent within 30 s of its first segment start (log timestamps).
-- **A3** Owner-PC queue run: three jobs in a row (Standard 30 s, Fast 30 s, Standard 2 min synthetic or authorized clips), a trial while a job runs, and a trial outside operating hours. All finish; no job or trial stays at 0% for more than 60 s; report the timings.
-- **A4** No console window or flash appears at any point: cold start of the packaged app (engine not running), adding Standard and Fast jobs, a trial, a compare, a model install, Quit. Plus the W2 static test, and a log line showing that the service and segment children run as `pythonw.exe`.
-- **A5** Part U implemented: component tests for Home (now processing, up next, banners, finished jobs leaving), History (filters, search, retry, remove keeps the file), Schedule editing (drag edges, add, delete, keyboard, autosave and Undo, exceptions, override), and the Add dialog; one Electron e2e test adds a synthetic file, sees it in Now processing, sees it finish and appear in History.
-- **A6** Part M: every catalog entry has a verified URL and SHA-256 and its exact licence, loads through its adapter, runs a 5 s compare on the RTX 4060 Ti within the memory budget, and has its measured fps and peak memory in its manifest and the report (or is left out with the reason). Install, Verify again, Make it my default and Remove work from the GUI. The default pipeline output is unchanged.
-- **A7** Part C: compare with 3 models on the GPU; automated sync test with synthetic clips that have the frame number drawn in: for 100 random seeks and 300 played frames, all visible streams show the same frame index.
-- **A8** Checks green: `ruff`, `ruff format --check`, `pyright`, CPU tests, GUI lint, typecheck, unit tests, build, e2e; CI green on Windows and Ubuntu.
+- **A1** D2 equivalence tests pass on every fixture and range, and any fallback case is reported. On the owner's GPU: the long-source trial's analysis time, time to first rendered frame and frame-hash match are reported, and so is the first-use index time for a 2-hour and a 30-minute file.
+- **A2** Part S rest tests pass. On the RTX 4060 Ti, a Standard job shows a changing percent and "Work left" within 30 s of its first segment start (log timestamps).
+- **A3** Owner-PC queue run: three jobs in a row (Standard 30 s, Fast 30 s, Standard 2 min, synthetic or authorized clips), a trial while a job runs, and a trial outside operating hours. All finish; no job or trial stays at 0% for more than 60 s; report the timings.
+- **A4** No console window or flash appears at any point: cold start of the packaged app (engine not running), adding Standard and Fast jobs, a trial, a compare, a model install, Quit. The service and segment children are logged as running under `pythonw.exe`.
+- **A5** Part U implemented. Component tests cover Home (now processing, up next, banners, finished jobs leaving), History (filters, search, retry, remove keeps the file), Schedule editing (drag edges, add, delete, keyboard, autosave and Undo, exceptions, override) and the Add dialog. One Electron e2e test adds a synthetic file, sees it in Now processing, sees it finish, and sees it in History.
+- **A6** Part M: every catalog entry has a verified URL and SHA-256 and its exact licence, loads through its adapter, runs a 5 s compare on the RTX 4060 Ti within the memory budget, and has its measured fps and peak memory in its manifest and the report. An entry that fails any of these is left out with the reason. Install, Verify again, Make it my default and Remove work from the GUI. The default pipeline output is unchanged.
+- **A7** Part C: compare with 3 models on the GPU. An automated sync test uses synthetic clips with the frame number drawn in: for 100 random seeks and 300 played frames, all visible streams show the same frame index.
+- **A8** Checks green: `ruff`, `ruff format --check`, `pyright`, CPU tests, GUI lint, typecheck, unit tests, build and e2e; CI green on Windows and Ubuntu.
 - **A9** Screenshots (synthetic footage) of every screen at 1280×800 and 1100×700, dark and light, plus one at 150% scaling.
 
 ## 9. Checks to run
 
-- Engine: `uv run ruff check`, `uv run ruff format --check`, `uv run pyright`, `uv run pytest` (CPU).
-- GUI: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e`, `npm run package`.
-- Owner hardware: A2, A3, A4, A6 and A7 on the RTX 4060 Ti.
+- Engine: `ruff check`, `ruff format --check`, `pyright`, `pytest -m "not gpu and not soak"` (CPU), plus the D2 equivalence suite.
+- GUI: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e`, `npm run package`, and the packaged smoke test.
+- Owner hardware: A1 (GPU part), A2, A3, A4, A6 and A7 on the RTX 4060 Ti. Use fresh `VE_HOME` folders, never the owner's existing queue.
 
 ## 10. GUI checks for the owner after the PR
 
@@ -413,6 +373,14 @@ Rules:
 6. Start a trial outside your hours: it starts at once.
 7. On Models, install one optional model, then "Compare on my video" with three models and switch between All side by side and Swipe two.
 
+
 ## 11. Report (`.ai/LAST_REPORT.md`, English)
 
-Summary per part; A1 to A9 with PASS / FAIL / NOT RUN and evidence; the S0 classification; measured speed and memory per catalog model; screenshot paths (outside the repository); known issues and questions for the designer; exact reproduction steps. Never report a test as passed if it did not run.
+- A summary per part, and A1 to A9 with PASS / FAIL / NOT RUN and their evidence.
+- The D2 results per fixture and range.
+- Measured speed and memory for each catalog model.
+- Screenshot paths (outside the repository).
+- A section "Questions for the designer", each with the default you chose meanwhile.
+- Known issues and exact reproduction steps.
+
+Never report a test as passed if it did not run.
