@@ -1,72 +1,265 @@
-# CURRENT_TASK: Cycle P1c-2 (finish reliability and hidden consoles, then the redesigned GUI, model catalog and compare)
+# CURRENT_TASK: Cycle P1c-3 (finish the redesigned GUI, model catalog, compare, and the GPU acceptance checks)
 
-- **Task ID:** VE-P1c-2
-- **Date:** 2026-10-09
+- **Task ID:** VE-P1c-3
+- **Date:** 2026-10-10
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
-**Start condition:** continue on branch `p1c-redesign` (draft PR #4, last commit `ca81232`, CI green on Windows and Ubuntu). Save this file as `.ai/CURRENT_TASK.md` (it replaces the P1c text; the P1c text stays in Git history at `ca81232`), commit it, and write `.ai/LAST_REPORT.md` (English) at the end. Do not push to `main`.
+**Start condition:** continue on branch `p1c-redesign` (draft PR #4, last commit `9ff4bb0`, CI green on Windows and Ubuntu). Save this file as `.ai/CURRENT_TASK.md` (it replaces the P1c-2 text, which stays in Git history), commit it, and write `.ai/LAST_REPORT.md` (English) at the end. Do not push to `main`.
 
-## Working rules for this cycle (new)
+## Working rules (same as P1c-2)
 
-1. **Do not stop the cycle for one blocked item.** If an item needs a designer decision that this file does not answer, write the question in the report under "Questions for the designer", choose the safest option that keeps every existing output unchanged (or skip only that item), and continue with all other items. Stop early only if every remaining item is blocked.
-2. **Order:** Part D (the trial range decision) → Part S (remaining reliability items) → Part W (hidden consoles) → Part U (redesigned GUI) → Part M (model catalog) → Part C (compare). Part U may start as soon as the S and W tests pass on CPU; the owner-PC GPU acceptance checks (A2, A3, A4) can run later in the cycle, for example during a long build or overnight.
+1. Do not stop the cycle for one blocked item. Write the question under "Questions for the designer", choose the safest option that keeps existing outputs unchanged (or skip only that item), and continue. Stop early only if every remaining item is blocked.
+2. Order: Part U-rest → Part M → Part C → Part G (GPU acceptance). Part G's long runs may run whenever the GPU is free, for example overnight or during long builds. They must not wait for the end of the cycle if the GPU is idle earlier.
 3. If time runs out, finish earlier parts completely and mark the rest NOT RUN. Never report a test as passed if it did not run.
 
-## 0. Status after P1c (review of `ca81232`)
+## 0. Status after P1c-2 (review of `9ff4bb0`)
 
 Accepted as done (keep, do not redo):
 
-- S0 evidence: no active stuck job on the owner's PC; one five-second Standard trial (operation `91446f2a…`) wrote both preview files at 07:59 and then never wrote `result.json` or a state file. That pattern fits a trial child that stopped after rendering, or a service restart, which the new persisted operation state and watchdogs now cover. No further S0 work is needed.
-- S1 heartbeats, live percent and fps, watchdogs (first frame 300 s, frame stall `max(180 s, 20 × per-frame prediction)`, wall `3 × predicted + 300 s`, 15 s exit grace), one retry, segment diagnostics.
-- S2 tracebacks and structured `last_error`, per-job backoff and failure, input sharing message, permission retries, recovery of running jobs at start.
-- S3 admission of other jobs in owner order, oversized units admitted at window start, rate-limited wait events, "Waiting for your hours".
-- S4 trials ignore operating hours, live waiting text, "Paused for a preview", persisted and recovered operations, hard timeout.
-- S5 background preparation on add, snapshots and estimates without the broad lock, SSE recovery, client silence detection and reconnect. **Estimates and thumbnails may keep returning through their HTTP request threads**: they no longer hold the mutation lock, so no new asynchronous contract is needed for them.
-- S6 drained stderr and `videoenhancer/proc.py` with `CREATE_NO_WINDOW`; the static subprocess-routing test.
-- README duplicate link fixed.
+- **Part D:** source index (manifest first, then a cache keyed by path, size and mtime, 1 GB limit) and range scene analysis. The D2 fixture suite passed on CPU and CUDA: 24 cases. On the RTX 4060 Ti with a synthetic 2-hour, 3.39 Mbps file: a fresh index took 10.06 s and a cached one 0.05 s; the first frame reached the encoder after 15.78 s; frame hashes matched the whole-file trial. Three demux passes for a fresh index are acceptable at this speed.
+- **Part S:**
+  - live remaining work and finish times;
+  - manifest-lock quarantine with Retry;
+  - shared admission rules for planner and controller;
+  - a stuck-trial fault injection that test code alone can enable;
+  - Retry and `queue-complete` override endpoints.
+- **Part W (code):** `pythonw.exe` selection, logging of the executable, and a real `pythonw.exe` parent that runs a CPU segment child.
+- **Part U (delivered subset):**
+  - tokens and themes, the 88 px rail, and Home with its attention banner;
+  - cached thumbnails, and Preview result without the GPU;
+  - the Add dialog mode cards and More options;
+  - History with filters, search and Retry;
+  - Schedule tracks, presets, drag, autosave and Undo, exceptions and overrides;
+  - Settings in the new tokens.
+- **Designer decision on an open point:** Add to queue may be pressed while files are still preparing. The job enters Up next as "Preparing…" and the server validates it. Keep this.
 
-Still open (this cycle): D1, the S items in Part S below, all of Part W except W2, the GPU acceptance checks, and Parts U, M and C.
+## 1. Part U-rest: finish the redesigned screens
 
-## 1. Part D: trial range analysis (designer decision)
+Each item below comes from the P1c-2 report's "Unresolved items". Appendix A (sections U0 to U9) stays the full specification. This list says only what is missing, plus the designer's decisions.
 
-Today `run_trial` calls the whole-file `analyze`, which (a) reads the packet timeline with ffprobe, (b) **decodes every frame** to find scene cuts and to check that the decoded frame count equals the packet count, and (c) runs a second ffprobe packet pass for keyframe flags. Only (b) is expensive. The decision:
+1. **Home (U2)**
+   - "Change mode" appears in the Up next row menu for jobs that have not started. It re-estimates the job and updates its row.
+   - The "Problem" chip opens a small details panel: the plain-English message, time, job, and a Copy details button. It must not copy straight away.
+   - The attention banner and the rail dot count only failures the owner has not seen. A failure counts as seen once its History card has been shown or the banner has been dismissed. Store the seen job ids with the GUI settings.
+2. **Add dialog (U3)**
+   - Show the output summary line: "Output: 1080p · 60 fps · HEVC · Saved next to the original, in "enhanced"", with More options at its right.
+   - "Try models first" opens the new Compare (Part C). "Use this" there sets the dialog's model for that category.
+3. **History (U4)**
+   - Use relative wording: "Today 06:42", "Yesterday 23:18", and a weekday with date for older items ("Mon 10/06 04:55").
+   - The menu item is "Compare again", opening Part C.
+4. **Schedule (U5)**
+   - The header range reads "could be Thu 23:10 – Fri 06:00", taken from the plan's best and worst scenarios.
+   - Hovering or focusing a planned-work bar shows a tooltip: "evening_talk.mp4 62% → 100%, done 02:10".
+   - Exceptions can be edited in place in the Exceptions card: click an exception to switch it between Off and hours, or to delete it. **Add a day** opens a date picker with Off or hours, without going through Custom.
+   - "Only on Thu 10/09" moves from the row button into the block's context menu. The menu opens by right-click, by a small ⋯ on the selected or focused block, and by the Menu key.
+   - Every save restarts the 8 s "Saved · Undo" timer. Undo restores the schedule from before the most recent save.
+   - Rows may scroll when the window is shorter than 800 px.
+   - Add component tests for drag, add, delete, keyboard edges, exception edit, Undo and override.
+5. **Settings (U8):** group the settings into Defaults, App, Advanced (a disclosure), Diagnostics and About, in that order.
+6. **Preview result**
+   - Closing its dialog cancels the CPU encoding and deletes the partial files.
+   - Quit during a preview leaves nothing that a later preview would reuse.
+   - Test both.
 
-### D1. Split analysis into a whole-file source index and a range scene analysis
+## 2. Part M: optional model catalog (unchanged from P1c)
 
-- **Source index (whole file, demux only, no decoding):** probe data, `source_pts`, packet durations, keyframe flags, and the resulting `cfr_map` built with the existing `nearest_mapping`. This is exactly the data the full analysis produces today, so absolute source-frame indices and the CFR lattice are identical to a full job's. Read pts, durations and flags in one ffprobe pass if the result is identical to today's two passes (prove it with the fixtures); otherwise keep two passes.
-- **Range scene analysis (decoding only near the trial):** for the CFR range `[first, last)`, map to source frames `[mapping[first], mapping[last − 1]]`, extend by a margin of `max(2 s, the temporal context the trial segment reads outside its own range)` on both sides, start decoding at the keyframe at or before the start of the extended span, and discard frames before that span. Run the existing cut detector unchanged on that span. Report cuts only for source frames whose previous frame was decoded in the span. Check that the decoded frame count equals the packet count **within the span**. The whole-file count check stays in the full job analysis.
-- **Where the source index comes from, in this order:** (1) the job manifest when the trial or compare belongs to a queued or finished job (it already holds `source_pts`, `cfr_map` and `keyframes`); (2) a cache under `%VE_HOME%\cache\source-index\`, keyed by the resolved path, file size and modification time, invalidated when any of them changes, total size limited to 1 GB (oldest first); (3) a fresh demux-only build, then stored in the cache.
-- **First-use latency policy:** a trial or compare for a file with a known index starts rendering within 30 s of being admitted. For a file never seen before, the index build adds a demux-only pass. The GUI shows "Reading the video (first time only)…" with progress while it runs. Target: under 60 s for a 2-hour, 3 Mbps H.264 file on the owner's SSD. Report the measured time, and a 30-minute file's time.
-- **Full jobs are unchanged.** The queue's analysis keeps decoding the whole file for cuts and the count check. It may reuse a cached source index only if the fixtures prove the job manifest is identical either way.
+Work order inside Part M: (1) the `catalog` manifest block, the Models screen (M3) and the entries that run on the existing `basicvsrpp`, `rife` and `spandrel` adapters; (2) the DRUNet strength wrapper; (3) the `size` stage. If time runs out, the `size` stage goes last.
 
-### D2. Equivalence requirements and tests
+### M1. What the catalog is
 
-- For every CPU fixture (including VFR fixtures with irregular pts, B-frames and a trailing short frame), and for at least three ranges (start, middle, end of the file) per fixture:
-  - the range analysis gives the same `cfr_map`, `source_pts` and `keyframes` as the full analysis;
-  - its scene cuts equal the full analysis's cuts inside the range plus margin;
-  - the trial's `original.mp4` and `enhanced.mp4` are byte-identical to those of a trial run with the whole-file analysis.
-- If any case differs, the trial falls back to whole-file analysis for that file. Log why, and report the case. Do not ship a trial that can show frames different from what the full job would produce.
-- On the owner's GPU, one Standard trial on an authorized long source: report the analysis time, the time to the first rendered frame, and whether the enhanced frames match a whole-file-analysis trial (same frame hashes).
+Built-in manifests gain a `catalog` block so the Models screen can describe each model in plain words. Every catalog model is optional: nothing downloads without the owner's consent, and the current defaults (BasicVSR++ NTIRE21 Track 3 for cleanup, RIFE 4.25 for motion, the non-learned resize for size) keep producing exactly what they produce today.
 
-**Clarification of the P1c constraint:** "a Standard trial on the GPU gives the same frames as before for the same settings" means the same source range and settings must produce the same frames as the current whole-file trial. D2 is how you prove it. It does not forbid the new index or the range scene analysis.
+Suggested manifest additions (names are suggestions):
 
-## 2. Part S: remaining reliability items
+```json
+"catalog": {
+  "category": "cleanup",
+  "title": "Gentle cleanup",
+  "description": "Removes blockiness and smeared detail using neighbouring frames. Keeps faces and the filtered look as they are.",
+  "look_change": "very_little",
+  "invents_detail": "low",
+  "flicker": "none",
+  "default": true,
+  "licence_plain": "Code free for any use; the weights' terms are not stated",
+  "reference_speed": {"gpu": "RTX 4060 Ti 8GB", "input": "720x1280", "output": "1080x1920", "fps": 2.38, "peak_memory_gb": 4.7}
+},
+"weights": {"url": "...", "mirrors": ["..."], "sha256": "...", "bytes": 0}
+```
 
-- **S1 rest:** remaining work, ETA and the plan account for partly finished segments (use the live frame count), so the Home "Work left" and "Finishes" values move during a segment, not only at segment ends.
-- **S2 rest:** a persistent `manifest.lock` failure must not escape recovery and restart the whole controller. When a job's manifest lock times out three times in a row, write `jobs\<id>\quarantine.json` atomically without the lock, skip that job, continue with the others, and show it as "Needs attention: this video's work files are locked by another program. Close that program, then Retry." Retry removes the quarantine. Test: hold the lock past the timeout, then check that the next job still finishes and that the quarantined job recovers after the lock is released and Retry is used.
-- **S3 rest:** the planner uses the same admission rule as the controller: an oversized unit starts at a window start and runs past its end. The Home card and the Schedule tooltip say "Finishing one step after your hours, about N min". Test: the planner and a fake-clock controller run agree on start and end times within 1 s.
-- **S4 rest:** D1 and D2, then the GPU measurements: the hard timeout firing on a real stuck trial (use a test-only fault injection flag that is never active in normal runs), and the outside-hours start.
+- `category`: `cleanup` (1x restoration), `motion` (frame interpolation), `size` (learned enlarging before the final resize). `faces` is reserved for P2 and shown as a disabled tab "Faces · coming later".
+- `look_change`: very_little / little / noticeable. `invents_detail`: low / medium / high (from the training type: fidelity-trained = low, perceptual or unknown losses = medium, GAN = high). `flicker`: none (video models) / possible (single-frame models).
+- `reference_speed` and memory are **measured by you** on the owner's RTX 4060 Ti (720×1280 input, 1080×1920 output, the model in its real pipeline position). Never copy speeds from papers. After a compare on the owner's PC, the GUI shows the speed measured there.
+- SHA-256 and size are computed by you from the downloaded file. Prefer the original publisher's URL; a mirror is allowed only if it serves a byte-identical file (same SHA-256).
+- `licence` keeps the exact licence string; `licence_plain` is the short text for the card ("Free for any use", "Free with credit (CC BY 4.0)", "Personal use only (non-commercial)").
 
-## 3. Part W: no console windows (W2 is done)
+### M2. Catalog for this cycle
 
-- **W1 (Electron).** Start the service with `pythonw.exe`: use the sibling of the configured `python.exe`; if `VE_PYTHON` already points to `pythonw.exe`, use it as is. Fall back to `python.exe` with `windowsHide: true` only if `pythonw.exe` is missing, and log that. Node's documentation states that a `detached` child on Windows gets its own console window; `pythonw.exe` has no console.
-- **W3 (segment children).** On Windows, when the parent runs under `pythonw.exe`, the multiprocessing spawn context uses `pythonw.exe` (`context.set_executable`). Child stdout and stderr go to the segment log. Under `pythonw.exe`, `sys.stdout` and `sys.stderr` can be `None`, so logging and any prints must handle that (exercise it in a test that really spawns under `pythonw.exe` on the Windows CI runner).
-- **W4.** `ve` used from a terminal keeps its console output unchanged.
-- Log at service start, and for each segment child, which executable runs it.
+Only models that run on the existing adapters (`basicvsrpp`, `rife`, `spandrel`), plus one small wrapper for DRUNet. Models that need a new adapter (FTVSR, EDVR, FastDVDnet, IFRNet, EMA-VFI) are out of scope for P1c.
 
-## 4. Part U: redesigned GUI (unchanged from P1c)
+| Category | Card title | Model and weights (verify) | Licence | Character for the card | Look / invents detail / flicker |
+| --- | --- | --- | --- | --- | --- |
+| cleanup | **Gentle cleanup** (default, already installed) | BasicVSR++ NTIRE21 decompression Track 3 (`basicvsr_plusplus_c128n25_ntire_decompress_track3_20210304-6daf4a40.pth`) | Apache-2.0 code; weights' terms not stated | Removes blockiness and smeared detail using neighbouring frames. Keeps faces and the filtered look as they are. | very little / low / none |
+| cleanup | **Cleanup, other training** | BasicVSR++ NTIRE21 Track 1 (fixed-quality x265 training), existing adapter | Same | Same idea, trained on a different kind of compression. Usually looks almost the same; sometimes calmer. | very little / low / none |
+| cleanup | **Crisper cleanup** | BasicVSR++ NTIRE21 Track 2 (`..._ntire_decompress_track2_20210314-eeae05e6.pth`), existing adapter | Same | Trained to look sharper rather than to match the original exactly. Can add a little artificial sharpness. | little / medium / none |
+| cleanup | **Grain and noise calmer** | BasicVSR++ denoise (`basicvsr_plusplus_denoise-28f6920c.pth`, mid 64, 15 blocks), existing adapter | Same | Calms grain and noise across frames. Not made for blockiness; may soften very fine edges slightly. Faster than Gentle cleanup. | little / low / none |
+| cleanup | **Adjustable deblock** (Light / Medium / Strong) | DRUNet deblocking (`github.com/cszn/KAIR/releases/download/v1.0/drunet_deblocking_color.pth`) through spandrel with your own wrapper that passes the strength map (spandrel's default call fixes it); three catalog choices share one weights file | MIT | Smooths blocks and ringing on each picture without adding detail. Strong can look waxy. | little / low / possible |
+| cleanup | **All-round cleaner** | SCUNet real PSNR (`github.com/cszn/KAIR/releases/download/v1.0/scunet_color_real_psnr.pth`) | Apache-2.0 | Cleans mixed noise and compression on each picture. Calm, slightly smoothing. | little / low / possible |
+| cleanup | **Picture deblock** | FBCNN (already used as a benchmark candidate) | Apache-2.0 | Cleans each picture on its own. Good for calm clips; can flicker a little on moving ones. | little / low / possible |
+| cleanup | **H.264 remover (community)** | 1xDeH264_realplksr (`github.com/Phhofm/models/releases/download/1xDeH264_realplksr/1xDeH264_realplksr.safetensors`) | CC BY 4.0 | Made by the community for H.264 blockiness. Crisper, slower, and less predictable. | noticeable / medium / possible |
+| motion | **Smooth motion** (default, already installed) | RIFE 4.25 | MIT | Makes new in-between frames. Recommended by its author for most scenes. | very little / low / none |
+| motion | **Smooth motion, newest** | RIFE 4.26 (from the Practical-RIFE release; verify the source) | MIT | The newest version. Sometimes better on fast motion, sometimes not. | very little / low / none |
+| motion | **Smooth motion, faster** | RIFE 4.25 lite | MIT | Faster, slightly less accurate on fast motion. | very little / low / none |
+| size | **Standard resize** (default, no download) | the existing non-learned resize | none | Makes the picture bigger without AI. Never changes the look. | very little / low / none |
+| size | **Faithful 2× enlarger** | 2xLiveActionV1_SPAN (from `github.com/jcj83429/upscaling`) | CC BY-NC-SA 4.0 (personal use only) | Enlarges real-life video and tidies compression edges and halos. Keeps grain and colours. Can over-sharpen a little. | little / medium / possible |
+| size | **Sharper detail** | Real-ESRGAN realesr-general-x4v3 (and the `wdn` version for a blend) | BSD-3-Clause | Makes edges crisper. Can invent texture that was not there, so it may change skin and hair. | noticeable / medium / possible |
+
+Rules:
+
+- Do not add models that add skin texture or are GAN real-world video models (for example h264Texturize, SkinDiffDetail, RealBasicVSR). The product keeps the beauty-filter look and never redraws faces.
+- Every model must stay within the memory budget from P1a-6 (process total under 5 GB at 720×1280 → 1080×1920); single-frame models may use tiling with overlap. A model that cannot meet it, cannot be downloaded, or whose licence cannot be confirmed is left out, with the reason in the report.
+- The `size` stage runs after cleanup and before the final resize to the chosen size and before RIFE. With "Standard resize" the pipeline is exactly today's.
+
+### M3. Models screen (U6)
+
+```
+| Models                                       [Add my own model…] [Compare on my video] |
+| (Cleanup · 8) (Smoother motion · 3) (Bigger picture · 3) (Faces · coming later)        |
+| +--------------------------------+ +--------------------------------+ +-------------+ |
+| | Gentle cleanup        [Default]| | Crisper cleanup                | | Adjustable  | |
+| | BasicVSR++ · compressed video  | | BasicVSR++ · perceptual        | | deblock     | |
+| | Removes blockiness and smeared | | Trained to look sharper rather | | ...         | |
+| | detail using neighbouring ...  | | than to match the original...  | |             | |
+| | Speed      Changes the look  Licence                             | |             | |
+| | Slow       Very little       Free   | ...                        | |             | |
+| | 176 MB                [Installed]| | 176 MB              [Install] | |             | |
+| +--------------------------------+ +--------------------------------+ +-------------+ |
+```
+
+- Tabs per category with counts; Faces is disabled. Card grid (cards at least 320 px wide): title (17 px / 650), technical name (12 px, text-3), Default badge, description (14 px, text-2), three small facts (Speed: Fast / Medium / Slow / Very slow from the measured fps, with "about N h per hour of video" in the tooltip; Changes the look; Licence plain text), size, and one button: Install (accent) or Installed. The ⋯ menu has Make it my default, Verify again, Details (exact licence, source URL, SHA-256, measured speed and memory), Remove (refused for a model used by queued jobs: "Used by 2 videos in the queue").
+- Install opens the licence dialog from P1b (licence name and source URL, explicit agreement, consent recorded), then shows download progress and the SHA-256 result on the card.
+- "Make it my default" sets the default model of that category in Settings; Standard uses the cleanup default, both modes use the motion and size defaults. New jobs pick up defaults; queued jobs keep their settings.
+- The Add dialog's More options lists installed models per category (Cleanup model, Smoother motion, Bigger picture).
+- "Add my own model…" keeps the P1b validation; user models choose their category in their manifest (`docs/ADDING_MODELS.md` explains the new fields).
+
+## 3. Part C: compare models on the owner's video (unchanged from P1c-2)
+
+### C1. Engine
+
+- `POST compare` with `{file, start, seconds (3/5/10, default 5), models: [up to 3 model ids of the same category], settings}` returns one operation. It renders the source excerpt once ("Original", resized with the pipeline's own resize to the output size) and then each model through the real pipeline with that model in place of the stage it belongs to (other stages as in the settings). Previews are H.264 8-bit, as the Trial previews are.
+- Per model: progress, measured speed, and "about X h Y m for this video" from the measured speed and the estimator. Each model's preview is available as soon as it is done.
+- Scheduling as in S4 and analysis as in D1 (one source index and one range scene analysis per compare, shared by all models). A model that is not installed is installed first, only after its licence dialog.
+- Keep previews of the last 5 compare sessions (at most 2 GB, oldest removed first); previews tied to a job are removed with the job. Outside Git, under the engine home.
+- The P1b Trial (`POST trial`) stays for the API, and the GUI's Trial becomes Compare with one model (classic Original vs result). The Compare preview cache (last 5 sessions, at most 2 GB) is implemented here.
+
+### C2. Compare screen
+
+```
+| [<]  Compare models                                                     [Change video…] |
+|      beach_walk.mp4 · 5 seconds from 0:42                                              |
+| 0:42 – 0:47   Picked a part with lots of motion. Drag the box to choose other seconds.   |
+| [▒▒▒▒[■]▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒]   (thumbnail strip)   |
+| Compare (Original) (✓ Gentle cleanup) (✓ Cleanup, alternative) (✓ Picture deblock)       |
+|         (+ Sharper detail · installs 5 MB)        [All side by side|Swipe two] [Fit|2×|4×] |
+| +----------+  +----------+  +----------+  +----------+                                  |
+| | Original |  | Gentle   |  | Cleanup, |  | Picture  |                                  |
+| |          |  | cleanup  |  | altern.  |  | deblock  |                                  |
+| |   9:16   |  |          |  |          |  |  Making  |                                  |
+| |          |  |          |  |          |  |  preview |                                  |
+| |          |  |          |  |          |  |  · 64%   |                                  |
+| +----------+  +----------+  +----------+  +----------+                                  |
+| Your file     Default       Calmer, a     Each frame                                   |
+| as it is      About 2 h 40m bit softer    on its own                                    |
+|               [Chosen]      [Use this]    Measuring speed…                              |
+| [|<] [▶] [>|]  ───────●───────────────  0:44.2 / 0:47.0  [Loop]  All pictures stay in step, frame by frame. |
+```
+
+- Top: a thumbnail strip of the whole source with a draggable box for the chosen seconds. The default range is the busiest part (most motion from the analysis data), else the middle. Changing the range renders again.
+- A small "Comparing: Cleanup ▾" selector before the chips picks the category (Cleanup, Smoother motion, Bigger picture); the other stages stay as in the job's settings.
+- Chips: Original is always shown; up to 3 installed models of one category can be selected (selected = filled chip with a check). Models not installed appear as dashed chips "+ Name · installs N MB" (opens the licence dialog, then installs and adds it). Changing the selection renders only what is missing.
+- Layouts: **All side by side** (portrait sources: up to 4 in one row, about 240 px wide each at 1280×800; landscape sources: a 2×2 grid) and **Swipe two** (one large picture with a draggable divider and a "Left"/"Right" picker for any two of the shown items; zoom 2× by default).
+- Zoom Fit / 2× / 4×, nearest neighbour when zoomed, with synchronized panning (drag any picture to move all of them). Frame step with buttons and the arrow keys, Play/Pause with Space, Loop, a position slider and "0:44.2 / 0:47.0".
+- Synchronization: extend the P1b WebCodecs frame clock to up to 4 streams; draw only when every visible stream has the same frame index.
+- Each tile: name label on the picture; two caption lines (character, "About 2 h 40 m for this video" or "Measuring speed…"); "Use this" sets the model for the job (only before it starts) or for the open Add dialog. For a job that already started the button is disabled with "Already started. Remove it and add it again to use another model." The chosen tile has an accent border and the button reads "Chosen". The tile's ⋯ menu has "Make it my default".
+- Opened from: Models "Compare on my video" (pick a file), Add dialog "Try models first", Home and Up next row menus, History "Compare again". The back button returns to where it was opened.
+
+## 4. Part G: acceptance on the owner's PC (RTX 4060 Ti)
+
+Use fresh `VE_HOME` folders with copied, verified model folders, never the owner's queue. Use synthetic or authorized clips, and never publish private sample names or frames of people.
+
+- **G1 (A2):** a Standard job shows a changing percent and "Work left" within 30 s of its first segment start. Report the log timestamps.
+- **G2 (A3):** run three jobs in a row (Standard 30 s, Fast 30 s, Standard 2 min), then a trial while a job runs, then a trial outside operating hours. All must finish, and no job or trial may stay at 0% for more than 60 s. Report the timings.
+- **G3 (A4, automated part):** while the packaged app runs these flows, poll top-level windows every 100 ms with Win32 `EnumWindows` and record any new visible window of the classes `ConsoleWindowClass` or `CASCADIA_HOSTING_WINDOW_CLASS` (Windows Terminal), or any window owned by a process in the app's process tree other than the app's own windows. The flows:
+  - a cold start with the engine not running;
+  - adding a Standard job and a Fast job;
+  - a trial, a compare and a model install;
+  - Quit.
+
+  The test passes when no such window appears. The owner then confirms by eye (section 9).
+- **G4 (A6, A7):** the catalog and compare checks from Parts M and C.
+
+## 5. Constraints
+
+- Windows 11, no WSL. All code, comments, UI text and docs in English.
+- Never commit media, weights, previews, generated videos, `node_modules`, build output, the owner's logs, or private sample names. Screenshots use synthetic footage only and stay outside the repository.
+- Do not change what the existing presets produce: the CPU fixture outputs stay byte-identical. A trial or compare for a given source range and settings produces the same frames as the whole-file trial. The D2 suite must keep passing.
+- Keep the service security model (localhost only, token, Host/Origin checks). No telemetry, no auto-update.
+- The CLI keeps working on the same store.
+- README (for non-engineers): "Using the app" covers Home, History, Schedule and comparing models. No technical terms beyond "NVIDIA RTX graphics card".
+- Update `docs/API.md`, `docs/GUI.md`, `docs/ADDING_MODELS.md` and `docs/TROUBLESHOOTING.md` for everything that changed.
+
+## 6. Acceptance criteria
+
+- **A2, A3, A4:** Part G (G1, G2, G3).
+- **A5:** Part U complete (the U-rest list plus Appendix A). Component tests cover:
+  - Home: now processing, up next, Change mode, the Problem panel, and seen-failure tracking;
+  - History: filters, search, relative dates, Retry, Compare again, and that Remove keeps the file;
+  - Schedule: drag edges, add, delete, keyboard, autosave and Undo, exception edit, the block menu, and the override;
+  - the Add dialog.
+
+  One Electron e2e test adds a synthetic file, sees it in Now processing, sees it finish, and sees it in History.
+- **A6:** Part M. Every catalog entry has:
+  - a verified URL and SHA-256, and its exact licence;
+  - a successful load through its adapter;
+  - a 5 s compare on the RTX 4060 Ti within the memory budget;
+  - its measured fps and peak memory in its manifest and in the report.
+
+  An entry that fails any of these is left out, with the reason. Install, Verify again, Make it my default and Remove work from the GUI. The default pipeline output is unchanged.
+- **A7:** Part C. Compare with 3 models on the GPU. An automated sync test uses synthetic clips with the frame number drawn in: for 100 random seeks and 300 played frames, all visible streams show the same frame index.
+- **A8:** checks are green. Engine: `ruff`, `ruff format --check`, `pyright`, CPU tests and the D2 suite. GUI: lint, typecheck, unit tests, build and e2e. CI is green on Windows and Ubuntu for the final commit; confirm it after pushing and record the run in the report.
+- **A9:** screenshots with synthetic footage of every screen, including Models and Compare, at 1280×800 and 1100×700, in dark and light, plus one at 150% scaling.
+
+## 7. Checks to run
+
+- Engine: `ruff check`, `ruff format --check`, `pyright`, `pytest -m "not gpu and not soak"`, `pytest tests/test_source_index.py` (CPU and GPU).
+- GUI: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e`, `npm run package`, the packaged smoke test, and G3.
+- Owner hardware: G1 to G4.
+
+## 8. GUI checks for the owner after the PR
+
+1. Open the app: no black console window appears, now or while it works.
+2. Drop a video on the window: the dialog shows Standard and Fast with their done times; Add to queue.
+3. Home shows the video large with a percent that starts moving within about half a minute.
+4. When a video finishes, it leaves Home and appears in History; Play opens it.
+5. On Schedule, drag the edge of an hours block: the finish time at the top changes, and "Saved · Undo" appears.
+6. Start a trial outside your hours: it starts at once.
+7. On Models, install one optional model, then "Compare on my video" with three models and switch between All side by side and Swipe two.
+
+
+
+## 9. Report (`.ai/LAST_REPORT.md`, English)
+
+- A summary per part, and A2 to A9 with PASS / FAIL / NOT RUN and their evidence.
+- Measured speed and memory for each catalog model, plus the omitted entries and why.
+- The G3 window log summary.
+- Screenshot paths (outside the repository).
+- A section "Questions for the designer", each with the default you chose meanwhile.
+- Known issues and exact reproduction steps.
+
+Never report a test as passed if it did not run.
+
+## Appendix A. Part U specification (unchanged from P1c)
 
 The owner approved the design canvas "VideoEnhancer UI Redesign" (screens Home, Add videos, History, Schedule, Models, Compare). You cannot open it, so this part is the complete specification. Replace the P1b look and layout; keep every P1b capability unless this part removes it. The wireframes below show structure; follow the tokens and the rules in the text for the exact look.
 
@@ -216,171 +409,3 @@ Same content as the P1b Settings page in the new style, grouped as: Defaults (mo
 
 English, short, no jargon on the main screens. Times are always concrete ("Done Thu 23:10", "8 h 15 m"), never only a percent. Use "mode" (Standard / Fast), "cleanup", "smoother motion", "your hours".
 
-## 5. Part M: optional model catalog (unchanged from P1c)
-
-### M1. What the catalog is
-
-Built-in manifests gain a `catalog` block so the Models screen can describe each model in plain words. Every catalog model is optional: nothing downloads without the owner's consent, and the current defaults (BasicVSR++ NTIRE21 Track 3 for cleanup, RIFE 4.25 for motion, the non-learned resize for size) keep producing exactly what they produce today.
-
-Suggested manifest additions (names are suggestions):
-
-```json
-"catalog": {
-  "category": "cleanup",
-  "title": "Gentle cleanup",
-  "description": "Removes blockiness and smeared detail using neighbouring frames. Keeps faces and the filtered look as they are.",
-  "look_change": "very_little",
-  "invents_detail": "low",
-  "flicker": "none",
-  "default": true,
-  "licence_plain": "Code free for any use; the weights' terms are not stated",
-  "reference_speed": {"gpu": "RTX 4060 Ti 8GB", "input": "720x1280", "output": "1080x1920", "fps": 2.38, "peak_memory_gb": 4.7}
-},
-"weights": {"url": "...", "mirrors": ["..."], "sha256": "...", "bytes": 0}
-```
-
-- `category`: `cleanup` (1x restoration), `motion` (frame interpolation), `size` (learned enlarging before the final resize). `faces` is reserved for P2 and shown as a disabled tab "Faces · coming later".
-- `look_change`: very_little / little / noticeable. `invents_detail`: low / medium / high (from the training type: fidelity-trained = low, perceptual or unknown losses = medium, GAN = high). `flicker`: none (video models) / possible (single-frame models).
-- `reference_speed` and memory are **measured by you** on the owner's RTX 4060 Ti (720×1280 input, 1080×1920 output, the model in its real pipeline position). Never copy speeds from papers. After a compare on the owner's PC, the GUI shows the speed measured there.
-- SHA-256 and size are computed by you from the downloaded file. Prefer the original publisher's URL; a mirror is allowed only if it serves a byte-identical file (same SHA-256).
-- `licence` keeps the exact licence string; `licence_plain` is the short text for the card ("Free for any use", "Free with credit (CC BY 4.0)", "Personal use only (non-commercial)").
-
-### M2. Catalog for this cycle
-
-Only models that run on the existing adapters (`basicvsrpp`, `rife`, `spandrel`), plus one small wrapper for DRUNet. Models that need a new adapter (FTVSR, EDVR, FastDVDnet, IFRNet, EMA-VFI) are out of scope for P1c.
-
-| Category | Card title | Model and weights (verify) | Licence | Character for the card | Look / invents detail / flicker |
-| --- | --- | --- | --- | --- | --- |
-| cleanup | **Gentle cleanup** (default, already installed) | BasicVSR++ NTIRE21 decompression Track 3 (`basicvsr_plusplus_c128n25_ntire_decompress_track3_20210304-6daf4a40.pth`) | Apache-2.0 code; weights' terms not stated | Removes blockiness and smeared detail using neighbouring frames. Keeps faces and the filtered look as they are. | very little / low / none |
-| cleanup | **Cleanup, other training** | BasicVSR++ NTIRE21 Track 1 (fixed-quality x265 training), existing adapter | Same | Same idea, trained on a different kind of compression. Usually looks almost the same; sometimes calmer. | very little / low / none |
-| cleanup | **Crisper cleanup** | BasicVSR++ NTIRE21 Track 2 (`..._ntire_decompress_track2_20210314-eeae05e6.pth`), existing adapter | Same | Trained to look sharper rather than to match the original exactly. Can add a little artificial sharpness. | little / medium / none |
-| cleanup | **Grain and noise calmer** | BasicVSR++ denoise (`basicvsr_plusplus_denoise-28f6920c.pth`, mid 64, 15 blocks), existing adapter | Same | Calms grain and noise across frames. Not made for blockiness; may soften very fine edges slightly. Faster than Gentle cleanup. | little / low / none |
-| cleanup | **Adjustable deblock** (Light / Medium / Strong) | DRUNet deblocking (`github.com/cszn/KAIR/releases/download/v1.0/drunet_deblocking_color.pth`) through spandrel with your own wrapper that passes the strength map (spandrel's default call fixes it); three catalog choices share one weights file | MIT | Smooths blocks and ringing on each picture without adding detail. Strong can look waxy. | little / low / possible |
-| cleanup | **All-round cleaner** | SCUNet real PSNR (`github.com/cszn/KAIR/releases/download/v1.0/scunet_color_real_psnr.pth`) | Apache-2.0 | Cleans mixed noise and compression on each picture. Calm, slightly smoothing. | little / low / possible |
-| cleanup | **Picture deblock** | FBCNN (already used as a benchmark candidate) | Apache-2.0 | Cleans each picture on its own. Good for calm clips; can flicker a little on moving ones. | little / low / possible |
-| cleanup | **H.264 remover (community)** | 1xDeH264_realplksr (`github.com/Phhofm/models/releases/download/1xDeH264_realplksr/1xDeH264_realplksr.safetensors`) | CC BY 4.0 | Made by the community for H.264 blockiness. Crisper, slower, and less predictable. | noticeable / medium / possible |
-| motion | **Smooth motion** (default, already installed) | RIFE 4.25 | MIT | Makes new in-between frames. Recommended by its author for most scenes. | very little / low / none |
-| motion | **Smooth motion, newest** | RIFE 4.26 (from the Practical-RIFE release; verify the source) | MIT | The newest version. Sometimes better on fast motion, sometimes not. | very little / low / none |
-| motion | **Smooth motion, faster** | RIFE 4.25 lite | MIT | Faster, slightly less accurate on fast motion. | very little / low / none |
-| size | **Standard resize** (default, no download) | the existing non-learned resize | none | Makes the picture bigger without AI. Never changes the look. | very little / low / none |
-| size | **Faithful 2× enlarger** | 2xLiveActionV1_SPAN (from `github.com/jcj83429/upscaling`) | CC BY-NC-SA 4.0 (personal use only) | Enlarges real-life video and tidies compression edges and halos. Keeps grain and colours. Can over-sharpen a little. | little / medium / possible |
-| size | **Sharper detail** | Real-ESRGAN realesr-general-x4v3 (and the `wdn` version for a blend) | BSD-3-Clause | Makes edges crisper. Can invent texture that was not there, so it may change skin and hair. | noticeable / medium / possible |
-
-Rules:
-
-- Do not add models that add skin texture or are GAN real-world video models (for example h264Texturize, SkinDiffDetail, RealBasicVSR). The product keeps the beauty-filter look and never redraws faces.
-- Every model must stay within the memory budget from P1a-6 (process total under 5 GB at 720×1280 → 1080×1920); single-frame models may use tiling with overlap. A model that cannot meet it, cannot be downloaded, or whose licence cannot be confirmed is left out, with the reason in the report.
-- The `size` stage runs after cleanup and before the final resize to the chosen size and before RIFE. With "Standard resize" the pipeline is exactly today's.
-
-### M3. Models screen (U6)
-
-```
-| Models                                       [Add my own model…] [Compare on my video] |
-| (Cleanup · 8) (Smoother motion · 3) (Bigger picture · 3) (Faces · coming later)        |
-| +--------------------------------+ +--------------------------------+ +-------------+ |
-| | Gentle cleanup        [Default]| | Crisper cleanup                | | Adjustable  | |
-| | BasicVSR++ · compressed video  | | BasicVSR++ · perceptual        | | deblock     | |
-| | Removes blockiness and smeared | | Trained to look sharper rather | | ...         | |
-| | detail using neighbouring ...  | | than to match the original...  | |             | |
-| | Speed      Changes the look  Licence                             | |             | |
-| | Slow       Very little       Free   | ...                        | |             | |
-| | 176 MB                [Installed]| | 176 MB              [Install] | |             | |
-| +--------------------------------+ +--------------------------------+ +-------------+ |
-```
-
-- Tabs per category with counts; Faces is disabled. Card grid (cards at least 320 px wide): title (17 px / 650), technical name (12 px, text-3), Default badge, description (14 px, text-2), three small facts (Speed: Fast / Medium / Slow / Very slow from the measured fps, with "about N h per hour of video" in the tooltip; Changes the look; Licence plain text), size, and one button: Install (accent) or Installed. The ⋯ menu has Make it my default, Verify again, Details (exact licence, source URL, SHA-256, measured speed and memory), Remove (refused for a model used by queued jobs: "Used by 2 videos in the queue").
-- Install opens the licence dialog from P1b (licence name and source URL, explicit agreement, consent recorded), then shows download progress and the SHA-256 result on the card.
-- "Make it my default" sets the default model of that category in Settings; Standard uses the cleanup default, both modes use the motion and size defaults. New jobs pick up defaults; queued jobs keep their settings.
-- The Add dialog's More options lists installed models per category (Cleanup model, Smoother motion, Bigger picture).
-- "Add my own model…" keeps the P1b validation; user models choose their category in their manifest (`docs/ADDING_MODELS.md` explains the new fields).
-
-## 6. Part C: compare models on the owner's video (unchanged from P1c except the analysis line)
-
-### C1. Engine
-
-- `POST compare` with `{file, start, seconds (3/5/10, default 5), models: [up to 3 model ids of the same category], settings}` returns one operation. It renders the source excerpt once ("Original", resized with the pipeline's own resize to the output size) and then each model through the real pipeline with that model in place of the stage it belongs to (other stages as in the settings). Previews are H.264 8-bit, as the Trial previews are.
-- Per model: progress, measured speed, and "about X h Y m for this video" from the measured speed and the estimator. Each model's preview is available as soon as it is done.
-- Scheduling as in S4 and analysis as in D1 (one source index and one range scene analysis per compare, shared by all models). A model that is not installed is installed first, only after its licence dialog.
-- Keep previews of the last 5 compare sessions (at most 2 GB, oldest removed first); previews tied to a job are removed with the job. Outside Git, under the engine home.
-- The P1b Trial (`POST trial`) stays for the API, and the GUI's Trial becomes Compare with one model (classic Original vs result).
-
-### C2. Compare screen
-
-```
-| [<]  Compare models                                                     [Change video…] |
-|      beach_walk.mp4 · 5 seconds from 0:42                                              |
-| 0:42 – 0:47   Picked a part with lots of motion. Drag the box to choose other seconds.   |
-| [▒▒▒▒[■]▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒]   (thumbnail strip)   |
-| Compare (Original) (✓ Gentle cleanup) (✓ Cleanup, alternative) (✓ Picture deblock)       |
-|         (+ Sharper detail · installs 5 MB)        [All side by side|Swipe two] [Fit|2×|4×] |
-| +----------+  +----------+  +----------+  +----------+                                  |
-| | Original |  | Gentle   |  | Cleanup, |  | Picture  |                                  |
-| |          |  | cleanup  |  | altern.  |  | deblock  |                                  |
-| |   9:16   |  |          |  |          |  |  Making  |                                  |
-| |          |  |          |  |          |  |  preview |                                  |
-| |          |  |          |  |          |  |  · 64%   |                                  |
-| +----------+  +----------+  +----------+  +----------+                                  |
-| Your file     Default       Calmer, a     Each frame                                   |
-| as it is      About 2 h 40m bit softer    on its own                                    |
-|               [Chosen]      [Use this]    Measuring speed…                              |
-| [|<] [▶] [>|]  ───────●───────────────  0:44.2 / 0:47.0  [Loop]  All pictures stay in step, frame by frame. |
-```
-
-- Top: a thumbnail strip of the whole source with a draggable box for the chosen seconds. The default range is the busiest part (most motion from the analysis data), else the middle. Changing the range renders again.
-- A small "Comparing: Cleanup ▾" selector before the chips picks the category (Cleanup, Smoother motion, Bigger picture); the other stages stay as in the job's settings.
-- Chips: Original is always shown; up to 3 installed models of one category can be selected (selected = filled chip with a check). Models not installed appear as dashed chips "+ Name · installs N MB" (opens the licence dialog, then installs and adds it). Changing the selection renders only what is missing.
-- Layouts: **All side by side** (portrait sources: up to 4 in one row, about 240 px wide each at 1280×800; landscape sources: a 2×2 grid) and **Swipe two** (one large picture with a draggable divider and a "Left"/"Right" picker for any two of the shown items; zoom 2× by default).
-- Zoom Fit / 2× / 4×, nearest neighbour when zoomed, with synchronized panning (drag any picture to move all of them). Frame step with buttons and the arrow keys, Play/Pause with Space, Loop, a position slider and "0:44.2 / 0:47.0".
-- Synchronization: extend the P1b WebCodecs frame clock to up to 4 streams; draw only when every visible stream has the same frame index.
-- Each tile: name label on the picture; two caption lines (character, "About 2 h 40 m for this video" or "Measuring speed…"); "Use this" sets the model for the job (only before it starts) or for the open Add dialog. For a job that already started the button is disabled with "Already started. Remove it and add it again to use another model." The chosen tile has an accent border and the button reads "Chosen". The tile's ⋯ menu has "Make it my default".
-- Opened from: Models "Compare on my video" (pick a file), Add dialog "Try models first", Home and Up next row menus, History "Compare again". The back button returns to where it was opened.
-
-## 7. Constraints
-
-- Windows 11, no WSL. All code, comments, UI text and docs in English.
-- Never commit media, weights, previews, generated videos, `node_modules`, build output, the owner's logs, or private sample names. Screenshots use synthetic footage only and stay outside the repository.
-- Do not change what the existing presets produce: the CPU fixture outputs stay byte-identical. A trial or compare for a given source range and settings produces the same frames as the whole-file trial (proved by D2).
-- Keep the service security model (localhost only, token, Host/Origin checks). No telemetry, no auto-update.
-- The CLI keeps working on the same store; CLI behaviour stays the same apart from the bug fixes.
-- README (for non-engineers): update "Using the app" for Home, History, Schedule and comparing models. No technical terms beyond "NVIDIA RTX graphics card".
-- Update `docs/API.md`, `docs/GUI.md`, `docs/ADDING_MODELS.md` and `docs/TROUBLESHOOTING.md` for everything that changed.
-
-## 8. Acceptance criteria
-
-- **A1** D2 equivalence tests pass on every fixture and range, and any fallback case is reported. On the owner's GPU: the long-source trial's analysis time, time to first rendered frame and frame-hash match are reported, and so is the first-use index time for a 2-hour and a 30-minute file.
-- **A2** Part S rest tests pass. On the RTX 4060 Ti, a Standard job shows a changing percent and "Work left" within 30 s of its first segment start (log timestamps).
-- **A3** Owner-PC queue run: three jobs in a row (Standard 30 s, Fast 30 s, Standard 2 min, synthetic or authorized clips), a trial while a job runs, and a trial outside operating hours. All finish; no job or trial stays at 0% for more than 60 s; report the timings.
-- **A4** No console window or flash appears at any point: cold start of the packaged app (engine not running), adding Standard and Fast jobs, a trial, a compare, a model install, Quit. The service and segment children are logged as running under `pythonw.exe`.
-- **A5** Part U implemented. Component tests cover Home (now processing, up next, banners, finished jobs leaving), History (filters, search, retry, remove keeps the file), Schedule editing (drag edges, add, delete, keyboard, autosave and Undo, exceptions, override) and the Add dialog. One Electron e2e test adds a synthetic file, sees it in Now processing, sees it finish, and sees it in History.
-- **A6** Part M: every catalog entry has a verified URL and SHA-256 and its exact licence, loads through its adapter, runs a 5 s compare on the RTX 4060 Ti within the memory budget, and has its measured fps and peak memory in its manifest and the report. An entry that fails any of these is left out with the reason. Install, Verify again, Make it my default and Remove work from the GUI. The default pipeline output is unchanged.
-- **A7** Part C: compare with 3 models on the GPU. An automated sync test uses synthetic clips with the frame number drawn in: for 100 random seeks and 300 played frames, all visible streams show the same frame index.
-- **A8** Checks green: `ruff`, `ruff format --check`, `pyright`, CPU tests, GUI lint, typecheck, unit tests, build and e2e; CI green on Windows and Ubuntu.
-- **A9** Screenshots (synthetic footage) of every screen at 1280×800 and 1100×700, dark and light, plus one at 150% scaling.
-
-## 9. Checks to run
-
-- Engine: `ruff check`, `ruff format --check`, `pyright`, `pytest -m "not gpu and not soak"` (CPU), plus the D2 equivalence suite.
-- GUI: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e`, `npm run package`, and the packaged smoke test.
-- Owner hardware: A1 (GPU part), A2, A3, A4, A6 and A7 on the RTX 4060 Ti. Use fresh `VE_HOME` folders, never the owner's existing queue.
-
-## 10. GUI checks for the owner after the PR
-
-1. Open the app: no black console window appears, now or while it works.
-2. Drop a video on the window: the dialog shows Standard and Fast with their done times; Add to queue.
-3. Home shows the video large with a percent that starts moving within about half a minute.
-4. When a video finishes, it leaves Home and appears in History; Play opens it.
-5. On Schedule, drag the edge of an hours block: the finish time at the top changes, and "Saved · Undo" appears.
-6. Start a trial outside your hours: it starts at once.
-7. On Models, install one optional model, then "Compare on my video" with three models and switch between All side by side and Swipe two.
-
-
-## 11. Report (`.ai/LAST_REPORT.md`, English)
-
-- A summary per part, and A1 to A9 with PASS / FAIL / NOT RUN and their evidence.
-- The D2 results per fixture and range.
-- Measured speed and memory for each catalog model.
-- Screenshot paths (outside the repository).
-- A section "Questions for the designer", each with the default you chose meanwhile.
-- Known issues and exact reproduction steps.
-
-Never report a test as passed if it did not run.
