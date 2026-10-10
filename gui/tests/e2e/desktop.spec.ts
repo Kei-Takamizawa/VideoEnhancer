@@ -1,11 +1,18 @@
 import { _electron, expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 const electron: string = createRequire(import.meta.url)("electron");
 
 test("desktop starts real CPU service, adds synthetic footage, streams completion and survives window close", async () => {
+  test.setTimeout(150000);
   const root = path.resolve("..");
   const evidence =
     process.env.VE_GUI_EVIDENCE || path.resolve("test-results/evidence");
@@ -19,9 +26,11 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
     "-f",
     "lavfi",
     "-i",
-    "testsrc2=size=320x180:rate=30",
+    "testsrc2=size=640x360:rate=30",
     "-frames:v",
-    "60",
+    "900",
+    "-vf",
+    `${existsSync("C:/Windows/Fonts/arial.ttf") ? "drawtext=fontfile='C\\:/Windows/Fonts/arial.ttf':" : "drawtext="}text='Frame %{n}':x=20:y=20:fontsize=32:fontcolor=white:box=1:boxcolor=black`,
     "-c:v",
     "libx264",
     "-pix_fmt",
@@ -42,9 +51,34 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
       process.env.VE_PYTHON || path.join(root, ".venv/Scripts/python.exe"),
   };
   delete env.ELECTRON_RUN_AS_NODE;
+  const fixture = path.join(env.VE_HOME, "previews", "sync-fixture");
+  mkdirSync(fixture, { recursive: true });
+  const names = ["original", "fixture-0", "fixture-1", "fixture-2"];
+  names.forEach((name) =>
+    copyFileSync(source, path.join(fixture, `${name}-preview.mp4`)),
+  );
+  writeFileSync(
+    path.join(fixture, "state.json"),
+    JSON.stringify({
+      id: "sync-fixture",
+      kind: "compare",
+      state: "done",
+      phase: "Complete",
+      request: { file: source },
+      result: {
+        original: "/v1/operations/sync-fixture/files/original",
+        items: names.slice(1).map((id) => ({
+          id,
+          preview: `/v1/operations/sync-fixture/files/${id}`,
+          fps: 30,
+          projected_whole_file_seconds: 30,
+        })),
+      },
+    }),
+  );
   const app = await _electron.launch({
     executablePath: electron,
-    args: ["."],
+    args: [".", `--user-data-dir=${path.join(run, "desktop")}`],
     env,
   });
   const page = await app.firstWindow();
@@ -87,6 +121,12 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
     ).toBeEnabled({ timeout: 30000 });
     await page.screenshot({ path: path.join(evidence, "add-synthetic.png") });
     await page.getByRole("button", { name: "Add to queue" }).click();
+    await expect(page.getByText("Now processing", { exact: true })).toBeVisible(
+      { timeout: 30000 },
+    );
+    await page.screenshot({
+      path: path.join(evidence, "now-processing-synthetic.png"),
+    });
     await page.getByRole("button", { name: "History", exact: true }).click();
     await expect(page.getByText("Finished", { exact: true })).toBeVisible({
       timeout: 40000,
@@ -161,9 +201,85 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
             `add-${theme}-${size.width}x${size.height}.png`,
           ),
         });
+        await page.getByRole("button", { name: "Try models first" }).click();
+        await expect(page.locator("canvas")).toHaveAttribute(
+          "data-frame",
+          /\d+/,
+        );
+        await expect(page.locator(".thumbnails img")).toHaveCount(8, {
+          timeout: 30000,
+        });
+        await page.screenshot({
+          path: path.join(
+            evidence,
+            `compare-${theme}-${size.width}x${size.height}.png`,
+          ),
+        });
+        await page.getByRole("button", { name: "Back", exact: true }).click();
         await page.getByRole("button", { name: "Close", exact: true }).click();
       }
     }
+    await page.getByRole("button", { name: "Models", exact: true }).click();
+    await page.getByRole("button", { name: "Compare on my video" }).click();
+    const canvas = page.locator("canvas");
+    await expect(canvas).toHaveAttribute("data-frame", /\d+/);
+    let random = 112358;
+    for (let i = 0; i < 100; i++) {
+      random = (random * 1664525 + 1013904223) >>> 0;
+      const frame = random % 900;
+      await page.getByLabel("Seek frame", { exact: true }).fill(String(frame));
+      await expect(canvas).toHaveAttribute("data-frame", String(frame));
+      expect(JSON.parse((await canvas.getAttribute("data-frames"))!)).toEqual([
+        frame,
+        frame,
+        frame,
+        frame,
+      ]);
+    }
+    await page.getByLabel("Seek frame", { exact: true }).fill("0");
+    await expect(canvas).toHaveAttribute("data-frame", "0");
+    await page.getByRole("button", { name: "Play preview" }).click();
+    const played = await page.evaluate(
+      () =>
+        new Promise<{ frames: number; mismatches: number }>((resolve) => {
+          const canvas = document.querySelector("canvas")!;
+          let frames = 0,
+            mismatches = 0,
+            previous = "";
+          const observe = () => {
+            const current = canvas.dataset.frame!;
+            if (current !== previous) {
+              previous = current;
+              frames++;
+              const indices = JSON.parse(canvas.dataset.frames!) as number[];
+              if (
+                indices.length !== 4 ||
+                indices.some((n) => n !== Number(current))
+              )
+                mismatches++;
+            }
+            if (frames >= 300) resolve({ frames, mismatches });
+            else requestAnimationFrame(observe);
+          };
+          requestAnimationFrame(observe);
+        }),
+    );
+    expect(played).toEqual({ frames: 300, mismatches: 0 });
+    writeFileSync(
+      path.join(evidence, "four-stream-sync.json"),
+      JSON.stringify(
+        {
+          randomSeeks: 100,
+          playedFrames: played.frames,
+          mismatches: played.mismatches,
+          evidence:
+            "Four synthetic H.264 clips with frame numbers; decoded timestamps share an integer frame clock.",
+        },
+        null,
+        2,
+      ),
+    );
+    await page.getByRole("button", { name: "Back", exact: true }).click();
     const discovery = JSON.parse(
       readFileSync(path.join(env.VE_HOME!, "serve.json"), "utf8"),
     );

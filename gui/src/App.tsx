@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { client, events, filename } from "./api";
 import type { Api } from "./api";
 import type {
@@ -73,6 +73,44 @@ export default function App() {
   const [plan, setPlan] = useState<Plan>();
   const scenario = "expected";
   const [settings, setSettings] = useState<Settings>();
+  const seenPending = useRef(new Set<string>());
+  const markSeen = useCallback(
+    (ids: string[]) => {
+      if (
+        !api ||
+        !settings ||
+        !ids.some(
+          (id) =>
+            !settings.seen_failures?.includes(id) &&
+            !seenPending.current.has(id),
+        )
+      )
+        return;
+      ids.forEach((id) => seenPending.current.add(id));
+      const seen = Array.from(
+        new Set([...(settings.seen_failures || []), ...seenPending.current]),
+      );
+      void api
+        .call("settings", "PUT", { seen_failures: seen })
+        .then(() =>
+          setSettings((previous) =>
+            previous
+              ? {
+                  ...previous,
+                  seen_failures: Array.from(
+                    new Set([...(previous.seen_failures || []), ...seen]),
+                  ),
+                }
+              : previous,
+          ),
+        )
+        .catch((error) => {
+          ids.forEach((id) => seenPending.current.delete(id));
+          setActionError(error.message);
+        });
+    },
+    [api, settings],
+  );
   const [schedule, setSchedule] = useState<Schedule>();
   const [models, setModels] = useState<Model[]>([]);
   const [generation, setGeneration] = useState(0);
@@ -82,6 +120,7 @@ export default function App() {
     settings: Settings;
     media?: Media;
     job_id?: string;
+    apply?: (key: "restore_model" | "interp_model", id: string) => void;
   }>();
   const [confirm, setConfirm] = useState<{ job: Job; name: string }>();
   const [log, setLog] = useState<string>();
@@ -281,9 +320,11 @@ export default function App() {
               <Icon name={name} />
               <span>{name}</span>
               {name === "Home" &&
-                queue.jobs.some((j) => j.state === "failed") && (
-                  <span className="warning-dot" />
-                )}
+                queue.jobs.some(
+                  (j) =>
+                    j.state === "failed" &&
+                    !settings?.seen_failures?.includes(j.id),
+                ) && <span className="warning-dot" />}
             </button>
           ))}
         </nav>
@@ -303,6 +344,13 @@ export default function App() {
         {health?.last_error && (
           <div className="error" role="alert">
             {health.last_error.time} · {health.last_error.message}
+            <button
+              onClick={() =>
+                window.desktop.copy(JSON.stringify(health.last_error, null, 2))
+              }
+            >
+              Copy details
+            </button>
           </div>
         )}
         {actionError && (
@@ -319,6 +367,8 @@ export default function App() {
             api={api}
             reconnecting={reconnecting}
             navigate={setPage}
+            seenFailures={settings?.seen_failures}
+            seen={markSeen}
             pauseAll={() =>
               void operate("processing", {
                 paused: health?.engine_state !== "Paused",
@@ -339,6 +389,7 @@ export default function App() {
         )}
         {page === "History" && (
           <HistoryPage
+            seen={markSeen}
             queue={queue}
             api={api}
             action={action}
@@ -363,6 +414,12 @@ export default function App() {
         )}
         {page === "Models" && api && (
           <ModelsPage
+            compare={async () => {
+              const chosen = await window.desktop.files("videos");
+              if (chosen[0] && settings)
+                setTrial({ file: chosen[0], settings });
+            }}
+            settings={settings}
             api={api}
             models={models}
             refresh={() =>
@@ -393,13 +450,33 @@ export default function App() {
           av1={health?.av1_supported}
           close={() => setFiles(undefined)}
           saved={() => setFiles(undefined)}
-          trial={(file, prefs, media) =>
-            setTrial({ file, settings: prefs, media })
+          trial={(file, prefs, media, apply) =>
+            setTrial({ file, settings: prefs, media, apply })
           }
         />
       )}
       {trial && api && (
         <TrialDialog
+          models={models}
+          started={
+            !!trial.job_id &&
+            queue.jobs.some(
+              (j) =>
+                j.id === trial.job_id &&
+                (!!j.started_at ||
+                  j.segment > 0 ||
+                  !["queued", "paused"].includes(j.state)),
+            )
+          }
+          useModel={async (key, id) => {
+            if (trial.apply) trial.apply(key, id);
+            else if (trial.job_id)
+              await api.call(`queue/${trial.job_id}/model`, "POST", {
+                [key]: id,
+              });
+            else await api.call("settings", "PUT", { [key]: id });
+            await refresh();
+          }}
           api={api}
           value={trial}
           operations={queue.operations}
@@ -420,7 +497,22 @@ export default function App() {
             {resultOperation?.state === "done" && (
               <Compare api={api} operation={resultOperation} />
             )}
-            <button onClick={() => setResultPreview(undefined)}>Close</button>
+            <button
+              onClick={async () => {
+                try {
+                  await api.call(
+                    `operations/${resultPreview}/cancel`,
+                    "POST",
+                    {},
+                  );
+                  setResultPreview(undefined);
+                } catch (error) {
+                  setActionError((error as Error).message);
+                }
+              }}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}

@@ -1,5 +1,6 @@
 """CPU-only previews of durable results; never acquires the GPU work lease."""
 
+from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,12 @@ from videoenhancer.media.timing import output_rate, output_size
 from videoenhancer.pipeline.stages import FrameBatch, ResizeStage
 
 
-def render_result_preview(job: dict[str, Any], job_dir: Path, folder: Path) -> dict[str, Any]:
+def render_result_preview(
+    job: dict[str, Any],
+    job_dir: Path,
+    folder: Path,
+    cancelled: Callable[[], bool] = lambda: False,
+) -> dict[str, Any]:
     segment = next((s for s in job["segments"] if s["state"] == "done"), None)
     if segment is None:
         raise ValueError("The first completed step is not ready yet.")
@@ -32,9 +38,11 @@ def render_result_preview(job: dict[str, Any], job_dir: Path, folder: Path) -> d
     try:
         for position, frame in zip(
             range(first, last),
-            decoder.frames(job["cfr_map"][first:last], lambda: False),
+            decoder.frames(job["cfr_map"][first:last], cancelled),
             strict=True,
         ):
+            if cancelled():
+                raise InterruptedError("Preview cancelled.")
             batch = FrameBatch(torch.stack([frame]), (Fraction(position) / rate,), (position,))
             image = resize.process(batch).frames[0]
             for _ in range(factor):
@@ -52,7 +60,7 @@ def render_result_preview(job: dict[str, Any], job_dir: Path, folder: Path) -> d
             raise ValueError("This step's result is unavailable. Wait for the next completed step.")
         processed = Path(job["output"])
         seek = first / float(rate)
-    proc.run(
+    proc.run_cancellable(
         [
             executable("ffmpeg"),
             "-v",
@@ -77,8 +85,7 @@ def render_result_preview(job: dict[str, Any], job_dir: Path, folder: Path) -> d
             "2",
             str(folder / "enhanced-preview.mp4"),
         ],
-        capture_output=True,
-        check=True,
+        cancelled,
         timeout=60,
     )
     return dict(

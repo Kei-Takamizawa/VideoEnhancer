@@ -46,6 +46,22 @@ class ServiceClock(SystemClock):
         self.event.wait(seconds)
 
 
+def _scenario_jobs(jobs: list[dict[str, Any]], scenario: str) -> list[dict[str, Any]]:
+    result = copy.deepcopy(jobs)
+    for job in result:
+        estimate = estimate_job(job)
+        ratio = (estimate.low if scenario == "best" else estimate.high) / max(
+            estimate.seconds, 0.000001
+        )
+        job["correction_factor"] = job.get("correction_factor", 1) * ratio
+        profile = job.get("machine_profile") or {}
+        job["machine_profile"] = {
+            **profile,
+            "finalization_correction": profile.get("finalization_correction", 1) * ratio,
+        }
+    return result
+
+
 class Engine:
     def __init__(
         self, home: Path, *, test_stuck_trial: bool = False, test_trial_timeout: float | None = None
@@ -61,6 +77,7 @@ class Engine:
         self.last_error: dict[str, Any] | None = None
         self.live_progress: dict[str, dict[str, Any]] = {}
         self._preparations: list[threading.Thread] = []
+        self.preview_threads: dict[str, threading.Thread] = {}
         self.paused = False
         self.environment: dict[str, Any] = {}
         self.worker = threading.Thread(target=self._worker, name="engine-controller", daemon=True)
@@ -183,6 +200,11 @@ class Engine:
 
     def close(self) -> None:
         self.stop.set()
+        deadline = time.monotonic() + 15
+        for thread in list(self.preview_threads.values()):
+            thread.join(timeout=max(0, deadline - time.monotonic()))
+            if thread.is_alive():
+                raise RuntimeError("Preview has not stopped. Keep the app open and retry Quit.")
         for process in list(self.processes.values()):
             if process.poll() is None:
                 _kill_process_tree(process.pid)
@@ -276,7 +298,7 @@ class Engine:
             active = next((s for s in j["segments"] if s["state"] == "running"), None)
             stats = done[-1].get("stats", {}) if done else {}
             preview_running = any(
-                op["kind"] == "trial" and op["state"] == "running"
+                op["kind"] in {"trial", "compare"} and op["state"] == "running"
                 for op in list(self.operations.values())
             )
             if preview_running and j["state"] == "queued":
@@ -407,8 +429,13 @@ class Engine:
     def chosen(self, value: dict[str, Any]) -> dict[str, Any]:
         prefs = read_settings(self.home)
         settings = {k: prefs[k] for k in ("preset", "codec", "short_side", "fps")}
+        for key in ("restore_model", "interp_model"):
+            if prefs[key]:
+                settings[key] = prefs[key]
         settings.update(prefs["advanced"])
         settings.update(value)
+        if settings["preset"] != "standard":
+            settings.pop("restore_model", None)
         settings["backend"] = choose_backend(settings.get("backend", "auto"))
         if settings["preset"] not in {"standard", "fast", "passthrough", "resize", "p0-test"}:
             raise ValueError("Invalid preset.")
@@ -518,7 +545,7 @@ class Engine:
 
         def prepare() -> None:
             try:
-                chosen = self.chosen(value.get("settings", {}))
+                chosen = self.chosen(settings)
                 registry = ModelRegistry(self.home)
                 for task, model_id in selected_models(chosen).items():
                     registry.weights(registry.manifest(model_id, task), download=False)
@@ -595,7 +622,7 @@ class Engine:
         return {"removed": job_id, "output_preserved": True}
 
     def operation(self, kind: str, value: dict[str, Any]) -> dict[str, Any]:
-        if kind == "trial":
+        if kind in {"trial", "compare"}:
             if value.get("seconds", 5) not in {3, 5, 10}:
                 raise ValueError("Trial length must be 3, 5 or 10 seconds.")
             value = {**value, "settings": self.chosen(value.get("settings", {}))}
@@ -604,6 +631,23 @@ class Engine:
                 if Path(value["file"]).resolve() != Path(job["input"]["path"]).resolve():
                     raise ValueError("The trial file must match its job.")
                 value["settings"] = job["settings"]
+            if kind == "compare":
+                models = value.get("models")
+                if (
+                    not isinstance(models, list)
+                    or any(not isinstance(model_id, str) for model_id in models)
+                    or not 1 <= len(models) <= 3
+                    or len(set(models)) != len(models)
+                ):
+                    raise ValueError("Choose one to three different models of the same category.")
+                registry = ModelRegistry(self.home)
+                manifests = [registry.manifest(model_id) for model_id in models]
+                if len({m["task"] for m in manifests}) != 1:
+                    raise ValueError("Choose models of the same category.")
+                for model in manifests:
+                    registry.weights(model, download=False)
+                for task, model_id in selected_models(value["settings"]).items():
+                    registry.weights(registry.manifest(model_id, task), download=False)
             if value["settings"]["preset"] not in {"standard", "fast"}:
                 raise ValueError("Trial preset must be Standard or Fast.")
             geometry = self.geometry_warning(
@@ -650,19 +694,29 @@ class Engine:
 
             try:
                 result = render_result_preview(
-                    job, self.store.job_dir(job_id), self.home / "previews" / op["id"]
+                    job,
+                    self.store.job_dir(job_id),
+                    self.home / "previews" / op["id"],
+                    lambda: self.stop.is_set() or bool(op.get("cancel_requested")),
                 )
+                if self.stop.is_set() or op.get("cancel_requested"):
+                    raise InterruptedError("Preview cancelled.")
                 result["preview"] = {
                     name: f"/v1/operations/{op['id']}/files/{name}"
                     for name in ("original", "enhanced")
                 }
                 op.update(result=result, state="done", phase="Complete")
             except Exception as error:
-                op.update(state="failed", error=str(error))
+                cancelled = self.stop.is_set() or op.get("cancel_requested")
+                op.update(state="cancelled" if cancelled else "failed", error=str(error))
             finally:
+                if op["state"] != "done":
+                    for partial in (self.home / "previews" / op["id"]).glob("*.mp4"):
+                        partial.unlink(missing_ok=True)
                 self._save_operation(op)
 
         thread = threading.Thread(target=render, name="result-preview", daemon=True)
+        self.preview_threads[op["id"]] = thread
         self._preparations.append(thread)
         thread.start()
         return op
@@ -697,6 +751,38 @@ class Engine:
         finally:
             self.processes.pop(op["id"], None)
             self._save_operation(op)
+            if op["kind"] == "compare":
+                if op["state"] != "done":
+                    for path in (self.home / "previews" / op["id"]).glob("*.mp4"):
+                        path.unlink(missing_ok=True)
+                    op.pop("result", None)
+                    self._save_operation(op)
+                self._prune_compare_cache()
+
+    def _prune_compare_cache(self) -> None:
+        sessions = sorted(
+            (
+                o
+                for o in self.operations.values()
+                if o["kind"] == "compare" and o["state"] == "done"
+            ),
+            key=lambda o: o.get("created_at", ""),
+            reverse=True,
+        )
+        used = 0
+        for index, session in enumerate(sessions):
+            folder = self.home / "previews" / session["id"]
+            size = sum(p.stat().st_size for p in folder.glob("*.mp4"))
+            if index >= 5 or used + size > 2_000_000_000:
+                for path in folder.glob("*.mp4"):
+                    path.unlink(missing_ok=True)
+                session.pop("result", None)
+                session.update(
+                    state="expired", phase="Preview removed to make room. Compare again."
+                )
+                self._save_operation(session)
+            else:
+                used += size
 
     def _run_operation(self, op: dict[str, Any]) -> None:
         folder = self.home / "previews" / op["id"]
@@ -710,7 +796,7 @@ class Engine:
         from videoenhancer.estimate import predict_segment
 
         predicted = 0.0
-        if op["kind"] == "trial":
+        if op["kind"] in {"trial", "compare"}:
             media = (
                 self.store.load(value["job_id"])["media"]
                 if value.get("job_id")
@@ -720,6 +806,8 @@ class Engine:
             predicted = predict_segment(
                 media, value["settings"], frames, load_machine_profile(self.home)
             )
+            if op["kind"] == "compare":
+                predicted *= len(value["models"])
         deadline = time.monotonic() + (
             self._test_trial_timeout
             if self._test_stuck_trial and self._test_trial_timeout is not None
@@ -727,7 +815,7 @@ class Engine:
         )
 
         def abort() -> bool:
-            if op["kind"] == "trial" and time.monotonic() >= deadline:
+            if op["kind"] in {"trial", "compare"} and time.monotonic() >= deadline:
                 op["cancel_requested"] = True
                 op["timed_out"] = True
                 op["phase"] = "The preview took too long. Try again."
@@ -841,18 +929,7 @@ class Engine:
                 if scenario not in {"best", "expected", "worst"}:
                     raise ValueError("Estimate scenario must be best, expected or worst.")
                 if scenario != "expected":
-                    for job in jobs:
-                        estimate = estimate_job(job)
-                        ratio = (estimate.low if scenario == "best" else estimate.high) / max(
-                            estimate.seconds, 0.000001
-                        )
-                        job["correction_factor"] = job.get("correction_factor", 1) * ratio
-                        profile = job.get("machine_profile") or {}
-                        job["machine_profile"] = {
-                            **profile,
-                            "finalization_correction": profile.get("finalization_correction", 1)
-                            * ratio,
-                        }
+                    jobs = _scenario_jobs(jobs, scenario)
                 return _jobs_plan(jobs, self.home, 120)
             if len(parts) == 3 and parts[0] == "queue" and parts[2] == "log":
                 self.store.load(parts[1])
@@ -938,6 +1015,12 @@ class Engine:
             return self.remove(parts[1])
         if len(parts) == 3 and parts[0] == "queue" and method == "POST":
             job_id, action = parts[1:]
+            if action == "mode":
+                return self.store.change_mode(job_id, value.get("preset", ""))
+            if action == "model":
+                return self.store.change_mode(
+                    job_id, self.store.load(job_id)["settings"]["preset"], value
+                )
             if action == "move":
                 self.store.move(job_id, int(value["position"]))
                 return {"moved": job_id}
@@ -972,13 +1055,15 @@ class Engine:
                     job["progress"] = self.live_progress[job["id"]]
             return {
                 "plan": build_plan(jobs, schedule, now, 120),
+                "best": build_plan(_scenario_jobs(jobs, "best"), schedule, now, 120),
+                "worst": build_plan(_scenario_jobs(jobs, "worst"), schedule, now, 120),
                 "next_window": window.to_dict() if window else None,
             }
         if route == "schedule/override" and method == "POST":
             schedule = _schedule_payload(self.home)
             schedule["override_until"] = value.get("until")
             return _save_schedule(self.home, schedule)
-        if route in {"trial", "calibrate"} and method == "POST":
+        if route in {"trial", "compare", "calibrate"} and method == "POST":
             return self.operation(route, value)
         if len(parts) == 3 and parts[0] == "queue" and parts[2] == "preview" and method == "POST":
             return self.result_preview(parts[1])
@@ -990,6 +1075,23 @@ class Engine:
             registry = ModelRegistry(self.home)
             model = registry.manifest(parts[1])
             if method == "DELETE":
+                used = sum(
+                    parts[1] in selected_models(j["settings"]).values()
+                    for j in self.store.list_jobs()
+                    if j["state"] not in {"done", "failed", "cancelled"}
+                )
+                if used:
+                    raise ValueError(f"Used by {used} videos in the queue")
+                if any(
+                    (
+                        parts[1]
+                        in selected_models(o.get("request", {}).get("settings", {})).values()
+                        or parts[1] in o.get("request", {}).get("models", [])
+                    )
+                    for o in self.operations.values()
+                    if o["state"] in {"waiting", "running"}
+                ):
+                    raise ValueError("Used by a preview that is still running")
                 registry.remove(parts[1])
                 return {"removed": parts[1]}
             if len(parts) == 3 and parts[2] in {"download", "verify"}:

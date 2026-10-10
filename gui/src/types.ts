@@ -10,6 +10,8 @@ export type Settings = {
   advanced: Record<string, number>;
   backend?: string;
   restore_model?: string;
+  interp_model?: string;
+  seen_failures?: string[];
 };
 export type Media = {
   display_width: number;
@@ -45,6 +47,7 @@ export type Job = {
   log: string;
   overrun_seconds?: number;
   finished_at?: string;
+  started_at?: string;
   took_seconds?: number;
   output_bytes?: number;
   starts?: string;
@@ -58,7 +61,7 @@ export type Operation = {
   percent?: number;
   error?: string;
   job_id?: string;
-  request?: { file?: string };
+  request?: { file?: string; model_id?: string };
   result?: {
     pipeline?: { fps: number };
     output_fps?: number;
@@ -66,6 +69,15 @@ export type Operation = {
     sha256?: string;
     bytes?: number;
     weights_verified?: boolean;
+    original?: string;
+    start_seconds?: number;
+    items?: {
+      id: string;
+      name?: string;
+      preview: string;
+      fps: number;
+      projected_whole_file_seconds: number;
+    }[];
   };
 };
 export type Queue = {
@@ -113,6 +125,8 @@ export type Plan = {
     job_id: string;
     phase: string;
     overrun_seconds?: number;
+    start_percent?: number;
+    end_percent?: number;
   })[];
   jobs: { job_id: string; completion: string | null }[];
 };
@@ -127,6 +141,23 @@ export type Model = {
   builtin: boolean;
   weights_verified: boolean;
   weights: { url?: string; sha256: string };
+  catalog?: {
+    category: "cleanup" | "motion" | "size";
+    title: string;
+    description: string;
+    look_change: "very_little" | "little" | "noticeable";
+    invents_detail: "low" | "medium" | "high";
+    flicker: "none" | "possible";
+    default?: boolean;
+    licence_plain: string;
+    reference_speed?: {
+      gpu: string;
+      input: string;
+      output: string;
+      fps: number;
+      peak_memory_gb: number;
+    };
+  };
 };
 export type Connection = { base_url: string; token: string };
 export interface Desktop {

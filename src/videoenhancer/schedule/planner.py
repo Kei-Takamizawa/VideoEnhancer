@@ -166,6 +166,7 @@ def build_plan(
             if selected["total"]
             else 100.0
         )
+        timeline[-1].update(start_percent=before, end_percent=after)
         split = cursor
         while split < finish:
             day = split.astimezone(schedule.zone).date()

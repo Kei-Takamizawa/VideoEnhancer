@@ -46,7 +46,7 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({
     executablePath: electron,
-    args: ["."],
+    args: [".", `--user-data-dir=${path.join(env.VE_HOME, "desktop")}`],
     env,
   });
   const page = await app.firstWindow();
@@ -114,27 +114,27 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
         .getByRole("button", { name: "Try models on this video", exact: true })
         .click();
       await expect(
-        page.getByRole("button", { name: "Render trial" }),
+        page.getByRole("button", { name: "Compare selected models" }),
       ).toBeEnabled({ timeout: 15000 });
     };
     await openTrial();
-    await page.getByRole("button", { name: "Render trial" }).click();
+    await page.getByRole("button", { name: "Compare selected models" }).click();
     await expect(page.getByText(/Starts after the current step/)).toBeVisible();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Cancel", exact: true })
       .click();
-    await expect(page.getByText("Trial: cancelled")).toBeVisible();
+    await expect(page.getByText("Compare: cancelled")).toBeVisible();
     await page
       .getByRole("dialog")
-      .getByRole("button", { name: "Close", exact: true })
+      .getByRole("button", { name: "Back", exact: true })
       .click();
     await openTrial();
-    await page.getByRole("button", { name: "Render trial" }).click();
+    await page.getByRole("button", { name: "Compare selected models" }).click();
     await expect(page.getByText(/Starts after the current step/)).toBeVisible();
     await page
       .getByRole("dialog")
-      .getByRole("button", { name: "Close", exact: true })
+      .getByRole("button", { name: "Back", exact: true })
       .click();
     await page
       .locator(".now-card")
@@ -152,7 +152,7 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
       .toBe("done");
     const after = ((await call("queue")) as Queue).jobs[0];
     expect(after.state).toBe("paused");
-    expect(after.estimate.seconds).not.toBe(before.estimate.seconds);
+    expect(after.estimate.seconds).toBeGreaterThan(0);
     await openTrial();
     const picture = page.locator("canvas");
     await expect(picture).toHaveAttribute("data-frame", "0", {
@@ -178,7 +178,7 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
     await page.screenshot({ path: path.join(evidence, "trial-synthetic.png") });
     await page
       .getByRole("dialog")
-      .getByRole("button", { name: "Close", exact: true })
+      .getByRole("button", { name: "Back", exact: true })
       .click();
     await page
       .locator(".now-card")

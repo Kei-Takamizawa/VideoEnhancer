@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+import time
+from collections.abc import Callable
 from typing import Any
 
 STDERR_LIMIT = 64 * 1024
@@ -51,6 +53,32 @@ class Popen(subprocess.Popen):
 def stderr_text(process: Popen) -> str:
     tail = process.diagnostic_tail()
     return tail if isinstance(tail, str) else tail.decode(errors="replace")
+
+
+def run_cancellable(command: list[str], cancelled: Callable[[], bool], timeout: float) -> None:
+    """Run a quiet encoder with bounded cancellation and drained diagnostics."""
+    if cancelled():
+        raise InterruptedError("Preview cancelled.")
+    with Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE) as process:
+        deadline = time.monotonic() + timeout
+        try:
+            while process.poll() is None:
+                if cancelled():
+                    raise InterruptedError("Preview cancelled.")
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Preview encoding took too long.")
+                try:
+                    process.wait(timeout=0.1)
+                except subprocess.TimeoutExpired:
+                    pass
+            if cancelled():
+                raise InterruptedError("Preview cancelled.")
+            if process.returncode:
+                raise RuntimeError(stderr_text(process) or "Preview encoding failed.")
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
 
 
 def run(

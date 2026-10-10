@@ -243,7 +243,12 @@ export function AddDialog({
   av1?: boolean;
   close(): void;
   saved(): void;
-  trial(file: string, settings: Settings, media?: Media): void;
+  trial(
+    file: string,
+    settings: Settings,
+    media?: Media,
+    apply?: (key: "restore_model" | "interp_model", id: string) => void,
+  ): void;
 }) {
   const [settings, setSettings] = useState({ ...defaults });
   const added = useRef(new Set<string>());
@@ -328,7 +333,29 @@ export function AddDialog({
           ))}
         </div>
         <details>
-          <summary>More options</summary>
+          <summary className="output-summary">
+            <span>
+              Output:{" "}
+              {settings.short_side === "keep"
+                ? "Original size"
+                : `${settings.short_side}p`}{" "}
+              ·{" "}
+              {previews[files[0]]
+                ? (() => {
+                    const [n, d = "1"] =
+                      previews[files[0]].media.cfr_fps.split("/");
+                    return `${((Number(n) / Number(d)) * (settings.fps === "2x" ? 2 : 1)).toFixed(0)} fps`;
+                  })()
+                : settings.fps === "2x"
+                  ? "Double frame rate"
+                  : "Original frame rate"}{" "}
+              · {settings.codec.toUpperCase()} ·{" "}
+              {settings.output_folder
+                ? `Saved in ${settings.output_folder}`
+                : 'Saved next to the original, in "enhanced"'}
+            </span>
+            <span>More options</span>
+          </summary>
           <div className="form-grid">
             <label>
               Mode
@@ -418,6 +445,28 @@ export function AddDialog({
                 ))}
             </select>
           </label>
+          <label>
+            Smoother motion
+            <select
+              value={settings.interp_model || ""}
+              onChange={(e) => field("interp_model", e.target.value)}
+            >
+              <option value="">Preset default</option>
+              {models
+                .filter((m) => m.task === "interpolate" && m.weights_verified)
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.catalog?.title || m.display_name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label>
+            Bigger picture
+            <select disabled value="standard">
+              <option value="standard">Standard resize</option>
+            </select>
+          </label>
         </details>
         <div className="estimate-list">
           {loading && <p role="status">Preparing…</p>}
@@ -467,7 +516,9 @@ export function AddDialog({
           </button>
           <button
             disabled={busy || !previews[files[0]]}
-            onClick={() => trial(files[0], settings, previews[files[0]]?.media)}
+            onClick={() =>
+              trial(files[0], settings, previews[files[0]]?.media, field)
+            }
           >
             Try models first
           </button>

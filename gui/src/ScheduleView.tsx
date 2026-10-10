@@ -40,6 +40,16 @@ export function ScheduleView({
   const [draft, setDraft] = useState(value),
     [preview, setPreview] = useState<Plan>(),
     [freePlan, setFreePlan] = useState<Plan>();
+  const [bounds, setBounds] = useState<{ best?: Plan; worst?: Plan }>({});
+  const [saveCount, setSaveCount] = useState(0);
+  const [exceptionEditor, setExceptionEditor] = useState(false);
+  const [blockMenu, setBlockMenu] = useState<{
+    day: string;
+    weekday: number;
+    row: boolean[];
+    start: number;
+  }>();
+  const [tooltip, setTooltip] = useState("");
   const [undo, setUndo] = useState<Schedule>(),
     [saved, setSaved] = useState(false),
     [error, setError] = useState("");
@@ -50,6 +60,7 @@ export function ScheduleView({
     [exceptionStart, setExceptionStart] = useState("09:00"),
     [exceptionEnd, setExceptionEnd] = useState("18:00"),
     [until, setUntil] = useState("");
+  const [exceptionExtra, setExceptionExtra] = useState<Window[]>([]);
   const suppressClick = useRef(false);
   const drag = useRef<
     | {
@@ -80,10 +91,15 @@ export function ScheduleView({
     let alive = true;
     const timer = setTimeout(() => {
       void api
-        .call<{ plan: Plan }>("schedule/preview", "POST", draft)
+        .call<{ plan: Plan; best?: Plan; worst?: Plan }>(
+          "schedule/preview",
+          "POST",
+          draft,
+        )
         .then((p) => {
           if (alive) {
             setPreview(p.plan);
+            setBounds({ best: p.best, worst: p.worst });
             setError("");
           }
         })
@@ -125,6 +141,7 @@ export function ScheduleView({
           if (alive) {
             setUndo(previous);
             setSaved(true);
+            setSaveCount((previous) => previous + 1);
             appliedCallback.current();
           }
         })
@@ -141,7 +158,7 @@ export function ScheduleView({
     if (!saved) return;
     const timer = setTimeout(() => setSaved(false), 8000);
     return () => clearTimeout(timer);
-  }, [saved]);
+  }, [saved, saveCount]);
   const shown = preview || plan;
   const grid = cells(draft);
   const rowFor = (day: string, weekday: number) => {
@@ -210,6 +227,12 @@ export function ScheduleView({
         <div>
           <h1>Schedule</h1>
           <p>Everything finishes {when(completion(shown))}</p>
+          {bounds.best && bounds.worst && (
+            <p className="muted">
+              could be {when(completion(bounds.best))} –{" "}
+              {when(completion(bounds.worst))}
+            </p>
+          )}
         </div>
         <label className="check">
           <input
@@ -280,6 +303,11 @@ export function ScheduleView({
         <p className="error" role="alert">
           {error}
         </p>
+      )}
+      {tooltip && (
+        <div role="tooltip" id="work-tooltip" className="work-tooltip">
+          {tooltip}
+        </div>
       )}
       <div className="schedule-columns">
         <article className="card">
@@ -387,8 +415,31 @@ export function ScheduleView({
                       tabIndex={0}
                       role="group"
                       aria-label={`${day.date} ${time(block.start)}–${block.end === 96 ? "24:00" : time(block.end)}`}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        if (draft.enabled)
+                          setBlockMenu({
+                            day: day.date,
+                            weekday,
+                            row,
+                            start: block.start,
+                          });
+                      }}
                       onKeyDown={(e) => {
                         if (!draft.enabled) return;
+                        if (
+                          e.key === "ContextMenu" ||
+                          (e.shiftKey && e.key === "F10")
+                        ) {
+                          e.preventDefault();
+                          setBlockMenu({
+                            day: day.date,
+                            weekday,
+                            row,
+                            start: block.start,
+                          });
+                        }
+                        if (e.key === "Escape") setBlockMenu(undefined);
                         if (e.key === "Delete") {
                           e.preventDefault();
                           moveRange(
@@ -467,6 +518,54 @@ export function ScheduleView({
                         {block.end === 96 ? "24:00" : time(block.end)}
                       </span>
                       <button
+                        className="block-menu-trigger"
+                        aria-label={`Options for ${day.date} ${time(block.start)}`}
+                        disabled={!draft.enabled}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setBlockMenu({
+                            day: day.date,
+                            weekday,
+                            row,
+                            start: block.start,
+                          });
+                        }}
+                      >
+                        ⋯
+                      </button>
+                      {blockMenu?.day === day.date &&
+                        blockMenu.start === block.start && (
+                          <div
+                            role="menu"
+                            className="row-menu"
+                            onPointerDown={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              role="menuitem"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                writeRow(
+                                  day.date,
+                                  weekday,
+                                  blockMenu.row,
+                                  true,
+                                );
+                                setBlockMenu(undefined);
+                              }}
+                            >
+                              Only on{" "}
+                              {new Date(
+                                `${day.date}T12:00:00Z`,
+                              ).toLocaleDateString("en-US", {
+                                weekday: "short",
+                                timeZone: "UTC",
+                              })}{" "}
+                              {day.date.slice(5).replace("-", "/")}
+                            </button>
+                          </div>
+                        )}
+                      <button
                         className="remove-block"
                         aria-label={`Remove ${day.date} ${time(block.start)}`}
                         disabled={!draft.enabled}
@@ -499,6 +598,19 @@ export function ScheduleView({
                         className="planned-block"
                         key={i}
                         tabIndex={0}
+                        aria-describedby={tooltip ? "work-tooltip" : undefined}
+                        onFocus={() =>
+                          setTooltip(
+                            `${filename(jobs.find((j) => j.id === t.job_id)?.input || t.job_id)} ${(t.start_percent || 0).toFixed(0)}% → ${(t.end_percent || 0).toFixed(0)}%, done ${when(t.end)}${t.overrun_seconds ? ` · Finishing one step after your hours, about ${Math.ceil(t.overrun_seconds / 60)} min` : ""}`,
+                          )
+                        }
+                        onBlur={() => setTooltip("")}
+                        onMouseEnter={() =>
+                          setTooltip(
+                            `${filename(jobs.find((j) => j.id === t.job_id)?.input || t.job_id)} ${(t.start_percent || 0).toFixed(0)}% → ${(t.end_percent || 0).toFixed(0)}%, done ${when(t.end)}${t.overrun_seconds ? ` · Finishing one step after your hours, about ${Math.ceil(t.overrun_seconds / 60)} min` : ""}`,
+                          )
+                        }
+                        onMouseLeave={() => setTooltip("")}
                         style={{
                           left: `${(timelineHour(t.start, day.date, shown.timezone) / 24) * 100}%`,
                           width: `${((timelineHour(t.end, day.date, shown.timezone) - timelineHour(t.start, day.date, shown.timezone)) / 24) * 100}%`,
@@ -525,12 +637,6 @@ export function ScheduleView({
                         ? "free"
                         : "off"}
                 </span>
-                <button
-                  className="date-only"
-                  onClick={() => writeRow(day.date, weekday, row, true)}
-                >
-                  Only on {day.date.slice(5)}
-                </button>
               </div>
             );
           })}
@@ -544,12 +650,25 @@ export function ScheduleView({
             <h2>Exceptions</h2>
             {draft.exceptions.map((e) => (
               <div key={e.date}>
-                <span>
+                <button
+                  onClick={() => {
+                    setDate(e.date);
+                    setExceptionOff(e.windows === "off");
+                    setExceptionExtra(
+                      e.windows === "off" ? [] : e.windows.slice(1),
+                    );
+                    if (e.windows !== "off") {
+                      setExceptionStart(e.windows[0]?.start || "09:00");
+                      setExceptionEnd(e.windows[0]?.end || "18:00");
+                    }
+                    setExceptionEditor(true);
+                  }}
+                >
                   {e.date} ·{" "}
                   {e.windows === "off"
                     ? "Off all day"
                     : e.windows.map((w) => `${w.start}–${w.end}`).join(", ")}
-                </span>
+                </button>
                 <button
                   aria-label={`Delete exception ${e.date}`}
                   onClick={() =>
@@ -565,59 +684,119 @@ export function ScheduleView({
                 </button>
               </div>
             ))}
-            <label>
-              Add a day
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-              />
-            </label>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={exceptionOff}
-                onChange={(e) => setExceptionOff(e.target.checked)}
-              />
-              Off all day
-            </label>
-            {!exceptionOff && (
-              <div className="actions">
-                <input
-                  aria-label="Exception start"
-                  type="time"
-                  step="900"
-                  value={exceptionStart}
-                  onChange={(e) => setExceptionStart(e.target.value)}
-                />
-                <input
-                  aria-label="Exception end"
-                  type="time"
-                  step="900"
-                  value={exceptionEnd}
-                  onChange={(e) => setExceptionEnd(e.target.value)}
-                />
-              </div>
-            )}
             <button
-              disabled={!date}
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  exceptions: [
-                    ...draft.exceptions.filter((e) => e.date !== date),
-                    {
-                      date,
-                      windows: exceptionOff
-                        ? "off"
-                        : [{ start: exceptionStart, end: exceptionEnd }],
-                    },
-                  ],
-                })
-              }
+              onClick={() => {
+                setDate("");
+                setExceptionOff(true);
+                setExceptionExtra([]);
+                setExceptionEditor(true);
+              }}
             >
               Add a day
             </button>
+            {exceptionEditor && (
+              <div className="exception-editor">
+                <label>
+                  Exception date
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                  />
+                </label>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={exceptionOff}
+                    onChange={(e) => setExceptionOff(e.target.checked)}
+                  />
+                  Off all day
+                </label>
+                {!exceptionOff && (
+                  <div className="actions">
+                    <input
+                      aria-label="Exception start"
+                      type="time"
+                      step="900"
+                      value={exceptionStart}
+                      onChange={(e) => setExceptionStart(e.target.value)}
+                    />
+                    <input
+                      aria-label="Exception end"
+                      type="time"
+                      step="900"
+                      value={exceptionEnd}
+                      onChange={(e) => setExceptionEnd(e.target.value)}
+                    />
+                  </div>
+                )}
+                {!exceptionOff &&
+                  exceptionExtra.map((window, index) => (
+                    <div className="actions" key={index}>
+                      <input
+                        aria-label={`Exception start ${index + 2}`}
+                        type="time"
+                        step="900"
+                        value={window.start}
+                        onChange={(e) =>
+                          setExceptionExtra((old) =>
+                            old.map((w, i) =>
+                              i === index ? { ...w, start: e.target.value } : w,
+                            ),
+                          )
+                        }
+                      />
+                      <input
+                        aria-label={`Exception end ${index + 2}`}
+                        type="time"
+                        step="900"
+                        value={window.end}
+                        onChange={(e) =>
+                          setExceptionExtra((old) =>
+                            old.map((w, i) =>
+                              i === index ? { ...w, end: e.target.value } : w,
+                            ),
+                          )
+                        }
+                      />
+                      <button
+                        aria-label={`Remove hours ${index + 2}`}
+                        onClick={() =>
+                          setExceptionExtra((old) =>
+                            old.filter((_, i) => i !== index),
+                          )
+                        }
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                <button
+                  disabled={!date}
+                  onClick={() => {
+                    setDraft({
+                      ...draft,
+                      exceptions: [
+                        ...draft.exceptions.filter((e) => e.date !== date),
+                        {
+                          date,
+                          windows: exceptionOff
+                            ? "off"
+                            : [
+                                { start: exceptionStart, end: exceptionEnd },
+                                ...exceptionExtra,
+                              ],
+                        },
+                      ],
+                    });
+                    setExceptionEditor(false);
+                  }}
+                >
+                  Save day
+                </button>
+                <button onClick={() => setExceptionEditor(false)}>Close</button>
+              </div>
+            )}
           </article>
           <article className="card">
             <h2>Need it sooner?</h2>

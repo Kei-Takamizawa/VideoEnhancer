@@ -1010,6 +1010,40 @@ nav .warning-dot {
   min-height: 36px;
   justify-self: start;
 }
+.block-menu-trigger {
+  position: absolute;
+  right: 12px;
+  top: 4px;
+  width: 36px;
+  padding: 0;
+  opacity: 0;
+  z-index: 4;
+}
+.allowed-block:hover .block-menu-trigger,
+.allowed-block:focus-within .block-menu-trigger {
+  opacity: 1;
+}
+.allowed-block .row-menu {
+  top: 36px;
+  right: 0;
+  z-index: 6;
+}
+.work-tooltip {
+  padding: 8px 12px;
+  background: var(--raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  font-size: 13px;
+}
+.output-summary {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
+}
+.output-summary > span:first-child {
+  color: var(--text-2);
+}
 .saved-toast {
   color: var(--success);
   margin: 12px 0;
@@ -1072,4 +1106,89 @@ nav .warning-dot {
   .home-sidebar {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+.model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+.model-card {
+  position: relative;
+}
+.model-card h2 {
+  font-size: 17px;
+  font-weight: 650;
+}
+.model-title {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.model-title h2 {
+  margin: 0;
+}
+.model-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.4fr;
+  gap: 12px;
+  font-size: 12px;
+}
+.model-facts dt {
+  color: var(--text-3);
+}
+.model-facts dd {
+  margin: 6px 0 0;
+}
+.model-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 8px;
+  background: var(--surface-2);
+  border-radius: 10px;
+}
+.filter-pills {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.filter-pills > label {
+  min-width: 180px;
+}
+.filter-pills button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.trial-dialog .page-heading {
+  margin-bottom: 8px;
+}
+.trial-dialog .thumbnails {
+  height: 48px;
+  margin: 8px 0;
+  background: var(--placeholder);
+}
+.trial-dialog > .filter-pills {
+  margin: 8px 0;
+}
+.trial-dialog > .filter-pills > label {
+  flex-direction: row;
+  align-items: center;
+}
+.trial-dialog > .filter-pills select {
+  width: 170px;
+}
+.trial-dialog > .toolbar {
+  margin: 8px 0;
+}
+.trial-dialog > .toolbar > label {
+  flex-direction: row;
+  align-items: center;
+}
+.trial-dialog > .muted {
+  margin: 6px 0;
+  font-size: 12px;
 }

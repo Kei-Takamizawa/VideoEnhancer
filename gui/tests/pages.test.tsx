@@ -261,7 +261,7 @@ describe("Models", () => {
         operations={[]}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Download…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
     expect(operate).not.toHaveBeenCalled();
     expect(screen.getByText(`Licence: ${model.licence}`)).toBeTruthy();
     expect(screen.getByText(model.weights.url!)).toBeTruthy();
@@ -289,11 +289,14 @@ describe("Models", () => {
         operations={[]}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Add model…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add my own model…" }));
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain("SHA-256"),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Remove…" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Actions for Fixture model" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove…" }));
     expect(call).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Remove model" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());

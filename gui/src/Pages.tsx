@@ -251,16 +251,26 @@ export function ModelsPage({
   refresh,
   operate,
   operations,
+  settings,
+  compare,
 }: {
   api: Api;
   models: Model[];
   refresh(): void;
   operate(route: string, data?: unknown): void;
   operations: Operation[];
+  settings?: Settings;
+  compare?(): void;
 }) {
   const [consent, setConsent] = useState<Model>();
   const [removal, setRemoval] = useState<Model>();
   const [error, setError] = useState("");
+  const [category, setCategory] = useState("cleanup");
+  const [menu, setMenu] = useState<string>();
+  const [details, setDetails] = useState<Model>();
+  const group = (model: Model) =>
+    model.catalog?.category ||
+    (model.task === "restore" ? "cleanup" : "motion");
   return (
     <section>
       <div className="page-heading">
@@ -282,7 +292,10 @@ export function ModelsPage({
             }
           }}
         >
-          Add model…
+          Add my own model…
+        </button>
+        <button disabled={!compare} onClick={compare}>
+          Compare on my video
         </button>
       </div>
       <p>
@@ -299,60 +312,223 @@ export function ModelsPage({
           {error}
         </p>
       )}
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Task</th>
-            <th>Licence</th>
-            <th>Size</th>
-            <th>Verification</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {models.map((m) => (
-            <tr key={m.id}>
-              <td>
-                <strong>{m.display_name}</strong>
+      <div className="filter-pills" aria-label="Model category">
+        {[
+          ["cleanup", "Cleanup"],
+          ["motion", "Smoother motion"],
+          ["size", "Bigger picture"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            aria-pressed={category === key}
+            onClick={() => {
+              setCategory(key);
+              setMenu(undefined);
+            }}
+          >
+            {label} ·{" "}
+            {key === "size" ? 1 : models.filter((m) => group(m) === key).length}
+          </button>
+        ))}
+        <button disabled>Faces · coming later</button>
+      </div>
+      <div className="model-grid">
+        {category === "size" && (
+          <article className="card model-card">
+            <h2>
+              Standard resize <span className="badge">Default</span>
+            </h2>
+            <p className="muted">Non-learned resize</p>
+            <p>Makes the picture bigger without AI. Never changes the look.</p>
+            <dl className="model-facts">
+              <div>
+                <dt>Speed</dt>
+                <dd>Not measured here</dd>
+              </div>
+              <div>
+                <dt>Changes the look</dt>
+                <dd>Very little</dd>
+              </div>
+              <div>
+                <dt>Licence</dt>
+                <dd>No model weights</dd>
+              </div>
+            </dl>
+            <p>No download</p>
+            <button disabled>Installed</button>
+          </article>
+        )}
+        {models
+          .filter((m) => group(m) === category)
+          .map((m) => {
+            const c = m.catalog;
+            const key = m.task === "restore" ? "restore_model" : "interp_model";
+            const defaultId =
+              settings?.[key] ||
+              (m.task === "restore"
+                ? "basicvsrpp-ntire21-decompress"
+                : "rife-4.25");
+            const speed = c?.reference_speed;
+            const label = speed
+              ? speed.fps >= 30
+                ? "Fast"
+                : speed.fps >= 10
+                  ? "Medium"
+                  : speed.fps >= 2
+                    ? "Slow"
+                    : "Very slow"
+              : "Not measured here";
+            const operation = [...operations]
+              .reverse()
+              .find(
+                (o) =>
+                  o.request &&
+                  "model_id" in o.request &&
+                  o.request.model_id === m.id,
+              );
+            return (
+              <article className="card model-card" key={m.id}>
+                <div className="model-title">
+                  <h2>{c?.title || m.display_name}</h2>
+                  <button
+                    aria-label={`Actions for ${c?.title || m.display_name}`}
+                    aria-expanded={menu === m.id}
+                    onClick={() => setMenu(menu === m.id ? undefined : m.id)}
+                  >
+                    ⋯
+                  </button>
+                </div>
                 <p className="muted">
-                  {m.builtin ? "Built-in" : "User-added"} · {m.architecture}
+                  {m.display_name} · {m.architecture}
                 </p>
-              </td>
-              <td>{m.task === "restore" ? "Restore" : "Interpolate"}</td>
-              <td>
-                {m.licence}
-                {!m.commercial_use_allowed && (
-                  <p className="badge warning">Non-commercial</p>
-                )}
-              </td>
-              <td>
-                {m.size_bytes
-                  ? `${(m.size_bytes / 1e6).toFixed(1)} MB`
-                  : "Not downloaded"}
-              </td>
-              <td>
-                {m.weights_verified
-                  ? "SHA-256 verified"
-                  : "Weights not verified"}
-              </td>
-              <td>
-                <div className="actions">
-                  {m.builtin && !m.weights_verified && (
-                    <button onClick={() => setConsent(m)}>Download…</button>
-                  )}
+                {defaultId === m.id && <span className="badge">Default</span>}
+                <p>
+                  {c?.description ||
+                    "A model you added. Review its details before use."}
+                </p>
+                <dl className="model-facts">
+                  <div>
+                    <dt>Speed</dt>
+                    <dd
+                      title={
+                        speed
+                          ? `About ${(30 / speed.fps).toFixed(1)} h per hour of 30 fps video · ${speed.gpu}`
+                          : "No qualifying measurement on this computer yet"
+                      }
+                    >
+                      {label}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Changes the look</dt>
+                    <dd>
+                      {c?.look_change.replaceAll("_", " ") || "Not specified"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Licence</dt>
+                    <dd>{c?.licence_plain || m.licence}</dd>
+                  </div>
+                </dl>
+                <p>
+                  {m.size_bytes
+                    ? `${(m.size_bytes / 1e6).toFixed(1)} MB`
+                    : "Not downloaded"}{" "}
+                  ·{" "}
+                  {m.weights_verified
+                    ? "SHA-256 verified"
+                    : "Weights not verified"}
+                </p>
+                {m.weights_verified ? (
+                  <button disabled>Installed</button>
+                ) : m.builtin ? (
+                  <button className="primary" onClick={() => setConsent(m)}>
+                    Install
+                  </button>
+                ) : (
                   <button onClick={() => operate(`models/${m.id}/verify`)}>
                     Verify again
                   </button>
-                  {!m.builtin && (
-                    <button onClick={() => setRemoval(m)}>Remove…</button>
-                  )}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                )}
+                {operation && <OperationStatus operation={operation} />}
+                {menu === m.id && (
+                  <div className="model-menu" role="menu">
+                    <button
+                      role="menuitem"
+                      disabled={!m.weights_verified}
+                      onClick={async () => {
+                        try {
+                          await api.call("settings", "PUT", { [key]: m.id });
+                          refresh();
+                          setMenu(undefined);
+                        } catch (e) {
+                          setError((e as Error).message);
+                        }
+                      }}
+                    >
+                      Make it my default
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        operate(`models/${m.id}/verify`);
+                        setMenu(undefined);
+                      }}
+                    >
+                      Verify again
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setDetails(m);
+                        setMenu(undefined);
+                      }}
+                    >
+                      Details
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setRemoval(m);
+                        setMenu(undefined);
+                      }}
+                    >
+                      Remove…
+                    </button>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+      </div>
+      {details && (
+        <div className="modal-shade">
+          <div
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Model details"
+          >
+            <h2>{details.catalog?.title || details.display_name}</h2>
+            <p>Licence: {details.licence}</p>
+            <p className="break">
+              Source: {details.weights.url || "Added from a local folder"}
+            </p>
+            <p className="break">SHA-256: {details.weights.sha256}</p>
+            <p>
+              {details.catalog?.reference_speed
+                ? `${details.catalog.reference_speed.fps.toFixed(2)} fps · peak ${details.catalog.reference_speed.peak_memory_gb.toFixed(2)} GB · ${details.catalog.reference_speed.gpu}`
+                : "Speed and peak memory have not been measured for this catalog entry."}
+            </p>
+            <p>
+              Invents detail:{" "}
+              {details.catalog?.invents_detail || "Not specified"} · Flicker:{" "}
+              {details.catalog?.flicker || "Not specified"}
+            </p>
+            <button onClick={() => setDetails(undefined)}>Close</button>
+          </div>
+        </div>
+      )}
       {operations
         .filter((o) => o.kind === "download" || o.kind === "verify")
         .map((o) => (
@@ -401,8 +577,9 @@ export function ModelsPage({
           <div className="dialog" role="dialog" aria-modal="true">
             <h2>Remove {removal.display_name}?</h2>
             <p>
-              This removes the installed model data from this computer. Existing
-              jobs may need the model to resume.
+              This removes the model weights from this computer. Videos already
+              finished remain unchanged. Models used in the queue cannot be
+              removed.
             </p>
             <div className="dialog-actions">
               <button onClick={() => setRemoval(undefined)}>Keep model</button>
@@ -461,7 +638,9 @@ export function SettingsPage({
           className="primary"
           onClick={async () => {
             try {
-              await api.call("settings", "PUT", draft);
+              const editable = { ...draft };
+              delete editable.seen_failures;
+              await api.call("settings", "PUT", editable);
               saved();
               setMessage("Settings saved.");
               setError("");
@@ -473,6 +652,7 @@ export function SettingsPage({
           Save settings
         </button>
       </div>
+      <h2>Defaults</h2>
       <div className="form-grid">
         <label className="span-two">
           Default output folder
@@ -542,6 +722,9 @@ export function SettingsPage({
             <option value="2x">2×</option>
           </select>
         </label>
+      </div>
+      <h2>App</h2>
+      <div className="form-grid">
         <label>
           Theme
           <select
@@ -560,25 +743,6 @@ export function SettingsPage({
             onChange={(e) => change("start_with_windows", e.target.checked)}
           />
           Start with Windows (hidden in tray)
-        </label>
-        <label className="span-two">
-          Log folder
-          <div className="input-button">
-            <input
-              value={draft.log_folder}
-              placeholder={health?.home || "Engine home"}
-              onChange={(e) => change("log_folder", e.target.value)}
-            />
-            <button
-              onClick={() =>
-                window.desktop
-                  .openFolder(draft.log_folder || health?.home || "")
-                  .catch((e) => setError(e.message))
-              }
-            >
-              Open
-            </button>
-          </div>
         </label>
       </div>
       <details>
@@ -617,6 +781,26 @@ export function SettingsPage({
           ))}
         </div>
       </details>
+      <h2>Diagnostics</h2>
+      <label className="span-two">
+        Log folder
+        <div className="input-button">
+          <input
+            value={draft.log_folder}
+            placeholder={health?.home || "Engine home"}
+            onChange={(e) => change("log_folder", e.target.value)}
+          />
+          <button
+            onClick={() =>
+              window.desktop
+                .openFolder(draft.log_folder || health?.home || "")
+                .catch((e) => setError(e.message))
+            }
+          >
+            Open
+          </button>
+        </div>
+      </label>
       <div className="toolbar">
         <button
           onClick={calibrate}
@@ -644,7 +828,7 @@ export function SettingsPage({
       )}
       {message && <p role="status">{message}</p>}
       <div className="about">
-        <h2>About VideoEnhancer</h2>
+        <h2>About</h2>
         <p>Version {health?.version || "0.1.0"} · Windows 11 · MIT licence</p>
         <p>
           Your videos stay on this computer. No telemetry or automatic updates.

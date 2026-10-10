@@ -1,5 +1,42 @@
 # Desktop development app
 
+## P1c-3 screens
+
+Home offers Change mode for prepared jobs that have not started. Problem opens
+details before anything is copied. The attention banner and rail dot count only
+unseen failures; displaying a History card or dismissing the banner records it
+as seen. History uses Today, Yesterday, or a weekday and date.
+
+The Add dialog shows its output summary beside More options. Its Cleanup and
+Smoother motion selectors contain installed models; Bigger picture currently
+offers Standard resize. Try models first preserves dialog choices, and Use this
+returns a model selection to the dialog.
+
+Schedule previews expected, best and worst finish times. Work bars expose progress
+and finish-time tooltips. Exceptions can be edited directly, including multiple
+time windows. Add a day opens the one-day editor. Right-click, the block's menu
+button, Menu, or Shift+F10 opens Only on this date. Every save restarts the eight
+second Undo timer. Settings groups Defaults, App, Advanced, Diagnostics and About.
+
+Models uses category cards, explicit licence consent, Verify again, Details,
+Make it my default and Remove. Unknown speed is shown as not measured. The
+optional publisher catalog is not qualified yet; existing built-ins and your
+own compatible models remain available. Defaults affect new jobs only.
+
+Compare renders Original and up to three installed models of one category, with
+one synchronized frame clock. Its initial view is side by side; uncheck Side by
+side for a swipe view and choose Left/Right. Zoom and panning apply to every
+picture. Arrow keys step, Space toggles playback, and Loop can be switched off.
+Use this is disabled for a job that has started. Back returns to the opener and
+leaves admitted work running; Cancel explicitly stops it. There is no learned
+size comparison yet. The range control uses the middle when no motion ranking
+is available. Thumbnail-box dragging and rendering only missing selections are
+still outstanding.
+
+For isolated packaging while another package is open, set `VE_GUI_PACKAGE_OUT`
+to a fresh output folder before `npm run package`. Automated Electron tests use
+an isolated `--user-data-dir`; they do not close an existing owner instance.
+
 This unsigned Windows 11 development app uses the existing Python engine. It is
 not a self-contained engine installer. No auto-update or telemetry is included.
 

@@ -156,8 +156,8 @@ interrupted service are reset at startup, including jobs behind the head.
 Operations are persisted in `previews/<id>/state.json`; interrupted operations
 are returned as failed with `Interrupted. Try again.`. Trial admission ignores
 operating hours but retains the between-segment lease. Trials have a hard
-`max(600 seconds, 4 * prediction)` deadline. Whole-file Trial analysis is still
-present pending a designer decision; no bounded-start latency claim is made.
+`max(600 seconds, 4 * prediction)` deadline. Source indexes are reused and
+scene analysis is limited to the requested range and temporal context.
 
 Segment children send frame/step/memory heartbeats every two seconds. Queue/SSE
 use live frames for processing percent (capped at 99.9% before completion) and
@@ -170,5 +170,36 @@ the manifest and the last 40 segment-log lines.
 SSE snapshot exceptions emit `event: error` with plain text and are retried
 within the same stream. Heartbeats remain every ten seconds. Snapshot generation,
 estimates, thumbnails and input analysis do not hold the shared mutation lock.
-The redesigned screens and compare/catalog endpoints are not implemented by
-this partial cycle. See `.ai/LAST_REPORT.md` for the remaining acceptance gaps.
+See `.ai/LAST_REPORT.md` for measured acceptance results and remaining gaps.
+
+## P1c-3 additions
+
+- `POST queue/<id>/mode` with `{preset: "standard" | "fast"}` changes a prepared,
+  unstarted job and re-estimates its existing segments. Preparing jobs must wait;
+  started jobs are refused. `POST queue/<id>/model` takes `restore_model` or
+  `interp_model` under the same checks. Neither changes existing output files.
+- `PUT settings` accepts `restore_model`, `interp_model` and `seen_failures`.
+  Defaults must refer to installed, verified weights. Seen failure ids accumulate
+  so concurrent History acknowledgements cannot erase one another.
+- `POST compare` accepts `{file, start?, seconds: 3 | 5 | 10, models: [ids], settings,
+  job_id?}`. One to three installed models must have the same task. The operation
+  uses the between-segment lease and ignores operating hours, as Trial does.
+  One source index and one range analysis are shared; Original is rendered once.
+  `result.original` and `result.items[].preview` become available progressively.
+  Each item also includes measured `fps` and `projected_whole_file_seconds`.
+  Previews are H.264 8-bit. The cache retains at most five completed sessions
+  and 2 GB, removing the oldest first; removed sessions have state `expired`.
+  Job-associated previews are deleted when removing the History entry.
+- `GET operations/<id>/files/<name>` accepts only published preview names.
+  Compare files can be read while later models are still being processed.
+- `POST queue/<id>/preview` is CPU-only. Cancelling the operation or quitting
+  terminates encoding and deletes partial preview files, preserving job output.
+- `POST schedule/preview` returns `plan`, `best` and `worst`. Planned timeline
+  bars include `start_percent` and `end_percent`.
+- Model deletion refuses weights used by active queue jobs or active previews.
+  Built-in deletion removes weights only; its card and licence remain available
+  for a future explicit install. No download starts from listing the catalog.
+
+Compare does not yet reuse individual rendered models across changed selections;
+a new request renders its selected models again. Learned size models and the
+DRUNet strength wrapper are not implemented in this cycle.

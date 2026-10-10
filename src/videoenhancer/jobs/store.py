@@ -359,6 +359,42 @@ class JobStore:
                     latest["position"] = index
                     self._write_unlocked(latest)
 
+    def change_mode(
+        self, job_id: str, preset: str, model_patch: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        """Change a prepared, unstarted job without changing its frame partition."""
+        from videoenhancer.estimate import predict_segment
+        from videoenhancer.models.registry import ModelRegistry, record_models, selected_models
+
+        if preset not in {"standard", "fast"}:
+            raise ValueError("Mode must be Standard or Fast.")
+        directory = self.job_dir(job_id)
+        with self._lock(directory):
+            job = self._load_unlocked(directory / "manifest.json")
+            if job.get("started_at") or any(s["state"] != "pending" for s in job["segments"]):
+                raise ValueError("Already started. Remove it and add it again to change mode.")
+            if job["state"] not in {"queued", "paused"}:
+                raise ValueError("Wait for preparation before changing mode.")
+            if model_patch and set(model_patch) - {"restore_model", "interp_model"}:
+                raise ValueError("Choose a cleanup or motion model.")
+            chosen = {**job["settings"], "preset": preset, **(model_patch or {})}
+            if preset == "fast":
+                chosen.pop("restore_model", None)
+            registry = ModelRegistry(self.home)
+            for task, model_id in selected_models(chosen, job["media"]).items():
+                registry.weights(registry.manifest(model_id, task), download=False)
+            models = record_models(chosen, self.home, job["media"])
+            profile = load_machine_profile(self.home, backend=chosen["backend"], models=models)
+            job.update(
+                settings=chosen, models=models, machine_profile=profile, correction_factor=1.0
+            )
+            for segment in job["segments"]:
+                segment["predicted_seconds"] = predict_segment(
+                    job["media"], chosen, segment["end"] - segment["start"], profile
+                )
+            self._write_unlocked(job)
+        return job
+
     def set_state(self, job_id: str, state: str) -> dict[str, Any]:
         if state not in JOB_STATES:
             raise ValueError(f"Invalid job state: {state}")

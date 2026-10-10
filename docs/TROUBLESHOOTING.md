@@ -1,5 +1,23 @@
 # Troubleshooting
 
+## Preview and catalog messages
+
+Closing Preview result stops its CPU encoding and removes partial previews;
+completed video output is kept. A later preview uses a fresh operation folder.
+Compare's Back button returns to the previous screen; use Cancel to stop an
+admitted comparison. An expired preview means the five-session/2 GB cache made
+room for newer comparisons; compare again.
+
+Change mode and Use this require a job that has not started. Wait for Preparing
+to finish first. A model used by queued videos cannot be removed; finish or
+remove those queue entries first. Removing a History entry keeps the video.
+"Not measured here" is deliberate: no qualifying speed or memory measurement
+has been recorded for that model. It is not an estimate copied from a publisher.
+
+If packaging reports EBUSY because the existing package is open, use a fresh
+`VE_GUI_PACKAGE_OUT` folder. Do not terminate the owner's running app merely to
+build a test package.
+
 ## A video's work files are locked
 
 After three consecutive manifest-lock timeouts, VideoEnhancer quarantines that

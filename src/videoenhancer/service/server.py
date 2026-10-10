@@ -190,7 +190,13 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[0] == "operations" and parts[2] == "files":
                 op_id, name = parts[1], parts[3]
                 operation = self.server.engine.operations[op_id]
-                if operation["state"] != "done" or name not in {"original", "enhanced"}:
+                result = operation.get("result", {})
+                allowed = {"original", "enhanced"} if operation["state"] == "done" else set()
+                if operation["kind"] == "compare":
+                    allowed = {item["id"] for item in result.get("items", [])}
+                    if result.get("original"):
+                        allowed.add("original")
+                if name not in allowed:
                     raise ValueError("The preview is not ready.")
                 path = self.server.engine.home / "previews" / op_id / f"{name}-preview.mp4"
                 self._headers(200, "video/mp4", path.stat().st_size)

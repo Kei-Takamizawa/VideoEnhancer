@@ -1,5 +1,34 @@
 # Adding restoration models
 
+## Catalog metadata
+
+Restore manifests may add `catalog.category: "cleanup"`; interpolation manifests
+use `"motion"`. The existing adapters still require scale 1. Learned size models,
+Faces and the DRUNet strength wrapper are not supported yet.
+
+```json
+"catalog": {
+  "category": "cleanup",
+  "title": "My cleanup model",
+  "description": "Describe what the owner will see.",
+  "look_change": "little",
+  "invents_detail": "low",
+  "flicker": "possible",
+  "licence_plain": "Free for any use (MIT)"
+}
+```
+
+Look change accepts `very_little`, `little`, `noticeable`; invented detail accepts
+`low`, `medium`, `high`; flicker accepts `none`, `possible`. Confirm these against
+the model's actual training and licence. Omit `reference_speed` until measured
+in the real pipeline on the owner's GPU. If supplied, it needs positive `fps`
+and `peak_memory_gb`, plus the GPU and input/output description. Never substitute
+paper speeds or device-wide VRAM usage for a process memory measurement.
+
+Catalog text is presentation metadata and is excluded from the resumable model
+identity hash. Weights, adapter, precision and architecture remain protected.
+Changing the default on Models affects new jobs, never existing queued settings.
+
 C1 (BasicVSR++ NTIRE 2021 decompression) remains the first-release restoration
 model. Adding a model does not change the default. No training code is included.
 

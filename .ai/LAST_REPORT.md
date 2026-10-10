@@ -1,175 +1,143 @@
-# VE-P1c-2 implementation report
+# VE-P1c-3 implementation report
 
-- Task ID / Cycle: VE-P1c-2
-- Date: 2026-10-10
-- Status: **PARTIAL**. D and the CPU-tested S/W implementation are delivered; U is partially implemented. M and C were not reached. This is not completed P1c acceptance.
-- Branch: `p1c-redesign`; draft PR [#4](https://github.com/Kei-Takamizawa/VideoEnhancer/pull/4). No merge or main push.
-- Initial worktree was clean; fetched origin. Saved the full instruction byte-for-byte and committed it as `a4bd555`. Task SHA-256: `e0ee7d61f5bdc5807a1cc00d3673bf7382e1a51bc50c778a70da877f66020609`.
-- All execution used synthetic footage and separate homes. The owner's queue was not modified. Existing verified C1/RIFE assets were copied read-only into the isolated GPU home.
+- Task ID / Cycle: VE-P1c-3
+- Date: 2026-10-10 JST; timestamps below explicitly use UTC or UTC-07.
+- Status: **PARTIAL**. U-rest, catalog controls, comparison engine/viewer and substantial GPU acceptance are delivered. Optional publisher models, DRUNet, learned size and several Compare interactions remain incomplete. This is not completed P1c acceptance.
+- Branch: p1c-redesign; draft [PR #4](https://github.com/Kei-Takamizawa/VideoEnhancer/pull/4).
+- Initial clean HEAD: 9ff4bb0fd3ff263c9cfc182da40e450151a3696e; fetched origin.
+- Full instructions committed as edef0aa; CURRENT_TASK SHA-256: 079ccd1e83a37d25429285873a0bc4a133e6c4733478cbd8f73b3f0a05a1da36.
+- Synthetic footage and isolated homes only; copied verified weights. No owner queue edits, subagents, merge, main push, media, weights or build artifacts in Git.
 
-## Implementation by part
+## Implemented
 
-### D: source index and range analysis
+**U-rest:** Change mode re-estimates prepared, unstarted jobs without altering their frame partition. Preparing rows wait. Problem opens details before Copy. Seen failures persist and accumulate; actual History-card visibility or banner dismissal acknowledges them. Add has output summary and installed cleanup/motion choices. Compare Use this updates the still-open Add dialog. History has relative dates and Compare again; removal preserves output.
 
-Added demux-only indexing with matching job-manifest precedence, path/size/mtime cache identity, atomic writes and a 1 GB oldest-first limit. Kept existing packet parsing rather than introducing a new combined interpretation. Metadata probing itself reads a timeline, so a fresh index currently makes three demux passes in total. It does not decode the whole source.
+Schedule has best/worst bounds, progress/finish tooltips, block context menus, direct exception edits and Add a day. Multiple exception windows are retained/editable. Every save restarts the eight-second Undo timer; Undo restores the preceding saved schedule. Settings uses Defaults, App, Advanced, Diagnostics, About. Closing Preview result or quitting cancels real CPU encoding, removes partial files and preserves durable output; the next preview uses a fresh operation id. Both cases were tested.
 
-Trials analyze the required source span and two-second/temporal-context margin with unchanged cut scoring, absolute indices and CFR mapping. CPU seeks from the preceding keyframe; CUDA uses indexed SimpleDecoder frames. Count mismatches/decoder errors log why and fall back to full analysis. Full-job analysis is unchanged. Reading progress is coarse demux milestones (0/33/67/100%), not packet/byte progress.
+**M foundation:** validated catalog blocks for existing C1/RIFE, category cards, explicit licence consent, verification, Details, new-job defaults and guarded removal. Built-in removal deletes weights while retaining its card. Queue use also protects CLI removal. Defaults are captured before preparation; Fast does not inherit cleanup. Catalog metadata is excluded from the resumable identity hash. Unknown speed says “Not measured here”; no paper speeds or unsupported memory peaks were published.
 
-Operation progress is persisted and displayed. Trial preflight avoids an extra timeline scan when existing metadata suffices. The child reads the job manifest directly instead of embedding large timestamp arrays in operation/SSE snapshots.
+**C foundation:** POST compare accepts up to three installed models of one category. It renders Original once, shares one index/range analysis, publishes individual previews progressively, reports measured fps/projected time, uses the between-segment lease and runs outside hours. Required missing weights are refused before admission. Trial API remains. Completed sessions retain at most five/2 GB, oldest first; job previews are removed with the job.
 
-### S: reliability
+Compare opens from Models, Add, queue menus and History. It has category chips, licence consent, side-by-side/swipe, Left/Right, zoom, common panning, arrow steps, Space, Loop, captions, Use this and defaults. Started jobs cannot adopt another model. Four WebCodecs streams draw only matching actual decoded indexes; landscapes use 2x2 and portraits a row.
 
-- Live frame counts reduce active-step remaining work and forecast finish times in queue, plan and schedule preview.
-- Three actual five-second manifest-lock timeouts write lock-free atomic quarantine. Other jobs continue. Retry reacquires the lock, removes quarantine and retains done segments.
-- Planner/controller share admission rules, including the oversized-step opening-window exception and safety reserve. Later jobs can run when an earlier next step does not fit. Active work outside hours remains forecast; overruns have durations/captions.
-- A test-only constructor flag creates a genuinely stuck trial child. A five-second injected deadline kills its process tree and returns the exact timeout message. Normal runs retain production deadlines; request data cannot enable this injection.
-- Added failed-job Retry and queue-complete override endpoints; the older job-complete override remains supported.
+Still missing: draggable thumbnail box, automatic range/selection rerender, reuse of only missing rendered models, install-then-auto-select, learned size comparisons and a measured three-different-model GPU comparison. Fast cleanup is disabled to retain its specified no-cleanup behavior.
 
-### W: windowless executable
+## Acceptance
 
-Electron selects the Windows sibling pythonw, preserves configured pythonw, and logs fallback to hidden console Python only when the sibling is absent. Service/segment logs record the executable. A real pythonw parent with None stdout/stderr ran an actual CPU segment child successfully. CLI output behavior was unchanged.
-
-This does not establish no visible flash in every production flow. A4 is unverified. The executable choice follows [Node's documented detached Windows child behavior](https://nodejs.org/api/child_process.html).
-
-### U: delivered subset
-
-- New dark/light tokens, 88 px icon rail, Home default, History and bottom Settings; removed runtime Queue/Plan navigation and status footer.
-- Home current progress, work left, finish/start, overruns, thumbnails, next-job ordering/actions, attention banner, five-day summary and recent outputs.
-- Authenticated cached JPEGs preserve source/output orientation; done jobs use output thumbnails.
-- Preview result CPU-encodes a durable segment/final output comparison without rerunning restoration or taking the GPU lease.
-- Add has Standard/Fast cards, incremental estimates, More options, installed cleanup choices and retained dialog state across the existing Trial viewer.
-- History filters/search, terminal cards, wall-time/size metadata, Play/folder/Retry/diagnostics and confirmed removal retaining the output.
-- Schedule has seven dated tracks, presets, edge/middle drag, empty-track add, Delete/arrows, 600 ms autosave, eight-second Undo, exact Custom editor, exceptions and queue/time overrides. Preview throttle: 150 ms.
-- Settings retains its controls and About information with new tokens; exact grouping is unfinished.
-
-U is incomplete. Models remains the existing table and the comparison has two streams. README and GUI/API/Adding Models/Troubleshooting now describe delivered behavior and missing catalog/Compare scope.
-
-### M and C
-
-NOT RUN. No additional catalog entries, unverified download/licence metadata, model-default changes or multi-model comparison were shipped. Existing default pipeline retained.
-
-## D2 fixture results
-
-| Fixture | CPU start / middle / end | CUDA start / middle / end |
+| Criterion | Status | Evidence / limitation |
 | --- | --- | --- |
-| CFR | PASS / PASS / PASS | PASS / PASS / PASS |
-| Irregular VFR | PASS / PASS / PASS | PASS / PASS / PASS |
-| B-frames | PASS / PASS / PASS | PASS / PASS / PASS |
-| Trailing short frame | PASS / PASS / PASS | PASS / PASS / PASS |
+| A2 / G1 | PASS | Standard percent and Work left moved within 13.97 s of segment start. |
+| A3 / G2 | PARTIAL | All three jobs and both Trials finished. Jobs moved within 13.98 s. Continuous Trial percent history was not retained; complete no-zero-for-60-s condition is not claimed. |
+| A4 / G3 | PASS automated | Final packaged cold start, install, Standard, Fast, Trial, Compare, Quit: 935 polls / 93.5 s, no unexpected visible windows. Owner visual confirmation NOT RUN. |
+| A5 | PARTIAL | U-rest checks and real Add -> Now processing -> Finished -> History passed. Remaining Compare interactions prevent complete Part U acceptance. |
+| A6 / M | NOT RUN qualification | Optional entries and required reference measurements omitted. |
+| A7 / C | PARTIAL | Four synthetic streams: 100 random seeks, 300 observed played frames, 0 mismatches. Real single-model GPU Compare passed; three different GPU models NOT RUN. |
+| A8 | PARTIAL pending CI | Local checks passed below; confirm Windows/Ubuntu after push. |
+| A9 | PASS capture set | All seven screens, both sizes/themes, 125/150% scaling; synthetic Compare fixtures do not prove model performance. |
 
-Each case checks index/media equality, range cut equality and byte-identical paired trial outputs. Fixtures use the existing placeholder model to isolate mapping/render equivalence. CUDA images are 256x256: initial 96x64 fixtures failed NVENC initialization. Real Standard weights were separately tested below. Injected short-count fallback and cache/manifest precedence/invalidation/eviction tests passed. No natural fixture mismatch occurred.
+## Catalog models and omissions
 
-## Long-source GPU measurements
+| Entry | Result |
+| --- | --- |
+| Gentle cleanup / C1 | Existing default retained; real Standard jobs and single-model GPU Compare passed. No qualifying 5 s 720x1280 catalog compare/true process peak; reference_speed omitted. |
+| Smooth motion / RIFE 4.25 | Existing default retained; real Fast jobs/Trial passed. Qualifying catalog reference measurement NOT RUN; reference_speed omitted. |
+| Standard resize | Existing non-learned default retained; no download. |
+| Track 1; Track 2; denoise | NOT RUN: download/hash, adapter load and qualifying GPU measurements incomplete; all omitted. |
+| DRUNet Light / Medium / Strong | NOT RUN: wrapper and qualifications incomplete; three choices omitted. |
+| SCUNet; FBCNN; 1xDeH264_realplksr | NOT RUN: complete adapter/load/hash/GPU qualification not performed this cycle; omitted. |
+| RIFE 4.26 / 4.25 lite | NOT RUN: archive handling and compatibility with pinned adapter unvalidated; omitted. |
+| SPAN; realesr-general-x4v3 blend | NOT RUN: learned size stage/blend and qualifications incomplete; omitted. |
 
-RTX 4060 Ti; synthetic portrait 720x1280, 30 fps H.264 on local disk. A repeated five-second source was stream-copied to long durations; measured bitrate approximately 3.39 Mbps. These are synthetic results, not measurements of an owner video.
+These are uncompleted qualifications, not measured failures or claims that these models cannot work.
+Publisher references checked: [Practical-RIFE](https://github.com/hzwer/Practical-RIFE), [OpenMMLab](https://github.com/open-mmlab/mmagic/tree/main/configs/basicvsr_pp), [KAIR](https://github.com/cszn/KAIR). RIFE explicitly describes linked weights as MIT; C1's separate weight terms remain unstated.
 
-| Duration | Frames | Bytes | Fresh index | Cached index |
-| --- | ---: | ---: | ---: | ---: |
-| 30 min | 54,000 | 762,967,458 | 2.626 s | 0.0165 s |
-| 2 h | 216,000 | 3,051,867,318 | 10.061 s | 0.0485 s |
+## GPU measurements
 
-Real five-second Standard trial at the two-hour source's middle, C1 BasicVSR++ plus RIFE, 1080x1920 output:
+RTX 4060 Ti 8 GB. G2: 720x1280, 30 fps -> 1080x1920, 60 fps HEVC, lossless off, fresh p1c3-gpu/home. Started early while GPU idle. Its parent started before later catalog/GUI edits; final service/GUI also received a separate packaged GPU-flow run.
 
-- Index lookup 0.0464 s; range scene analysis 1.7918 s.
-- Start to first frame written to the encoder: 15.7754 s.
-- Combined input throughput: 1.9028 fps; not an individual-model speed.
-- Whole-file-analysis Standard trial produced matching decoded-frame hashes for both previews. SHA-256 of FFmpeg frame-MD5 reports: Original `e87f30e2d7a38471e948430982779d497c531bcbf0c2202e97a29b853f2ed495`; Enhanced `009eeab614976e075c8a217b6d6d382d8964f18e384ac493fb507e1d3b660a05`.
-- Maximum observed same-PID dedicated plus shared GPU sample: 4,791,087,104 bytes, PID 13604. Approximately 30-second samples are not a true peak or proof of the strict process-total 5 GB limit. Missing counters were not zeroed; no cross-PID growth conclusion.
+| Sequential job | Wall seconds | First positive from job start | Segment pipeline fps |
+| --- | ---: | ---: | ---: |
+| Standard 30 s | 486.226323 | 13.976405 | 2.164–2.289 |
+| Fast 30 s | 66.960090 | 7.989191 | 12.206–15.274 |
+| Standard 120 s | 1627.737630 | 13.666378 | 2.231–2.300 |
+
+Standard 30 s wall time includes the admitted between-segment Trial. Entire run including both Trials: **2255.578 s**. Both Trials finished, with pipeline fps 2.076887 and 2.079695. Outside-hours schedule was enabled with no allowed windows.
+
+G1 segment-start log: 2026-10-10T10:40:49.602480+00:00 (JST 19:40:49.602480).
+First positive: 2026-10-10T10:41:03.575376+00:00 (JST 19:41:03.575376):
+**1.444444%**, Work left **536.961187 s**, difference **13.972896 s**.
+
+Observed maximum same-record dedicated+shared process GPU memory: **4,805,832,704 bytes / 4.805833 GB**. Samples every 30 s, per PID and record. This is an observed sample maximum, **not a true peak**, cross-restart growth, or proof of the strict catalog 5 GB budget. Device-wide NVML usage was not treated as per-process memory.
 
 ## Executed builds and tests
 
 | Check | Result |
 | --- | --- |
-| ruff check / format check | PASS; 94 formatted files |
+| ruff check . / format --check . | PASS; 98 files formatted |
 | pyright | PASS; 0 errors / warnings |
-| Full CPU pytest, not gpu/not soak | PASS: 232 passed, 3 skipped, 30 deselected, 284.86 s on the final engine revision |
-| New reliability tests, including real lock, stuck child, pythonw, result preview, Retry/override | PASS: 8 passed, 33.66 s |
-| GPU D2 | PASS: 12 passed, 14 deselected, 99.95 s |
-| Real long-source GPU trial/hash checks | PASS as qualified above |
+| CPU suite, excluding gpu/soak | PASS; 241 passed, 3 skipped, 30 deselected; 309.61 s |
+| Service/preview/compare subset | PASS; 19 tests, 39.38 s |
+| Final mode/consent/compare subset | PASS; 9 tests, 22.67 s |
+| D2 CPU and CUDA | PASS; 26 tests, 189.50 s |
 | GUI lint / typecheck | PASS |
-| GUI unit tests | PASS: 19 tests, 4 files |
-| GUI build | PASS; approximately 462.41 kB JS / 14.45 kB CSS |
-| GUI package | PASS; unsigned Windows x64 folder |
-| Electron e2e plus generated-package smoke | PASS: 2 passed, 2 opt-in GPU skipped, 19.7 s |
-| Final desktop screenshot-capture rerun | PASS: 1 passed, 17.2 s; physical zoom capture waits for renderer paint |
-| Final-revision Windows/Ubuntu remote CI | NOT RUN / unconfirmed before push |
-| Native manual Computer Use / exhaustive physical flash check | NOT RUN; actual Electron automation used Playwright |
+| GUI component tests | PASS; 27 tests, 5 files |
+| GUI build / unsigned x64 package | PASS; isolated external package |
+| Electron CPU e2e + packaged smoke | PASS; latest desktop 59.4 s, smoke 2.5 s |
+| Four-stream sync | PASS; 100 random seeks, 300 played frames, 0 decoded-index mismatches |
+| G3 packaged GPU/window flows | PASS final fixed-period run; 935 polls / 93.5 s; 0 extra windows |
+| C1/RIFE strict legacy tensor equality | PASS; 2 tests / 31 deselected, 7.50 s; isolated copied home |
 
-New components cover active/terminal separation and preview readiness, History search/quarantine/Retry, and Schedule keyboard preview/autosave/Undo/override. This is incomplete A5 interaction coverage.
+GUI automation used real Electron/Playwright, not native manual Computer Use. Owner visual acceptance remains NOT RUN. No unexecuted test is reported successful.
 
-## GUI operations, expected and actual
+## G3 window evidence
 
-Actual Electron launched a real service in an isolated home, added two-second synthetic footage, observed completion in History, visited all five available pages, saved both themes, resized, closed/reopened the window and requested Quit. A request fixture selected existing CPU passthrough because that home has no restoration weights.
+Final fixed-period full-flow run: **935 polls / 93.5 s**, 100 ms deadlines, **0 unexpected visible windows**. Exact BrowserWindow native handles are excluded, including Electron child-owned app windows. ConsoleWindowClass, CASCADIA_HOSTING_WINDOW_CLASS and other app-tree windows are monitored. Sub-interval flashes cannot be excluded. Evidence: p1c3-gui/windows-flows-1791631844871/windows.json and flows.json.
 
-Expected: output finishes, service survives window close, no renderer page exceptions, renderer isolation enabled, Quit removes discovery state. Actual: all these assertions PASS. The very short CPU job's visible Now processing interval is not asserted; its component state is tested. GPU moving-progress acceptance is outstanding.
+## Evidence and reproduction
 
-Captured five available pages and Add at logical content sizes 1280x800 and 1100x700, both themes, plus 125%/150% renderer zoom. Windows display scaling is 125%, so PNG pixels exceed logical dimensions. Long pages scroll vertically. The legacy Models table scrolls internally horizontally at 150%; its catalog redesign is pending.
+External root: C:\Users\pro\.codex\visualizations\2026\10\09\01a12000-750a-7813-9ea1-6bc265708fb5
 
-## A1–A9 acceptance
+- p1c3-gpu/result.json, progress.json, acceptance-summary.json and home/jobs/*/job.jsonl: G1/G2.
+- p1c3-gui/{home,history,schedule,models,settings,add,compare}-{dark,light}-{1280x800,1100x700}.png: screen matrix.
+- p1c3-gui/now-processing-synthetic.png, settings-{125,150}-percent.png, four-stream-sync.json.
+- p1c3-gui/windows-flows-*/windows.json, flows.json, gpu-compare.png: per-attempt G3. Only completed successful attempts count.
+- p1c3-package/VideoEnhancer-win32-x64/VideoEnhancer.exe: unsigned package, external engine.
+- Local check logs: .tmp/p1c3/ (ignored).
 
-| Criterion | Status | Evidence / missing work |
-| --- | --- | --- |
-| A1 | PASS for executed synthetic checks | 24 fixture/range cases, fallback/cache and real Standard long-source hashes; source qualifications above |
-| A2 | NOT RUN in full | CPU reliability PASS; GPU Standard percent/Work left within 30 s not recorded |
-| A3 | NOT RUN | Three-job Standard/Fast/Standard queue and in-job/outside-hours GPU trials absent |
-| A4 | NOT RUN | Pythonw selection/real CPU child PASS; all-flow physical flash observation absent |
-| A5 | NOT RUN in full | Partial U, components and CPU Electron test; missing interactions below |
-| A6 | NOT RUN | Catalog and per-model budget/speed/licence verification absent |
-| A7 | NOT RUN | Three-model GPU Compare / 100 seeks / 300 played-frame synchronization absent |
-| A8 | NOT RUN in full | Local matrix results above; fresh Windows/Ubuntu remote CI unconfirmed |
-| A9 | NOT RUN in full | Available pages/Add captured; requested catalog/Compare screens do not exist |
+CPU: use fresh basetemp and pytest -m "not gpu and not soak". D2: pytest tests/test_source_index.py.
+Screenshots/sync: build and npm run test:e2e -- desktop with external VE_GUI_EVIDENCE.
+G3: fresh copied verified models/adapters; retain C1's verified legacy copy and remove only that home's installed C1 weights. Set VE_GUI_WINDOWS_FLOWS_HOME, VE_GUI_PACKAGE_EXE and VE_GUI_EVIDENCE; run npm run test:e2e -- windows-flows. Never use the owner home.
 
-## Catalog measurements / omissions
+## Errors / warnings and resolution
 
-No catalog-specific FPS/true-peak metadata added. All 14 requested table entries remain pending as catalog entries: Gentle cleanup; Cleanup other training; Crisper cleanup; Grain and noise calmer; Adjustable deblock (three strengths); All-round cleaner; Picture deblock; H.264 remover community; Smooth motion; Smooth motion newest; Smooth motion faster; Standard resize; Faithful 2x enlarger; Sharper detail.
+- Initial Electron launch collided with owner single-instance lock. Tests now use isolated --user-data-dir; owner app was not quit.
+- Default packaging failed EBUSY because the old package was open. Rebuilt with VE_GUI_PACKAGE_OUT outside Git. Old app.asar remained present; no owner process was killed.
+- Corrected unsupported testing-library exact option, Windows drawtext font selection, and outdated built-in removal expectations; subsequent checks passed.
+- Unfiltered registry invocation selected GPU tests against default home and failed source-path protection before loading. Isolated final GPU rerun is recorded separately; no production result inferred from the failure.
+- First G3 lacked discovery readiness; second reused an output name. Fixed readiness and distinct synthetic names, then completed the full-flow run. Failed attempts do not count as successful G3.
+- npm NO_COLOR/FORCE_COLOR and Git LF/CRLF notices only.
 
-C1, RIFE 4.25 and non-learned resize remain in the original pipeline. Do not assign the combined Standard measurement to a model. Other entries were not evaluated or rejected as incompatible: their implementation/verification was not reached. No new weights were installed in the owner's home.
+## Questions for the designer / unresolved work
 
-## Unresolved items / exact reproduction
+1. Optional model qualification, DRUNet and learned size remain unfinished. Chosen default: omit unqualified entries, preserve existing outputs.
+2. Thumbnail-box dragging, automatic rerender, missing-only reuse and install-then-select remain unfinished. Chosen default: explicit render button, middle fallback, full selected-model rerender.
+3. Fast has no cleanup stage to replace. Chosen default: disable cleanup comparison in Fast; please confirm.
+4. Trial percent history was not retained for G2. Chosen default: report completions/job timing, do not claim the full no-zero criterion.
+5. Four synthetic decoded streams are transport evidence, not three qualified publisher models.
 
-1. U2: Open an unstarted job menu: Change mode is absent. Problem chip copies diagnostics instead of opening details. Open Home with failed jobs: banners/dots do not track already viewed failures.
-2. U3/C: Open Add then Try models first: output summary line and Compare Use this are absent; existing two-stream Trial opens. Add remains available during initial Preparing, with server validation.
-3. U4: Open History: existing concrete-date formatter is used instead of Today/Yesterday wording; terminal menu says Try models on this video instead of Compare again. Retry now has its own failed-job endpoint.
-4. U5: Open Schedule: best/worst header range and percentage tooltip absent; direct exception edit requires Custom. Only on date is a row button rather than block menu. Rows may scroll. A successive save does not restart an already visible toast's timer. Full drag/add/delete/exception test coverage remains.
-5. U8: Open Settings: some P1b grouping/order remains; About is present.
-6. Preview result: closing its dialog does not cancel CPU encoding; its renderer does not consume the generic cancel flag. Quit during preview and source/output finalization races have not been explicitly tested. Part C's last-five/2 GB preview-cache contract is not implemented.
-7. M/C: Category cards, defaults snapshots, learned size-stage selection, multi-model render/cache, four-stream pan/swipe viewer and synchronization suite absent. Current Models/Trial must not be treated as those features.
-8. Owner acceptance: A2/A3/A4/A6/A7 and opt-in GPU/resume Electron tests not executed. Their selectors were updated for the shell; GPU execution remains unverified.
-
-## Errors / warnings
-
-Corrected initial test failures: expecting packet durations in a manifest that omits them; unsupported 96x64 NVENC geometry; missing persisted pythonw test manifest; wrong fake-clock window; old planner A-before-B expectation conflicting with shared admission; PID-exit race requiring bounded wait; Retry test passed route string instead of path parts; GUI fixture omitted required step_percent. Reran affected tests without changing product design to bypass failures.
-
-Windows default pytest temp access was denied; fresh ignored basetemp folders used. A whole-upstream-source copy hit Windows long paths; isolated home instead received required verified model folders/adapter archives only. Playwright warns NO_COLOR is ignored with FORCE_COLOR. Git warns of configured LF-to-CRLF conversion. Extra documentation EOF whitespace was removed; diff check passes.
-
-## Logs / evidence / reproduction
-
-Ignored logs under `.tmp/p1c2/`: `full-cpu-release.log`, `reliability-final2.log`, `gpu-d2-sized.log`, `long-index.log`, `e2e-final.log`, `desktop-capture-final.log`; earlier failing/diagnostic runs retained there.
-
-External root: `C:\Users\pro\.codex\visualizations\2026\10\09\01a12000-750a-7813-9ea1-6bc265708fb5`.
-
-- `p1c2-long-bench/measurements.json`: exact timings/hashes; synthetic videos/previews external.
-- `p1c2-e2e/<home|history|schedule|models|settings|add>-<dark|light>-<1280x800|1100x700>.png`.
-- `p1c2-e2e/settings-125-percent.png`, `settings-150-percent.png`.
-
-Reproduce equivalence: `pytest -q tests/test_source_index.py -m "not gpu"` and `pytest -q tests/test_source_index.py -m gpu`. Reliability: `pytest -q tests/test_p1c2_reliability.py`. Full CPU: `pytest -q -m "not gpu and not soak"`. Use fresh basetemp and isolated VE_HOME.
-
-In gui, run lint/typecheck/test/build/package; set VE_GUI_PACKAGE_EXE to the generated Windows executable and VE_GUI_EVIDENCE to an external folder, then `npm run test:e2e`. No GPU opt-in home variables were set in the recorded e2e run.
+Intentionally NOT RUN: optional-model downloads/benchmarks, true process peak instrumentation, private footage, owner queue work, owner visual confirmation, signing/installer, merge, next-cycle improvements.
 
 ## Changed files
 
-- `.ai/CURRENT_TASK.md`, `.ai/LAST_REPORT.md`.
-- Under src/videoenhancer: media/source_index.py, media/probe.py, trial.py, estimate/model.py, jobs/store.py, schedule/admission.py, controller.py, planner.py, windows.py, service/engine.py, operation.py, preview.py, server.py.
-- gui/electron: main.cjs, python.cjs, preload.cjs. gui/src: App.tsx, Home.tsx, ScheduleView.tsx, Pages.tsx, Queue.tsx, style.css, types.ts.
-- tests: test_source_index.py, test_p1c2_reliability.py, test_planner.py. gui/tests: home-schedule.test.tsx, python.test.tsx, setup.ts, four e2e specs.
-- README.md, docs/GUI.md, API.md, ADDING_MODELS.md, TROUBLESHOOTING.md.
+- .ai/CURRENT_TASK.md, .ai/LAST_REPORT.md; README.md.
+- docs/API.md, GUI.md, ADDING_MODELS.md, TROUBLESHOOTING.md.
+- GUI src/App.tsx, Home.tsx, Pages.tsx, Queue.tsx, ScheduleView.tsx, Trial.tsx, style.css, types.ts; scripts/package.mjs.
+- GUI tests/add-models.test.tsx, home-schedule.test.tsx, pages.test.tsx; e2e/desktop.spec.ts, gpu.spec.ts, packaged.spec.ts, windows-flows.spec.ts.
+- src/videoenhancer/jobs/store.py; models/registry.py and both built-in manifests; proc.py; schedule/planner.py.
+- src/videoenhancer/service/compare.py, engine.py, operation.py, preview.py, server.py, settings.py.
+- scripts/window_monitor.py; tests/test_p1c3.py, test_compare.py, test_model_registry.py.
 
-## Questions for the designer
+## CI / Git
 
-No new design decision blocks delivered D/S/W. Unfinished U/M/C follow the existing task; they were not independently redesigned. Safe current behavior retains original defaults/two-stream Trial and omits unverified entries. This partial report does not claim the remaining work is blocked.
-
-## Intentionally not executed / Git handoff
-
-No subagents, owner-queue jobs, main push, merge, history rewrite, private-media publication, weight/build-artifact commit. Long GPU queue/catalog/sync/flash checks and fresh remote CI not executed. Stop after committing only task work and verifying branch push; no next cycle afterward.
-
-Implementation/report commit and push verification are pending when the report is prepared. Final chat will state the verified SHA/outcome.
+Implementation commit/push and Windows/Ubuntu CI pending at initial report writing.
+Update with verified run before ending. A final report-only commit receives another CI run; confirm final HEAD after push and provide its run URL to the owner. Do not merge or push main.

@@ -180,8 +180,9 @@ def test_install_verify_list_remove_and_ignore_code(fake_model):
         registry.manifest(model["id"], "interpolate")
     with pytest.raises(ValueError, match="already installed"):
         registry.add(folder)
-    with pytest.raises(ValueError, match="built-in"):
-        registry.remove(C1)
+    registry.remove(C1)
+    assert registry.manifest(C1)["id"] == C1
+    assert not registry.list_models()[0]["weights_verified"]
     (installed / "weights.pt").write_bytes(b"changed")
     with pytest.raises(ValueError, match="SHA-256 mismatch"):
         registry.weights(model, download=True)
@@ -326,8 +327,8 @@ def test_cli_models_commands(fake_model, capsys):
     assert json.loads(capsys.readouterr().out)["id"] == model["id"]
     assert cli.main(["models", "list", "--json"]) == 0
     assert any(m["id"] == model["id"] for m in json.loads(capsys.readouterr().out))
-    assert cli.main(["models", "remove", C1, "--json"]) == 1
-    assert "built-in" in capsys.readouterr().err
+    assert cli.main(["models", "remove", C1, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["removed"] == C1
     assert cli.main(["models", "remove", model["id"]]) == 0
 
 

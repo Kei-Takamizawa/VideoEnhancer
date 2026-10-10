@@ -19,6 +19,7 @@ test("unsigned owner folder finds the external engine and enforces renderer isol
   delete env.VE_ENGINE_ROOT;
   const app = await _electron.launch({
     executablePath: process.env.VE_GUI_PACKAGE_EXE!,
+    args: [`--user-data-dir=${path.join(env.VE_HOME, "desktop")}`],
     env,
   });
   try {

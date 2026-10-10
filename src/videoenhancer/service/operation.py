@@ -26,6 +26,10 @@ def main() -> None:
             "bytes": path.stat().st_size,
             "sha256": model["weights"]["sha256"],
         }
+    elif kind == "compare":
+        from videoenhancer.service.compare import render_compare
+
+        result = render_compare(value, Path(request["folder"]))
     elif kind == "trial":
         from videoenhancer.trial import run_trial
 

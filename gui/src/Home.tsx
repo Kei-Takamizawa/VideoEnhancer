@@ -3,6 +3,22 @@ import type { Api } from "./api";
 import { duration, filename, when } from "./api";
 import type { Health, Job, Plan, Queue } from "./types";
 
+export function historyWhen(value?: string, now = new Date()) {
+  if (!value) return "Not available";
+  const ended = new Date(value),
+    yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const clock = ended.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  if (ended.toDateString() === now.toDateString()) return `Today ${clock}`;
+  if (ended.toDateString() === yesterday.toDateString())
+    return `Yesterday ${clock}`;
+  return `${ended.toLocaleDateString("en-US", { weekday: "short" })} ${String(ended.getMonth() + 1).padStart(2, "0")}/${String(ended.getDate()).padStart(2, "0")} ${clock}`;
+}
+
 export function Icon({ name }: { name: string }) {
   const paths: Record<string, string> = {
     Home: "M3 10 12 3l9 7v11h-6v-7H9v7H3Z",
@@ -77,6 +93,7 @@ export function JobMenu({
   position = 0,
 }: Actions & { job: Job; position?: number }) {
   const [open, setOpen] = useState(false);
+  const [changingMode, setChangingMode] = useState(false);
   return (
     <div className="job-menu">
       <button
@@ -112,6 +129,37 @@ export function JobMenu({
                 {job.state === "paused" ? "Resume" : "Pause"}
               </button>
               <button onClick={() => action(job, "cancel")}>Cancel</button>
+              {!job.started_at &&
+                job.segment === 0 &&
+                job.state !== "running" && (
+                  <>
+                    <button
+                      disabled={job.state === "preparing"}
+                      title={
+                        job.state === "preparing"
+                          ? "Wait for preparation"
+                          : undefined
+                      }
+                      onClick={() => setChangingMode(!changingMode)}
+                    >
+                      Change mode
+                    </button>
+                    {changingMode &&
+                      ["standard", "fast"].map((preset) => (
+                        <button
+                          key={preset}
+                          aria-pressed={job.settings.preset === preset}
+                          onClick={() => {
+                            action(job, "mode", { preset });
+                            setChangingMode(false);
+                            setOpen(false);
+                          }}
+                        >
+                          {preset === "standard" ? "Standard" : "Fast"}
+                        </button>
+                      ))}
+                  </>
+                )}
             </>
           )}
           <button
@@ -120,7 +168,9 @@ export function JobMenu({
               setOpen(false);
             }}
           >
-            Try models on this video
+            {["done", "failed", "cancelled"].includes(job.state)
+              ? "Compare again"
+              : "Try models on this video"}
           </button>
           <button onClick={() => action(job, "folder")}>
             Open output folder
@@ -150,6 +200,8 @@ export function HomePage({
   preview,
   pauseAll,
   navigate,
+  seenFailures = [],
+  seen,
 }: Actions & {
   queue: Queue;
   health?: Health;
@@ -160,7 +212,10 @@ export function HomePage({
   preview(job: Job): void;
   pauseAll(): void;
   navigate(page: string): void;
+  seenFailures?: string[];
+  seen?(ids: string[]): void;
 }) {
+  const [problem, setProblem] = useState(false);
   const active = queue.jobs.filter(
     (j) => !["done", "failed", "cancelled"].includes(j.state),
   );
@@ -169,7 +224,9 @@ export function HomePage({
     active.find((j) => j.state === "queued") ||
     active[0];
   const next = active.filter((j) => j !== current);
-  const failures = queue.jobs.filter((j) => j.state === "failed");
+  const failures = queue.jobs.filter(
+    (j) => j.state === "failed" && !seenFailures.includes(j.id),
+  );
   const recent = queue.jobs
     .filter((j) => j.state === "done")
     .sort((a, b) =>
@@ -203,10 +260,7 @@ export function HomePage({
           <button
             className="status-chip"
             onClick={() => {
-              if (health?.last_error)
-                void window.desktop.copy(
-                  JSON.stringify(health.last_error, null, 2),
-                );
+              if (health?.last_error) setProblem(true);
             }}
             title={health?.last_error?.message}
           >
@@ -230,6 +284,41 @@ export function HomePage({
           {failures.length}{" "}
           {failures.length === 1 ? "video needs" : "videos need"} attention ·{" "}
           <button onClick={() => navigate("History")}>Open History</button>
+          <button onClick={() => seen?.(failures.map((j) => j.id))}>
+            Dismiss
+          </button>
+        </div>
+      )}
+      {problem && health?.last_error && (
+        <div className="modal-shade">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Problem details"
+            className="dialog"
+          >
+            <h2>Problem</h2>
+            <p>{health.last_error.message}</p>
+            <p>{when(health.last_error.time)}</p>
+            <p>
+              {queue.jobs.find((j) => j.id === health.last_error?.job_id)
+                ?.input ||
+                health.last_error.job_id ||
+                "App"}
+            </p>
+            <div className="actions">
+              <button
+                onClick={() =>
+                  window.desktop.copy(
+                    JSON.stringify(health.last_error, null, 2),
+                  )
+                }
+              >
+                Copy details
+              </button>
+              <button onClick={() => setProblem(false)}>Close</button>
+            </div>
+          </div>
         </div>
       )}
       <div className="home-columns">
@@ -454,7 +543,8 @@ export function HistoryPage({
   api,
   action,
   trial,
-}: Actions & { queue: Queue; api?: Api }) {
+  seen,
+}: Actions & { queue: Queue; api?: Api; seen?(ids: string[]): void }) {
   const [search, setSearch] = useState(""),
     [filter, setFilter] = useState("All");
   const terminal = queue.jobs
@@ -469,6 +559,33 @@ export function HistoryPage({
     (name === "Needs attention"
       ? job.state === "failed"
       : job.settings.preset === name.toLowerCase());
+  const visible = terminal.filter(
+    (j) =>
+      matches(j, filter) &&
+      filename(j.input).toLowerCase().includes(search.toLowerCase()),
+  );
+  const visibleIds = visible.map((j) => j.id).join(",");
+  useEffect(() => {
+    if (!seen) return;
+    const cards = document.querySelectorAll<HTMLElement>(
+      '[aria-label="History"] .history-card[data-failed="true"]',
+    );
+    if (typeof IntersectionObserver === "undefined") {
+      seen(Array.from(cards, (c) => c.dataset.jobId!));
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) =>
+        seen(
+          entries
+            .filter((e) => e.isIntersecting)
+            .map((e) => (e.target as HTMLElement).dataset.jobId!),
+        ),
+      { threshold: 0.1 },
+    );
+    cards.forEach((card) => observer.observe(card));
+    return () => observer.disconnect();
+  }, [visibleIds, seen]);
   return (
     <section aria-label="History">
       <div className="page-heading">
@@ -499,10 +616,15 @@ export function HistoryPage({
               filename(j.input).toLowerCase().includes(search.toLowerCase()),
           )
           .map((job) => (
-            <article className="card history-card" key={job.id}>
+            <article
+              className="card history-card"
+              key={job.id}
+              data-job-id={job.id}
+              data-failed={job.state === "failed"}
+            >
               <Thumbnail job={job} api={api} small />
               <h2>{filename(job.input)}</h2>
-              <p>{when(job.finished_at || job.eta)}</p>
+              <p>{historyWhen(job.finished_at || job.eta)}</p>
               <p>
                 {job.settings.preset === "standard" ? "Standard" : "Fast"}
                 {job.took_seconds !== undefined
