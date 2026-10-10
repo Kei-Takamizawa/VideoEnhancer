@@ -32,7 +32,7 @@ Still missing: draggable thumbnail box, automatic range/selection rerender, reus
 | A5 | PARTIAL | U-rest checks and real Add -> Now processing -> Finished -> History passed. Remaining Compare interactions prevent complete Part U acceptance. |
 | A6 / M | NOT RUN qualification | Optional entries and required reference measurements omitted. |
 | A7 / C | PARTIAL | Four synthetic streams: 100 random seeks, 300 observed played frames, 0 mismatches. Real single-model GPU Compare passed; three different GPU models NOT RUN. |
-| A8 | PARTIAL pending CI | Local checks passed below; confirm Windows/Ubuntu after push. |
+| A8 | PASS | Local checks passed below. Windows and Ubuntu CI passed for implementation commit ad3840d. |
 | A9 | PASS capture set | All seven screens, both sizes/themes, 125/150% scaling; synthetic Compare fixtures do not prove model performance. |
 
 ## Catalog models and omissions
@@ -139,5 +139,9 @@ Intentionally NOT RUN: optional-model downloads/benchmarks, true process peak in
 
 ## CI / Git
 
-Implementation commit/push and Windows/Ubuntu CI pending at initial report writing.
-Update with verified run before ending. A final report-only commit receives another CI run; confirm final HEAD after push and provide its run URL to the owner. Do not merge or push main.
+- Branch: `p1c-redesign`; task snapshot commit: `edef0aa`.
+- Implementation commit: `ad3840d5f15d2f58324c4d307b5a32515b28f616`; pushed successfully to `origin/p1c-redesign`.
+- Implementation CI: PASS, [run 38049035657](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38049035657). Both `cpu (windows-latest)` and `cpu (ubuntu-latest)` completed successfully, including Python lint/format/typecheck/CPU tests and GUI lint/typecheck/unit tests/build. Windows Electron CPU end-to-end also passed.
+- Draft PR: [#4](https://github.com/Kei-Takamizawa/VideoEnhancer/pull/4); title/body updated to the actual partial scope.
+- This report-only update receives its own CI run. Final HEAD CI is checked after push and its verified URL is supplied in the owner's closing message; the implementation code is unchanged by this report update.
+- No merge, main push, history rewrite, or next-cycle work.
