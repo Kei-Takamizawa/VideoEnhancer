@@ -2,7 +2,7 @@
 
 - Task ID / Cycle: VE-P1c-4
 - Date: 2026-10-11 (Asia/Tokyo)
-- Status: PARTIAL (local acceptance complete; final-head remote CI pending).
+- Status: COMPLETED within the owner-feedback scope.
 - Two optional entries omitted under the task's qualification rules.
 - Branch: p1c-redesign. No merge or push to main.
 - Starting HEAD: 85a04c90ec766ba11e483b62896cc30ed3001598, matching fetched origin.
@@ -291,7 +291,7 @@ running 0% interval; neither trial returned to 0% afterward.
 | GUI production build | PASS | .tmp/p1c4/gui-build.log |
 | Electron e2e | PASS: 1 actual CPU-service test; 4 opt-in tests skipped | .tmp/p1c4/gui-e2e.log |
 | Generated package startup | PASS: 1 test, 3.3 s | .tmp/p1c4/packaged-test.log |
-| Windows / Ubuntu final-head CI | VERIFY AFTER PUSH | Draft PR #4 checks |
+| Windows / Ubuntu CI | PASS on implementation f50d353, both jobs SUCCESS | https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38109438547 |
 
 Built unsigned Windows x64 package with `VE_GUI_PACKAGE_OUT=.tmp/p1c4/package`;
 artifact `.tmp/p1c4/package/VideoEnhancer-win32-x64/VideoEnhancer.exe` is ignored
@@ -319,8 +319,9 @@ screenshots outside Git; these do not qualify A9's new-card screenshots.
 - Playwright emitted NO_COLOR/FORCE_COLOR warning. Git emitted CRLF normalization
   warnings. Neither changed runtime results. Large artifacts are not staged.
 - Native Computer Use unavailable; no manual desktop check claimed.
-- Final remote Windows/Ubuntu checks must be verified after pushing this report.
-  Results are tracked on draft PR #4; no merge requested.
+- Windows and Ubuntu CI passed for implementation f50d353 on PR run 38109438547.
+  This final report update changes no executable code. Its final-head checks are
+  verified again before handoff and tracked on draft PR #4; no merge requested.
 
 ## Questions for the designer
 
@@ -387,3 +388,14 @@ because the npm executable is unavailable; commands above are their normal equiv
 GPU reproduction additionally requires the documented model/GPU dependencies,
 matching pinned external source archives, and explicit original-source downloads.
 No private owner video is required.
+
+## Git record
+
+- Full instruction commit: 778618d.
+- Implementation and local acceptance report: f50d353e21f0f6e25a137aa46d6c5e7ce4d047a3.
+- Push to origin/p1c-redesign succeeded; ls-remote matched that exact SHA.
+- PR #4 remains draft: https://github.com/Kei-Takamizawa/VideoEnhancer/pull/4.
+- Implementation PR CI run 38109438547: Windows SUCCESS, Ubuntu SUCCESS.
+- Final report-only commit records these verified results. Its source tree is
+  unchanged; final-head remote checks and origin equality are checked before
+  stopping. No merge, history rewrite or push to main occurred.
