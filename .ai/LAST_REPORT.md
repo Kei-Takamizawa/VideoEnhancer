@@ -1,401 +1,314 @@
-# VE-P1c-4 report
+# VE-P1d implementation and verification report
 
-- Task ID / Cycle: VE-P1c-4
-- Date: 2026-10-11 (Asia/Tokyo)
-- Status: COMPLETED within the owner-feedback scope.
-- Two optional entries omitted under the task's qualification rules.
-- Branch: p1c-redesign. No merge or push to main.
-- Starting HEAD: 85a04c90ec766ba11e483b62896cc30ed3001598, matching fetched origin.
-  This was the packaging report after the task's referenced db8585c.
-- Full final instructions saved unchanged in CURRENT_TASK.md and committed as 778618d.
-- Owner queue untouched. Evidence, synthetic media, model weights and packages stay outside Git.
-- Native Computer Use is unavailable on this host; GUI verification used actual Electron
-  and Playwright. No manual owner visual check is claimed.
+- Task ID / Cycle: VE-P1d
+- Status: PARTIAL. B3 is BLOCKED; B5 depends on B3. P1d acceptance is not complete.
+- Branch: p1d-ui-v2; draft PR: https://github.com/Kei-Takamizawa/VideoEnhancer/pull/5
+- Starting HEAD: fe2b509, under the explicit unmerged-PR fallback. Full instructions
+  saved unchanged and committed as 379b8c6. PR #4 subsequently merged at
+  2026-10-11T05:53:16Z; fetched main efb45e307d65a9a6e0af4b37f95dd786acdd32c6
+  contains the starting commit. No rebase/merge/main push performed.
+- No subagents, owner queue/settings changes or owner-video deletion.
+- Evidence and synthetic media/model caches/package stay outside Git.
 
-## Changes and expected / actual behavior
+## Part D
 
-F1: the old FFmpeg AV1 probe used 128×128 and failed the encoder's minimum-size
-check. The new probe uses the production CUDA encoder at 1920×1080 and flushes
-two frames through the muxer. Health logs and exposes av1_unavailable_reason;
-Add and Settings show the same disabled AV1 option and one-line reason when
-unavailable. Encoder start/write/flush failures name the codec and never fallback.
-During GPU verification, 180 AV1 frames initially muxed as 7.2 seconds rather than
-3 seconds because stream-copy kept IVF packet timestamps. The AV1-only setts
-filter now assigns the pipeline's exact rational CFR. HEVC/H.264 retiming is unchanged.
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Seven extracted components | done | design/p1d/components/*.dc.html, byte-preserving .gitattributes |
+| 61-board inventory / four derived states | done | design/p1d/README.md |
+| Export/runtime excluded | done | Ignored .tmp only; temporary GUI render helper removed |
 
-M2/F3: optional qualified manifests, measured catalog speeds and short English
-summaries; versioned pinned RIFE IFNet variants; tiled single-frame restoration;
-DRUNet quality-factor strength map; learned size after cleanup before resize/RIFE.
-Existing C1, RIFE 4.25 and Standard resize remain the defaults. DRUNet strengths
-share one card/file; selectors stay within the existing card layout. Public license
-metadata is refreshed without changing an installed job's frozen resume identity.
-Archive downloads verify the archive and extracted checkpoint and never copy model
-folder Python. All optional downloads require explicit consent. Restricted torch
-weights loading is retained. No custom CUDA build was used.
+The owner renamed the export to .tmp/design/VideoEnhancer_Desktop.html.
+Size: 7,153,595 bytes. SHA-256:
+f19cd6ed307e71e35ef319f4025b70e6e6a72b9d2e6a87cff165cd3e15d7a642.
+The initial exact-filename check missed the previous spaced filename; corrected
+before extraction. The temporary seven-design render used headless Edge.
 
-C2/F2: keys include source path/size/mtime, CFR range, settings, model ID/SHA and
-companion stage identities. Cached Original/models publish immediately; a fully
-cached request needs no GPU lease. New compares cancel earlier waiting/running
-compares, leaving trials/jobs alone. POST compare/range returns the busiest five
-seconds from saved per-frame motion analysis; old/missing/stale analysis falls
-back to the middle. Fast cleanup remains explicitly rejected.
+## Part A
 
-E: trial states persist UTC time, elapsed processing time and percent at two-second
-intervals, plus a terminal sample. Waiting for an active segment is separate from
-running-trial progress. Only the requested two short G2 trials were repeated,
-with a short synthetic job for the during-job condition.
+| Item | Status | Evidence |
+| --- | --- | --- |
+| A1 model-aware estimates | partial / FAIL accuracy | Restoration/motion reference ratios, DRUNet strength and exact calibration precedence; SCUNet +31.24%, SPAN -27.37% |
+| A2 cancellation/cache reuse | done | Preserve committed MP4s, clean incomplete files, immediately reuse same key without rerender; tests/test_p1d.py:277 |
+| A3 suggested range | done | CFR/source mapping and cut-neighbour exclusion; real calm hard-cut and duplicate-frame regressions at lines 328 and 341 |
+| A4 AV1 minimum | done | Production encoder binary probes, pre-queue rejection; three real output cases below |
+| A5 validation/docs | done | Correct scale documentation, removed blend qualification claim/dead selector, strengths/progress-history tests |
 
-## F1 GPU evidence
+A1 lacks a measured learned-size category baseline. Learned-size estimates stay
+uncalibrated. Compare uses the shared whole-file estimator rather than preview-fps
+extrapolation, but its single-segment approximation differs from Add partitioning.
+Preview machine-profile loading does not fully enforce selected model identities.
+These limitations remain unresolved, with no accuracy guarantee.
 
-Expected: portrait 1080×1920 and landscape 1920×1080, AV1, 180 frames, DONE.
+## Part B
 
-| Job | State | ffprobe codec_name | Dimensions | Read frames |
-|---|---|---|---|---:|
-| portrait | done | av1 | 1080×1920 | 180 |
-| landscape | done | av1 | 1920×1080 | 180 |
+| Item | Status | Evidence / limitations |
+| --- | --- | --- |
+| B1 global/individual pause | done | Independent global flag and controller admission/abort callbacks; paused jobs retained; tests/test_p1d.py:170 |
+| B2 Cancel | partial verification | Completed-segment predicate, unstarted removal, delayed running cleanup, terminal resume refusal, source/output path guards; unit tests lines 42/58. Real running GPU cleanup NOT RUN |
+| B3 Recycle Bin deletion | BLOCKED / NOT RUN | No destructive probe or video-delete endpoint; see designer questions |
+| B4 History remove/Clear/Undo | partial verification | Durable ten-second hide/Undo, expiry/recovery timers, multi-select and Clear confirmation; unit test line 78. Restart integration and 1,000-entry removal NOT RUN |
+| B5 automatic original deletion | BLOCKED / NOT RUN | Depends on B3; no switch or auto-delete added |
+| B6 responsiveness | partial | Shared structural event-plan cache, five-second progress-plan refresh, 400 ms abortable preview; CPU 2.79%. Key-to-paint/500 ms preview budget NOT RUN |
+| B7 first look | partial | Compare 15-frame runs and authenticated labelled stills; timings below. Standalone trials and admission-to-first-look measurement NOT RUN |
+| B8 screen data | partial | Waiting count, driver, job metadata, file present/missing state and publisher URLs; Recycle Bin state absent |
 
-Actual: both match. The realistic probe returned (True, None).
-Evidence: av1-results.json; .tmp/p1c4/av1-gpu3.log.
-Timestamp reference: https://ffmpeg.org/ffmpeg-bitstream-filters.html#setts.
+History/cancellation protect recorded original/output paths even if paths overlap
+the work directory. Cancellation removes resumable intermediates after execution
+stops. History uses one timer per entry; no large-batch scalability claim is made.
 
-## M2 qualification
+## Part U
 
-One fixed synthetic reference: 150 frames / 5 s, 720×1280 at 30 fps, output
-1080×1920 at 60 fps. Restoration and size: Standard; motion: Fast. FPS excludes
-model loading. Torch peaks reset after setup. Budget = rendering PID dedicated
-plus shared GPU memory sampled at one-second deadlines, decimal GB. Median
-interval 1.000 s, maximum observed gap 1.016 s. These samples do not prove the
-absolute peak between samples; device-wide NVML is not used for acceptance.
-Normal jobs retain their 30-second sampling. Hardware RTX 4060 Ti 8GB.
+| Item | Status | Evidence / limitations |
+| --- | --- | --- |
+| U1 shell | done in implementation | Native 32 px caption overlay, min 1100x700, persisted first tray explanation; close/hide E2E |
+| U2 dock | done | Five items, waiting/failure indicators, focus/hover tooltips, Ctrl+1..5, hidden in Compare |
+| U3 tokens/type | partial | Exact named dark/light tokens and 13 px Segoe UI Variable Text; obsolete aliases/blur/animations removed. Full-board geometry not verified |
+| U4 zoom | done in implementation | Six native levels, intercepted keys, saved before paint, toast; zoom screenshots |
+| U5 theme | done in implementation | Forced theme or live native System theme/overlay. Actual OS theme switch NOT RUN |
+| U6 all screens/states | partial | Core implementations below; all 61 boards/derived states not implemented/verified |
+| U7 accessibility | partial | Safe-action focus, Tab/Escape, menu closure and tooltips. Full hit-area/keyboard audit NOT RUN |
+| U8 performance | NOT RUN | Renderer CPU, navigation paint, 1,000-history open and input paint measurements absent |
+| U9 cleanup | partial | Dead QueuePage/PlanPage removed; unused legacy SchedulePage/CSS still present |
 
-Steps 1–5 are source, license, load, reference measurement, and real GPU Compare.
-Step 6 is the shared strict C1/RIFE tensor-equality and existing CPU/D2 fixtures.
-Temporary measurement IDs map to the public IDs below without changing weights,
-adapter parameters or tensor processing. No model was registered before its
-budget and comparison passed.
+Home: real log paths, formatted failure times, outside/Escape menus and plural drop.
+Add: batch finish estimates, warning actions and verified size gating.
+History: grouped virtual rows, cropped thumbnails, search/select/remove/Undo/folder
+opening; complete details/file-delete dialogs missing.
+Schedule: active numeric editor with fifteen-minute arrows, quick fill, exceptions,
+overlap notes, autosave/Undo, read-only timeline and override preview.
+Models: per-card cancellation, plain titles, licence/publisher/SHA details and
+consent; complete busy/removal dialogs and memory text remain incomplete.
+Settings: two-column autosave with native theme/zoom; deletion UI absent.
+Designed Reconnecting disabled actions/last update, Smart App Control and several
+unreachable/error states remain incomplete. No owner visual acceptance is claimed.
 
-| Entry (public ID) | Result / failing step | Input fps | Torch allocated / reserved bytes | Sampled process peak bytes (GB) | Tile / halo | Exact license |
-|---|---|---:|---|---|---|---|
-| basicvsrpp-ntire21-decompress | QUALIFIED, steps 1–6 | 2.472708 | 2886402048 / 3978297344 | 4342366208 (4.342366) | none / none | Code Apache-2.0; the weights' terms are not stated |
-| basicvsrpp-track1 | QUALIFIED, steps 1–6 | 2.486314 | 2887180288 / 4286578688 | 4650647552 (4.650648) | none / none | Code Apache-2.0; the weights' terms are not stated |
-| basicvsrpp-track2 | QUALIFIED, steps 1–6 | 2.483696 | 2886516736 / 4003463168 | 4367532032 (4.367532) | none / none | Code Apache-2.0; the weights' terms are not stated |
-| basicvsrpp-denoise | QUALIFIED, steps 1–6 | 5.219462 | 2073742848 / 3860856832 | 3925020672 (3.925021) | none / none | Code Apache-2.0; the weights' terms are not stated |
-| scunet-real-psnr | QUALIFIED, steps 1–6 | 0.587473 | 1081937408 / 1373634560 | 1741873152 (1.741873) | 256 / 32 | Apache-2.0 |
-| fbcnn-color | QUALIFIED, steps 1–6 | 1.517374 | 1194374144 / 1562378240 | 1930616832 (1.930617) | 256 / 32 | Apache-2.0 |
-| rife-4.25 | QUALIFIED, steps 1–6 | 16.430267 | 1154199040 / 1595932672 | 1964171264 (1.964171) | none / none | MIT |
-| rife-4.26 | QUALIFIED, steps 1–6 | 16.419470 | 1154681344 / 1595932672 | 1964171264 (1.964171) | none / none | MIT |
-| rife-4.25-lite | QUALIFIED, steps 1–6 | 16.662634 | 1146762240 / 1457520640 | 1823662080 (1.823662) | none / none | MIT |
-| drunet-deblock | QUALIFIED, steps 1–6 | 1.135053 | 1176314880 / 1539309568 | 1909645312 (1.909645) | 256 / 32 | MIT |
-| span-liveaction-2x | QUALIFIED, steps 1–6 | 1.394593 | 2891815936 / 4227858432 | 4565143552 (4.565144) | 256 / 32 | Apache-2.0 |
-| Standard resize | DEFAULT, no learned stage/download | n/a | n/a | n/a | n/a | none |
-| 1xDeH264_realplksr | OMITTED, step 2: ambiguous publisher license | NOT RUN | NOT RUN | NOT RUN | NOT RUN | Literal CC-BY-0.4; CC BY 4.0 unconfirmed |
-| Real-ESRGAN 0.2 Faithful | OMITTED, step 4: above 5.0 GB; step 5 NOT RUN | 1.611152 | 4938035712 / 6526337024 | 6890418176 (6.890418) | 256 / 32 | BSD-3-Clause |
-| Real-ESRGAN 0.6 Cleaner | OMITTED, step 4: above 5.0 GB; step 5 NOT RUN | 1.612309 | 4937344512 / 6530531328 | 6865252352 (6.865252) | 256 / 32 | BSD-3-Clause |
+## Part C
 
-DRUNet variants (one checkpoint/card), publisher map (100-QF)/100:
+| Item | Status | Evidence / limitations |
+| --- | --- | --- |
+| Range editing | partial | Suggested range, thumbnails, 3/5/10 s and keyboard adjustment; visible draggable range box absent |
+| Select/install/automatic render | done in implementation | Category filtering, max three, install then select, 800 ms debounce and stale-request abort |
+| Synchronized viewer | done for existing output rules | Four-stream seek/play E2E and GPU equality/D2; compact full-window layout |
+| First-look UI | done for Compare | Authenticated blob stills, matching frame, label and URL cleanup |
+| Use this/default/Fast | partial | Existing Use this/default retained; Fast explanation/Switch to Standard missing |
 
-| Choice | QF / channel | fps | Torch allocated / reserved bytes | Sampled PID peak bytes |
-|---|---|---:|---|---:|
-| light | 50 / 0.5 | 1.133105 | 1175909376 / 1598029824 | 1968365568 |
-| medium | 30 / 0.7 | 1.135053 | 1176314880 / 1539309568 | 1909645312 |
-| strong | 10 / 0.9 | 1.136166 | 1176139776 / 1562378240 | 1932713984 |
+Catalog refreshes alone no longer trigger repeated automatic compares. Virtual
+History reobserves newly mounted failed cards as its scroll window changes.
 
-DRUNet uses FP32, tile 256 + halo 32. The blend wrapper follows the publisher's
-strength*main + (1-strength)*wdn formula. Both specified blend points failed the
-budget, so no Real-ESRGAN built-in card/download is offered.
+## Part G
 
-### Source, bytes and SHA-256
+| Item | Status | Expected / Actual |
+| --- | --- | --- |
+| G1 screenshots | partial | Seven main screens at both sizes/themes and seven pairs. Other states NOT RUN; empty/synthetic captures do not reproduce every board |
+| G2 clipping | partial PASS | Five dock screens at two sizes/themes, dock/tooltip bounds PASS. Add/Compare and planned timeline tooltip full assertions incomplete |
+| G3 budgets | partial | Event snapshot CPU 2.79% <=5%; other service/renderer budgets NOT RUN |
+| G4 GPU | partial | Two estimates FAIL accuracy; AV1 PASS; Compare timings measured with limits below; B3/B5 NOT RUN |
+| G5 defaults | PASS | 14 GPU strict C1/RIFE equality and D2 tests; default output policy unchanged |
+| G6 checks | partial pending final CI | Local results below; final Windows/Ubuntu CI will be checked after push |
 
-| Entry | Original publisher URL | Checkpoint bytes | Computed SHA-256 |
-|---|---|---:|---|
-| basicvsrpp-ntire21-decompress | https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track3_20210304-6daf4a40.pth | 176414092 | 6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a |
-| basicvsrpp-track1 | https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track1_20210223-7b2eba02.pth | 176414076 | 7b2eba02a24989bfbf8b2ed4a06c8e6fd5dbeb193b1178ef7171cd1c455ddb0f |
-| basicvsrpp-track2 | https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track2_20210314-eeae05e6.pth | 176414076 | eeae05e655b9849d57a7bb732004ebeb75d376cb0bf76792f18ca0f9eb491774 |
-| basicvsrpp-denoise | https://www.dropbox.com/sh/gopo637rbutlxde/AACGnXDlvQMjwfCey3m2g34za?dl=1 | 39152529 | 28f6920c4681bd8468a831d479459872c7f020d95c40eb3ced4745670bf2d596 |
-| scunet-real-psnr | https://github.com/cszn/KAIR/releases/download/v1.0/scunet_color_real_psnr.pth | 71982841 | fa78899ba2caec9d235a900e91d96c689da71c42029230c2028b00f09f809c2e |
-| fbcnn-color | https://github.com/jiaxi-jiang/FBCNN/releases/download/v1.0/fbcnn_color.pth | 287755111 | 8b0e4ef23d59cf7ac934a342cb31a17619e4fa4a0b3374a9d78c5174312387e8 |
-| rife-4.25 | https://drive.google.com/uc?id=1ZKjcbmt1hypiFprJPIKW0Tt0lr_2i7bg | 24636301 | 6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2 |
-| rife-4.26 | https://drive.google.com/uc?id=1gViYvvQrtETBgU1w8axZSsr7YUuw31uy | 24636301 | 45c7f74156704769dc9f85cfcaf8552e1e926f9399dcfa3a553dee88fac6f53f |
-| rife-4.25-lite | https://drive.google.com/uc?id=1zlKblGuKNatulJNFf5jdB-emp9AqGK05 | 24467405 | 81cdba223fe72a120130cc8552e5d2ecac824259d406f0c15323b3decf96b8b1 |
-| drunet-deblock | https://github.com/cszn/KAIR/releases/download/v1.0/drunet_deblocking_color.pth | 130590513 | b26323e888230b1b5b58957add8dc9b9ea7fa2f69bdf6a0c3cca9db82167209f |
-| span-liveaction-2x | https://raw.githubusercontent.com/jcj83429/upscaling/main/2xLiveActionV1_SPAN/2xLiveActionV1_SPAN_490000.pth | 8947821 | 8b166c75831ea7f694d9058ee9c8df8148af8cc1d2b57e69e6581b15cab572f7 |
-| deh264 | https://github.com/Phhofm/models/releases/download/1xDeH264_realplksr/1xDeH264_realplksr.safetensors | 29486580 | 91f054af6308e37b81c261ecf775a58be5fa1d37a816709db5d0fea6fceb24b8 |
-| esrgan | https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth | 4885111 | 8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292 |
-| esrgan-wdn | https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-wdn-x4v3.pth | 4885111 | 1641f8c4464b9f097c9fdda5589273713f67cf59f3d909e0bd688f0cee269dca |
+### Builds and tests
 
-Denoise publisher zip: 463593013 bytes,
-9ebecdddd2367058b96b043032efe27bdbe1471651c66e02629d724fcb146f41;
-member basicvsr_plusplus_denoise-28f6920c.pth. A second independent download
-had identical bytes/hash (denoise-repeat.json). RIFE 4.26 archive SHA:
-c2452dd2b244947d4be580156bbead60d6b72af5736860f7d6b3f99648c9c4cc;
-4.25 lite archive SHA:
-e84366c23e0eb1a637a55aad2e4f3442ec2bf4c388043b4aabbf590be289e6e8.
-Exact license sources and archive handling are in docs/THIRD_PARTY_MODELS.md.
+| Command | Result |
+| --- | --- |
+| ruff check . | PASS |
+| ruff format --check . | PASS, 103 files already formatted |
+| pyright | PASS, zero errors/warnings |
+| CPU suite, not gpu and not soak, isolated home | PASS: 275 passed, 3 skipped, 30 deselected, 325.11 s; .tmp/p1d-cpu-last.log |
+| GPU registry/source-index suite | PASS: 14 passed, 45 deselected, 105.11 s; .tmp/p1d-gpu-equality.log |
+| GUI lint/typecheck | PASS |
+| GUI unit tests | PASS: 27 passed, five files |
+| Production build/package | PASS: Electron 44.7.0 win32-x64; JS 480.21 kB, CSS 23.10 kB |
+| Earlier serial Electron E2E | PASS: 2 passed, 3 owner GPU opt-in flows skipped; .tmp/p1d-e2e-checked.log |
+| Latest packaged smoke alone | PASS: 1 passed, 2.6 s test; .tmp/p1d-packaged-final.log |
 
-### Per-entry lifecycle and GPU Compare
+Final serial E2E results will be appended. The obsolete QueuePage/PlanPage test
+removal explains the GUI count change. Skipped owner flows are not PASS evidence.
 
-Install was called through the consent-guarded service endpoint and the actual
-isolated operation subprocess. Verify again re-hashed the downloaded file.
-Make default changed the appropriate Settings key; a new selection captured it.
-Remove deleted the built-in checkpoint after clearing that default. No owner
-queue was involved. RIFE downloads reused the already verified publisher archive
-cache; other checkpoint downloads used the original URLs.
+Exact local commands (PowerShell, root unless noted):
 
-| Entry | Consent required | Install | Verify again | Make default | Remove |
-|---|---|---|---|---|---|
-| basicvsrpp-denoise | True | PASS | PASS | PASS | PASS |
-| basicvsrpp-ntire21-decompress | True | PASS | PASS | PASS | PASS |
-| basicvsrpp-track1 | True | PASS | PASS | PASS | PASS |
-| basicvsrpp-track2 | True | PASS | PASS | PASS | PASS |
-| drunet-deblock | True | PASS | PASS | PASS | PASS |
-| fbcnn-color | True | PASS | PASS | PASS | PASS |
-| rife-4.25 | True | PASS | PASS | PASS | PASS |
-| rife-4.25-lite | True | PASS | PASS | PASS | PASS |
-| rife-4.26 | True | PASS | PASS | PASS | PASS |
-| scunet-real-psnr | True | PASS | PASS | PASS | PASS |
-| span-liveaction-2x | True | PASS | PASS | PASS | PASS |
+```powershell
+.venv/Scripts/ruff.exe check .
+.venv/Scripts/ruff.exe format --check .
+.venv/Scripts/pyright.exe
+$env:VE_HOME='C:\Users\pro\Documents\VideoEnhancer-P1d\cpu-final-home'
+.venv/Scripts/python.exe -m pytest -m 'not gpu and not soak' --basetemp=.tmp/p1d-cpu-final
+$env:VE_HOME='C:\Users\pro\Documents\VideoEnhancer-P1d\model-evidence\home'
+.venv/Scripts/python.exe -m pytest tests/test_model_registry.py tests/test_source_index.py -m gpu --basetemp=.tmp/p1d-gpu-equality
+.venv/Scripts/python.exe .tmp/p1d_models.py
+.venv/Scripts/python.exe .tmp/p1d_av1_guarded.py
+.venv/Scripts/python.exe .tmp/p1d_first_look.py
+# Run these in separate terminals concurrently, with the synthetic job active:
+.venv/Scripts/python.exe .tmp/p1d_event_job.py
+.venv/Scripts/python.exe .tmp/p1d_event_cpu.py
+# In gui/:
+$env:PATH='C:\Users\pro\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin;' + $env:PATH
+node ../.tmp/npm-bootstrap/package/bin/npm-cli.js run lint
+node ../.tmp/npm-bootstrap/package/bin/npm-cli.js run typecheck
+node ../.tmp/npm-bootstrap/package/bin/npm-cli.js test
+$env:VE_GUI_PACKAGE_OUT='C:\Users\pro\Documents\VideoEnhancer-P1d\package'
+node ../.tmp/npm-bootstrap/package/bin/npm-cli.js run package
+$env:VE_GUI_EVIDENCE='C:\Users\pro\Documents\VideoEnhancer-P1d\screenshots-final'
+$env:VE_GUI_PACKAGE_EXE='C:\Users\pro\Documents\VideoEnhancer-P1d\package\VideoEnhancer-win32-x64\VideoEnhancer.exe'
+node ../.tmp/npm-bootstrap/package/bin/npm-cli.js run test:e2e
+```
 
-Every qualified entry and its category default produced actual GPU previews.
-Cache reuse is explicit below: default previews may be copied from an earlier
-successful identical-key render; every candidate was freshly rendered at least
-once. FPS in this table includes model setup/encoder finalization and differs
-from the load-excluded reference FPS shown on the catalog cards.
+The diagnostic scripts remain local/ignored and need verified model/adapter
+caches. Use a new isolated home/output when reproducing rather than appending
+jobs to an owner's queue. CPU/GPU suites require installed locked dependencies.
 
-| Compare | Model fps (reused flag) | First Original tile seconds | Total seconds |
-|---|---|---:|---:|
-| three-model | basicvsrpp-ntire21-decompress: 2.266792 (False); track1: 2.333062 (False); track2: 2.345715 (False) | 13.910 | 245.449 |
-| basicvsrpp-ntire21-decompress | basicvsrpp-ntire21-decompress: 2.266792 (True) | 0.182 | 0.320 |
-| track1 | basicvsrpp-ntire21-decompress: 2.266792 (True); track1: 2.333062 (True) | 0.158 | 0.434 |
-| track2 | basicvsrpp-ntire21-decompress: 2.266792 (True); track2: 2.345715 (True) | 0.181 | 0.444 |
-| denoise | basicvsrpp-ntire21-decompress: 2.266792 (True); denoise: 4.682312 (False) | 0.148 | 39.677 |
-| scunet | basicvsrpp-ntire21-decompress: 2.266792 (True); scunet: 0.557945 (False) | 0.159 | 274.865 |
-| fbcnn | basicvsrpp-ntire21-decompress: 2.266792 (True); fbcnn: 1.458753 (False) | 0.163 | 109.196 |
-| rife-4.25 | rife-4.25: 12.117497 (False) | 23.543 | 41.186 |
-| rife426 | rife-4.25: 12.117497 (True); rife426: 11.866582 (False) | 0.156 | 18.249 |
-| rife425lite | rife-4.25: 12.117497 (True); rife425lite: 11.964381 (False) | 0.144 | 17.920 |
-| drunet-medium | basicvsrpp-ntire21-decompress: 2.266792 (True); drunet-medium: 1.102742 (False) | 0.157 | 144.001 |
-| span | standard-resize: 2.333602 (False); span: 1.354586 (False) | 24.008 | 230.014 |
-| drunet-light | basicvsrpp-ntire21-decompress: 2.266792 (True); drunet-light: 1.105367 (False) | 0.146 | 143.708 |
-| drunet-strong | basicvsrpp-ntire21-decompress: 2.266792 (True); drunet-strong: 1.104368 (False) | 0.145 | 143.758 |
+### Estimate accuracy
 
-Three fresh different cleanup models: C1 2.266792 fps, Track 1 2.333062,
-Track 2 2.345715. Original ready 13.910 s; model tiles ready 96.730,
-174.832, 245.446 s. Total 245.449 s. H.264 previews, real Standard pipeline.
-All four outputs were generated; no simulated GPU measurements.
+Synthetic 2 s portrait 720x1280 at 30 fps, Standard CUDA, 1080 short side,
+2x fps, HEVC. Error = (estimated processing / actual processing - 1) * 100.
 
-C2 tests exercise immediate all-hit completion without GPU/process creation,
-Original/model reuse without encoding, range/settings/source/model-SHA key
-invalidation, and cancellation of the old compare only. Busiest/missing-data
-selection is unit tested. Four-stream Electron verification: 100 random seeks,
-300 played frames, 0 mismatches (e2e/four-stream-sync.json).
+| Model | Estimated processing s | Actual processing s | Error | Expected / Actual |
+| --- | ---: | ---: | ---: | --- |
+| SCUNet | 160.729679 | 122.470528 | +31.239476% | +/-15% / FAIL |
+| SPAN | 37.463587 | 51.582810 | -27.371954% | +/-15% / FAIL |
 
-## G2 trial histories
+Total estimates 161.846960/38.580868 s and end-to-end 123.085314/52.111028 s
+are reported separately because their stage accounting differs.
+External evidence: model-evidence/results.json under the evidence root below.
 
-Expected: both Standard three-second trials complete, with no running 0% stretch
-over 60 seconds. Submission waiting is separate. Actual:
+### AV1 evidence
 
-### during-job
+Exact probe command:
 
-State: done; first sampled positive percent at 14.453 s. Operation ce734c0e265f432b86e9db05581af4da.
+```text
+ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=codec_name,width,height,nb_read_frames,duration:format=duration -of json <synthetic-output>
+```
 
-| UTC time | Processing elapsed seconds | Percent |
-|---|---:|---:|
-| 2026-10-11T03:37:00.702625+00:00 | 0.000 | 0.000 |
-| 2026-10-11T03:37:02.806291+00:00 | 2.109 | 0.000 |
-| 2026-10-11T03:37:04.857916+00:00 | 4.156 | 0.000 |
-| 2026-10-11T03:37:06.935317+00:00 | 6.234 | 0.000 |
-| 2026-10-11T03:37:08.963710+00:00 | 8.265 | 0.000 |
-| 2026-10-11T03:37:11.013299+00:00 | 10.312 | 0.000 |
-| 2026-10-11T03:37:13.089524+00:00 | 12.390 | 0.000 |
-| 2026-10-11T03:37:15.158556+00:00 | 14.453 | 14.444 |
-| 2026-10-11T03:37:17.227664+00:00 | 16.531 | 14.444 |
-| 2026-10-11T03:37:19.303347+00:00 | 18.609 | 26.667 |
-| 2026-10-11T03:37:21.369337+00:00 | 20.672 | 26.667 |
-| 2026-10-11T03:37:23.442993+00:00 | 22.734 | 38.889 |
-| 2026-10-11T03:37:25.524343+00:00 | 24.828 | 38.889 |
-| 2026-10-11T03:37:27.565722+00:00 | 26.859 | 51.111 |
-| 2026-10-11T03:37:29.606546+00:00 | 28.906 | 51.111 |
-| 2026-10-11T03:37:31.665269+00:00 | 30.968 | 63.333 |
-| 2026-10-11T03:37:33.722104+00:00 | 33.015 | 63.333 |
-| 2026-10-11T03:37:35.781102+00:00 | 35.078 | 75.556 |
-| 2026-10-11T03:37:37.867796+00:00 | 37.172 | 75.556 |
-| 2026-10-11T03:37:39.906804+00:00 | 39.203 | 75.556 |
-| 2026-10-11T03:37:41.991112+00:00 | 41.297 | 87.778 |
-| 2026-10-11T03:37:44.028468+00:00 | 43.328 | 87.778 |
-| 2026-10-11T03:37:46.167513+00:00 | 45.468 | 100.000 |
-| 2026-10-11T03:37:48.227436+00:00 | 47.531 | 100.000 |
-| 2026-10-11T03:37:50.309662+00:00 | 49.609 | 100.000 |
-| 2026-10-11T03:37:52.386765+00:00 | 51.687 | 100.000 |
-| 2026-10-11T03:37:54.465341+00:00 | 53.765 | 100.000 |
-| 2026-10-11T03:37:56.516695+00:00 | 55.812 | 100.000 |
-| 2026-10-11T03:37:58.569280+00:00 | 57.875 | 100.000 |
-| 2026-10-11T03:38:00.611366+00:00 | 59.906 | 100.000 |
-| 2026-10-11T03:38:14.276582+00:00 | 73.578 | 100.000 |
-### outside-hours
+Exact selected output fields (full objects in av1-verified/results.json):
 
-State: done; first sampled positive percent at 12.437 s. Operation b4d5af0c11814561b4d1a524f23409c4.
+```json
+{"minimum_output":{"codec_name":"av1","width":130,"height":66,"duration":"1.000000","nb_read_frames":"30","format_duration":"1.000000","bytes":1727},
+"portrait-keep":{"codec_name":"av1","width":720,"height":1280,"duration":"1.000000","nb_read_frames":"30","format_duration":"1.000000","bytes":1359009,"segments":1},
+"three-segments":{"codec_name":"av1","width":720,"height":1280,"duration":"7.000000","nb_read_frames":"210","format_duration":"7.000000","bytes":9793166,"segments":3}}
+```
 
-| UTC time | Processing elapsed seconds | Percent |
-|---|---:|---:|
-| 2026-10-11T03:38:59.666807+00:00 | 0.015 | 0.000 |
-| 2026-10-11T03:39:01.758449+00:00 | 2.109 | 0.000 |
-| 2026-10-11T03:39:03.824351+00:00 | 4.172 | 0.000 |
-| 2026-10-11T03:39:05.879499+00:00 | 6.219 | 0.000 |
-| 2026-10-11T03:39:07.935571+00:00 | 8.281 | 0.000 |
-| 2026-10-11T03:39:10.028831+00:00 | 10.375 | 0.000 |
-| 2026-10-11T03:39:12.094684+00:00 | 12.437 | 14.444 |
-| 2026-10-11T03:39:14.167415+00:00 | 14.515 | 14.444 |
-| 2026-10-11T03:39:16.256955+00:00 | 16.609 | 26.667 |
-| 2026-10-11T03:39:18.320439+00:00 | 18.672 | 26.667 |
-| 2026-10-11T03:39:20.383421+00:00 | 20.734 | 26.667 |
-| 2026-10-11T03:39:22.444212+00:00 | 22.797 | 38.889 |
-| 2026-10-11T03:39:24.540063+00:00 | 24.890 | 38.889 |
-| 2026-10-11T03:39:26.620330+00:00 | 26.969 | 51.111 |
-| 2026-10-11T03:39:28.670470+00:00 | 29.015 | 51.111 |
-| 2026-10-11T03:39:30.723365+00:00 | 31.062 | 63.333 |
-| 2026-10-11T03:39:32.800152+00:00 | 33.140 | 63.333 |
-| 2026-10-11T03:39:34.867131+00:00 | 35.219 | 75.556 |
-| 2026-10-11T03:39:36.903640+00:00 | 37.250 | 75.556 |
-| 2026-10-11T03:39:38.963076+00:00 | 39.312 | 87.778 |
-| 2026-10-11T03:39:41.039836+00:00 | 41.390 | 87.778 |
-| 2026-10-11T03:39:43.106786+00:00 | 43.453 | 100.000 |
-| 2026-10-11T03:39:45.196745+00:00 | 45.547 | 100.000 |
-| 2026-10-11T03:39:47.246115+00:00 | 47.594 | 100.000 |
-| 2026-10-11T03:39:49.326822+00:00 | 49.672 | 100.000 |
-| 2026-10-11T03:39:51.381102+00:00 | 51.734 | 100.000 |
-| 2026-10-11T03:39:53.420123+00:00 | 53.765 | 100.000 |
-| 2026-10-11T03:39:55.444951+00:00 | 55.797 | 100.000 |
-| 2026-10-11T03:39:57.536665+00:00 | 57.875 | 100.000 |
-| 2026-10-11T03:39:59.604083+00:00 | 59.953 | 100.000 |
-| 2026-10-11T03:40:12.638192+00:00 | 72.984 | 100.000 |
+130x66 encoded; 128x66 and 130x64 failed with NvEncoder initialization error 8.
+Rounded capability metadata was 192x128, not the actual minimum 130x66.
 
-The during-job trial was submitted while a synthetic job segment was running;
-the outside-hours schedule was enabled with an empty weekly list. The fixture
-job completed. Histories persist in the isolated operation state files, copied
-into g2-results.json. A first positive sample gives an upper bound on the initial
-running 0% interval; neither trial returned to 0% afterward.
+### First-look evidence
 
-## Builds and tests
+Synthetic 4 s portrait 720x1280@30; selected 3 s, Standard CUDA, 1080 short side,
+2x HEVC with default companion stages. Sequential runs reused Original/warm
+shared adapters for later models. RIFE includes cleanup, not isolated RIFE fps.
 
-| Check | Result | Evidence |
-|---|---|---|
-| Ruff | PASS | .tmp/p1c4/ruff-final.log |
-| Ruff format --check | PASS, 101 files | .tmp/p1c4/format-final.log |
-| Pyright | PASS, 0 errors / 0 warnings | .tmp/p1c4/pyright-final.log |
-| Final CPU suite | PASS: 257 passed, 3 skipped, 30 deselected; 307.35 s | .tmp/p1c4/cpu-release.log |
-| Strict CUDA C1/RIFE tensor equality | PASS: 2 passed, 31 deselected; 9.80 s | .tmp/p1c4/legacy-final.log |
-| D2 CPU + CUDA suite | PASS: 26 passed; 189.25 s | .tmp/p1c4/d2-final.log |
-| GUI lint | PASS | .tmp/p1c4/gui-lint.log |
-| GUI typecheck | PASS | .tmp/p1c4/gui-typecheck.log |
-| GUI unit tests | PASS: 29 tests / 5 files | .tmp/p1c4/gui-unit.log |
-| GUI production build | PASS | .tmp/p1c4/gui-build.log |
-| Electron e2e | PASS: 1 actual CPU-service test; 4 opt-in tests skipped | .tmp/p1c4/gui-e2e.log |
-| Generated package startup | PASS: 1 test, 3.3 s | .tmp/p1c4/packaged-test.log |
-| Windows / Ubuntu CI | PASS on implementation f50d353, both jobs SUCCESS | https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38109438547 |
+| Model | First look s | Full preview ready s |
+| --- | ---: | ---: |
+| C1 | 23.359254 | 75.139592 |
+| SCUNet | 32.051912 | 196.726908 |
+| RIFE 4.25 | 11.624265 | 63.482598 |
 
-Built unsigned Windows x64 package with `VE_GUI_PACKAGE_OUT=.tmp/p1c4/package`;
-artifact `.tmp/p1c4/package/VideoEnhancer-win32-x64/VideoEnhancer.exe` is ignored
-and points to this repository's external Python engine. It was launched in a
-fresh isolated home by the packaged test, with service connection, renderer
-isolation and shutdown verified. This does not replace or stop an owner package.
+Timer starts at render_compare entry, including analysis, not service GPU
+admission. The C1 number is below 25 s under this scope, but required admission
+acceptance remains unverified. Evidence: first-look/results.json.
 
-GUI operations: Add/Settings AV1 reason unit checks; DRUNet three choices on one
-card; actual CPU service, synthetic Add → completion → History, four-stream
-WebCodecs seek/play and close survival; generated package startup, renderer
-isolation and service shutdown. Existing e2e also captured incidental synthetic
-screenshots outside Git; these do not qualify A9's new-card screenshots.
+### Event CPU evidence
 
-## Errors, warnings and unresolved items
+One idle-client-equivalent caller invoked Engine.event_snapshot once per second
+with one Standard SCUNet synthetic job running in a separate process and ten
+queued records. 31 calls: 31.973081 wall s, 0.890625 CPU s, 2.785546% of one core;
+maximum snapshot 73.872600 ms. This excludes network SSE/renderer cost.
+Earlier attempts without an active job across the window were excluded.
+Evidence: model-evidence/event-cpu.json and .tmp/p1d-event-cpu-valid.log.
 
-- Initial AV1 GPU renders failed duration validation; corrected IVF timestamps,
-  rerun portrait/landscape both DONE with ffprobe evidence.
-- One new CPU cache test initially tried unavailable production weights and a
-  96×64 restoration geometry; the fixture now bypasses those unrelated production
-  checks while testing actual cache files and transport. Targeted rerun passed.
-- GUI build initially reported a missing gpu field on strength-specific speed
-  metadata; the tooltip now uses the shared reference GPU. Rebuild passed.
-- Driver-only quoting/encoding/path invocation errors were corrected. They are
-  not reported as application passes. No test failure was ignored.
-- Playwright emitted NO_COLOR/FORCE_COLOR warning. Git emitted CRLF normalization
-  warnings. Neither changed runtime results. Large artifacts are not staged.
-- Native Computer Use unavailable; no manual desktop check claimed.
-- Windows and Ubuntu CI passed for implementation f50d353 on PR run 38109438547.
-  This final report update changes no executable code. Its final-head checks are
-  verified again before handoff and tracked on draft PR #4; no merge requested.
+### GUI actions and screenshots
+
+Automation starts a real isolated CPU service, adds synthetic footage, observes
+Preparing/progress/completion, opens the five dock screens, changes theme/zoom,
+opens Add and four-stream Compare, seeks/plays synchronized media, acknowledges
+the tray explanation and hides/restores. Package smoke verifies engine location
+and renderer isolation. Native Computer Use is unavailable; no manual native
+operation or complete visual acceptance is claimed.
+
+External evidence root: C:\Users\pro\Documents\VideoEnhancer-P1d.
+Screenshot folder: C:\Users\pro\Documents\VideoEnhancer-P1d\screenshots-final.
+
+| Component | Design/app pair at 1280x800 dark |
+| --- | --- |
+| Main | home-design-versus-app.png |
+| AddVideos | add-design-versus-app.png |
+| History | history-design-versus-app.png |
+| Schedule | schedule-design-versus-app.png |
+| Models | models-design-versus-app.png |
+| Compare | compare-design-versus-app.png |
+| Settings | settings-design-versus-app.png |
+
+For each home/add/history/schedule/models/compare/settings, app screenshots are
+<screen>-dark-1280x800.png, <screen>-dark-1100x700.png,
+<screen>-light-1280x800.png, <screen>-light-1100x700.png.
+Design files are <Component>-design.png. Captures contain available empty or
+synthetic states; remaining board states were NOT RUN.
+
+## Part X
+
+| Item | Status | Reason |
+| --- | --- | --- |
+| X1 blend requalification | NOT RUN | Required earlier work remains incomplete |
+| X2 keep model loaded 120 s | NOT RUN | Required earlier work remains incomplete |
+
+## Errors and warnings
+
+- A1 accuracy FAIL; no tuning of acceptance/defaults to these two observations.
+- Initial GPU helper lacked Windows main guard; fixed and rerun in a fresh home.
+- Legacy schedule assertion requested implicit bounds; now explicitly requests
+  include_range. Old SSE mock hung after snapshot interface change; fixed/reran.
+- GUI completion type error fixed and build rerun; old-bundle runs excluded.
+- Clipping assertion originally counted offscreen scroll-container descendants;
+  fixed to evaluate painted intersections.
+- Latest parallel Playwright invocations shared the output folder and one failed
+  with missing trace artifacts/completion timeout; rerun serially. No PASS
+  inferred from that failed attempt.
+- Node NO_COLOR/FORCE_COLOR warning and Git LF/CRLF warnings; design uses -text.
+- Unresolved missing states/budgets appear above. Do not merge this draft based
+  solely on passing regression tests.
 
 ## Questions for the designer
 
-1. DeH264 release says CC-BY-0.4 rather than CC BY 4.0. Can the publisher clarify?
-   Default meanwhile: omitted at license step 2; no download card/inference.
-2. SPAN publisher now states Apache-2.0 rather than the proposed CC BY-NC-SA 4.0.
-   Default meanwhile: exact current publisher license, documented commercial flag.
-3. Both Real-ESRGAN blends exceed the 5.0 GB sampled budget with tile 256/halo 32.
-   Default meanwhile: omitted at step 4; Standard resize stays default. No new
-   memory policy, architecture or quality policy introduced.
+1. B3 requires keeping originals if recycling would fall back to permanent
+   deletion. Reviewed Microsoft APIs say recycle if possible; post-delete
+   callback proves recycling only after deletion. Pre-delete can abort, but
+   the reviewed docs do not establish a guaranteed recycle decision before
+   deletion. An approved fail-closed preflight/refusal strategy is needed.
+   Default: no destructive endpoint and no B5. Sources:
+   [flags](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ifileoperation-setoperationflags),
+   [transfer](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/ne-shobjidl_core-_transfer_source_flags),
+   [pre-delete](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ifileoperationprogresssink-predeleteitem),
+   [post-delete](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ifileoperationprogresssink-postdeleteitem).
+2. A1's two jobs fail +/-15% and learned-size baseline is absent. Supply the
+   approved reference/calibration plan. Default: keep uncalibrated and report
+   measured failures without changing the formula's product policy.
+3. Remaining UI states, range box, Fast panel, trial first look and acceptance
+   measurements require further implementation. Default: keep the PR draft and
+   report PARTIAL; the supplied spec remains authoritative.
 
-## Intentionally deferred / not run
+## Reproduction / changed files / intentional omissions
 
-DEFERRED to P1d per F2: draggable range box, GUI 800 ms re-render,
-install-then-select, their GUI component/e2e tests, and A9 qualified-model dark/light
-screenshots. The GUI Switch to Standard control belongs to that deferred redesign.
-F4 schedule/dock/colors/History changes were not started. Owner visual checklist
-is owner-run. DeH264 steps 3–5 NOT RUN after license failure. Real-ESRGAN step 5
-NOT RUN after budget failure. No long G1/G3 soak or prior three-job G2 rerun.
-No architecture/UX redesign, added non-M2 entry, model training, telemetry or update.
+Use the exact commands above with a fresh synthetic home. For accuracy compare
+predicted processing seconds to sum of actual segment seconds for the two
+model choices. For History remove a synthetic terminal record, Undo before
+ten seconds, repeat without Undo, and verify original/output bytes. Cancel
+an unstarted job versus a job with completed segments; the latter cannot resume.
+There is deliberately no B3 video-delete action to execute.
 
-## Related files and reproduction
+Changed: engine estimate/model, jobs/store, media/encode, models/registry,
+schedule/controller, service compare/engine/server/settings; GUI electron
+main/preload, App/Home/Pages/Queue/Schedule/ScheduleView/Trial, api/focus/types,
+style.css; tests test_p1d/test_p1c3/test_reliability and GUI add-models/
+home-schedule/pages/setup/e2e desktop; docs ADDING_MODELS/API/GUI/
+THIRD_PARTY_MODELS/TROUBLESHOOTING; .gitattributes; seven design components and
+README; .ai/CURRENT_TASK.md and .ai/LAST_REPORT.md. Paths are relative to repo.
 
-Changed: .ai/CURRENT_TASK.md and LAST_REPORT.md; media/{encode,analyze}.py;
-models/{registry,spandrel,rife,rife_variants}.py and qualified manifests;
-bench/rife.py; pipeline/{presets,runner}.py; service/{engine,settings,compare}.py;
-jobs/store.py; scripts/reference_measure.py; tests/{test_compare,test_p1c4}.py;
-gui/src/{App,Pages,Queue,types}; gui/tests/add-models.test.tsx;
-docs/{ADDING_MODELS,THIRD_PARTY_MODELS,GUI,API}.md.
+Intentional omissions: owner-video deletion, owner jobs/settings, full soak,
+optional X, owner visual check, all-state screenshot sweep, unsupported accuracy
+claims, merge/main push. Final Git/CI and serial E2E results appended below.
 
-Evidence root (synthetic/private artifacts, not Git):
-C:/Users/pro/.codex/visualizations/2026/10/09/01a12000-750a-7813-9ea1-6bc265708fb5/p1c4.
-Raw *-measurement.json files include every PID/time/memory sample and runner
-statistics. *-compare.json files retain real timing/reuse metadata. Lifecycle,
-G2, AV1, sample intervals and Electron sync have separate JSON evidence.
-Local logs and orchestration scripts are in .tmp/p1c4 (ignored).
+## Final local rerun
 
-```powershell
-$env:VE_HOME = 'C:\Evaluation\p1c4-home' # isolated from the owner queue
-ffmpeg -v error -f lavfi -i testsrc2=size=720x1280:rate=30 -t 5 -c:v libx264 -preset ultrafast -threads 2 reference-5s.mp4
-# Install via the Models consent dialog, then prepare a Standard (motion: Fast)
-# CUDA job at 1080 / 2x / HEVC with the selected model. Use its prepared manifest:
-python scripts/reference_measure.py prepared-job.json measured.mp4
-# POST compare: file=reference-5s.mp4, start=0, seconds=5, models=[default,candidate].
-# POST compare with [C1, basicvsrpp-track1, basicvsrpp-track2] for the three-model run.
-# For G2 use Standard trials with seconds=3, once during a synthetic job and once
-# after PUT schedule {enabled:true, weekly:[], timezone:'Asia/Tokyo'}.
-ruff check .
-ruff format --check .
-pyright
-pytest -m 'not gpu and not soak' --basetemp=.tmp/p1c4/cpu-repro
-pytest tests/test_model_registry.py -m gpu --basetemp=.tmp/p1c4/legacy-repro
-pytest tests/test_source_index.py --basetemp=.tmp/p1c4/d2-repro
-cd gui
-npm run lint
-npm run typecheck
-npm test
-npm run build
-npm run test:e2e
-```
-
-On this host npm was invoked through the retained .tmp/npm-bootstrap/package/bin/npm-cli.js
-because the npm executable is unavailable; commands above are their normal equivalents.
-GPU reproduction additionally requires the documented model/GPU dependencies,
-matching pinned external source archives, and explicit original-source downloads.
-No private owner video is required.
-
-## Git record
-
-- Full instruction commit: 778618d.
-- Implementation and local acceptance report: f50d353e21f0f6e25a137aa46d6c5e7ce4d047a3.
-- Push to origin/p1c-redesign succeeded; ls-remote matched that exact SHA.
-- PR #4 remains draft: https://github.com/Kei-Takamizawa/VideoEnhancer/pull/4.
-- Implementation PR CI run 38109438547: Windows SUCCESS, Ubuntu SUCCESS.
-- Final report-only commit records these verified results. Its source tree is
-  unchanged; final-head remote checks and origin equality are checked before
-  stopping. No merge, history rewrite or push to main occurred.
+- Final serial Electron E2E: PASS, 2 passed, 3 explicitly skipped (1.2 min); .tmp/p1d-e2e-final-serial.log. This includes the final compact Compare CSS and automatic-render/History observer fixes.
+- Packaged smoke included in the same serial run: PASS, 2.5 s.
+- Seven design/app pairs regenerated from the final screenshots.
+- Commit/push is performed on p1d-ui-v2 only; final remote equality and CI are checked after push.

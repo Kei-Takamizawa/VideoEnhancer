@@ -187,6 +187,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._headers(200, "image/jpeg", len(raw))
                 self.wfile.write(raw)
                 return
+            if len(parts) == 4 and parts[0] == "operations" and parts[2] == "stills":
+                op_id, name = parts[1], parts[3]
+                operation = self.server.engine.operations[op_id]
+                allowed = {
+                    item["id"] for item in operation.get("result", {}).get("first_looks", [])
+                }
+                if name not in allowed:
+                    raise ValueError("The first look is not ready.")
+                path = self.server.engine.home / "previews" / op_id / f"{name}-first-look.png"
+                raw = path.read_bytes()
+                self._headers(200, "image/png", len(raw))
+                self.wfile.write(raw)
+                return
             if len(parts) == 4 and parts[0] == "operations" and parts[2] == "files":
                 op_id, name = parts[1], parts[3]
                 operation = self.server.engine.operations[op_id]
@@ -235,11 +248,7 @@ class Handler(BaseHTTPRequestHandler):
         heartbeat = time.monotonic()
         while not self.server.engine.stop.is_set():
             try:
-                data = {
-                    "queue": self.server.engine.queue(),
-                    "health": self.server.engine.health(),
-                    "plan": self.server.engine.dispatch("GET", ["plan"], {}),
-                }
+                data = self.server.engine.event_snapshot()
                 raw = json.dumps(data, default=str, allow_nan=False)
                 if raw != previous:
                     self.wfile.write(f"event: update\ndata: {raw}\n\n".encode())

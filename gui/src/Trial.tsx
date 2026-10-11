@@ -499,6 +499,18 @@ export function Compare({
     </div>
   );
 }
+function FirstLook({ api, image, name }: { api: Api; image: string; name: string }) {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    let alive = true, owned: string | undefined;
+    void api.blob(image.replace(/^\/v1\//, "")).then(blob => {
+      if (alive) { owned = URL.createObjectURL(blob); setUrl(owned); }
+    }).catch(() => {});
+    return () => { alive = false; if (owned) URL.revokeObjectURL(owned); };
+  }, [api, image]);
+  return <figure className="first-look">{url && <img src={url} alt={`${name} first look`} />}<figcaption>{name} · First look</figcaption></figure>;
+}
+
 export function TrialDialog({
   api,
   value,
@@ -514,7 +526,7 @@ export function TrialDialog({
   close(): void;
   models?: Model[];
   useModel?(
-    key: "restore_model" | "interp_model",
+    key: "restore_model" | "interp_model" | "size_model",
     id: string,
   ): Promise<void> | void;
   started?: boolean;
@@ -538,9 +550,9 @@ export function TrialDialog({
   const [category, setCategory] = useState(
     value.settings.preset === "standard" ? "cleanup" : "motion",
   );
-  const key = category === "cleanup" ? "restore_model" : "interp_model";
+  const key = category === "cleanup" ? "restore_model" : category === "size" ? "size_model" : "interp_model";
   const candidates = models.filter(
-    (m) => m.task === (category === "cleanup" ? "restore" : "interpolate"),
+    (m) => m.task === (category === "cleanup" ? "restore" : category === "size" ? "size" : "interpolate"),
   );
   const [selected, setSelected] = useState<string[]>([
     value.settings.preset === "standard"
@@ -549,6 +561,33 @@ export function TrialDialog({
   ]);
   const [chosen, setChosen] = useState(value.settings[key] || selected[0]);
   const [consent, setConsent] = useState<Model>();
+  const [installing, setInstalling] = useState<string>();
+  const [accepted, setAccepted] = useState(false);
+  const [rangeReady, setRangeReady] = useState(false);
+  const selectedKey = selected.join("|");
+  const verifiedSelection = selected.every(id => models.some(model => model.id === id && model.weights_verified));
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  useEffect(() => setAccepted(false), [consent]);
+  useEffect(() => {
+    if (!installing || !models.some(model => model.id === installing && model.weights_verified)) return;
+    setSelected(old => old.includes(installing) ? old : [...old.slice(0, 2), installing]);
+    setInstalling(undefined);
+  }, [installing, models]);
+  useEffect(() => {
+    if (!rangeReady || !total || !selectedKey || !verifiedSelection) return;
+    const abort = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const op = await api.call<Operation>("compare", "POST", {
+          ...valueRef.current, start: Math.min(start, Math.max(0, total - length)),
+          seconds: length, models: selectedKey.split("|"),
+        }, abort.signal);
+        if (!abort.signal.aborted) { setId(op.id); setInitial(op); setError(""); }
+      } catch (error) { if (!abort.signal.aborted) setError((error as Error).message); }
+    }, 800);
+    return () => { clearTimeout(timer); abort.abort(); };
+  }, [api, start, length, selectedKey, total, rangeReady, verifiedSelection]);
   const operation = operations.find((o) => o.id === id) || initial;
   useEffect(() => {
     let alive = true;
@@ -562,7 +601,9 @@ export function TrialDialog({
         if (alive) {
           setThumbnails(r.thumbnails);
           setTotal(r.duration);
-          setStart(Math.max(0, r.duration / 2 - 2.5));
+          void api.call<{ start: number }>("compare/range", "POST", { file: value.file, job_id: value.job_id })
+            .then(range => { if (alive) { setStart(range.start); setRangeReady(true); } })
+            .catch(error => { if (alive) setError(error.message); });
         }
       })
       .catch((e) => {
@@ -573,7 +614,7 @@ export function TrialDialog({
     };
   }, [api, value.file]);
   return (
-    <div className="modal-shade">
+    <div className="modal-shade compare-full-window">
       <div
         className="dialog trial-dialog"
         role="dialog"
@@ -596,6 +637,7 @@ export function TrialDialog({
               src={src}
               key={i}
               alt={`Preview at ${((i * total) / 7).toFixed(1)} seconds`}
+              onClick={() => setStart(Math.min(Math.max(0, total - length), i * total / 7))}
             />
           ))}
         </div>
@@ -608,6 +650,11 @@ export function TrialDialog({
             step="0.1"
             value={Math.min(start, Math.max(0, total - length))}
             onChange={(e) => setStart(Number(e.target.value))}
+            onKeyDown={event => {
+              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+              event.preventDefault();
+              setStart(old => Math.max(0, Math.min(total - length, old + (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 5 : 1))));
+            }}
           />
         </label>
         <div className="filter-pills">
@@ -621,14 +668,14 @@ export function TrialDialog({
                 const model = models.find(
                   (m) =>
                     m.weights_verified &&
-                    m.task === (next === "cleanup" ? "restore" : "interpolate"),
+                    m.task === (next === "cleanup" ? "restore" : next === "size" ? "size" : "interpolate"),
                 );
                 setSelected(model ? [model.id] : []);
                 setChosen(
                   next === "cleanup"
                     ? value.settings.restore_model ||
                         "basicvsrpp-ntire21-decompress"
-                    : value.settings.interp_model || "rife-4.25",
+                    : next === "size" ? value.settings.size_model || model?.id || "" : value.settings.interp_model || "rife-4.25",
                 );
               }}
             >
@@ -639,8 +686,8 @@ export function TrialDialog({
                 Cleanup
               </option>
               <option value="motion">Smoother motion</option>
-              <option value="size" disabled>
-                Bigger picture · Standard resize
+              <option value="size" disabled={!models.some(model => model.task === "size" && model.weights_verified)}>
+                Bigger picture
               </option>
             </select>
           </label>
@@ -648,18 +695,14 @@ export function TrialDialog({
           {candidates.map((m) => (
             <button
               key={m.id}
+              title={m.catalog?.title || m.display_name}
               aria-pressed={selected.includes(m.id)}
-              disabled={
-                m.weights_verified &&
-                !selected.includes(m.id) &&
-                selected.length >= 3
-              }
               onClick={() =>
                 m.weights_verified
                   ? setSelected((old) =>
                       old.includes(m.id)
                         ? old.filter((id) => id !== m.id)
-                        : [...old, m.id],
+                      : [...old.slice(0, 2), m.id],
                     )
                   : setConsent(m)
               }
@@ -715,7 +758,7 @@ export function TrialDialog({
               }
             }}
           >
-            Compare selected models
+            {operation?.state === "failed" ? "Try again" : "Compare selected models"}
           </button>
         </div>
         <p className="muted">
@@ -729,6 +772,9 @@ export function TrialDialog({
           />
         )}
         {operation?.state === "done" && <p className="muted">Compare: done</p>}
+        {operation?.state !== "done" && <div className="first-looks">
+          {operation?.result?.first_looks?.map(look => <FirstLook key={look.id} api={api} image={look.image} name={look.id === "original" ? "Original" : models.find(model => model.id === look.id)?.catalog?.title || look.id} />)}
+        </div>}
         {operation?.result?.original && (
           <Compare api={api} operation={operation} />
         )}
@@ -784,14 +830,18 @@ export function TrialDialog({
               <h3>Install {consent.catalog?.title || consent.display_name}?</h3>
               <p>Licence: {consent.licence}</p>
               <p className="break">Source: {consent.weights.url}</p>
+              {consent.publisher_url && <a href={consent.publisher_url} target="_blank" rel="noreferrer">Model publisher’s page</a>}
+              <label className="check"><input type="checkbox" checked={accepted} onChange={event => setAccepted(event.target.checked)} />I accept this licence</label>
               <button onClick={() => setConsent(undefined)}>Cancel</button>
               <button
+                disabled={!accepted}
                 onClick={async () => {
                   try {
                     await api.call(`models/${consent.id}/download`, "POST", {
                       agree: true,
                       licence: consent.licence,
                     });
+                    setInstalling(consent.id);
                     setConsent(undefined);
                   } catch (e) {
                     setError((e as Error).message);

@@ -6,6 +6,8 @@ export type Settings = {
   output_folder: string;
   start_with_windows: boolean;
   theme: string;
+  zoom?: number;
+  tray_explained?: boolean;
   log_folder: string;
   advanced: Record<string, number>;
   backend?: string;
@@ -45,6 +47,7 @@ export type Job = {
   step: string;
   step_percent: number;
   segment: number;
+  completed_segments?: number;
   segments: number;
   fps?: number;
   log: string;
@@ -53,6 +56,12 @@ export type Job = {
   started_at?: string;
   took_seconds?: number;
   output_bytes?: number;
+  mode?: string;
+  original_bytes?: number;
+  output_folder?: string;
+  failure_reason?: string;
+  original_state?: "present" | "missing" | "recycled";
+  output_state?: "present" | "missing" | "recycled";
   starts?: string;
   preview_ready?: boolean;
 };
@@ -74,6 +83,7 @@ export type Operation = {
     weights_verified?: boolean;
     original?: string;
     start_seconds?: number;
+    first_looks?: { id: string; image: string; seconds: number; frame: number }[];
     items?: {
       id: string;
       name?: string;
@@ -89,6 +99,8 @@ export type Queue = {
   operations: Operation[];
 };
 export type Health = {
+  paused_all?: boolean;
+  waiting_count?: number;
   version: string;
   gpu?: string;
   driver?: string;
@@ -135,6 +147,7 @@ export type Plan = {
   jobs: { job_id: string; completion: string | null }[];
 };
 export type Model = {
+  publisher_url?: string;
   id: string;
   display_name: string;
   task: string;
@@ -172,12 +185,17 @@ export type Model = {
 };
 export type Connection = { base_url: string; token: string };
 export interface Desktop {
+  reveal(file: string): Promise<void>;
+  hide(): Promise<void>;
+  onTrayExplanation(callback: () => void): () => void;
   connection(): Promise<Connection>;
   files(kind: "videos" | "folder"): Promise<string[]>;
   openFolder(folder: string): Promise<void>;
   play(file: string): Promise<void>;
   copy(text: string): Promise<void>;
   filePath(file: File): string;
+  zoom(percent: number): Promise<number>;
+  onZoom(callback: (percent: number) => void): () => void;
 }
 declare global {
   interface Window {

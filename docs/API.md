@@ -194,7 +194,8 @@ See `.ai/LAST_REPORT.md` for measured acceptance results and remaining gaps.
   Compare files can be read while later models are still being processed.
 - `POST queue/<id>/preview` is CPU-only. Cancelling the operation or quitting
   terminates encoding and deletes partial preview files, preserving job output.
-- `POST schedule/preview` returns `plan`, `best` and `worst`. Planned timeline
+- `POST schedule/preview` returns `plan` and the next window. Set `include_range`
+  to true to request `best` and `worst` as well. Planned timeline
   bars include `start_percent` and `end_percent`.
 - Model deletion refuses weights used by active queue jobs or active previews.
   Built-in deletion removes weights only; its card and licence remain available
@@ -228,3 +229,23 @@ resize), `restore_strength` (`light`, `medium`, `strong`), and `size_strength`
 Trial operation states retain `percent_history`: UTC `time`, `elapsed_seconds`
 since operation processing starts, and `percent`, sampled no more frequently
 than every two seconds, plus a terminal sample. Segment waiting is separate.
+
+## P1d additions
+
+- `POST estimate` also accepts `files` (up to 100 paths), returning per-file
+  metadata and combined Standard/Fast estimates with shared queue planning.
+- `health.paused_all` is independent of individual job states.
+- `POST history/remove` accepts `ids`, hides terminal entries for ten seconds,
+  then removes their job/work data. `POST history/undo` accepts the same IDs
+  within that interval. `POST history/clear` removes terminal entries without
+  Undo. Recorded original and output videos are preserved.
+- Queue records include completed-segment count, waiting count, preset/mode,
+  source bytes, output folder and file presence information.
+- `health.av1_min_width` and `av1_min_height` come from production
+  encoder probes. Smaller output is rejected before queue creation.
+- Compare publishes `first_looks`; authenticated
+  `GET operations/<id>/stills/<name>` serves only the published PNG names.
+- Event snapshots reuse structural plans. Schedule preview returns expected
+  planning only by default; `include_range: true` requests bound scenarios.
+
+Recycle Bin operations and automatic original deletion are not available.

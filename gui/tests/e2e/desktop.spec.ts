@@ -145,9 +145,6 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
     }
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByLabel("Theme").selectOption("dark");
-    await page
-      .getByRole("button", { name: "Save settings", exact: true })
-      .click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     for (const size of [
       { width: 1280, height: 800 },
@@ -166,9 +163,6 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
           .getByRole("button", { name: "Settings", exact: true })
           .click();
         await page.getByLabel("Theme").selectOption(theme);
-        await page
-          .getByRole("button", { name: "Save settings", exact: true })
-          .click();
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         for (const name of [
           "Home",
@@ -186,6 +180,36 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
               () => document.documentElement.scrollWidth > innerWidth,
             ),
           ).toBe(false);
+          const clipping = await page.evaluate(() => {
+            const main = document.querySelector<HTMLElement>(".app > main")!;
+            const issues: string[] = [];
+            if (document.documentElement.scrollHeight > innerHeight || main.scrollHeight > main.clientHeight + 1) issues.push("page scrolls");
+            const dock = document.querySelector<HTMLElement>("aside")!.getBoundingClientRect();
+            for (const element of main.querySelectorAll<HTMLElement>("button,label")) {
+              const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+              let top = rect.top, bottom = rect.bottom, left = rect.left, right = rect.right;
+              for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+                const clip = parent.getBoundingClientRect(), parentStyle = getComputedStyle(parent);
+                if (/hidden|auto|scroll|clip/.test(parentStyle.overflowY)) { top = Math.max(top, clip.top); bottom = Math.min(bottom, clip.bottom); }
+                if (/hidden|auto|scroll|clip/.test(parentStyle.overflowX)) { left = Math.max(left, clip.left); right = Math.min(right, clip.right); }
+              }
+              if (bottom <= top || right <= left) continue;
+              if (!rect.width || !rect.height || rect.bottom < main.getBoundingClientRect().top || rect.top >= dock.top) continue;
+              if (element.scrollWidth > element.clientWidth + 1 && style.textOverflow !== "ellipsis") issues.push(`clipped: ${element.textContent?.trim()}`);
+              if (top < dock.bottom && bottom > dock.top && left < dock.right && right > dock.left) issues.push(`behind dock: ${element.textContent?.trim()}`);
+            }
+            return issues;
+          });
+          expect(clipping).toEqual([]);
+          for (const button of await page.locator("aside button").all()) {
+            await button.hover();
+            const rect = await button.locator('[role="tooltip"]').boundingBox();
+            expect(rect).not.toBeNull();
+            expect(rect!.x).toBeGreaterThanOrEqual(0);
+            expect(rect!.y).toBeGreaterThanOrEqual(0);
+            expect(rect!.x + rect!.width).toBeLessThanOrEqual(size.width);
+            expect(rect!.y + rect!.height).toBeLessThanOrEqual(size.height);
+          }
           await page.screenshot({
             path: path.join(
               evidence,
@@ -286,6 +310,8 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].close(),
     );
+    await expect(page.getByRole("heading", { name: "VideoEnhancer keeps working in the tray" })).toBeVisible();
+    await page.getByRole("button", { name: "Got it" }).click();
     await expect
       .poll(() =>
         app.evaluate(({ BrowserWindow }) =>

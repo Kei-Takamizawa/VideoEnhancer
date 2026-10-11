@@ -19,6 +19,8 @@ DEFAULTS: dict[str, Any] = {
     "fps": "2x",
     "start_with_windows": False,
     "theme": "system",
+    "zoom": 100,
+    "tray_explained": False,
     "log_folder": "",
     "advanced": {},
     "seen_failures": [],
@@ -59,6 +61,7 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
         "short_side": {"keep", 1080, 1440, 2160},
         "fps": {"off", "2x"},
         "theme": {"system", "dark", "light"},
+        "zoom": {80, 90, 100, 110, 125, 150},
         "restore_strength": {"light", "medium", "strong"},
         "size_strength": {0.2, 0.6},
     }
@@ -67,6 +70,8 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"Invalid {key}.")
     if not isinstance(value["start_with_windows"], bool):
         raise ValueError("Start with Windows must be on or off.")
+    if not isinstance(value["tray_explained"], bool):
+        raise ValueError("Tray explanation must be on or off.")
     if not isinstance(value["seen_failures"], list) or any(
         not isinstance(item, str) or len(item) > 80 for item in value["seen_failures"]
     ):

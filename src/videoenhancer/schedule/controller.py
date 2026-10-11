@@ -741,6 +741,7 @@ def run_queue(
     executor: Any = None,
     disk_free: Callable[[Path], int] | int | None = None,
     stopped: Callable[[], bool] = lambda: False,
+    paused_all: Callable[[], bool] = lambda: False,
     between_segments: Callable[[], None] = lambda: None,
     on_error: Callable[[str | None, Exception], None] | None = None,
     on_progress: Callable[[dict[str, Any], dict[str, Any]], None] | None = None,
@@ -813,6 +814,9 @@ def run_queue(
                 between_segments()
                 if stopped():
                     break
+                if paused_all():
+                    clock.sleep(0.5)
+                    continue
                 jobs = store.list_jobs()
                 if job_ids is not None:
                     jobs = [job for job in jobs if job["id"] in job_ids]
@@ -901,7 +905,7 @@ def run_queue(
                             job_id,
                             clock,
                             ignore_schedule or overrun,
-                            lambda: stop or stopped(),
+                            lambda: stop or stopped() or paused_all(),
                         )
 
                         finalize_started = clock.now()
@@ -1084,6 +1088,9 @@ def run_queue(
                         nonlocal reason
                         if stop or stopped():
                             reason = "interrupt"
+                            return True
+                        if paused_all():
+                            reason = "global pause"
                             return True
                         state = store.read_control_state(target_job_id)
                         if state not in {"queued", "running"}:

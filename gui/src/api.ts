@@ -1,10 +1,10 @@
 import type { Connection } from "./types";
 export interface Api {
-  call<T>(route: string, method?: string, data?: unknown): Promise<T>;
+  call<T>(route: string, method?: string, data?: unknown, signal?: AbortSignal): Promise<T>;
   blob(route: string): Promise<Blob>;
 }
 export function client(connection: Connection): Api {
-  async function send(route: string, method = "GET", data?: unknown) {
+  async function send(route: string, method = "GET", data?: unknown, signal?: AbortSignal) {
     const response = await fetch(`${connection.base_url}/${route}`, {
       method,
       headers: {
@@ -12,9 +12,10 @@ export function client(connection: Connection): Api {
         "Content-Type": "application/json",
       },
       body: data === undefined ? undefined : JSON.stringify(data),
-      signal: AbortSignal.timeout(
-        method === "POST" && route === "queue" ? 1200000 : 30000,
-      ),
+      signal: AbortSignal.any([
+        ...(signal ? [signal] : []),
+        AbortSignal.timeout(method === "POST" && route === "queue" ? 1200000 : 30000),
+      ]),
     });
     if (!response.ok)
       throw new Error(
@@ -24,8 +25,8 @@ export function client(connection: Connection): Api {
     return response;
   }
   return {
-    call: async <T>(route: string, method?: string, data?: unknown) =>
-      (await send(route, method, data)).json() as Promise<T>,
+    call: async <T>(route: string, method?: string, data?: unknown, signal?: AbortSignal) =>
+      (await send(route, method, data, signal)).json() as Promise<T>,
     blob: async (route) => (await send(route)).blob(),
   };
 }

@@ -10,6 +10,7 @@ const {
   protocol,
   net,
   nativeImage,
+  nativeTheme,
 } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -38,6 +39,33 @@ const home =
   path.join(app.getPath("appData"), "..", "Local", "VideoEnhancer");
 let child;
 let starting;
+let zoomPercent = 100;
+let trayExplained = false;
+const publisherURLs = new Set();
+let zoomSave = Promise.resolve();
+const zoomLevels = [80, 90, 100, 110, 125, 150];
+function updateOverlay() {
+  const dark = nativeTheme.shouldUseDarkColors;
+  window?.setTitleBarOverlay({
+    color: dark ? "#1C1814" : "#F5EFE6",
+    symbolColor: dark ? "#DCCFBD" : "#574A3F",
+    height: 32,
+  });
+}
+function applyAppearance(theme) {
+  nativeTheme.themeSource = ["system", "dark", "light"].includes(theme) ? theme : "system";
+  updateOverlay();
+}
+nativeTheme.on("updated", updateOverlay);
+async function setZoom(percent) {
+  if (!zoomLevels.includes(percent)) throw new Error("Choose a supported zoom level.");
+  zoomPercent = percent;
+  zoomSave = zoomSave.catch(() => {}).then(() => request("settings", "PUT", { zoom: percent }));
+  await zoomSave;
+  window.webContents.setZoomFactor(percent / 100);
+  window.webContents.send("zoom-changed", percent);
+  return percent;
+}
 app.setName("VideoEnhancer");
 async function request(route, method = "GET", body) {
   if (!connection) throw new Error("The engine is not connected.");
@@ -153,6 +181,14 @@ function handle(name, fn) {
 async function syncPreferences() {
   try {
     const settings = await request("settings");
+      trayExplained = settings.tray_explained === true;
+      if (!publisherURLs.size) {
+        const models = await request("models");
+        for (const model of models) if (model.builtin && model.publisher_url) publisherURLs.add(new URL(model.publisher_url).href);
+      }
+    applyAppearance(settings.theme);
+    zoomPercent = zoomLevels.includes(settings.zoom) ? settings.zoom : 100;
+    window?.webContents.setZoomFactor(zoomPercent / 100);
     const login = {
       path: process.execPath,
       args: [
@@ -178,12 +214,12 @@ async function syncPreferences() {
         },
         {
           label:
-            health.engine_state === "Paused"
+            health.paused_all
               ? "Resume processing"
               : "Pause processing",
           click: () =>
             request("processing", "POST", {
-              paused: health.engine_state !== "Paused",
+              paused: !health.paused_all,
             }).catch(showError),
         },
         { type: "separator" },
@@ -284,6 +320,15 @@ else {
           return new Response("Forbidden", { status: 403 });
         return net.fetch(pathToFileURL(target).toString());
       });
+      let initialSettings = {};
+      try {
+        initialSettings = JSON.parse(await fs.readFile(path.join(home, "settings.json"), "utf8"));
+      } catch { /* Defaults apply on a new isolated home. */ }
+      nativeTheme.themeSource = ["system", "dark", "light"].includes(initialSettings.theme)
+        ? initialSettings.theme : "system";
+      zoomPercent = zoomLevels.includes(initialSettings.zoom) ? initialSettings.zoom : 100;
+      trayExplained = initialSettings.tray_explained === true;
+      Menu.setApplicationMenu(null);
       window = new BrowserWindow({
         width: 1280,
         height: 800,
@@ -291,7 +336,13 @@ else {
         minHeight: 700,
         show: false,
         title: "VideoEnhancer",
-        backgroundColor: "#14181f",
+        backgroundColor: nativeTheme.shouldUseDarkColors ? "#1C1814" : "#F5EFE6",
+        titleBarStyle: "hidden",
+        titleBarOverlay: {
+          color: nativeTheme.shouldUseDarkColors ? "#1C1814" : "#F5EFE6",
+          symbolColor: nativeTheme.shouldUseDarkColors ? "#DCCFBD" : "#574A3F",
+          height: 32,
+        },
         autoHideMenuBar: true,
         webPreferences: {
           preload: path.join(__dirname, "preload.cjs"),
@@ -299,19 +350,32 @@ else {
           nodeIntegration: false,
           sandbox: true,
           webSecurity: true,
+          zoomFactor: zoomPercent / 100,
         },
+      });
+      window.webContents.on("before-input-event", (event, input) => {
+        if (input.type !== "keyDown" || !input.control || input.alt || input.meta) return;
+        const plus = ["+", "="].includes(input.key) || input.code === "NumpadAdd";
+        const minus = input.key === "-" || input.code === "NumpadSubtract";
+        const reset = input.key === "0" || input.code === "Numpad0";
+        if (!plus && !minus && !reset) return;
+        event.preventDefault();
+        const index = zoomLevels.indexOf(zoomPercent);
+        const target = reset ? 100 : zoomLevels[Math.max(0, Math.min(zoomLevels.length - 1, index + (plus ? 1 : -1)))];
+        void setZoom(target).catch(showError);
       });
       window.on("close", (event) => {
         if (!quitting) {
           event.preventDefault();
-          window.hide();
+          if (trayExplained) window.hide();
+          else window.webContents.send("tray-explanation");
         }
       });
       window.webContents.setWindowOpenHandler(({ url }) => {
         if (
           /^https:\/\/github\.com\/Kei-Takamizawa\/VideoEnhancer\/(blob\/main\/docs\/|pull\/)/.test(
             url,
-          )
+            ) || publisherURLs.has(url)
         )
           void shell.openExternal(url);
         return { action: "deny" };
@@ -334,6 +398,17 @@ else {
         },
       );
       handle("connection", ensureService);
+      handle("zoom", setZoom);
+      handle("hide", async () => {
+        await request("settings", "PUT", { tray_explained: true });
+        trayExplained = true;
+        window.hide();
+      });
+      handle("reveal", async (file) => {
+        if (typeof file !== "string" || !path.isAbsolute(file) || file.includes("\0")) throw new Error("Choose an absolute local video file.");
+        if (!(await fs.stat(file)).isFile()) throw new Error("The video does not exist.");
+        shell.showItemInFolder(file);
+      });
       handle("files", async (kind) => {
         if (kind !== "videos" && kind !== "folder")
           throw new Error("Invalid dialog kind.");

@@ -84,7 +84,7 @@ it("adds while preparing, keeps mode and model choices when returning from Compa
     Promise.resolve(
       route === "estimate"
         ? {
-            media: {
+            files: { "C:\\fixture.mp4": { media: {
               cfr_fps: "30",
               duration: 60,
               display_width: 640,
@@ -94,6 +94,7 @@ it("adds while preparing, keeps mode and model choices when returning from Compa
             presets: { standard: { seconds: 600 }, fast: { seconds: 60 } },
             warnings: [],
             output: "C:\\enhanced\\fixture.mp4",
+            } }, presets: { standard: { seconds: 600 }, fast: { seconds: 60 } },
           }
         : { id: "queued" },
     ),
@@ -170,7 +171,9 @@ it("changes only the new-job default and exposes exact model details", async () 
     screen.getByRole("button", { name: "Actions for Gentle fixture" }),
   );
   fireEvent.click(screen.getByRole("menuitem", { name: "Details" }));
-  expect(screen.getByText(`SHA-256: ${model.weights.sha256}`)).toBeTruthy();
+  expect(screen.getByText(/SHA-256: aaaaaaaaaaaa/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+  expect(window.desktop.copy).toHaveBeenCalledWith(model.weights.sha256);
 });
 
 it("keeps DRUNet on one card and persists its three strength choices", async () => {

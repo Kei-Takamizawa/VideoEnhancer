@@ -92,7 +92,9 @@ def test_preview_close_or_quit_cancels_real_encoder_and_removes_partial(
 def test_schedule_preview_bounds_and_bar_progress(tmp_path):
     engine = Engine(tmp_path / "home")
     job = _job(engine.store, tmp_path)
-    response = engine.dispatch("POST", ["schedule", "preview"], {"enabled": False})
+    response = engine.dispatch(
+        "POST", ["schedule", "preview"], {"enabled": False, "include_range": True}
+    )
 
     def end(plan):
         return plan["jobs"][0]["completion"]

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration, filename, when } from "./api";
 import type { Health, Job, Plan, Queue } from "./types";
@@ -17,6 +17,10 @@ export function historyWhen(value?: string, now = new Date()) {
   if (ended.toDateString() === yesterday.toDateString())
     return `Yesterday ${clock}`;
   return `${ended.toLocaleDateString("en-US", { weekday: "short" })} ${String(ended.getMonth() + 1).padStart(2, "0")}/${String(ended.getDate()).padStart(2, "0")} ${clock}`;
+}
+export function problemWhen(value: string) {
+  const date = new Date(value);
+  return `${date.toLocaleDateString("en-US", { weekday: "short" })} ${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 export function Icon({ name }: { name: string }) {
@@ -94,8 +98,21 @@ export function JobMenu({
 }: Actions & { job: Job; position?: number }) {
   const [open, setOpen] = useState(false);
   const [changingMode, setChangingMode] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      if (!menu.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
+  }, [open]);
   return (
-    <div className="job-menu">
+    <div className="job-menu" ref={menu}>
       <button
         aria-label={`Actions for ${filename(job.input)}`}
         aria-expanded={open}
@@ -163,6 +180,8 @@ export function JobMenu({
             </>
           )}
           <button
+            disabled={job.original_state === "missing"}
+            title={job.original_state === "missing" ? "The original file is missing." : undefined}
             onClick={() => {
               trial(job);
               setOpen(false);
@@ -238,7 +257,7 @@ export function HomePage({
   const chip = reconnecting
     ? "Reconnecting…"
     : health?.last_error
-      ? "Problem · details"
+      ? `Problem · ${problemWhen(health.last_error.time)}`
       : health?.engine_state === "Paused"
         ? "Paused"
         : current?.step === "Paused for a preview"
@@ -272,7 +291,7 @@ export function HomePage({
         </div>
         <div className="actions">
           <button onClick={pauseAll}>
-            {health?.engine_state === "Paused" ? "Resume all" : "Pause all"}
+            {health?.paused_all ? "Resume all" : "Pause all"}
           </button>
           <button className="primary" onClick={() => add()}>
             + Add videos
@@ -547,6 +566,17 @@ export function HistoryPage({
 }: Actions & { queue: Queue; api?: Api; seen?(ids: string[]): void }) {
   const [search, setSearch] = useState(""),
     [filter, setFilter] = useState("All");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [clear, setClear] = useState(false);
+  const viewport = useRef<HTMLDivElement>(null);
+  const [scroll, setScroll] = useState(0);
+  const [columns, setColumns] = useState(3);
+  useEffect(() => {
+    if (!viewport.current || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(entries => setColumns(Math.max(1, Math.floor((entries[0].contentRect.width + 16) / 256))));
+    observer.observe(viewport.current);
+    return () => observer.disconnect();
+  }, []);
   const terminal = queue.jobs
     .filter((j) => ["done", "failed", "cancelled"].includes(j.state))
     .sort((a, b) =>
@@ -565,6 +595,26 @@ export function HistoryPage({
       filename(j.input).toLowerCase().includes(search.toLowerCase()),
   );
   const visibleIds = visible.map((j) => j.id).join(",");
+  const groups = new Map<string, Job[]>();
+  const now = new Date(), yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  for (const job of visible) {
+    const date = new Date(job.finished_at || job.eta || 0);
+    const label = date.toDateString() === now.toDateString() ? "Today"
+      : date.toDateString() === yesterday.toDateString() ? "Yesterday"
+      : now.getTime() - date.getTime() < 7 * 86400000 ? "Last 7 days"
+      : `Earlier in ${date.toLocaleDateString("en-US", { month: "long", year: "numeric" })}`;
+    groups.set(label, [...(groups.get(label) || []), job]);
+  }
+  const rows: { label?: string; jobs: Job[]; top: number; height: number }[] = [];
+  let height = 0;
+  for (const [label, jobs] of groups) {
+    rows.push({ label, jobs: [], top: height, height: 32 }); height += 32;
+    for (let index = 0; index < jobs.length; index += columns) {
+      rows.push({ jobs: jobs.slice(index, index + columns), top: height, height: 300 }); height += 300;
+    }
+  }
+  const windowRows = rows.filter(row => row.top + row.height >= scroll - 300 && row.top < scroll + (viewport.current?.clientHeight || 450) + 300);
   useEffect(() => {
     if (!seen) return;
     const cards = document.querySelectorAll<HTMLElement>(
@@ -585,11 +635,12 @@ export function HistoryPage({
     );
     cards.forEach((card) => observer.observe(card));
     return () => observer.disconnect();
-  }, [visibleIds, seen]);
+  }, [visibleIds, seen, scroll, columns]);
   return (
     <section aria-label="History">
       <div className="page-heading">
         <h1>History</h1>
+        <button disabled={!terminal.length} onClick={() => setClear(true)}>Clear history…</button>
         <input
           aria-label="Search by file name"
           placeholder="Search by file name"
@@ -597,6 +648,11 @@ export function HistoryPage({
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
+      {!!selected.length && <div className="toolbar">
+        <span>{selected.length} selected</span>
+        <button onClick={() => { action(terminal.find(job => job.id === selected[0])!, "remove", { ids: selected }); setSelected([]); }}>Remove from history</button>
+        <button onClick={() => setSelected([])}>Done</button>
+      </div>}
       <div className="filters">
         {["All", "Standard", "Fast", "Needs attention"].map((name) => (
           <button
@@ -608,22 +664,19 @@ export function HistoryPage({
           </button>
         ))}
       </div>
-      <div className="history-grid">
-        {terminal
-          .filter(
-            (j) =>
-              matches(j, filter) &&
-              filename(j.input).toLowerCase().includes(search.toLowerCase()),
-          )
-          .map((job) => (
+      <div className="history-viewport" ref={viewport} onScroll={event => setScroll(event.currentTarget.scrollTop)}>
+        {!visible.length && <p className="empty">{terminal.length ? "No videos match your search." : "No history yet."}</p>}
+        <div style={{ height, position: "relative" }}>
+        {windowRows.map(row => row.label ? <h2 key={row.top} className="history-group" style={{ top: row.top }}>{row.label}</h2> : <div key={row.top} className="history-grid virtual-row" style={{ top: row.top, gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{row.jobs.map((job) => (
             <article
               className="card history-card"
               key={job.id}
               data-job-id={job.id}
               data-failed={job.state === "failed"}
             >
+              <label className="check history-select"><input type="checkbox" aria-label={`Select ${filename(job.input)}`} checked={selected.includes(job.id)} onChange={event => setSelected(old => event.target.checked ? [...old, job.id] : old.filter(id => id !== job.id))} /></label>
               <Thumbnail job={job} api={api} small />
-              <h2>{filename(job.input)}</h2>
+              <h2 title={filename(job.input)}>{filename(job.input)}</h2>
               <p>{historyWhen(job.finished_at || job.eta)}</p>
               <p>
                 {job.settings.preset === "standard" ? "Standard" : "Fast"}
@@ -670,8 +723,13 @@ export function HistoryPage({
                 <JobMenu job={job} action={action} trial={trial} />
               </div>
             </article>
-          ))}
+          ))}</div>)}
+        </div>
       </div>
+      {clear && <div className="modal-shade"><div className="dialog" role="dialog" aria-modal="true">
+        <h2>Clear history?</h2><p>Remove all finished, failed and cancelled records. Your video files stay as they are. This cannot be undone.</p>
+        <div className="dialog-actions"><button onClick={() => setClear(false)}>Keep history</button><button className="danger" onClick={() => { action(terminal[0], "clear-history"); setClear(false); }}>Clear history</button></div>
+      </div></div>}
       <p className="muted">
         Finished and failed jobs move here automatically. Removing an item from
         History never deletes the video file.

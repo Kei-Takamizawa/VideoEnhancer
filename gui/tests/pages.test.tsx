@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueuePage } from "../src/Queue";
+import { HomePage } from "../src/Home";
 import { SchedulePage, cells, windows } from "../src/Schedule";
 import { ConnectionBanner, ControlWarning } from "../src/App";
-import { ModelsPage, PlanPage, SettingsPage, timelineHour } from "../src/Pages";
+import { ModelsPage, SettingsPage, timelineHour } from "../src/Pages";
 import type { Api } from "../src/api";
 import type { Health, Job, Model, Schedule, Settings } from "../src/types";
 
@@ -52,49 +52,6 @@ const api = {
   call: vi.fn(async () => ({ plan: { jobs: [] }, next_window: null })),
   blob: vi.fn(),
 } as unknown as Api;
-describe("Queue", () => {
-  it("shows concrete ETA and engine finalization without prematurely showing 100%", () => {
-    render(
-      <QueuePage
-        queue={{ jobs: [job], completion: job.eta!, operations: [] }}
-        add={vi.fn()}
-        action={vi.fn()}
-        trial={vi.fn()}
-      />,
-    );
-    expect(screen.getByText("99.9%")).toBeTruthy();
-    expect(screen.getByText("Finalizing: validating")).toBeTruthy();
-    expect(screen.getByText(/All jobs finish/)).toBeTruthy();
-    expect(screen.getByText("uncalibrated")).toBeTruthy();
-  });
-  it("offers keyboard reorder and actionable error details", () => {
-    const action = vi.fn();
-    render(
-      <QueuePage
-        queue={{
-          jobs: [
-            { ...job, state: "failed", error: "The component is missing." },
-          ],
-          completion: null,
-          operations: [],
-        }}
-        add={vi.fn()}
-        action={action}
-        trial={vi.fn()}
-      />,
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Actions for synthetic.mp4" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Move to top" }));
-    expect(action).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "one" }),
-      "move",
-      { position: 1 },
-    );
-    expect(screen.getByText("The component is missing.")).toBeTruthy();
-  });
-});
 describe("Schedule", () => {
   it("preserves crossing midnight when converting between grid and list", () => {
     const grid = cells(schedule);
@@ -149,11 +106,11 @@ describe("Recovery and settings", () => {
     render(
       <>
         <ConnectionBanner error="Connection closed" retry={retry} />
-        <QueuePage
+        <HomePage
           queue={{ jobs: [job], operations: [], completion: null }}
           add={vi.fn()}
           action={vi.fn()}
-          trial={vi.fn()}
+          trial={vi.fn()} preview={vi.fn()} pauseAll={vi.fn()} navigate={vi.fn()} reconnecting={false}
         />
       </>,
     );
@@ -196,7 +153,6 @@ describe("Recovery and settings", () => {
     fireEvent.click(
       screen.getByRole("checkbox", { name: /Start with Windows/ }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(saved).toHaveBeenCalled());
     expect(api.call).toHaveBeenCalledWith(
       "settings",
@@ -206,35 +162,7 @@ describe("Recovery and settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" }));
     expect(window.desktop.copy).toHaveBeenCalled();
   });
-  it("renders plan progress and delegates scenario changes to the engine", () => {
-    const change = vi.fn();
-    render(
-      <PlanPage
-        jobs={[job]}
-        scenario="expected"
-        change={change}
-        calibrate={vi.fn()}
-        plan={{
-          timezone: "UTC",
-          jobs: [{ job_id: "one", completion: job.eta! }],
-          timeline: [],
-          days: [
-            {
-              date: "2026-10-09",
-              windows: [],
-              run_hours: 1.2,
-              jobs: [{ job_id: "one", start_percent: 8, end_percent: 50 }],
-            },
-          ],
-        }}
-      />,
-    );
-    expect(screen.getByText(/8% → 50%/)).toBeTruthy();
-    fireEvent.change(screen.getByRole("combobox"), {
-      target: { value: "worst" },
-    });
-    expect(change).toHaveBeenCalledWith("worst");
-  });
+
 });
 
 describe("Models", () => {
@@ -265,6 +193,8 @@ describe("Models", () => {
     expect(operate).not.toHaveBeenCalled();
     expect(screen.getByText(`Licence: ${model.licence}`)).toBeTruthy();
     expect(screen.getByText(model.weights.url!)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Accept licence and download" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: "I accept this licence" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Accept licence and download" }),
     );

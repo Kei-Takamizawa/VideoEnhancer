@@ -100,7 +100,7 @@ describe("Home and History", () => {
       },
     } as import("../src/types").Health;
     const view = render(<HomePage {...props} health={health} />);
-    fireEvent.click(screen.getByRole("button", { name: "Problem · details" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Problem ·/ }));
     expect(
       screen.getByRole("dialog", { name: "Problem details" }),
     ).toBeTruthy();
@@ -226,47 +226,37 @@ describe("Home and History", () => {
 });
 
 describe("Schedule week", () => {
-  it("adds and deletes a block, drags its edge and opens a date-only context menu", () => {
-    vi.stubGlobal("PointerEvent", MouseEvent);
+  it("sends one preview after 400 ms and aborts the stale request after an edit", async () => {
+    vi.useFakeTimers();
     const call = vi.fn(async () => ({ plan }));
-    render(
-      <ScheduleView
-        api={{ call } as unknown as Api}
-        value={schedule}
-        plan={plan}
-        jobs={[]}
-        applied={vi.fn()}
-      />,
-    );
-    const track = document.querySelector<HTMLElement>(".hours-track")!;
-    track.setPointerCapture = vi.fn();
-    vi.spyOn(track, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      width: 960,
-    } as DOMRect);
-    fireEvent.click(track, { clientX: 360 });
-    const added = screen.getByRole("group", { name: "2026-10-12 09:00–11:00" });
-    fireEvent.keyDown(added, { key: "Delete" });
-    expect(
-      screen.queryByRole("group", { name: "2026-10-12 09:00–11:00" }),
-    ).toBeNull();
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "2026-10-12 start edge" }),
-      { clientX: 880, pointerId: 1 },
-    );
-    fireEvent.pointerMove(track, { clientX: 900, pointerId: 1 });
-    fireEvent.pointerUp(track, { pointerId: 1 });
-    const changed = screen.getByRole("group", {
-      name: "2026-10-12 22:30–24:00",
-    });
-    fireEvent.contextMenu(changed);
-    fireEvent.click(
-      screen.getByRole("menuitem", { name: "Only on Mon 10/12" }),
-    );
-    expect(
-      screen.getByRole("button", { name: /2026-10-12 · 22:30/ }),
-    ).toBeTruthy();
-    vi.unstubAllGlobals();
+    const view = render(<ScheduleView api={{ call } as unknown as Api} value={schedule}
+      plan={plan} jobs={[]} applied={vi.fn()} />);
+    try {
+      await act(async () => { await vi.advanceTimersByTimeAsync(399); });
+      expect(call).not.toHaveBeenCalled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(call).toHaveBeenCalledTimes(1);
+      const oldSignal = (call.mock.calls as unknown as unknown[][])[0][3] as AbortSignal;
+      fireEvent.keyDown(screen.getByLabelText("Hours 1 start"),
+        { key: "ArrowUp" });
+      expect(oldSignal.aborted).toBe(true);
+      await act(async () => { await vi.advanceTimersByTimeAsync(399); });
+      expect(call).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(call).toHaveBeenCalledTimes(2);
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+  it("quick fill enables hours and All day stores equal midnight endpoints", async () => {
+    const call = vi.fn(async () => ({ plan }));
+    render(<ScheduleView api={{ call } as unknown as Api} value={{ ...schedule, enabled: false }} plan={plan} jobs={[]} applied={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Every night 22:00–08:00" }));
+    expect((screen.getByRole("checkbox", { name: "Only work during my hours" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "All day" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("schedule", "PUT", expect.objectContaining({ weekly: [expect.objectContaining({ start: "00:00", end: "00:00" })] })), { timeout: 2000 });
+    expect(screen.queryByRole("button", { name: "Custom…" })).toBeNull();
   });
   it("edits an exception in place and deletes it", async () => {
     const call = vi.fn(async () => ({ plan }));
@@ -328,21 +318,21 @@ describe("Schedule week", () => {
         />,
       );
       fireEvent.keyDown(
-        screen.getByRole("button", { name: "2026-10-12 start edge" }),
-        { key: "ArrowRight" },
+        screen.getByLabelText("Hours 1 start"),
+        { key: "ArrowUp" },
       );
       await act(() => vi.advanceTimersByTimeAsync(750));
       await act(() => vi.advanceTimersByTimeAsync(6000));
       fireEvent.keyDown(
-        screen.getByRole("button", { name: "2026-10-12 start edge" }),
-        { key: "ArrowRight" },
+        screen.getByLabelText("Hours 1 start"),
+        { key: "ArrowUp" },
       );
       await act(() => vi.advanceTimersByTimeAsync(750));
       await act(() => vi.advanceTimersByTimeAsync(2000));
       expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Undo" }));
       expect(
-        screen.getByRole("group", { name: "2026-10-12 22:15–24:00" }),
+        (screen.getByLabelText("Hours 1 start") as HTMLInputElement).value === "22:15",
       ).toBeTruthy();
     } finally {
       vi.useRealTimers();
@@ -361,8 +351,8 @@ describe("Schedule week", () => {
       />,
     );
     fireEvent.keyDown(
-      screen.getByRole("button", { name: "2026-10-12 start edge" }),
-      { key: "ArrowRight" },
+      screen.getByLabelText("Hours 1 start"),
+      { key: "ArrowUp" },
     );
     await waitFor(
       () =>
@@ -387,6 +377,7 @@ describe("Schedule week", () => {
       "schedule/preview",
       "POST",
       expect.any(Object),
+      expect.any(AbortSignal),
     );
   });
   it("runs through queue completion using the explicit override API", async () => {

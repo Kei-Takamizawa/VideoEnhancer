@@ -22,7 +22,7 @@ NVENC_SETTINGS = {
 }
 
 
-def probe_av1() -> tuple[bool, str | None]:
+def probe_av1(width: int = 1920, height: int = 1080) -> tuple[bool, str | None]:
     """Exercise the production CUDA encoder and muxer at a supported HD size."""
     encoder = None
     try:
@@ -31,15 +31,15 @@ def probe_av1() -> tuple[bool, str | None]:
         with tempfile.TemporaryDirectory(prefix="ve-av1-probe-") as folder:
             encoder = Encoder(
                 Path(folder) / "probe.mp4",
-                1920,
-                1080,
+                width,
+                height,
                 Fraction(30),
                 "av1",
                 "cuda",
                 {"color_matrix": "bt709", "color_primaries": "bt709", "color_transfer": "bt709"},
             )
             with torch.inference_mode():
-                frame = torch.zeros((3, 1080, 1920), device="cuda")
+                frame = torch.zeros((3, height, width), device="cuda")
                 for _ in range(2):
                     encoder.write(frame)
             encoder.finish()
@@ -49,6 +49,35 @@ def probe_av1() -> tuple[bool, str | None]:
         if encoder is not None:
             encoder.abort()
         return False, "AV1 hardware encoding is unavailable: " + " ".join(str(error).split())
+
+
+def av1_minimum_size() -> tuple[int, int]:
+    """Probe the smallest even dimensions; driver limits may be block-aligned."""
+    nvc: Any = importlib.import_module("PyNvVideoCodec")
+    caps = nvc.GetEncoderCaps(0, "av1")
+    width, height = int(caps["width_min"]), int(caps["height_min"])
+    if width <= 0 or height <= 0:
+        raise RuntimeError("AV1 minimum output size could not be determined.")
+    supported, reason = probe_av1(width, height)
+    if not supported:
+        raise RuntimeError(reason)
+
+    def minimum(upper: int, horizontal: bool) -> int:
+        low, high = 1, upper // 2
+        while low < high:
+            middle = (low + high) // 2
+            ok, _ = probe_av1(middle * 2, height) if horizontal else probe_av1(width, middle * 2)
+            if ok:
+                high = middle
+            else:
+                low = middle + 1
+        return low * 2
+
+    minimum_width, minimum_height = minimum(width, True), minimum(height, False)
+    supported, reason = probe_av1(minimum_width, minimum_height)
+    if not supported:
+        raise RuntimeError(reason)
+    return minimum_width, minimum_height
 
 
 def packet_bytes(packets: Any) -> bytes:

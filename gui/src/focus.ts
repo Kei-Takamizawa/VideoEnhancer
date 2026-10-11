@@ -17,14 +17,21 @@ export function useDialogFocus() {
       if (next === current) return;
       if (next) {
         previous = document.activeElement as HTMLElement;
-        editable(next)[0]?.focus();
+        const items = editable(next);
+        (items.find(item => item.matches('button') && /^(Cancel|Close|Back|Keep|Got it)/.test(item.textContent?.trim() || "")) || items[0])?.focus();
       } else if (previous?.isConnected) previous.focus();
       current = next;
     };
     const observer = new MutationObserver(update);
     observer.observe(document.body, { childList: true, subtree: true });
     const key = (e: KeyboardEvent) => {
-      if (!current || e.key !== "Tab") return;
+      if (!current) return;
+      if (e.key === "Escape") {
+        const safe = editable(current).find(item => item.matches('button') && /^(Cancel|Close|Back|Keep|Got it)/.test(item.textContent?.trim() || ""));
+        if (safe) { e.preventDefault(); safe.click(); }
+        return;
+      }
+      if (e.key !== "Tab") return;
       const items = editable(current);
       if (!items.length) return;
       const first = items[0],

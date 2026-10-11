@@ -373,6 +373,18 @@ class ModelRegistry:
                     "bytes": shipped["weights"].get("bytes", model["weights"].get("bytes", 0)),
                 },
             }
+            if model["architecture"] == "basicvsrpp":
+                publisher = "https://github.com/ckkelvinchan/BasicVSR_PlusPlus"
+            elif model["architecture"] == "rife":
+                publisher = "https://github.com/hzwer/Practical-RIFE"
+            else:
+                publisher = {
+                    "scunet-real-psnr": "https://github.com/cszn/SCUNet",
+                    "drunet-deblock": "https://github.com/cszn/DPIR",
+                    "fbcnn-color": "https://github.com/jiaxi-jiang/FBCNN",
+                    "span-liveaction-2x": "https://github.com/jcj83429/upscaling/tree/main/2xLiveActionV1_SPAN",
+                }.get(model_id)
+            model = {**model, "publisher_url": publisher}
         return model
 
     def add(self, folder: Path) -> dict[str, Any]:

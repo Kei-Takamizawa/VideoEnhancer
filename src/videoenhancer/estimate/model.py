@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import math
 import statistics
 from dataclasses import asdict, dataclass
 from fractions import Fraction
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from videoenhancer.media.timing import output_rate, output_size
@@ -109,11 +112,47 @@ def _model_coefficient(
 ) -> float:
     entry = _model_entry(task, settings, profile)
     if entry is None:
-        return _coefficient(task, settings.get("backend", "cuda"), profile)
+        return _coefficient(task, settings.get("backend", "cuda"), profile) * _reference_ratio(
+            task, settings
+        )
     value = float(entry["seconds_per_pixel_frame"])
     if value < 0 or not math.isfinite(value):
         raise ValueError(f"Invalid calibrated model cost for {task}.")
     return value
+
+
+@lru_cache(maxsize=32)
+def _reference_speed(model_id: str, strength: str) -> dict[str, Any]:
+    from videoenhancer.models.registry import BUILTINS
+
+    if model_id not in BUILTINS:
+        return {}
+    path = Path(__file__).parents[1] / "models" / "manifests" / f"{model_id}.json"
+    catalog = json.loads(path.read_text(encoding="utf-8")).get("catalog", {})
+    speed = catalog.get("reference_speed", {})
+    return speed.get("variants", {}).get(strength, speed)
+
+
+def _reference_ratio(task: str, settings: dict[str, Any]) -> float:
+    """Scale uncalibrated CUDA costs only for matching reference measurements."""
+    from videoenhancer.models.registry import C1, RIFE
+
+    if settings.get("backend", "cuda") != "cuda":
+        return 1.0
+    default = C1 if task == "restore" else RIFE
+    selected = settings.get("restore_model" if task == "restore" else "interp_model") or default
+    strength = settings.get("restore_strength", "medium")
+    baseline = _reference_speed(default, strength)
+    candidate = _reference_speed(selected, strength)
+    if (
+        not baseline
+        or not candidate
+        or any(
+            baseline.get(key) != candidate.get(key) for key in ("gpu", "input", "output", "mode")
+        )
+    ):
+        return 1.0
+    return float(baseline["fps"]) / float(candidate["fps"])
 
 
 def _clip_factors(
@@ -253,6 +292,7 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
     calibrated = (
         bool(profile)
         and all(measured(name) for name in needed)
+        and not settings.get("size_model")
         and (profile or {}).get("finalization", {}).get("status") == "measured"
     )
     return Estimate(seconds, seconds * (1 - uncertainty), seconds * (1 + uncertainty), calibrated)

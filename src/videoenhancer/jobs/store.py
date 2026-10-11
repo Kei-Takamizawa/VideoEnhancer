@@ -292,6 +292,9 @@ class JobStore:
             preparation_finished = False
             if target.exists():
                 current = self._load_unlocked(target)
+                for key in ("cancel_cleanup", "remove_on_cancel"):
+                    if key in current and key not in manifest:
+                        manifest[key] = current[key]
                 preparation_finished = (
                     current["state"] == "preparing" and manifest["state"] != "preparing"
                 )

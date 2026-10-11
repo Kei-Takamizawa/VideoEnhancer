@@ -13,7 +13,7 @@ import type {
   Settings,
 } from "./types";
 import { AddDialog, localAction } from "./Queue";
-import { HomePage, HistoryPage, Icon } from "./Home";
+import { HomePage, HistoryPage, Icon, problemWhen } from "./Home";
 import { ScheduleView } from "./ScheduleView";
 import { ModelsPage, OperationStatus, SettingsPage } from "./Pages";
 import { Compare, TrialDialog } from "./Trial";
@@ -68,6 +68,28 @@ export default function App() {
   const [error, setError] = useState("");
   const [reconnecting, setReconnecting] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [zoomToast, setZoomToast] = useState<number>();
+  useEffect(() => window.desktop.onZoom((zoom) => {
+    setZoomToast(zoom);
+    setSettings((previous) => previous ? { ...previous, zoom } : previous);
+  }), []);
+  useEffect(() => {
+    if (zoomToast === undefined) return;
+    const timer = setTimeout(() => setZoomToast(undefined), 3000);
+    return () => clearTimeout(timer);
+  }, [zoomToast]);
+  useEffect(() => {
+    const switchScreen = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey) return;
+      const screen = ["Home", "History", "Schedule", "Models", "Settings"][Number(event.key) - 1];
+      if (screen) {
+        event.preventDefault();
+        setPage(screen);
+      }
+    };
+    window.addEventListener("keydown", switchScreen);
+    return () => window.removeEventListener("keydown", switchScreen);
+  }, []);
   const [queue, setQueue] = useState(empty);
   const [health, setHealth] = useState<Health>();
   const [plan, setPlan] = useState<Plan>();
@@ -120,9 +142,17 @@ export default function App() {
     settings: Settings;
     media?: Media;
     job_id?: string;
-    apply?: (key: "restore_model" | "interp_model", id: string) => void;
+    apply?: (key: "restore_model" | "interp_model" | "size_model" | "preset", id: string) => void;
   }>();
   const [confirm, setConfirm] = useState<{ job: Job; name: string }>();
+  const [trayExplanation, setTrayExplanation] = useState(false);
+  useEffect(() => window.desktop.onTrayExplanation(() => setTrayExplanation(true)), []);
+  const [historyUndo, setHistoryUndo] = useState<string[]>();
+  useEffect(() => {
+    if (!historyUndo) return;
+    const timer = setTimeout(() => setHistoryUndo(undefined), 10000);
+    return () => clearTimeout(timer);
+  }, [historyUndo]);
   const [log, setLog] = useState<string>();
   const [resultPreview, setResultPreview] = useState<string>();
   const resultOperation = queue.operations.find(
@@ -256,8 +286,14 @@ export default function App() {
       } else if (name === "folder") await localAction(job, name);
       else if (name === "play") await window.desktop.play(job.output);
       else if (name === "log")
-        setLog((await api!.call<{ text: string }>(`queue/${job.id}/log`)).text);
-      else if (name === "remove") await api!.call(`queue/${job.id}`, "DELETE");
+          setLog(`${job.log}\n\n${(await api!.call<{ text: string }>(`queue/${job.id}/log`)).text}`);
+      else if (name === "remove") {
+        const ids = (data as { ids?: string[] } | undefined)?.ids || [job.id];
+        await api!.call("history/remove", "POST", { ids });
+        setQueue(old => ({ ...old, jobs: old.jobs.filter(record => !ids.includes(record.id)) }));
+        setHistoryUndo(ids);
+      }
+      else if (name === "clear-history") { await api!.call("history/clear", "POST", {}); setQueue(old => ({ ...old, jobs: old.jobs.filter(record => !["done", "failed", "cancelled"].includes(record.state)) })); }
       else await api!.call(`queue/${job.id}/${name}`, "POST", data || {});
       setActionError("");
     } catch (e) {
@@ -265,7 +301,7 @@ export default function App() {
     }
   };
   const action = (job: Job, name: string, data?: unknown) => {
-    if (name === "cancel" || name === "remove") setConfirm({ job, name });
+    if (name === "cancel") setConfirm({ job, name });
     else void perform(job, name, data);
   };
   const add = async (paths?: string[]) => {
@@ -304,8 +340,21 @@ export default function App() {
       }}
     >
       {!!dropCount && (
-        <div className="drop-overlay">Drop to add {dropCount} videos</div>
+        <div className="drop-overlay">Drop to add {dropCount} {dropCount === 1 ? "video" : "videos"}</div>
       )}
+      <div className="title-bar"><span className="title-icon">VE</span>VideoEnhancer</div>
+      {historyUndo && <div className="zoom-toast" role="status">
+        Removed from history
+        <button onClick={async () => {
+          try {
+            await api!.call("history/undo", "POST", { ids: historyUndo });
+            setHistoryUndo(undefined);
+          } catch (error) { setActionError((error as Error).message); }
+        }}>Undo</button>
+      </div>}
+      {zoomToast !== undefined && <div className="zoom-toast" role="status">
+        <strong>{zoomToast}%</strong><span>Ctrl+0 resets to 100%</span>
+      </div>}
       <aside>
         <div className="brand" aria-label="VideoEnhancer">
           VE
@@ -315,11 +364,13 @@ export default function App() {
             <button
               key={name}
               aria-current={page === name ? "page" : undefined}
+              aria-label={name}
               onClick={() => setPage(name)}
             >
               <Icon name={name} />
-              <span>{name}</span>
-              {name === "Home" &&
+              <span className="dock-tooltip" role="tooltip">{name}</span>
+              {name === "Home" && health?.waiting_count ? <span className="dock-count">{health.waiting_count}</span> : null}
+              {name === "History" &&
                 queue.jobs.some(
                   (j) =>
                     j.state === "failed" &&
@@ -335,6 +386,7 @@ export default function App() {
           onClick={() => setPage("Settings")}
         >
           <Icon name="Settings" />
+          <span className="dock-tooltip" role="tooltip">Settings</span>
         </button>
       </aside>
       <main>
@@ -343,7 +395,7 @@ export default function App() {
         <ControlWarning health={health} retry={retry} />
         {health?.last_error && (
           <div className="error" role="alert">
-            {health.last_error.time} · {health.last_error.message}
+            Problem · {problemWhen(health.last_error.time)} · {health.last_error.message}
             <button
               onClick={() =>
                 window.desktop.copy(JSON.stringify(health.last_error, null, 2))
@@ -371,7 +423,7 @@ export default function App() {
             seen={markSeen}
             pauseAll={() =>
               void operate("processing", {
-                paused: health?.engine_state !== "Paused",
+                paused: !health?.paused_all,
               })
             }
             preview={(job) => void showPreview(job)}
@@ -517,17 +569,27 @@ export default function App() {
           </div>
         </div>
       )}
+      {trayExplanation && <div className="modal-shade"><div className="dialog" role="dialog" aria-modal="true">
+        <h2>VideoEnhancer keeps working in the tray</h2>
+        <p>Closing the window doesn't stop it. It stays in the tray next to the clock and works during your hours. To stop it completely, choose Quit there.</p>
+        <p>Right-click the icon in the tray to open VideoEnhancer, pause processing, or quit.</p>
+        <div className="dialog-actions"><button className="primary" onClick={async () => {
+          try { await window.desktop.hide(); setTrayExplanation(false); } catch (error) { setActionError((error as Error).message); }
+        }}>Got it</button></div>
+      </div></div>}
       {confirm && (
         <div className="modal-shade">
           <div role="dialog" aria-modal="true" className="dialog">
             <h2>
-              {confirm.name === "remove" ? "Remove" : "Cancel"}{" "}
-              {filename(confirm.job.input)}?
+              {confirm.name === "remove" || (confirm.job.completed_segments ?? confirm.job.segment) === 0 ? "Remove" : "Cancel"}{" "}
+              {filename(confirm.job.input)}{confirm.name === "cancel" && (confirm.job.completed_segments ?? confirm.job.segment) === 0 ? " from the queue" : ""}?
             </h2>
             <p>
               {confirm.name === "remove"
                 ? "Remove this job and its trial previews. The finished output is kept."
-                : "Stop processing this job. Completed segments are kept."}
+                : (confirm.job.completed_segments ?? confirm.job.segment) === 0
+                  ? "Remove this video from the queue. The original stays as it is."
+                  : "The work so far will be lost. This video cannot be resumed. The original stays as it is."}
             </p>
             <div className="dialog-actions">
               <button onClick={() => setConfirm(undefined)}>Keep job</button>

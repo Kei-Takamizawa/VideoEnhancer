@@ -1,37 +1,38 @@
 # Desktop development app
 
-## P1c-3 screens
+## P1d implementation status
 
-Home offers Change mode for prepared jobs that have not started. Problem opens
-details before anything is copied. The attention banner and rail dot count only
-unseen failures; displaying a History card or dismissing the banner records it
-as seen. History uses Today, Yesterday, or a weekday and date.
+This development build implements part of the supplied P1d design. The extracted
+components in `design/p1d/components` are the visual source of truth. This build
+has not passed the full P1d acceptance checklist; see `.ai/LAST_REPORT.md`.
 
-The Add dialog shows its output summary beside More options. Its Cleanup and
-Smoother motion selectors contain installed models; Bigger picture currently
-offers Standard resize. Try models first preserves dialog choices, and Use this
-returns a model selection to the dialog.
+The five-screen floating dock supports Ctrl+1 through Ctrl+5. The Windows title
+bar supports native window controls. Settings offers System, Dark and Light
+themes and six zoom levels from 80% to 150%. The first close explains the tray.
 
-Schedule previews expected, best and worst finish times. Work bars expose progress
-and finish-time tooltips. Exceptions can be edited directly, including multiple
-time windows. Add a day opens the one-day editor. Right-click, the block's menu
-button, Menu, or Shift+F10 opens Only on this date. Every save restarts the eight
-second Undo timer. Settings groups Defaults, App, Advanced, Diagnostics and About.
+Home separates global pause from a job's individual pause. Cancel removes an
+unstarted job; a job with completed segments stays in History as Cancelled.
+Cancellation discards intermediate work and preserves recorded source/output
+videos. History uses grouped virtual rows, file search, selection, removal and
+a ten-second Undo. Clear history requires confirmation. These actions remove
+history/work data; video deletion to the Recycle Bin is not implemented.
 
-Models uses category cards, explicit licence consent, Verify again, Details,
-Make it my default and Remove. Qualified publisher cards show synthetic reference
-speeds; unknown speed for your own model is shown as not measured. Defaults affect
-new jobs only. Nine additional optional models are qualified in P1c-4.
+Add requests shared Standard/Fast finish estimates for all selected files.
+Estimates are not calibrated: the two measured P1d jobs missed the requested
+15% accuracy target. AV1 choices use the actual encoder's minimum dimensions.
+Models shows the qualified catalog, licence consent, download cancellation,
+details and defaults. Settings saves edits automatically.
 
-Compare renders Original and up to three installed models of one category, with
-one synchronized frame clock. Its initial view is side by side; uncheck Side by
-side for a swipe view and choose Left/Right. Zoom and panning apply to every
-picture. Arrow keys step, Space toggles playback, and Loop can be switched off.
-Use this is disabled for a job that has started. Back returns to the opener and
-leaves admitted work running; Cancel explicitly stops it. Learned size comparison
-includes SPAN and Standard resize. The service chooses saved motion data or the
-middle fallback and reuses previews by key. The GUI range box and automatic
-selection/render interactions are deferred to P1d.
+Schedule uses numeric time fields, fifteen-minute arrow increments, quick fill,
+exceptions, autosave and eight-second Undo. Its timeline is read-only. Unsaved
+previews request the expected scenario after a 400 ms debounce.
+
+Compare selects a range, renders automatically after an 800 ms debounce and
+allows installation followed by selection. Up to three models share the
+existing synchronized viewer. Early stills are labelled First look; completed
+preview files survive cancellation for reuse. The drawn range box, Fast mode
+switch panel, standalone-trial first look and several detail/dialog states
+remain incomplete.
 
 For isolated packaging while another package is open, set `VE_GUI_PACKAGE_OUT`
 to a fresh output folder before `npm run package`. Automated Electron tests use
@@ -159,36 +160,14 @@ Control failures show troubleshooting instructions. The app never changes
 Windows security settings. Reports and screenshots must use synthetic footage
 and exclude private sample names.
 
-## P1c partial reliability update
+## Service reliability
 
-Queue adds return immediately as **Preparing…**, then become ready or show a
-preparation error. The current segment reports its step and frame-based progress.
-Copy details includes the tail of the segment diagnostics. Controller errors
-are visible with their timestamp. Interrupted previews become retryable after
-service restart.
+Queue additions return immediately as Preparing, then become ready or show a
+preparation error. Active work reports frame progress. Copy details includes
+segment diagnostics. Interrupted previews become retryable after restart.
 
-If no event or heartbeat arrives for 30 seconds, the client keeps its last
-snapshot, shows **Reconnecting…**, and retries after 1, 2, 5 and 10 seconds.
-Retries refresh the service discovery; restoring/focusing the window also
-reconnects. P1c now includes Home, History, hours editing and multi-model Compare.
-Windows service launch uses pythonw and hidden subprocess settings. The upcoming
-P1d redesign and the owner-deferred interactions below remain separate work.
-
-## P1c-4 scope
-
-Add and Settings always show the same AV1 availability from health. If AV1 is
-unavailable, its option is disabled and the same one-line reason appears.
-
-Qualified optional catalog cards show measured reference speeds. Model details
-identify the reference mode, sampled per-process GPU memory and tiling. Optional
-cleanup, motion and size defaults apply to new jobs; queued jobs keep their
-captured settings. DRUNet has one card with Light / Medium / Strong settings.
-The size default remains Standard resize. Each qualified manifest includes a
-short `summary` for the upcoming design; the card layout is unchanged.
-
-Owner feedback defers the draggable Compare range box, 800 ms automatic
-re-render, install-then-select, their GUI tests, and dark/light screenshots to
-P1d. This cycle implements cache reuse, cancellation and busiest-range selection
-in the service. The existing four-stream viewer and explicit Render action stay.
-Fast cleanup comparisons remain unavailable. The proposed GUI Switch to Standard
-action is also deferred with the Compare redesign.
+If no event or heartbeat arrives for thirty seconds, the client retains the
+last snapshot and reconnects after 1, 2, 5 and 10 seconds. Restore/focus refreshes
+service discovery. Windows launches use pythonw and hidden subprocess settings.
+P1d caches structural queue plans for event publication; progress-only changes
+refresh the plan no more than once every five seconds.

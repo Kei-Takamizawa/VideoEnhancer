@@ -71,3 +71,15 @@ After a service restart, unfinished previews show **Interrupted. Try again.**.
 Trial rendering ignores your operating hours and waits only for the current
 segment. Long-file Trial startup still performs whole-file analysis pending a
 range-decoder design decision; the requested 30-second bound is unverified.
+
+## P1d development limitations
+
+If AV1 reports “Output too small for AV1”, choose HEVC or a larger size. The
+minimum is probed on your encoder rather than assumed from capability metadata.
+P1d timing estimates are uncalibrated; measured SCUNet and SPAN processing-time
+errors were +31.24% and -27.37%. Do not use these estimates as guarantees.
+
+History removal preserves videos. Cancelling a job with completed segments
+keeps a Cancelled history record but removes resumable intermediate work.
+There is no Recycle Bin deletion or automatic source deletion in this build.
+Use the report's unresolved-items list when reviewing the incomplete UI states.

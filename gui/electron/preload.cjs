@@ -4,6 +4,19 @@ contextBridge.exposeInMainWorld("desktop", {
   files: (kind) => ipcRenderer.invoke("files", kind),
   openFolder: (folder) => ipcRenderer.invoke("folder", folder),
   play: (file) => ipcRenderer.invoke("play", file),
+  reveal: (file) => ipcRenderer.invoke("reveal", file),
+  hide: () => ipcRenderer.invoke("hide"),
+  onTrayExplanation: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("tray-explanation", listener);
+    return () => ipcRenderer.removeListener("tray-explanation", listener);
+  },
   copy: (text) => ipcRenderer.invoke("copy", text),
   filePath: (file) => webUtils.getPathForFile(file),
+  zoom: (percent) => ipcRenderer.invoke("zoom", percent),
+  onZoom: (callback) => {
+    const listener = (_event, percent) => callback(percent);
+    ipcRenderer.on("zoom-changed", listener);
+    return () => ipcRenderer.removeListener("zoom-changed", listener);
+  },
 });

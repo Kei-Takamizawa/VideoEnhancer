@@ -71,6 +71,7 @@ export function SchedulePage({
   }, [value]);
   useEffect(() => {
     let alive = true;
+    const request = new AbortController();
     const timer = setTimeout(
       () =>
         api
@@ -78,6 +79,7 @@ export function SchedulePage({
             "schedule/preview",
             "POST",
             draft,
+            request.signal,
           )
           .then((p) => {
             if (alive) {
@@ -88,10 +90,11 @@ export function SchedulePage({
           .catch((e) => {
             if (alive) setError(e.message);
           }),
-      150,
+      400,
     );
     return () => {
       alive = false;
+      request.abort();
       clearTimeout(timer);
     };
   }, [api, draft]);

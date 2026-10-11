@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VideoEnhancer · Compare</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.ve-dark{--bg:#1C1814;--surface:#25201B;--raised:#2F2923;--border:#3A322B;--text:#F4ECDF;--text2:#DCCFBD;--muted:#B3A492;--accent:#E0A86E;--on-accent:#1C1814;--success:#A8D5A2;--warning:#EBC06A;--danger:#E8957F;--on-danger:#1C1814;--accent-soft:rgba(224,168,110,.14);--warning-soft:rgba(235,192,106,.11);--danger-soft:rgba(232,149,127,.12);--band:rgba(244,236,223,.14);--hover:#3A322B;--scrim:rgba(14,11,9,.62);--shadow:0 14px 36px rgba(0,0,0,.45);color-scheme:dark}
+.ve-light{--bg:#F5EFE6;--surface:#FFFCF7;--raised:#EDE4D6;--border:#E2D6C4;--text:#2A221C;--text2:#574A3F;--muted:#6F6152;--accent:#8C5024;--on-accent:#FFFFFF;--success:#356B3A;--warning:#8A5A00;--danger:#A8432F;--on-danger:#FFFFFF;--accent-soft:rgba(140,80,36,.11);--warning-soft:rgba(138,90,0,.08);--danger-soft:rgba(168,67,47,.08);--band:rgba(42,34,28,.13);--hover:#E6DBCA;--scrim:rgba(42,34,28,.36);--shadow:0 14px 36px rgba(70,45,20,.18);color-scheme:light}
+.ve,.ve *{box-sizing:border-box}
+.ve :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ve button{font:inherit;cursor:pointer}
+.ve button:disabled,.ve input:disabled{cursor:default;opacity:.45}
+.ve svg.i{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.ve svg.f{fill:currentColor;stroke:none}
+.ve .hov{transition:background-color 120ms ease}
+.ve .hov:not(:disabled):hover{background:var(--hover) !important}
+.ve .pri{transition:opacity 120ms ease}
+.ve .pri:not(:disabled):hover{opacity:.9}
+</style>
+</helmet>
+<div class="{{rootClass}}" style="position: relative; width: {{W}}px; height: {{H}}px; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-family: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif; font-size: 13px; line-height: 1.45; font-variant-numeric: tabular-nums;">
+
+  <!-- Title bar -->
+  <div style="height: 32px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding-left: 14px; font-size: 12px; color: var(--text2);">
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="0.5" y="0.5" width="15" height="15" rx="4.5" style="fill: var(--accent);"></rect><path d="M5 5.2 8.2 8 5 10.8M8.6 5.2 11.8 8 8.6 10.8" style="fill: none; stroke: var(--on-accent); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;"></path></svg>
+    <span>VideoEnhancer</span>
+    <div style="flex-grow: 1;"></div>
+    <button class="hov" aria-label="Minimize" style="width: 46px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="10" height="10" viewBox="0 0 10 10" style="stroke-width: 1;"><path d="M0 5h10"></path></svg></button>
+    <button class="hov" aria-label="Maximize" style="width: 46px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="10" height="10" viewBox="0 0 10 10" style="stroke-width: 1;"><rect x="0.5" y="0.5" width="9" height="9" rx="1.5"></rect></svg></button>
+    <button class="hov" aria-label="Close to tray" style="width: 46px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="10" height="10" viewBox="0 0 10 10" style="stroke-width: 1;"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9"></path></svg></button>
+  </div>
+
+  <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 8px 24px 14px;">
+
+    <!-- Top bar -->
+    <div style="height: 36px; flex-shrink: 0; display: flex; align-items: center; gap: 10px;">
+      <a class="hov" href="{{L.home}}" title="Previews keep being made after you go back" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px 0 8px; border-radius: 9px; color: var(--text); font-weight: 600; text-decoration: none;"><svg class="i" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>Back</a>
+      <div style="flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; white-space: nowrap;">
+        <h1 style="margin: 0; font-size: 17px; font-weight: 600; overflow: hidden; text-overflow: ellipsis;">Try models · {{video.name}}</h1>
+        <span style="font-size: 12px; color: var(--muted);">{{video.meta}}</span>
+      </div>
+      <div role="radiogroup" aria-label="View" style="display: inline-flex; padding: 2px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border);">
+        <sc-for list="{{views}}" as="o" hint-placeholder-count="2"><button role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" disabled="{{noViewer}}" style="height: 28px; padding: 0 12px; border: 0; border-radius: 7px; font-size: 12px; font-weight: {{o.fw}}; background: {{o.bg}}; color: {{o.fg}}; box-shadow: {{o.ring}};">{{o.label}}</button></sc-for>
+      </div>
+      <div role="radiogroup" aria-label="Zoom" style="display: inline-flex; padding: 2px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border);">
+        <sc-for list="{{zooms}}" as="o" hint-placeholder-count="4"><button role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" disabled="{{noViewer}}" style="height: 28px; min-width: 46px; padding: 0 8px; border: 0; border-radius: 7px; font-size: 12px; font-weight: {{o.fw}}; background: {{o.bg}}; color: {{o.fg}}; box-shadow: {{o.ring}};">{{o.label}}</button></sc-for>
+      </div>
+    </div>
+
+    <!-- Step 1: moment -->
+    <section aria-labelledby="step1-h" style="flex-shrink: 0; display: flex; gap: 16px; align-items: stretch; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px;">
+      <div style="width: 150px; flex-shrink: 0;">
+        <h2 id="step1-h" style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;"><span aria-hidden="true" style="width: 20px; height: 20px; border-radius: 10px; background: var(--raised); color: var(--text2); font-size: 11px; display: flex; align-items: center; justify-content: center;">1</span>Choose a moment</h2>
+        <div style="margin-top: 6px; font-size: 12px; color: var(--text2);">{{momentText}}</div>
+        <div style="font-size: 11px; color: var(--muted);">{{busyNote}}</div>
+      </div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px;">
+        <div role="slider" aria-label="Position in the whole video" aria-valuemin="0" aria-valuemax="{{video.secs}}" aria-valuenow="{{start}}" tabindex="0" onClick="{{jump}}" onKeyDown="{{momentKey}}" style="position: relative; height: 16px; border-radius: 4px; background: var(--bg); overflow: hidden; cursor: pointer;">
+          <div aria-hidden="true" style="position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 1px; padding: 0 1px;">
+            <sc-for list="{{activity}}" as="b" hint-placeholder-count="60"><span style="flex: 1; height: {{b.h}}%; border-radius: 1px 1px 0 0; background: {{b.c}};"></span></sc-for>
+          </div>
+          <span aria-hidden="true" style="position: absolute; top: 0; bottom: 0; left: {{ovLeft}}%; width: 3px; margin-left: -1px; border-radius: 2px; background: var(--accent);"></span>
+        </div>
+        <div tabindex="0" role="group" aria-label="{{stripLabel}}" onKeyDown="{{momentKey}}" style="position: relative; height: 54px; display: flex; gap: 2px; border-radius: 8px; overflow: hidden; background: var(--bg); cursor: pointer;">
+          <sc-for list="{{strip}}" as="f" hint-placeholder-count="15">
+            <button tabindex="-1" aria-label="{{f.label}}" onClick="{{f.place}}" style="flex: 1; min-width: 0; position: relative; padding: 0; border: 0; background: {{f.a.bg}}; overflow: hidden;">
+              <span aria-hidden="true" style="position: absolute; left: {{f.a.sx}}%; top: {{f.a.sy}}%; width: {{f.a.ss}}%; aspect-ratio: 1 / 1; border-radius: 50%; background: {{f.a.sun}};"></span>
+              <span aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; height: 36%; background: {{f.a.band}};"></span>
+            </button>
+          </sc-for>
+          <span aria-hidden="true" style="position: absolute; top: 0; bottom: 0; left: {{boxLeft}}%; width: {{boxW}}%; border: 2px solid var(--accent); border-radius: 6px; background: var(--accent-soft); pointer-events: none;"></span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--muted);"><span>{{winFrom}}</span><span>Click to place · Left and Right move 1 s · Shift moves 5 s</span><span>{{winTo}}</span></div>
+      </div>
+      <div style="width: 150px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px;">
+        <div style="font-size: 12px; font-weight: 600; color: var(--text2);">Length</div>
+        <div role="radiogroup" aria-label="Length" style="display: inline-flex; padding: 2px; border-radius: 9px; background: var(--bg); border: 1px solid var(--border); width: fit-content;">
+          <sc-for list="{{lens}}" as="o" hint-placeholder-count="3"><button role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" style="height: 28px; min-width: 44px; padding: 0 8px; border: 0; border-radius: 7px; font-size: 12px; font-weight: {{o.fw}}; background: {{o.bg}}; color: {{o.fg}}; box-shadow: {{o.ring}};">{{o.label}}</button></sc-for>
+        </div>
+      </div>
+    </section>
+
+    <div style="flex: 1; min-height: 0; display: flex; gap: 16px;">
+      <!-- Step 2: what to compare -->
+      <section aria-labelledby="step2-h" style="width: 264px; flex-shrink: 0; display: flex; flex-direction: column; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px;">
+        <h2 id="step2-h" style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;"><span aria-hidden="true" style="width: 20px; height: 20px; border-radius: 10px; background: var(--raised); color: var(--text2); font-size: 11px; display: flex; align-items: center; justify-content: center;">2</span>Choose what to compare</h2>
+        <div role="radiogroup" aria-label="Kind" style="display: flex; flex-direction: column; gap: 2px; margin-top: 10px;">
+          <sc-for list="{{cats}}" as="c" hint-placeholder-count="3">
+            <button role="radio" aria-checked="{{c.on}}" onClick="{{c.pick}}" style="height: {{rowH}}px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; background: {{c.bg}}; color: {{c.fg}}; font-weight: {{c.fw}}; text-align: left;">
+              <span aria-hidden="true" style="width: 14px; height: 14px; border-radius: 7px; border: 2px solid {{c.ring}}; display: flex; align-items: center; justify-content: center;"><span style="width: 6px; height: 6px; border-radius: 3px; background: {{c.dot}};"></span></span>{{c.label}}
+            </button>
+          </sc-for>
+        </div>
+        <div style="height: 1px; margin: 10px 0; background: var(--border);"></div>
+        <div style="display: flex; align-items: baseline; justify-content: space-between; font-size: 12px;"><span style="font-weight: 600; color: var(--text2);">Models</span><span style="color: var(--muted);">{{pickedText}}</span></div>
+        <ul style="list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px;">
+          <li><label style="height: {{rowH}}px; display: flex; align-items: center; gap: 8px; padding: 0 6px; color: var(--text2);"><input type="checkbox" checked="checked" disabled="disabled" style="width: 15px; height: 15px; margin: 0; accent-color: var(--accent);">Original<span style="margin-left: auto; font-size: 11px; color: var(--muted);">always shown</span></label></li>
+          <sc-for list="{{models}}" as="m" hint-placeholder-count="6">
+            <li>
+              <sc-if value="{{m.installed}}" hint-placeholder-val="{{true}}">
+                <label style="height: {{rowH}}px; display: flex; align-items: center; gap: 8px; padding: 0 6px; border-radius: 7px; cursor: pointer; opacity: {{m.op}};"><input type="checkbox" checked="{{m.on}}" disabled="{{m.off}}" onChange="{{m.toggle}}" style="width: 15px; height: 15px; margin: 0; accent-color: var(--accent);"><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{m.name}}</span><sc-if value="{{m.def}}" hint-placeholder-val="{{false}}"><span style="margin-left: auto; font-size: 11px; color: var(--accent);">Default</span></sc-if></label>
+              </sc-if>
+              <sc-if value="{{m.notInstalled}}" hint-placeholder-val="{{false}}">
+                <button class="hov" onClick="{{m.install}}" disabled="{{m.off}}" style="width: 100%; height: {{rowH}}px; display: flex; align-items: center; gap: 8px; padding: 0 6px; border: 0; border-radius: 7px; background: transparent; color: var(--accent); text-align: left;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2.2;"><path d="M12 5v14M5 12h14"></path></svg>{{m.name}}<span style="margin-left: auto; font-size: 11px; color: var(--muted);">{{m.hint}}</span></button>
+              </sc-if>
+            </li>
+          </sc-for>
+        </ul>
+        <div style="flex: 1;"></div>
+        <sc-if value="{{roomy}}" hint-placeholder-val="{{true}}"><div style="font-size: 11px; color: var(--muted);">Up to 3 models. Results update by themselves when you change the moment or models.</div></sc-if>
+      </section>
+
+      <!-- Step 3: results -->
+      <section aria-label="Results" style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px;">
+        <sc-if value="{{fastBlock}}" hint-placeholder-val="{{false}}">
+          <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px;">
+            <svg class="i" width="36" height="36" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--muted); stroke-width: 1.3;"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 11v5M12 8v.3"></path></svg>
+            <h2 style="margin: 4px 0 0; font-size: 17px; font-weight: 600;">Fast does not clean up.</h2>
+            <p style="margin: 0; max-width: 420px; color: var(--text2);">This video is set to Fast, which only makes motion smoother and resizes. Switch it to Standard to compare cleanup models. Its finish time will change.</p>
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <button class="pri" onClick="{{switchStd}}" style="height: 32px; padding: 0 14px; border-radius: 9px; border: 0; background: var(--accent); color: var(--on-accent); font-weight: 600;">Switch to Standard</button>
+              <button class="hov" onClick="{{toMotion}}" style="height: 32px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600;">Compare smoother motion instead</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- Side by side -->
+        <sc-if value="{{showSide}}" hint-placeholder-val="{{true}}">
+          <div tabindex="0" aria-label="Side by side viewer. Space plays or pauses, Left and Right step one frame." onKeyDown="{{viewerKey}}" style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat({{gridCols}}, minmax(0, 1fr)); gap: 10px; align-content: start;">
+            <sc-for list="{{tiles}}" as="t" hint-placeholder-count="4">
+              <article aria-label="{{t.name}}" style="min-width: 0; display: flex; flex-direction: column; padding: 8px; background: var(--surface); border: 1.5px solid {{t.border}}; border-radius: 12px;">
+                <div style="height: 22px; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                  <span style="flex: 1; min-width: 0; font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{t.name}}</span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: {{t.stateColor}}; white-space: nowrap;">
+                    <sc-if value="{{t.isReady}}" hint-placeholder-val="{{true}}"><svg class="i" width="11" height="11" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2.6;"><path d="m5 12.5 4.5 4.5L19 7.5"></path></svg></sc-if>
+                    {{t.stateText}}
+                  </span>
+                </div>
+                <div onPointerDown="{{panStart}}" onPointerMove="{{panMove}}" onPointerUp="{{panEnd}}" onPointerLeave="{{panEnd}}" style="position: relative; height: {{imgH}}px; border-radius: 6px; overflow: hidden; background: var(--bg); cursor: {{panCursor}}; display: flex; align-items: center; justify-content: center;">
+                  <sc-if value="{{t.hasImage}}" hint-placeholder-val="{{true}}">
+                    <div style="position: relative; width: {{imgW}}px; height: {{imgH}}px; overflow: hidden; background: {{art.bg}}; transform: translate({{panX}}px, {{panY}}px) scale({{zoom}}); opacity: {{t.op}};">
+                      <div style="position: absolute; left: {{art.sx}}%; top: {{art.sy}}%; width: {{art.ss}}%; aspect-ratio: 1 / 1; border-radius: 50%; background: {{art.sun}};"></div>
+                      <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 36%; background: {{art.band}};"></div>
+                      <div style="position: absolute; inset: 0; background-image: linear-gradient(rgba(0,0,0,{{t.grid}}) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,{{t.grid}}) 1px, transparent 1px); background-size: 12px 12px;"></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{t.isMaking}}" hint-placeholder-val="{{false}}">
+                    <div style="position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(20,16,12,.8); color: #F4ECDF; font-size: 11px;">
+                      <div style="display: flex; justify-content: space-between;"><span style="font-weight: 600;">First look</span><span>Making preview {{t.pct}}%</span></div>
+                      <div style="height: 4px; margin-top: 5px; border-radius: 2px; background: rgba(244,236,223,.25); overflow: hidden;"><div style="width: {{t.pct}}%; height: 100%; background: #E0A86E;"></div></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{t.isWaiting}}" hint-placeholder-val="{{false}}">
+                    <div role="status" style="display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px; text-align: center; color: var(--text2); font-size: 12px;">
+                      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--muted);"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>
+                      <span style="font-weight: 600; color: var(--text);">Waiting</span>
+                      <span>Starts after the current step, about 2 min</span>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{t.isFailed}}" hint-placeholder-val="{{false}}">
+                    <div role="alert" style="display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px; text-align: center; color: var(--text2); font-size: 12px;">
+                      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--danger);"><path d="M12 4 21 19.5H3z"></path><path d="M12 10v4.5M12 17.2v.3"></path></svg>
+                      <span style="font-weight: 600; color: var(--text);">Couldn't make this preview</span>
+                      <span>The graphics card ran out of memory.</span>
+                      <button class="hov" onClick="{{t.retry}}" style="margin-top: 4px; height: 28px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600;">Try again</button>
+                    </div>
+                  </sc-if>
+                </div>
+                <div style="margin-top: 8px; font-size: 11px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{t.line}}</div>
+                <div style="font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{t.est}}</div>
+                <sc-if value="{{t.isModel}}" hint-placeholder-val="{{true}}">
+                  <div style="display: flex; align-items: center; gap: 4px; margin-top: 6px;">
+                    <sc-if value="{{t.chosen}}" hint-placeholder-val="{{false}}"><span style="height: 28px; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent);"><svg class="i" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2.6;"><path d="m5 12.5 4.5 4.5L19 7.5"></path></svg>Chosen</span></sc-if>
+                    <sc-if value="{{t.notChosen}}" hint-placeholder-val="{{true}}"><button class="hov" onClick="{{t.choose}}" disabled="{{t.notReady}}" style="height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-size: 12px; font-weight: 600;">Use this</button></sc-if>
+                    <button class="hov" onClick="{{t.makeDefault}}" disabled="{{t.isDefault}}" style="height: 28px; padding: 0 6px; border-radius: 8px; border: 0; background: transparent; color: var(--text2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{t.defLabel}}</button>
+                  </div>
+                </sc-if>
+                <sc-if value="{{t.isOriginal}}" hint-placeholder-val="{{false}}"><div style="height: 28px; margin-top: 6px;"></div></sc-if>
+              </article>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <!-- Swipe -->
+        <sc-if value="{{showSwipe}}" hint-placeholder-val="{{false}}">
+          <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+              <label for="sw-left" style="font-size: 12px; color: var(--muted);">Left</label>
+              <div style="position: relative;"><select id="sw-left" style="height: 28px; padding: 0 28px 0 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font: inherit; font-size: 12px; appearance: none;"><option>Original</option><option>BasicVSR++ decompression</option><option>Gentle Denoise</option></select><svg class="i" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; right: 9px; top: 8px; pointer-events: none; color: var(--text2);"><path d="m6 9 6 6 6-6"></path></svg></div>
+              <div style="flex: 1;"></div>
+              <label for="sw-right" style="font-size: 12px; color: var(--muted);">Right</label>
+              <div style="position: relative;"><select id="sw-right" style="height: 28px; padding: 0 28px 0 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font: inherit; font-size: 12px; appearance: none;"><option>BasicVSR++ decompression</option><option>Gentle Denoise</option><option>Original</option></select><svg class="i" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; right: 9px; top: 8px; pointer-events: none; color: var(--text2);"><path d="m6 9 6 6 6-6"></path></svg></div>
+            </div>
+            <div style="flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: var(--bg); overflow: hidden;">
+              <div role="slider" aria-label="Swipe position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{split}}" tabindex="0" onKeyDown="{{splitKey}}" onPointerDown="{{splitStart}}" onPointerMove="{{splitMove}}" onPointerUp="{{splitEnd}}" onPointerLeave="{{splitEnd}}" style="position: relative; width: {{swW}}px; height: {{swH}}px; overflow: hidden; cursor: ew-resize; background: {{art.bg}};">
+                <div style="position: absolute; inset: 0; transform: scale({{zoom}});">
+                  <div style="position: absolute; left: {{art.sx}}%; top: {{art.sy}}%; width: {{art.ss}}%; aspect-ratio: 1 / 1; border-radius: 50%; background: {{art.sun}};"></div>
+                  <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 36%; background: {{art.band}};"></div>
+                </div>
+                <div style="position: absolute; left: 0; top: 0; bottom: 0; width: {{split}}%; overflow: hidden;">
+                  <div style="position: absolute; left: 0; top: 0; width: {{swW}}px; height: {{swH}}px; background: {{art.bg}}; transform: scale({{zoom}});">
+                    <div style="position: absolute; left: {{art.sx}}%; top: {{art.sy}}%; width: {{art.ss}}%; aspect-ratio: 1 / 1; border-radius: 50%; background: {{art.sun}};"></div>
+                    <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 36%; background: {{art.band}};"></div>
+                    <div style="position: absolute; inset: 0; background-image: linear-gradient(rgba(0,0,0,.18) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,.18) 1px, transparent 1px); background-size: 14px 14px;"></div>
+                  </div>
+                </div>
+                <div aria-hidden="true" style="position: absolute; top: 0; bottom: 0; left: {{split}}%; width: 2px; margin-left: -1px; background: #F4ECDF;"></div>
+                <div aria-hidden="true" style="position: absolute; top: 50%; left: {{split}}%; width: 32px; height: 32px; margin: -16px 0 0 -16px; border-radius: 16px; background: #F4ECDF; color: #2A221C; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,.35);"><svg class="i" width="16" height="16" viewBox="0 0 24 24" style="stroke-width: 2;"><path d="m9 7-5 5 5 5M15 7l5 5-5 5"></path></svg></div>
+                <span style="position: absolute; left: 10px; top: 10px; padding: 3px 8px; border-radius: 6px; background: rgba(20,16,12,.75); color: #F4ECDF; font-size: 11px; font-weight: 600;">Original</span>
+                <span style="position: absolute; right: 10px; top: 10px; padding: 3px 8px; border-radius: 6px; background: rgba(20,16,12,.75); color: #F4ECDF; font-size: 11px; font-weight: 600;">BasicVSR++ decompression</span>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 12px;">
+              <span style="color: var(--text2);">Right side: Removes blocks and smearing · {{swEst}}</span>
+              <div style="flex: 1;"></div>
+              <span style="height: 28px; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent);"><svg class="i" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2.6;"><path d="m5 12.5 4.5 4.5L19 7.5"></path></svg>Chosen</span>
+              <button disabled="disabled" style="height: 28px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text2); font-size: 12px;">Your default</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- Playback -->
+        <sc-if value="{{hasViewer}}" hint-placeholder-val="{{true}}">
+          <div style="height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 0 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;">
+            <button class="pri" aria-label="{{playLabel}}" title="Space" onClick="{{togglePlay}}" style="width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); display: flex; align-items: center; justify-content: center;">
+              <sc-if value="{{playing}}" hint-placeholder-val="{{false}}"><svg class="i" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2.6;"><path d="M9 6v12M15 6v12"></path></svg></sc-if>
+              <sc-if value="{{notPlaying}}" hint-placeholder-val="{{true}}"><svg class="i f" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z"></path></svg></sc-if>
+            </button>
+            <button class="hov" aria-label="Previous frame" title="Left" onClick="{{prevFrame}}" style="width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6v12M18 6l-8 6 8 6z"></path></svg></button>
+            <button class="hov" aria-label="Next frame" title="Right" onClick="{{nextFrame}}" style="width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 6v12M6 6l8 6-8 6z"></path></svg></button>
+            <div role="slider" aria-label="Seek" aria-valuemin="1" aria-valuemax="{{frames}}" aria-valuenow="{{frame}}" tabindex="0" style="flex: 1; position: relative; height: 6px; margin: 0 8px; border-radius: 3px; background: var(--raised);"><div style="width: {{seekPct}}%; height: 100%; border-radius: 3px; background: var(--accent);"></div><div style="position: absolute; left: {{seekPct}}%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 7px; background: var(--text); border: 2px solid var(--surface);"></div></div>
+            <span style="min-width: 92px; text-align: right; font-size: 12px; color: var(--text2);">Frame {{frame}}/{{frames}}</span>
+            <button class="hov" aria-pressed="{{loop}}" onClick="{{toggleLoop}}" style="height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 8px; border: 1px solid {{loopBorder}}; background: {{loopBg}}; color: {{loopFg}}; font-size: 12px; font-weight: 600;"><svg class="i" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 4l3 3-3 3"></path><path d="M4 12v-2a3 3 0 0 1 3-3h13"></path><path d="M7 20l-3-3 3-3"></path><path d="M20 12v2a3 3 0 0 1-3 3H4"></path></svg>Loop</button>
+          </div>
+        </sc-if>
+      </section>
+    </div>
+  </div>
+
+  <sc-if value="{{showToast}}" hint-placeholder-val="{{false}}">
+    <div role="status" style="position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); z-index: 55; height: 38px; display: flex; align-items: center; padding: 0 18px; border-radius: 19px; background: var(--text); color: var(--bg); font-weight: 600; box-shadow: var(--shadow); white-space: nowrap;">{{toastText}}</div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"View"},"size":{"editor":"enum","options":["1280x800","1100x700"],"default":"1280x800","section":"View"},"variant":{"editor":"enum","options":["default","failed","swipe","fast"],"default":"default","section":"State"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  base() {
+    const v = this.props.variant ?? 'default';
+    const vid = v === 'swipe' ? 'city' : v === 'fast' ? 'idol' : 'beach';
+    return {
+      forV: v,
+      vid: vid,
+      mode: vid === 'idol' ? 'Fast' : 'Standard',
+      view: v === 'swipe' ? 'swipe' : 'side',
+      zoom: 1,
+      cat: 'clean',
+      sel: { clean: v === 'swipe' ? ['m1', 'm2'] : ['m1', 'm2', 'm3'], motion: ['r1', 'r3'], big: ['b1'] },
+      st: { m1: 'ready', m2: 'making', m3: v === 'failed' ? 'failed' : 'waiting', r1: 'ready', r3: 'ready', b1: 'ready', m5: 'ready', m7: 'ready' },
+      pct: { m2: 40 },
+      chosen: { clean: 'm1', motion: 'r1', big: 'b1' },
+      defaults: { clean: 'm1', motion: 'r1', big: 'b1' },
+      start: vid === 'beach' ? 134 : vid === 'city' ? 201 : 3065,
+      len: 5,
+      frame: 42,
+      playing: false,
+      loop: true,
+      split: 50,
+      panX: 0,
+      panY: 0,
+      toast: null,
+    };
+  }
+  cur() {
+    const s = this.state || {};
+    const v = this.props.variant ?? 'default';
+    return s.touched && s.forV === v ? s : this.base();
+  }
+  upd(p) {
+    this.setState(Object.assign({}, this.cur(), p, { touched: true }));
+  }
+  flash(t) {
+    this.upd({ toast: t });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.upd({ toast: null }), 2200);
+  }
+  progress(id) {
+    const tick = (state, pct, ms) => setTimeout(() => {
+      const c = this.cur();
+      this.upd({ st: Object.assign({}, c.st, { [id]: state }), pct: Object.assign({}, c.pct, { [id]: pct }) });
+    }, ms);
+    tick('waiting', 0, 0);
+    tick('making', 15, 1400);
+    tick('making', 60, 2600);
+    tick('ready', 100, 3800);
+  }
+  componentWillUnmount() {
+    clearTimeout(this._t);
+    clearInterval(this._play);
+  }
+  renderVals() {
+    const s = this.cur();
+    const theme = this.props.theme === 'light' ? 'light' : 'dark';
+    const small = this.props.size === '1100x700';
+    const W = small ? 1100 : 1280;
+    const H = small ? 700 : 800;
+    const sfx = theme === 'light' ? '-Light' : small ? '-1100' : '';
+    const L = { home: sfx ? 'Home' + sfx + '.dc.html' : 'Main.dc.html' };
+    const V = {
+      beach: { name: 'beach_walk.mp4', meta: '720 x 1280 · 12 min', secs: 720, o: 'p', k: 0, mins: 12 },
+      city: { name: 'city_lights.mp4', meta: '1920 x 1080 · 6 min', secs: 360, o: 'l', k: 3, mins: 6 },
+      idol: { name: 'idol_stage_live.mp4', meta: '1920 x 1080 · 1 h 52 m', secs: 6720, o: 'l', k: 2, mins: 112 },
+    };
+    const vd = V[s.vid];
+    const video = { name: vd.name, meta: vd.meta + ' · ' + s.mode, secs: vd.secs };
+    const PAL = [
+      ['#6B4E5A', '#E8B59A', '#3F2E3A', 50, 16], ['#7E8C6E', '#E9DFC4', '#4E5B45', 18, 22], ['#4F6476', '#D9C7A6', '#2F3E4D', 58, 20],
+      ['#C9A882', '#F3E3C7', '#8E6E4E', 30, 14], ['#A55E45', '#F0C9A0', '#6E3B2B', 46, 20], ['#5C4766', '#D7A9B8', '#3A2C42', 22, 18],
+      ['#3E4237', '#C9B37E', '#262920', 56, 24], ['#B98A86', '#F4D9CC', '#7C5552', 36, 12],
+    ];
+    const artOf = (k, o) => { const p = PAL[k % 8]; return { bg: p[0], sun: p[1], band: p[2], sx: p[3], sy: p[4], ss: o === 'p' ? 46 : 22 }; };
+    const art = artOf(vd.k, vd.o);
+    const seg = (list, cur, set) => list.map((x) => {
+      const on = cur === x[0];
+      return {
+        label: x[1], on: on, fw: on ? 600 : 400, bg: on ? 'var(--accent-soft)' : 'transparent', fg: on ? 'var(--accent)' : 'var(--text2)',
+        ring: on ? 'inset 0 0 0 1px var(--accent)' : 'none', pick: () => set(x[0]),
+      };
+    });
+    const mmss = (t) => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+    const hms = (t) => (t >= 3600 ? Math.floor(t / 3600) + ':' + String(Math.floor((t % 3600) / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0') : mmss(t));
+    const clampStart = (x) => Math.max(0, Math.min(vd.secs - s.len, x));
+    const moveBy = (d) => this.upd({ start: clampStart(this.cur().start + d) });
+    const span = 30;
+    const winStart = Math.max(0, Math.min(vd.secs - span, Math.floor((s.start - 8) / 10) * 10));
+    const strip = [];
+    for (let i = 0; i < 15; i++) {
+      const t = winStart + i * 2;
+      strip.push({ a: artOf(vd.k + (i % 3 === 2 ? 1 : 0), vd.o), label: 'Start at ' + hms(t), place: () => this.upd({ start: clampStart(t) }) });
+    }
+    const heights = [20, 28, 24, 35, 30, 42, 38, 50, 64, 88, 96, 92, 70, 54, 46, 40, 36, 44, 52, 48, 40, 34, 30, 38, 46, 58, 62, 50, 42, 36, 30, 26, 32, 40, 48, 44, 38, 34, 28, 24, 30, 36, 42, 38, 30, 26, 22, 28, 34, 30, 26, 22, 20, 24, 30, 26, 22, 18, 16, 14];
+    const activity = heights.map((h, i) => ({ h: h, c: i >= 9 && i <= 12 ? 'var(--accent)' : 'var(--band)' }));
+    const cats = [['clean', 'Cleanup'], ['motion', 'Smoother motion'], ['big', 'Bigger picture']].map((c) => {
+      const on = s.cat === c[0];
+      return {
+        label: c[1], on: on, bg: on ? 'var(--accent-soft)' : 'transparent', fg: on ? 'var(--text)' : 'var(--text2)', fw: on ? 600 : 400,
+        ring: on ? 'var(--accent)' : 'var(--muted)', dot: on ? 'var(--accent)' : 'transparent', pick: () => this.upd({ cat: c[0] }),
+      };
+    });
+    const scale = vd.o === 'l' ? 1.25 : 1;
+    const est = (h) => {
+      const t = h * (vd.mins / 12) * scale;
+      if (t < 1) return 'About ' + Math.max(5, Math.round(t * 12) * 5) + ' m for this video';
+      const hh = Math.floor(t);
+      const mm = Math.round((t - hh) * 12) * 5;
+      return 'About ' + hh + ' h' + (mm ? ' ' + mm + ' m' : '') + ' for this video';
+    };
+    const MOD = {
+      clean: [
+        { id: 'm1', name: 'BasicVSR++ decompression', line: 'Removes blocks and smearing. Keeps the look.', h: 2.55, inst: true },
+        { id: 'm2', name: 'Gentle Denoise', line: 'Light noise cleanup. Skin barely changes.', h: 1.3, inst: true },
+        { id: 'm3', name: 'Deblock · Medium', line: 'Targets square blocks. Quick.', h: 0.7, inst: true },
+        { id: 'm5', name: 'Detail Restore · Faithful', line: 'Adds fine texture back. Slow.', h: 5, inst: true },
+        { id: 'm7', name: 'Film Grain Keeper', line: 'Cleans up but keeps grain.', h: 2.1, inst: true },
+        { id: 'm6', name: 'Low-light Cleanup', hint: '286 MB' },
+        { id: 'm8', name: 'Strong Restore', hint: '340 MB' },
+      ],
+      motion: [
+        { id: 'r1', name: 'RIFE 4.25', line: 'Natural in-between frames.', h: 0.42, inst: true },
+        { id: 'r3', name: 'Frame blend', line: 'Mixes frames. Softer motion.', h: 0.08, inst: true },
+        { id: 'r2', name: 'RIFE 4.6 (lighter)', hint: '11 MB' },
+      ],
+      big: [
+        { id: 'b1', name: 'Standard resize', line: 'Plain resizing. No new detail.', h: 0.05, inst: true },
+        { id: 'b2', name: 'Real-ESRGAN general v3', hint: '5 MB' },
+      ],
+    };
+    const fastBlock = s.mode === 'Fast' && s.cat === 'clean';
+    const picked = s.sel[s.cat] || [];
+    const models = MOD[s.cat].map((m) => {
+      const on = picked.indexOf(m.id) >= 0;
+      const full = picked.length >= 3 && !on;
+      return {
+        name: m.inst ? m.name : m.name, hint: m.hint || '', installed: !!m.inst, notInstalled: !m.inst,
+        def: s.defaults[s.cat] === m.id, on: on, off: fastBlock || full, op: fastBlock || full ? 0.5 : 1,
+        toggle: () => {
+          const c = this.cur();
+          const cur = c.sel[c.cat] || [];
+          const next = on ? cur.filter((x) => x !== m.id) : cur.concat([m.id]);
+          this.upd({ sel: Object.assign({}, c.sel, { [c.cat]: next }) });
+          if (!on) this.progress(m.id);
+        },
+        install: () => {
+          this.flash('Installing ' + m.name + ' · it is added here when ready');
+          const c = this.cur();
+          if ((c.sel[c.cat] || []).length < 3) this.upd({ sel: Object.assign({}, c.sel, { [c.cat]: (c.sel[c.cat] || []).concat([m.id]) }) });
+        },
+      };
+    });
+    const nTiles = picked.length + 1;
+    const avail = W - 48 - 264 - 16;
+    const mainH = H - 284;
+    const land = vd.o === 'l';
+    const gridCols = land ? Math.min(2, nTiles) : nTiles;
+    const rowsN = land ? Math.ceil(nTiles / 2) : 1;
+    const perRowH = (mainH - (rowsN - 1) * 10) / rowsN;
+    let imgH = Math.floor(perRowH - 122);
+    let imgW = land ? Math.round(imgH * 16 / 9) : Math.round(imgH * 9 / 16);
+    const cellW = (avail - (gridCols - 1) * 10) / gridCols - 19;
+    if (imgW > cellW) { imgW = Math.floor(cellW); imgH = land ? Math.round(imgW * 9 / 16) : Math.round(imgW * 16 / 9); }
+    const findM = (id) => MOD[s.cat].find((m) => m.id === id) || {};
+    const tiles = [{
+      name: 'Original', isOriginal: true, isModel: false, hasImage: true, op: 1, grid: '.18', isReady: true, stateText: 'Ready', stateColor: 'var(--success)',
+      line: 'The video as it is now', est: s.len + ' s from ' + hms(s.start), border: 'var(--border)',
+      isMaking: false, isWaiting: false, isFailed: false,
+    }].concat(picked.map((id) => {
+      const m = findM(id);
+      const st = s.st[id] || 'ready';
+      const chosen = s.chosen[s.cat] === id;
+      return {
+        name: m.name || id, isOriginal: false, isModel: true,
+        hasImage: st === 'ready' || st === 'making', op: st === 'making' ? 0.8 : 1,
+        grid: id === 'm3' ? '.06' : id === 'r3' ? '.18' : s.cat === 'clean' ? '0' : '.18',
+        isReady: st === 'ready', isMaking: st === 'making', isWaiting: st === 'waiting', isFailed: st === 'failed',
+        pct: (s.pct && s.pct[id]) || 40,
+        stateText: st === 'ready' ? 'Ready' : st === 'making' ? 'Making preview' : st === 'waiting' ? 'Waiting' : 'Problem',
+        stateColor: st === 'ready' ? 'var(--success)' : st === 'failed' ? 'var(--danger)' : 'var(--text2)',
+        line: m.line || '', est: m.h ? est(m.h) : '',
+        chosen: chosen, notChosen: !chosen, notReady: st !== 'ready',
+        border: chosen ? 'var(--accent)' : 'var(--border)',
+        isDefault: s.defaults[s.cat] === id, defLabel: s.defaults[s.cat] === id ? 'Your default' : 'Make it my default',
+        choose: () => this.upd({ chosen: Object.assign({}, this.cur().chosen, { [s.cat]: id }) }),
+        makeDefault: () => { this.upd({ defaults: Object.assign({}, this.cur().defaults, { [s.cat]: id }) }); this.flash((m.name || id) + ' is now your default'); },
+        retry: () => this.progress(id),
+      };
+    }));
+    const frames = s.len * 30;
+    const frame = Math.min(s.frame, frames);
+    const swH = Math.max(200, mainH - 96);
+    const swW0 = land ? Math.round(swH * 16 / 9) : Math.round(swH * 9 / 16);
+    const swW = Math.min(swW0, avail - 20);
+    const swHf = land ? Math.round(swW * 9 / 16) : swH;
+    const setSplit = (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      this.upd({ split: Math.max(2, Math.min(98, Math.round(((e.clientX - r.left) / r.width) * 100))) });
+    };
+    return {
+      rootClass: 've ve-' + theme, W: W, H: H, L: L, video: video, art: art, rowH: small ? 26 : 30, roomy: !small,
+      views: seg([['side', 'Side by side'], ['swipe', 'Swipe']], s.view, (x) => this.upd({ view: x })),
+      zooms: seg([[1, '100%'], [2, '200%'], [3, '300%'], [4, '400%']], s.zoom, (x) => this.upd({ zoom: x, panX: 0, panY: 0 })),
+      zoom: s.zoom, panX: s.panX, panY: s.panY, panCursor: s.zoom > 1 ? 'grab' : 'default',
+      panStart: (e) => { if (this.cur().zoom > 1) { this._pan = { x: e.clientX, y: e.clientY, px: this.cur().panX, py: this.cur().panY }; } },
+      panMove: (e) => { if (this._pan) this.upd({ panX: this._pan.px + e.clientX - this._pan.x, panY: this._pan.py + e.clientY - this._pan.y }); },
+      panEnd: () => { this._pan = null; },
+      momentText: hms(s.start) + ' – ' + hms(s.start + s.len),
+      busyNote: 'Started on the busiest part',
+      start: s.start, ovLeft: +((s.start / vd.secs) * 100).toFixed(2),
+      jump: (e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        this.upd({ start: clampStart(Math.round(((e.clientX - r.left) / r.width) * vd.secs)) });
+      },
+      momentKey: (e) => {
+        if (e.key === 'ArrowLeft') { e.preventDefault(); moveBy(e.shiftKey ? -5 : -1); }
+        if (e.key === 'ArrowRight') { e.preventDefault(); moveBy(e.shiftKey ? 5 : 1); }
+      },
+      stripLabel: 'Moment from ' + hms(s.start) + ', ' + s.len + ' seconds. Left and Right move 1 second, Shift moves 5.',
+      strip: strip, activity: activity,
+      boxLeft: +(((s.start - winStart) / span) * 100).toFixed(2), boxW: +((s.len / span) * 100).toFixed(2),
+      winFrom: hms(winStart), winTo: hms(winStart + span),
+      lens: seg([[3, '3 s'], [5, '5 s'], [10, '10 s']], s.len, (x) => this.upd({ len: x, frame: Math.min(this.cur().frame, x * 30) })),
+      cats: cats, models: models, pickedText: picked.length + ' of 3 picked',
+      fastBlock: fastBlock, noViewer: fastBlock, hasViewer: !fastBlock,
+      showSide: !fastBlock && s.view === 'side', showSwipe: !fastBlock && s.view === 'swipe',
+      switchStd: () => { this.upd({ mode: 'Standard' }); this.flash('idol_stage_live.mp4 is now Standard · finishes later'); },
+      toMotion: () => this.upd({ cat: 'motion' }),
+      tiles: tiles, gridCols: gridCols, imgW: imgW, imgH: imgH,
+      viewerKey: (e) => {
+        if (e.key === ' ') { e.preventDefault(); this.upd({ playing: !this.cur().playing }); }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); this.upd({ frame: Math.max(1, this.cur().frame - 1), playing: false }); }
+        if (e.key === 'ArrowRight') { e.preventDefault(); this.upd({ frame: Math.min(frames, this.cur().frame + 1), playing: false }); }
+      },
+      split: s.split, swW: swW, swH: swHf, swEst: est(2.55),
+      splitStart: (e) => { this._drag = true; setSplit(e); },
+      splitMove: (e) => { if (this._drag) setSplit(e); },
+      splitEnd: () => { this._drag = false; },
+      splitKey: (e) => {
+        if (e.key === 'ArrowLeft') { e.preventDefault(); this.upd({ split: Math.max(2, this.cur().split - 5) }); }
+        if (e.key === 'ArrowRight') { e.preventDefault(); this.upd({ split: Math.min(98, this.cur().split + 5) }); }
+      },
+      playing: !!s.playing, notPlaying: !s.playing, playLabel: s.playing ? 'Pause' : 'Play',
+      togglePlay: () => {
+        const p = !this.cur().playing;
+        this.upd({ playing: p });
+        clearInterval(this._play);
+        if (p) {
+          this._play = setInterval(() => {
+            const c = this.cur();
+            if (!c.playing) { clearInterval(this._play); return; }
+            const total = c.len * 30;
+            let f = c.frame + 3;
+            if (f > total) { if (c.loop) f = 1; else { f = total; clearInterval(this._play); this.upd({ frame: f, playing: false }); return; } }
+            this.upd({ frame: f });
+          }, 100);
+        }
+      },
+      prevFrame: () => this.upd({ frame: Math.max(1, this.cur().frame - 1), playing: false }),
+      nextFrame: () => this.upd({ frame: Math.min(frames, this.cur().frame + 1), playing: false }),
+      frame: frame, frames: frames, seekPct: +((frame / frames) * 100).toFixed(2),
+      loop: !!s.loop, toggleLoop: () => this.upd({ loop: !this.cur().loop }),
+      loopBorder: s.loop ? 'var(--accent)' : 'var(--border)', loopBg: s.loop ? 'var(--accent-soft)' : 'transparent', loopFg: s.loop ? 'var(--accent)' : 'var(--text2)',
+      showToast: !!s.toast, toastText: s.toast || '',
+    };
+  }
+}
+</script>
+</body>
+</html>

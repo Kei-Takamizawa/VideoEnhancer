@@ -1,224 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration, filename, folder, when } from "./api";
-import type { Job, Model, Queue, Settings, Estimate, Media } from "./types";
-
-export function QueuePage({
-  queue,
-  add,
-  action,
-  trial,
-}: {
-  queue: Queue;
-  add(files?: string[]): void;
-  action(job: Job, name: string, data?: unknown): void;
-  trial(job: Job): void;
-}) {
-  const [menu, setMenu] = useState<string>();
-  const [drag, setDrag] = useState<string>();
-  return (
-    <section
-      aria-label="Queue"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault();
-        if (e.dataTransfer.files.length)
-          add(
-            Array.from(e.dataTransfer.files).map((f) =>
-              window.desktop.filePath(f),
-            ),
-          );
-      }}
-    >
-      <div className="page-heading">
-        <div>
-          <h1>Queue</h1>
-          <p>Restore your videos. Keep track of when they will finish.</p>
-        </div>
-        <button className="primary" onClick={() => add()}>
-          + Add videos
-        </button>
-      </div>
-      <div className="drop-zone">Drop videos here, or choose Add videos.</div>
-      {!queue.jobs.length && (
-        <div className="empty">
-          Your queue is empty. Add a video to get started.
-        </div>
-      )}
-      <div className="jobs">
-        {queue.jobs.map((job, index) => (
-          <article
-            key={job.id}
-            className="job"
-            draggable
-            onDragStart={(e) => {
-              setDrag(job.id);
-              e.dataTransfer.setData("text/plain", job.id);
-            }}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.stopPropagation();
-              if (drag) {
-                const moved = queue.jobs.find((j) => j.id === drag);
-                if (moved) action(moved, "move", { position: index + 1 });
-                setDrag(undefined);
-              }
-            }}
-          >
-            <div className="job-top">
-              <span className="ordinal">{index + 1}</span>
-              <div className="job-title">
-                <h2>{filename(job.input)}</h2>
-                <p>
-                  {job.media.display_width} × {job.media.display_height} ·{" "}
-                  {job.media.cfr_fps} fps · {duration(job.media.duration)}
-                </p>
-              </div>
-              <span className="badge">
-                {job.settings.preset === "standard" ? "Standard" : "Fast"}
-              </span>
-              <strong className="state">
-                {job.phase === "finalizing" && job.state !== "done"
-                  ? `Finalizing: ${job.step}`
-                  : job.state === "queued"
-                    ? "Waiting"
-                    : job.state === "preparing"
-                      ? "Preparing…"
-                      : job.state.charAt(0).toUpperCase() + job.state.slice(1)}
-              </strong>
-              <button
-                aria-label={`Actions for ${filename(job.input)}`}
-                onClick={() => setMenu(menu === job.id ? undefined : job.id)}
-              >
-                •••
-              </button>
-            </div>
-            <div className="progress-line">
-              <progress max="100" value={job.progress_percent} />
-              <strong>{job.progress_percent.toFixed(1)}%</strong>
-            </div>
-            <div className="job-bottom">
-              <div>
-                <strong>
-                  {job.state === "done" ? "Finished" : "Finish"}:{" "}
-                  {when(job.eta)}
-                </strong>
-                {!!job.overrun_seconds && (
-                  <p>
-                    Finishing one step after your hours, about{" "}
-                    {Math.ceil(job.overrun_seconds / 60)} min
-                  </p>
-                )}
-                <p>
-                  {duration(job.estimate.seconds)} GPU ·{" "}
-                  {duration(job.estimate.low)}–{duration(job.estimate.high)}
-                  {!job.estimate.calibrated && (
-                    <span className="badge warning">uncalibrated</span>
-                  )}
-                </p>
-              </div>
-              <span>
-                Segment {job.segment}/{job.segments}
-                {job.phase === "finalizing" &&
-                  job.state !== "done" &&
-                  ` · ${job.step_percent.toFixed(0)}% of step`}
-              </span>
-              <button
-                disabled={["done", "cancelled"].includes(job.state)}
-                onClick={() =>
-                  action(
-                    job,
-                    job.state === "paused" || job.state === "failed"
-                      ? "resume"
-                      : "pause",
-                  )
-                }
-              >
-                {job.state === "paused" || job.state === "failed"
-                  ? "Resume"
-                  : "Pause"}
-              </button>
-            </div>
-            {job.error && (
-              <div className="error" role="alert">
-                <strong>
-                  {filename(job.input)} — segment {job.segment}
-                </strong>
-                <p>{job.error}</p>
-                <p>
-                  Review the details, correct the reported problem, then Resume.
-                </p>
-                <button onClick={() => action(job, "copy")}>
-                  Copy details
-                </button>
-              </div>
-            )}
-            {menu === job.id && (
-              <div className="row-menu">
-                {[
-                  "Move to top",
-                  "Move up",
-                  "Move down",
-                  "Pause",
-                  "Resume",
-                  "Cancel",
-                  "Remove",
-                  "Open output folder",
-                  "Show log",
-                  "Copy details",
-                  "Trial",
-                ].map((label) => (
-                  <button
-                    key={label}
-                    disabled={
-                      (["Pause", "Resume", "Cancel"].includes(label) &&
-                        ["done", "cancelled"].includes(job.state)) ||
-                      (label === "Remove" &&
-                        !["done", "cancelled", "failed"].includes(job.state)) ||
-                      (label === "Move up" && index === 0) ||
-                      (label === "Move down" && index === queue.jobs.length - 1)
-                    }
-                    onClick={() => {
-                      setMenu(undefined);
-                      if (label === "Trial") trial(job);
-                      else if (label.startsWith("Move"))
-                        action(job, "move", {
-                          position:
-                            label === "Move to top"
-                              ? 1
-                              : index + (label === "Move up" ? 0 : 2),
-                        });
-                      else
-                        action(
-                          job,
-                          (
-                            {
-                              "Open output folder": "folder",
-                              "Show log": "log",
-                              "Copy details": "copy",
-                            } as Record<string, string>
-                          )[label] || label.toLowerCase(),
-                        );
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </article>
-        ))}
-      </div>
-      <p className="summary">
-        {queue.completion
-          ? `All jobs ${queue.jobs.every((j) => ["done", "cancelled", "failed"].includes(j.state)) ? "finished" : "finish"} ${when(queue.completion)}`
-          : queue.jobs.length
-            ? "Paused or unscheduled jobs have no finish time."
-            : "Your videos stay on your computer."}
-      </p>
-    </section>
-  );
-}
+import type { Job, Model, Settings, Estimate, Media } from "./types";
 
 type Preview = {
   media: Media;
@@ -249,11 +32,13 @@ export function AddDialog({
     file: string,
     settings: Settings,
     media?: Media,
-    apply?: (key: "restore_model" | "interp_model", id: string) => void,
+    apply?: (key: "restore_model" | "interp_model" | "size_model" | "preset", id: string) => void,
   ): void;
 }) {
+  const [items, setItems] = useState(files);
   const [settings, setSettings] = useState({ ...defaults });
   const added = useRef(new Set<string>());
+  const [totals, setTotals] = useState<Record<string, Estimate>>({});
   const [previews, setPreviews] = useState<Record<string, Preview>>({});
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -262,31 +47,21 @@ export function AddDialog({
     let current = true;
     setLoading(true);
     setPreviews({});
-    let remaining = files.length;
-    const timer = setTimeout(
-      () =>
-        files.forEach(async (file) => {
-          try {
-            const preview = await api.call<Preview>("estimate", "POST", {
-              file,
-              settings,
-              output_folder: settings.output_folder,
-            });
-            if (current) setPreviews((old) => ({ ...old, [file]: preview }));
-          } catch (error) {
-            if (current) setError((error as Error).message);
-          } finally {
-            remaining--;
-            if (current && !remaining) setLoading(false);
-          }
-        }),
-      200,
-    );
+    const request = new AbortController();
+    const timer = setTimeout(async () => {
+      if (!items.length) { setLoading(false); return; }
+      try {
+        const result = await api.call<{ files: Record<string, Preview>; presets: Record<string, Estimate> }>("estimate", "POST", { files: items, settings, output_folder: settings.output_folder }, request.signal);
+        if (current) { setPreviews(result.files); setTotals(result.presets); setError(""); }
+      } catch (error) { if (current) setError((error as Error).message); }
+      finally { if (current) setLoading(false); }
+    }, 200);
     return () => {
       current = false;
+      request.abort();
       clearTimeout(timer);
     };
-  }, [api, files, settings]);
+  }, [api, items, settings]);
   const field = (key: keyof Settings, value: string | number) =>
     setSettings((old) => ({ ...old, [key]: value }));
   return (
@@ -306,7 +81,7 @@ export function AddDialog({
         }}
       >
         <h2 id="add-title">
-          Add {files.length === 1 ? "video" : `${files.length} videos`}
+          Add {items.length === 1 ? "video" : `${items.length} videos`}
         </h2>
         <div className="mode-cards">
           {["standard", "fast"].map((mode) => (
@@ -322,13 +97,13 @@ export function AddDialog({
                   : "Only makes motion smoother and resizes. No cleanup."}
               </p>
               <p>
-                {previews[files[0]]
-                  ? `${duration(previews[files[0]].presets[mode].seconds)} of work`
+                {totals[mode]
+                  ? `${duration(totals[mode].seconds)} of work`
                   : "Preparing…"}
               </p>
               <p className="mode-finish">
-                {previews[files[0]]
-                  ? `Done ${when(previews[files[0]].presets[mode].finish)}`
+                {totals[mode]
+                  ? `Done ${when(totals[mode].finish)}`
                   : ""}
               </p>
             </button>
@@ -342,10 +117,10 @@ export function AddDialog({
                 ? "Original size"
                 : `${settings.short_side}p`}{" "}
               ·{" "}
-              {previews[files[0]]
+              {previews[items[0]]
                 ? (() => {
                     const [n, d = "1"] =
-                      previews[files[0]].media.cfr_fps.split("/");
+                      previews[items[0]].media.cfr_fps.split("/");
                     return `${((Number(n) / Number(d)) * (settings.fps === "2x" ? 2 : 1)).toFixed(0)} fps`;
                   })()
                 : settings.fps === "2x"
@@ -484,18 +259,6 @@ export function AddDialog({
               </select>
             </label>
           )}
-          {settings.size_model === "realesr-general-x4v3" && (
-            <label>
-              Enlarger look
-              <select
-                value={settings.size_strength || 0.2}
-                onChange={(e) => field("size_strength", Number(e.target.value))}
-              >
-                <option value={0.2}>Faithful</option>
-                <option value={0.6}>Cleaner</option>
-              </select>
-            </label>
-          )}
           <label>
             Bigger picture
             <select
@@ -515,9 +278,10 @@ export function AddDialog({
         </details>
         <div className="estimate-list">
           {loading && <p role="status">Preparing…</p>}
-          {files.map((file) => (
+          {items.map((file) => (
             <div className="estimate-file" key={file}>
               <strong>{filename(file)}</strong>
+              <button disabled={busy} onClick={() => setItems(old => old.filter(item => item !== file))}>Remove it</button>
               {previews[file] && (
                 <>
                   <div className="preset-estimates">
@@ -541,9 +305,12 @@ export function AddDialog({
                     })}
                   </div>
                   {previews[file].warnings.map((w) => (
-                    <p className="warning-text" key={w}>
+                    <div className="warning-text" key={w}>
                       {w}
-                    </p>
+                      {w.includes("Insufficient") && <button onClick={async () => { const folder = (await window.desktop.files("folder"))[0]; if (folder) field("output_folder", folder); }}>Choose a folder…</button>}
+                      {w.includes("too small") && <button onClick={() => field("short_side", "keep")}>Use Keep</button>}
+                      {(w.includes("Smart App Control") || w.includes("HDR")) && <a href="https://github.com/Kei-Takamizawa/VideoEnhancer/blob/main/docs/TROUBLESHOOTING.md" target="_blank" rel="noreferrer">Read instructions</a>}
+                    </div>
                   ))}
                 </>
               )}
@@ -560,9 +327,9 @@ export function AddDialog({
             Close
           </button>
           <button
-            disabled={busy || !previews[files[0]]}
+            disabled={busy || !previews[items[0]]}
             onClick={() =>
-              trial(files[0], settings, previews[files[0]]?.media, field)
+              trial(items[0], settings, previews[items[0]]?.media, field)
             }
           >
             Try models first
@@ -571,8 +338,9 @@ export function AddDialog({
             className="primary add-submit"
             disabled={
               busy ||
+              !items.length ||
               !!error ||
-              files.some((f) =>
+              items.some((f) =>
                 previews[f]?.warnings.some(
                   (w) =>
                     w.includes("HDR") ||
@@ -585,7 +353,7 @@ export function AddDialog({
               setBusy(true);
               setError("");
               try {
-                for (const file of files) {
+                for (const file of items) {
                   if (added.current.has(file)) continue;
                   await api.call("queue", "POST", {
                     file,
@@ -615,5 +383,8 @@ export function AddDialog({
 }
 export async function localAction(job: Job, name: string) {
   if (name === "copy") await window.desktop.copy(JSON.stringify(job, null, 2));
-  if (name === "folder") await window.desktop.openFolder(folder(job.output));
+  if (name === "folder") {
+    if (job.output_state === "present") await window.desktop.reveal(job.output);
+    else await window.desktop.openFolder(folder(job.output));
+  }
 }
