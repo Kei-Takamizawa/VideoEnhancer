@@ -242,18 +242,27 @@ def whole_file_estimate(index: dict[str, Any], settings: dict[str, Any]) -> floa
     from videoenhancer.estimate import estimate_job
     from videoenhancer.jobs.store import load_machine_profile
 
+    registry = ModelRegistry()
+    identities = {}
+    for task, model_id in selected_models(settings, index["media"]).items():
+        try:
+            identities[task] = registry.snapshot(model_id, task, download=False)
+        except ValueError:
+            pass
     return estimate_job(
         {
             "media": index["media"],
             "settings": settings,
             "segments": [{"start": 0, "end": len(index["cfr_map"])}],
-            "machine_profile": load_machine_profile(get_home(), backend=settings["backend"]),
+            "machine_profile": load_machine_profile(
+                get_home(), backend=settings["backend"], models=identities
+            ),
         }
     ).seconds
 
 
 def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
-    started = time.perf_counter()
+    started = float(value.get("_gpu_admitted_at", time.perf_counter()))
     source, settings, index, first, last = compare_input(value)
     registry = ModelRegistry()
     rate = Fraction(index["media"]["cfr_fps"])
@@ -387,15 +396,66 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
         if reused_model is not None:
             stats = {"fps": reused_model["fps"]}
         else:
-            short = folder / f"{model_id}-first-look-raw.mp4"
-            process_segment(
-                job, dict(index=0, start=first, end=min(last, first + 15)), short, lambda: False
-            )
-            result["first_looks"].append(first_look(short, model_id))
-            short.unlink(missing_ok=True)
-            publish("First look", 100 * position / len(value["models"]))
             raw = folder / f"{model_id}-raw.mp4"
-            stats = process_segment(job, segment, raw, lambda: False, progress=progress)
+            published = False
+
+            def observe(
+                frame: torch.Tensor, index: int, model_id: str = model_id, position: int = position
+            ) -> None:
+                nonlocal published
+                if published or index != first * int(output_fps / rate) + look_frame:
+                    return
+                target = folder / f"{model_id}-first-look.png"
+                rgb = (
+                    frame.detach()
+                    .float()
+                    .clamp(0, 1)
+                    .mul(255)
+                    .round()
+                    .to(torch.uint8)
+                    .permute(1, 2, 0)
+                    .contiguous()
+                    .cpu()
+                    .numpy()
+                )
+                run(
+                    [
+                        executable("ffmpeg"),
+                        "-v",
+                        "error",
+                        "-nostdin",
+                        "-y",
+                        "-f",
+                        "rawvideo",
+                        "-pix_fmt",
+                        "rgb24",
+                        "-s:v",
+                        f"{rgb.shape[1]}x{rgb.shape[0]}",
+                        "-i",
+                        "pipe:0",
+                        "-frames:v",
+                        "1",
+                        str(target),
+                    ],
+                    input=rgb.tobytes(),
+                    capture_output=True,
+                    check=True,
+                    timeout=120,
+                )
+                result["first_looks"].append(
+                    dict(
+                        id=model_id,
+                        image=f"/v1/operations/{folder.name}/stills/{model_id}",
+                        seconds=time.perf_counter() - started,
+                        frame=first + min(7, last - first - 1),
+                    )
+                )
+                published = True
+                publish("First look", 100 * position / len(value["models"]))
+
+            stats = process_segment(
+                job, segment, raw, lambda: False, progress=progress, frame_observer=observe
+            )
             target = folder / f"{model_id}-preview.mp4"
             run(
                 [

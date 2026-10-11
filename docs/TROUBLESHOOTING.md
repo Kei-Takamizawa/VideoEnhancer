@@ -72,14 +72,28 @@ Trial rendering ignores your operating hours and waits only for the current
 segment. Long-file Trial startup still performs whole-file analysis pending a
 range-decoder design decision; the requested 30-second bound is unverified.
 
-## P1d development limitations
+## P1d-2 development checks
 
-If AV1 reports “Output too small for AV1”, choose HEVC or a larger size. The
-minimum is probed on your encoder rather than assumed from capability metadata.
-P1d timing estimates are uncalibrated; measured SCUNet and SPAN processing-time
-errors were +31.24% and -27.37%. Do not use these estimates as guarantees.
+For cleanup outputs under 256 pixels, choose Use 1080. For AV1 outputs under
+the detected minimum (130x66 on the tested RTX 4060 Ti), choose Use HEVC.
+Choose a folder for insufficient space, remove HDR inputs, and read the Smart
+App Control instructions if Windows blocks FFmpeg. A smaller chosen size is
+a nonblocking note; Use Keep preserves the source dimensions.
 
-History removal preserves videos. Cancelling a job with completed segments
-keeps a Cancelled history record but removes resumable intermediate work.
-There is no Recycle Bin deletion or automatic source deletion in this build.
-Use the report's unresolved-items list when reviewing the incomplete UI states.
+Estimates remain approximate. The first uncalibrated 30-second P1d-2 measurements
+missed the 15% gate for C1, SPAN and Fast. See `.ai/LAST_REPORT.md` for exact
+results and any calibrated reruns. No performance claim applies to other GPUs.
+
+History removal preserves videos. Delete video files is a separate action.
+Files on network/removable/FAT/exFAT drives, reparse points and files in use
+are kept. Close the player and retry. If recycling is not confirmed, the
+hard-link guard restores the original. Keep `deletions.jsonl` and any `.ve-guard-`
+file until recovery is resolved; do not remove guards manually.
+
+Automatic original deletion is off by default. `Original kept: reason` explains
+failed output checks or another unfinished job using the same original.
+Compare again requires the original; restore a recycled original with Windows
+Recycle Bin before comparing again.
+
+Persistent cancellation cleanup failures reappear in History with their reason.
+Clear history reports partial failure, preserving records it could not remove.

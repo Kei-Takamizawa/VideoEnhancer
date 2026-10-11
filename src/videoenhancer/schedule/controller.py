@@ -974,6 +974,9 @@ def run_queue(
                             manifest["state"] = "done"
                             manifest["result"] = str(result_path)
                             store.save(manifest)
+                            from videoenhancer.service.deletion import finish_original_deletions
+
+                            finish_original_deletions(store)
                             if not manifest["settings"].get("keep_segments"):
                                 for path in job_dir.glob("seg_*.mp4"):
                                     path.unlink(missing_ok=True)

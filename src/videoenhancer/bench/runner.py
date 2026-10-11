@@ -1172,6 +1172,11 @@ def run_bench(
         from videoenhancer.bench.calibration import calibrate_models
 
         report["profile"]["models"] = calibrate_models(backend=device)
+        from videoenhancer.bench.reference import calibrate_references
+
+        report["profile"]["reference_pipelines"] = calibrate_references(
+            target / "references", gpu["name"] or "", device
+        )
         from videoenhancer.bench.finalization import calibrate_finalization
 
         report["profile"]["finalization"] = calibrate_finalization(target)

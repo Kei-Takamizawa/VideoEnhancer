@@ -46,6 +46,7 @@ def process_segment(
     abort: Callable[[], bool],
     batch_size: int = 2,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    frame_observer: Callable[[torch.Tensor, int], None] | None = None,
     reference_measurement: bool = False,
 ) -> dict[str, Any]:
     from videoenhancer.models.registry import validate_job_models
@@ -676,6 +677,8 @@ def process_segment(
                 for frame in batch.frames:
                     if check():
                         raise InterruptedError("The segment was interrupted.")
+                    if frame_observer is not None:
+                        frame_observer(frame, start * factor + written)
                     encode_started = time.perf_counter()
                     encoder.write(frame)
                     encode_seconds += time.perf_counter() - encode_started

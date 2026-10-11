@@ -198,3 +198,23 @@ it("keeps DRUNet on one card and persists its three strength choices", async () 
     }),
   );
 });
+it.each([
+  ["Output too small for cleanup", "Use 1080", true],
+  ["Output too small for AV1", "Use HEVC", true],
+  ["Insufficient space", "Choose a folder…", true],
+  ["HDR is not supported", "Remove it", true],
+  ["Windows Smart App Control is blocking", "Read instructions", true],
+  ["The chosen size is smaller than the source", "Use Keep", false],
+])("warning %s offers %s and blocks=%s", async (warning, fix, blocked) => {
+  const estimate = { seconds: 100, low: 75, high: 125, calibrated: false };
+  const call = vi.fn(async () => ({ files: { "C:\\fixture.mp4": { media: { display_width: 720, display_height: 1280, duration: 30, frame_count: 900, cfr_fps: "30" }, presets: { standard: estimate, fast: estimate }, warnings: [warning], output: "C:\\output.mp4" } }, presets: { standard: estimate, fast: estimate } }));
+  render(<AddDialog api={{ call } as unknown as Api} files={["C:\\fixture.mp4"]} defaults={settings} models={[]} saved={vi.fn()} close={vi.fn()} trial={vi.fn()} />);
+  await screen.findByText(warning);
+  expect(screen.getAllByRole(fix === "Read instructions" ? "link" : "button", { name: fix }).length).toBeGreaterThan(0);
+  expect((screen.getByRole("button", { name: "Add to queue" }) as HTMLButtonElement).disabled).toBe(blocked);
+  if (fix === "Use 1080" || fix === "Use HEVC" || fix === "Use Keep") {
+    fireEvent.click(screen.getByRole("button", { name: fix }));
+    const update = fix === "Use 1080" ? { short_side: 1080 } : fix === "Use HEVC" ? { codec: "hevc" } : { short_side: "keep" };
+    await waitFor(() => expect(call).toHaveBeenCalledWith("estimate", "POST", expect.objectContaining({ settings: expect.objectContaining(update) }), expect.any(AbortSignal)));
+  }
+});

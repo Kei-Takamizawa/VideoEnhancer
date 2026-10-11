@@ -75,6 +75,7 @@ export function ScheduleView({
         .then((p) => {
           if (alive) {
             setPreview(p.plan);
+            requestAnimationFrame(() => requestAnimationFrame(() => { if (alive) performance.mark("schedule-preview-painted"); }));
             setError("");
           }
         })
@@ -234,7 +235,7 @@ export function ScheduleView({
               <strong>{new Date(`${day.date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}<small>{day.date.slice(5)}</small></strong>
               <div className="hours-track" aria-label={`${day.date} planned work`}>
                 {day.windows.map((window, i) => <div key={i} className="hours-block read-only" style={{ left: `${timelineHour(window.start, day.date, shown.timezone) / 24 * 100}%`, width: `${Math.max(0, timelineHour(window.end, day.date, shown.timezone) - timelineHour(window.start, day.date, shown.timezone)) / 24 * 100}%` }} />)}
-                {shown.timeline.filter(item => timelineHour(item.end, day.date, shown.timezone) > timelineHour(item.start, day.date, shown.timezone)).map((item, i) => <div key={i} className="planned-block" tabIndex={0} aria-label={`${filename(jobs.find(job => job.id === item.job_id)?.input || item.job_id)} done ${when(item.end)}`} style={{ left: `${timelineHour(item.start, day.date, shown.timezone) / 24 * 100}%`, width: `${Math.max(0, timelineHour(item.end, day.date, shown.timezone) - timelineHour(item.start, day.date, shown.timezone)) / 24 * 100}%` }}>
+                {shown.timeline.filter(item => timelineHour(item.end, day.date, shown.timezone) > timelineHour(item.start, day.date, shown.timezone)).map((item, i) => <div key={i} className="planned-block" onMouseEnter={event => { const bar = event.currentTarget.getBoundingClientRect(); const tip = event.currentTarget.querySelector<HTMLElement>(".timeline-tooltip")!; tip.style.left = `${Math.max(12, Math.min(innerWidth - 377, bar.left))}px`; tip.style.top = `${Math.max(12, Math.min(innerHeight - 100, bar.bottom + 8))}px`; }} onFocus={event => { const bar = event.currentTarget.getBoundingClientRect(); const tip = event.currentTarget.querySelector<HTMLElement>(".timeline-tooltip")!; tip.style.left = `${Math.max(12, Math.min(innerWidth - 377, bar.left))}px`; tip.style.top = `${Math.max(12, Math.min(innerHeight - 100, bar.bottom + 8))}px`; }} tabIndex={0} aria-label={`${filename(jobs.find(job => job.id === item.job_id)?.input || item.job_id)} done ${when(item.end)}`} style={{ left: `${timelineHour(item.start, day.date, shown.timezone) / 24 * 100}%`, width: `${Math.max(0, timelineHour(item.end, day.date, shown.timezone) - timelineHour(item.start, day.date, shown.timezone)) / 24 * 100}%` }}>
                   <span role="tooltip" className="timeline-tooltip">{filename(jobs.find(job => job.id === item.job_id)?.input || item.job_id)} · done {when(item.end)}{item.overrun_seconds ? ` · Finishing one step after your hours, about ${Math.ceil(item.overrun_seconds / 60)} min` : ""}</span>
                 </div>)}
               </div><span>{day.run_hours.toFixed(1)} h</span>

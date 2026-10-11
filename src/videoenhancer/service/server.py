@@ -248,8 +248,7 @@ class Handler(BaseHTTPRequestHandler):
         heartbeat = time.monotonic()
         while not self.server.engine.stop.is_set():
             try:
-                data = self.server.engine.event_snapshot()
-                raw = json.dumps(data, default=str, allow_nan=False)
+                raw = self.server.engine.event_message()
                 if raw != previous:
                     self.wfile.write(f"event: update\ndata: {raw}\n\n".encode())
                     previous = raw

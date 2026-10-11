@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration, filename, when } from "./api";
 import type { Health, Job, Plan, Queue } from "./types";
+import { HistoryDetail } from "./HistoryDetail";
 
 export function historyWhen(value?: string, now = new Date()) {
   if (!value) return "Not available";
@@ -150,6 +151,9 @@ export function JobMenu({
                 job.segment === 0 &&
                 job.state !== "running" && (
                   <>
+                    <button disabled={job.state === "preparing"} onClick={() => action(job, "remove-unstarted")}>
+                      Remove from queue
+                    </button>
                     <button
                       disabled={job.state === "preparing"}
                       title={
@@ -180,8 +184,8 @@ export function JobMenu({
             </>
           )}
           <button
-            disabled={job.original_state === "missing"}
-            title={job.original_state === "missing" ? "The original file is missing." : undefined}
+            disabled={job.original_state === "missing" || job.original_state === "recycled"}
+            title={job.original_state === "missing" || job.original_state === "recycled" ? "Compare again needs the original video." : undefined}
             onClick={() => {
               trial(job);
               setOpen(false);
@@ -374,7 +378,7 @@ export function HomePage({
                 {current.phase === "finalizing" && (
                   <p>
                     Finishing:{" "}
-                    {current.step === "validating" ? "checking" : current.step}
+                    {current.step === "validating" ? "checking the file" : current.step}
                   </p>
                 )}
                 <div className="finish-row">
@@ -397,6 +401,7 @@ export function HomePage({
                 )}
                 <div className="actions">
                   <button
+                    title="Pause this video. The next one starts instead."
                     onClick={() =>
                       action(
                         current,
@@ -485,10 +490,10 @@ export function HomePage({
                       </p>
                     </div>
                     <div>
-                      {job.state === "preparing" ? (
+                      {job.cancel_cleanup ? ("Cancelling…") : job.state === "preparing" ? (
                         "Preparing…"
                       ) : job.state === "paused" ? (
-                        "Paused"
+                        "Waits until you resume it"
                       ) : (
                         <>
                           Starts {when(job.starts)}
@@ -515,7 +520,7 @@ export function HomePage({
         <div className="home-sidebar">
           <article className="card">
             <div className="section-heading">
-              <h2>This week</h2>
+              <h2>Your hours this week</h2>
               <button onClick={() => navigate("Schedule")}>Edit hours</button>
             </div>
             {plan?.days.slice(0, 5).map((day) => (
@@ -568,6 +573,7 @@ export function HistoryPage({
     [filter, setFilter] = useState("All");
   const [selected, setSelected] = useState<string[]>([]);
   const [clear, setClear] = useState(false);
+  const [detail, setDetail] = useState<string>();
   const viewport = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState(0);
   const [columns, setColumns] = useState(3);
@@ -597,14 +603,18 @@ export function HistoryPage({
   const visibleIds = visible.map((j) => j.id).join(",");
   const groups = new Map<string, Job[]>();
   const now = new Date(), yesterday = new Date(now);
+  const monthYear = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" });
   yesterday.setDate(yesterday.getDate() - 1);
+  const todayLabel = now.toDateString(), yesterdayLabel = yesterday.toDateString();
   for (const job of visible) {
     const date = new Date(job.finished_at || job.eta || 0);
-    const label = date.toDateString() === now.toDateString() ? "Today"
-      : date.toDateString() === yesterday.toDateString() ? "Yesterday"
+    const label = date.toDateString() === todayLabel ? "Today"
+      : date.toDateString() === yesterdayLabel ? "Yesterday"
       : now.getTime() - date.getTime() < 7 * 86400000 ? "Last 7 days"
-      : `Earlier in ${date.toLocaleDateString("en-US", { month: "long", year: "numeric" })}`;
-    groups.set(label, [...(groups.get(label) || []), job]);
+      : `Earlier in ${monthYear.format(date)}`;
+    const group = groups.get(label);
+    if (group) group.push(job);
+    else groups.set(label, [job]);
   }
   const rows: { label?: string; jobs: Job[]; top: number; height: number }[] = [];
   let height = 0;
@@ -650,6 +660,7 @@ export function HistoryPage({
       </div>
       {!!selected.length && <div className="toolbar">
         <span>{selected.length} selected</span>
+        <button onClick={() => setSelected(visible.map(job => job.id))}>Select all</button>
         <button onClick={() => { action(terminal.find(job => job.id === selected[0])!, "remove", { ids: selected }); setSelected([]); }}>Remove from history</button>
         <button onClick={() => setSelected([])}>Done</button>
       </div>}
@@ -676,7 +687,7 @@ export function HistoryPage({
             >
               <label className="check history-select"><input type="checkbox" aria-label={`Select ${filename(job.input)}`} checked={selected.includes(job.id)} onChange={event => setSelected(old => event.target.checked ? [...old, job.id] : old.filter(id => id !== job.id))} /></label>
               <Thumbnail job={job} api={api} small />
-              <h2 title={filename(job.input)}>{filename(job.input)}</h2>
+              <h2 title={filename(job.input)}><button className="history-name" onClick={() => setDetail(job.id)}>{filename(job.input)}</button></h2>
               <p>{historyWhen(job.finished_at || job.eta)}</p>
               <p>
                 {job.settings.preset === "standard" ? "Standard" : "Fast"}
@@ -702,8 +713,11 @@ export function HistoryPage({
                     ? job.error?.startsWith("Needs attention:")
                       ? job.error
                       : `Needs attention: ${job.error || "processing could not finish"}`
-                    : "Cancelled"}
+                    : job.cancel_cleanup ? "Cancelling…" : "Cancelled"}
               </p>
+              {(job.output_state === "missing" || job.output_state === "recycled") && <p className="muted">Output: {job.output_state === "recycled" ? "Moved to the Recycle Bin" : "File not found"}</p>}
+              {(job.original_state === "missing" || job.original_state === "recycled") && <p className="muted">Original: {job.original_state === "recycled" ? "Moved to the Recycle Bin" : "File not found"}</p>}
+              {job.original_delete_result?.startsWith("Original kept:") && <p title={job.original_delete_result}>{job.original_delete_result}</p>}
               <div className="actions">
                 {job.state === "done" ? (
                   <>
@@ -730,6 +744,7 @@ export function HistoryPage({
         <h2>Clear history?</h2><p>Remove all finished, failed and cancelled records. Your video files stay as they are. This cannot be undone.</p>
         <div className="dialog-actions"><button onClick={() => setClear(false)}>Keep history</button><button className="danger" onClick={() => { action(terminal[0], "clear-history"); setClear(false); }}>Clear history</button></div>
       </div></div>}
+      {detail && queue.jobs.find(job => job.id === detail) && <HistoryDetail job={queue.jobs.find(job => job.id === detail)!} api={api} action={action} compare={trial} close={() => setDetail(undefined)} />}
       <p className="muted">
         Finished and failed jobs move here automatically. Removing an item from
         History never deletes the video file.

@@ -209,12 +209,28 @@ def load_machine_profile(
                         continue
                     if models is not None:
                         identities = {value["id"]: value for value in models.values()}
+                        from videoenhancer.models.registry import C1, RIFE, ModelRegistry
+
+                        registry = ModelRegistry(_home(home))
+                        for task, model_id in (("restore", C1), ("interpolate", RIFE)):
+                            try:
+                                identities[model_id] = registry.snapshot(
+                                    model_id, task, download=False
+                                )
+                            except (OSError, ValueError, KeyError):
+                                pass
                         profile["models"] = {
                             model_id: entry
                             for model_id, entry in entries.items()
                             if isinstance(entry, dict)
                             and entry.get("identity") == identities.get(model_id)
                             and model_id in identities
+                        }
+                        profile["reference_pipelines"] = {
+                            key: entry
+                            for key, entry in profile.get("reference_pipelines", {}).items()
+                            if entry.get("identity") == identities.get(key.split(":")[0])
+                            and key.split(":")[0] in identities
                         }
                 profile["profile_path"] = str(path.resolve())
                 return profile
@@ -228,6 +244,7 @@ class JobStore:
         self.home = _home(home)
         self.jobs_dir = self.home / "jobs"
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        self._manifest_cache: dict[str, tuple[Any, dict[str, Any], str]] = {}
 
     def job_dir(self, job_id: str) -> Path:
         if not job_id or Path(job_id).name != job_id or job_id in {".", ".."}:
@@ -337,13 +354,79 @@ class JobStore:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def list_jobs(self) -> list[dict[str, Any]]:
-        jobs = [
-            self.load(directory.name)
-            for directory in self.jobs_dir.iterdir()
-            if (directory / "manifest.json").is_file()
+    def _cached_jobs(
+        self, *, check_quarantine: bool = True
+    ) -> list[tuple[Any, dict[str, Any], str]]:
+        records = []
+        for directory in os.scandir(self.jobs_dir):
+            path = os.path.join(directory.path, "manifest.json")
+            try:
+                info = os.stat(path)
+                cached = self._manifest_cache.get(directory.name)
+                key = (
+                    info.st_mtime_ns,
+                    info.st_size,
+                    info.st_ino,
+                    os.path.exists(os.path.join(directory.path, "quarantine.json"))
+                    if check_quarantine or cached is None
+                    else cached[0][3],
+                )
+                if cached is None or cached[0] != key:
+                    job = self.load(directory.name)
+                    content = {
+                        k: v
+                        for k, v in job.items()
+                        if k not in {"progress", "updated_at", "timing"}
+                    }
+                    revision = hashlib.sha256(
+                        json.dumps(content, sort_keys=True).encode()
+                    ).hexdigest()
+                    cached = (key, job, revision)
+                    self._manifest_cache[directory.name] = cached
+                records.append(cached)
+            except FileNotFoundError:
+                self._manifest_cache.pop(directory.name, None)
+        return records
+
+    def event_state(self) -> tuple[list[tuple[str, str]], list[dict[str, Any]]]:
+        """Copy only immutable revisions and small health fields for idle SSE work."""
+        # The full queue refresh checks quarantine markers at least every five
+        # seconds; the idle heartbeat only needs changed manifest revisions.
+        records = self._cached_jobs(check_quarantine=False)
+        revisions = sorted((job["id"], revision) for _, job, revision in records)
+        health = [
+            dict(
+                id=job["id"],
+                state=job["state"],
+                error=job.get("error"),
+                progress=dict(phase=job.get("progress", {}).get("phase")),
+            )
+            for _, job, _ in records
         ]
-        return sorted(jobs, key=lambda job: (job.get("position", 10**9), job["created_at"]))
+        return revisions, health
+
+    def list_jobs(self, *, include_analysis: bool = True) -> list[dict[str, Any]]:
+        def metadata(job: dict[str, Any]) -> dict[str, Any]:
+            result = {
+                k: v
+                for k, v in job.items()
+                if k not in {"cfr_map", "source_pts", "keyframes", "motion_scores", "scene_cuts"}
+            }
+            # Queue/planner consumers need scalar segment timing, not per-frame
+            # quality diagnostics or sampled process-memory records.
+            result["segments"] = [
+                {
+                    **segment,
+                    "stats": {k: v for k, v in segment.get("stats", {}).items() if k == "fps"},
+                }
+                for segment in job["segments"]
+            ]
+            return result
+
+        jobs = [job if include_analysis else metadata(job) for _, job, _ in self._cached_jobs()]
+        # Manifests contain only JSON values. The C codec makes independent copies.
+        copied = json.loads(json.dumps(jobs))
+        return sorted(copied, key=lambda job: (job.get("position", 10**9), job["created_at"]))
 
     def move(self, job_id: str, position: int) -> None:
         jobs = self.list_jobs()
@@ -494,6 +577,8 @@ def add_job(
     }
     if settings:
         chosen.update(settings)
+    if not isinstance(chosen.get("delete_original_after", False), bool):
+        raise ValueError("delete_original_after must be a boolean")
     if chosen["short_side"] not in {"keep", 1080, 1440, 2160}:
         raise ValueError("short_side must be keep, 1080, 1440 or 2160")
     if chosen["fps"] not in {"off", "2x"}:

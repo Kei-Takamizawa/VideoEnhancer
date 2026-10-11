@@ -21,6 +21,7 @@ DEFAULTS: dict[str, Any] = {
     "theme": "system",
     "zoom": 100,
     "tray_explained": False,
+    "delete_original_after": False,
     "log_folder": "",
     "advanced": {},
     "seen_failures": [],
@@ -72,6 +73,8 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Start with Windows must be on or off.")
     if not isinstance(value["tray_explained"], bool):
         raise ValueError("Tray explanation must be on or off.")
+    if not isinstance(value["delete_original_after"], bool):
+        raise ValueError("Delete original after processing must be on or off.")
     if not isinstance(value["seen_failures"], list) or any(
         not isinstance(item, str) or len(item) > 80 for item in value["seen_failures"]
     ):

@@ -1,8 +1,8 @@
 # Desktop development app
 
-## P1d implementation status
+## P1d-2 implementation status
 
-This development build implements part of the supplied P1d design. The extracted
+This development build implements the supplied P1d design gaps. The extracted
 components in `design/p1d/components` are the visual source of truth. This build
 has not passed the full P1d acceptance checklist; see `.ai/LAST_REPORT.md`.
 
@@ -15,13 +15,18 @@ unstarted job; a job with completed segments stays in History as Cancelled.
 Cancellation discards intermediate work and preserves recorded source/output
 videos. History uses grouped virtual rows, file search, selection, removal and
 a ten-second Undo. Clear history requires confirmation. These actions remove
-history/work data; video deletion to the Recycle Bin is not implemented.
+history/work data. Video details offers a separate guarded Recycle Bin action.
+Settings > After processing and Add offer automatic original deletion, off by
+default, after output verification and completion of other dependent jobs.
 
 Add requests shared Standard/Fast finish estimates for all selected files.
-Estimates are not calibrated: the two measured P1d jobs missed the requested
-15% accuracy target. AV1 choices use the actual encoder's minimum dimensions.
+Estimates add whole-pipeline per-frame deltas for non-default models. Missing
+or different-GPU references show uncalibrated with a 25% range. Speed calibration
+measures verified installed alternatives. The P1d-2 acceptance report records
+remaining accuracy failures; estimated times are not guarantees. AV1 choices use the actual encoder's minimum dimensions.
 Models shows the qualified catalog, licence consent, download cancellation,
-details and defaults. Settings saves edits automatically.
+details and defaults. Active downloads show their reported progress and Cancel
+in place of Install. Settings saves edits automatically.
 
 Schedule uses numeric time fields, fifteen-minute arrow increments, quick fill,
 exceptions, autosave and eight-second Undo. Its timeline is read-only. Unsaved
@@ -30,9 +35,10 @@ previews request the expected scenario after a 400 ms debounce.
 Compare selects a range, renders automatically after an 800 ms debounce and
 allows installation followed by selection. Up to three models share the
 existing synchronized viewer. Early stills are labelled First look; completed
-preview files survive cancellation for reuse. The drawn range box, Fast mode
-switch panel, standalone-trial first look and several detail/dialog states
-remain incomplete.
+preview files survive cancellation for reuse. The range box supports click placement and Left/Right (Shift: five seconds).
+Swipe has a draggable handle and zoom uses segmented buttons. First look comes
+from the actual preview render before encoding, without a second model run.
+Standalone Trial still uses the existing completed-video preview path.
 
 For isolated packaging while another package is open, set `VE_GUI_PACKAGE_OUT`
 to a fresh output folder before `npm run package`. Automated Electron tests use

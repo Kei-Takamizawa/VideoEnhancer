@@ -29,8 +29,8 @@ export function ConnectionBanner({
 }) {
   return error ? (
     <div className="error connection" role="alert">
-      Engine unreachable: {error} <button onClick={retry}>Retry</button>
-      <p>Your last known data remains visible.</p>
+      <h2>Can’t reach the engine</h2><p>{error}</p> <button onClick={retry}>Retry</button>
+      <button onClick={() => window.desktop.copy(error)}>Copy details</button><p>Your last known data remains visible.</p>
     </div>
   ) : null;
 }
@@ -67,6 +67,7 @@ export default function App() {
   const [api, setApi] = useState<Api>();
   const [error, setError] = useState("");
   const [reconnecting, setReconnecting] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [actionError, setActionError] = useState("");
   const [zoomToast, setZoomToast] = useState<number>();
   useEffect(() => window.desktop.onZoom((zoom) => {
@@ -216,6 +217,7 @@ export default function App() {
               health: Health;
               plan: Plan;
             };
+            setLastUpdate(Date.now());
             setQueue(snapshot.queue);
             setHealth(snapshot.health);
             if (scenario === "expected") setPlan(snapshot.plan);
@@ -301,7 +303,7 @@ export default function App() {
     }
   };
   const action = (job: Job, name: string, data?: unknown) => {
-    if (name === "cancel") setConfirm({ job, name });
+    if (name === "cancel" || name === "remove-unstarted") setConfirm({ job, name });
     else void perform(job, name, data);
   };
   const add = async (paths?: string[]) => {
@@ -342,7 +344,7 @@ export default function App() {
       {!!dropCount && (
         <div className="drop-overlay">Drop to add {dropCount} {dropCount === 1 ? "video" : "videos"}</div>
       )}
-      <div className="title-bar"><span className="title-icon">VE</span>VideoEnhancer</div>
+      <div className="title-bar"><span className="title-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 6 6 6-6 6m7-12 6 6-6 6" fill="none" stroke="currentColor" strokeWidth="3" /></svg></span>VideoEnhancer</div>
       {historyUndo && <div className="zoom-toast" role="status">
         Removed from history
         <button onClick={async () => {
@@ -355,6 +357,8 @@ export default function App() {
       {zoomToast !== undefined && <div className="zoom-toast" role="status">
         <strong>{zoomToast}%</strong><span>Ctrl+0 resets to 100%</span>
       </div>}
+      {error && <div className="connection-overlay"><ConnectionBanner error={error} retry={retry} /></div>}
+      <fieldset className="engine-actions" disabled={reconnecting}>
       <aside>
         <div className="brand" aria-label="VideoEnhancer">
           VE
@@ -390,8 +394,7 @@ export default function App() {
         </button>
       </aside>
       <main>
-        {reconnecting && <div role="status">Reconnecting…</div>}
-        <ConnectionBanner error={error} retry={retry} />
+        {reconnecting && <div className="connection card" role="status">Reconnecting… <span>Last update {new Date(lastUpdate).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })}</span></div>}
         <ControlWarning health={health} retry={retry} />
         {health?.last_error && (
           <div className="error" role="alert">
@@ -466,6 +469,7 @@ export default function App() {
         )}
         {page === "Models" && api && (
           <ModelsPage
+            health={health}
             compare={async () => {
               const chosen = await window.desktop.files("videos");
               if (chosen[0] && settings)
@@ -491,7 +495,7 @@ export default function App() {
             operation={calibration}
           />
         )}
-        {!api && !error && <p role="status">Connecting to the engine…</p>}
+        {(!api || !settings || !health) && !error && <div className="connection card" role="status"><h2>Connecting to the engine…</h2><p>Getting your videos and settings ready.</p></div>}
       </main>
       {files && api && settings && (
         <AddDialog
@@ -521,6 +525,12 @@ export default function App() {
                   !["queued", "paused"].includes(j.state)),
             )
           }
+          switchStandard={async () => {
+            if (trial.apply) trial.apply("preset", "standard");
+            else if (trial.job_id) await api.call(`queue/${trial.job_id}/mode`, "POST", { preset: "standard" });
+            setTrial(old => old ? { ...old, settings: { ...old.settings, preset: "standard" } } : old);
+            await refresh();
+          }}
           useModel={async (key, id) => {
             if (trial.apply) trial.apply(key, id);
             else if (trial.job_id)
@@ -581,26 +591,26 @@ export default function App() {
         <div className="modal-shade">
           <div role="dialog" aria-modal="true" className="dialog">
             <h2>
-              {confirm.name === "remove" || (confirm.job.completed_segments ?? confirm.job.segment) === 0 ? "Remove" : "Cancel"}{" "}
-              {filename(confirm.job.input)}{confirm.name === "cancel" && (confirm.job.completed_segments ?? confirm.job.segment) === 0 ? " from the queue" : ""}?
+              {confirm.name === "remove-unstarted" ? "Remove" : "Cancel"}{" "}
+              {filename(confirm.job.input)}{confirm.name === "remove-unstarted" ? " from the queue" : ""}?
             </h2>
             <p>
-              {confirm.name === "remove"
-                ? "Remove this job and its trial previews. The finished output is kept."
+              {confirm.name === "remove-unstarted"
+                ? "It hasn't started, so no work is lost. No files are changed."
                 : (confirm.job.completed_segments ?? confirm.job.segment) === 0
                   ? "Remove this video from the queue. The original stays as it is."
                   : "The work so far will be lost. This video cannot be resumed. The original stays as it is."}
             </p>
             <div className="dialog-actions">
-              <button onClick={() => setConfirm(undefined)}>Keep job</button>
+              <button onClick={() => setConfirm(undefined)}>{confirm.name === "remove-unstarted" ? "Keep it" : "Keep working"}</button>
               <button
                 className="danger"
                 onClick={() => {
-                  void perform(confirm.job, confirm.name);
+                  void perform(confirm.job, confirm.name === "remove-unstarted" ? "cancel" : confirm.name);
                   setConfirm(undefined);
                 }}
               >
-                {confirm.name === "remove" ? "Remove job" : "Cancel job"}
+                {confirm.name === "remove-unstarted" ? "Remove from queue" : "Cancel video"}
               </button>
             </div>
           </div>
@@ -618,6 +628,7 @@ export default function App() {
           </div>
         </div>
       )}
+      </fieldset>
     </div>
   );
 }

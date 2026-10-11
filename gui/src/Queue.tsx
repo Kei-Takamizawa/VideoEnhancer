@@ -62,7 +62,7 @@ export function AddDialog({
       clearTimeout(timer);
     };
   }, [api, items, settings]);
-  const field = (key: keyof Settings, value: string | number) =>
+  const field = (key: keyof Settings, value: string | number | boolean) =>
     setSettings((old) => ({ ...old, [key]: value }));
   return (
     <div className="modal-shade">
@@ -176,7 +176,7 @@ export function AddDialog({
               </select>
             </label>
             <label>
-              Codec
+              File format
               <select
                 value={settings.codec}
                 onChange={(e) => field("codec", e.target.value)}
@@ -263,6 +263,7 @@ export function AddDialog({
             Bigger picture
             <select
               value={settings.size_model || ""}
+              disabled={!models.some(model => model.task === "size" && model.weights_verified)}
               onChange={(e) => field("size_model", e.target.value)}
             >
               <option value="">Standard resize</option>
@@ -276,6 +277,8 @@ export function AddDialog({
             </select>
           </label>
         </details>
+        <label className="check"><input type="checkbox" checked={!!settings.delete_original_after} onChange={event => field("delete_original_after", event.target.checked)} />Delete the original when it is done</label>
+        {!models.some(model => model.task === "size" && model.weights_verified) && <p className="muted">More choices come later.</p>}
         <div className="estimate-list">
           {loading && <p role="status">Preparing…</p>}
           {items.map((file) => (
@@ -308,8 +311,11 @@ export function AddDialog({
                     <div className="warning-text" key={w}>
                       {w}
                       {w.includes("Insufficient") && <button onClick={async () => { const folder = (await window.desktop.files("folder"))[0]; if (folder) field("output_folder", folder); }}>Choose a folder…</button>}
-                      {w.includes("too small") && <button onClick={() => field("short_side", "keep")}>Use Keep</button>}
-                      {(w.includes("Smart App Control") || w.includes("HDR")) && <a href="https://github.com/Kei-Takamizawa/VideoEnhancer/blob/main/docs/TROUBLESHOOTING.md" target="_blank" rel="noreferrer">Read instructions</a>}
+                      {w.includes("too small for cleanup") && <button onClick={() => field("short_side", 1080)}>Use 1080</button>}
+                      {w.includes("too small for AV1") && <button onClick={() => field("codec", "hevc")}>Use HEVC</button>}
+                      {w.includes("smaller than the source") && <button onClick={() => field("short_side", "keep")}>Use Keep</button>}
+                      {w.includes("HDR") && <button onClick={() => setItems(old => old.filter(item => item !== file))}>Remove it</button>}
+                      {w.includes("Smart App Control") && <a href="https://github.com/Kei-Takamizawa/VideoEnhancer/blob/main/docs/TROUBLESHOOTING.md" target="_blank" rel="noreferrer">Read instructions</a>}
                     </div>
                   ))}
                 </>
@@ -344,6 +350,7 @@ export function AddDialog({
                 previews[f]?.warnings.some(
                   (w) =>
                     w.includes("HDR") ||
+                    w.includes("Smart App Control") ||
                     w.includes("Insufficient") ||
                     w.includes("Output too small"),
                 ),

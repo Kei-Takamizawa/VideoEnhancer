@@ -166,7 +166,8 @@ export function Compare({
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [split, setSplit] = useState(50);
-  const [side, setSide] = useState(!!operation.result?.items);
+  const [side, setSide] = useState(true);
+  const [resultOnly, setResultOnly] = useState(false);
   const [loop, setLoop] = useState(true);
   const [left, setLeft] = useState(0),
     [right, setRight] = useState(1);
@@ -188,8 +189,8 @@ export function Compare({
         ...operation.result.items.map((item) => item.name || item.id),
       ]
     : ["Original", "Enhanced"];
-  const drawing = useRef({ split, side, left, right, loop, labels });
-  drawing.current = { split, side, left, right, loop, labels };
+  const drawing = useRef({ split, side, left, right, loop, labels, resultOnly });
+  drawing.current = { split, side, left, right, loop, labels, resultOnly };
   const pathKey = paths.join("|");
   useEffect(() => {
     let alive = true;
@@ -251,17 +252,18 @@ export function Compare({
             const width = a.displayWidth,
               height = a.displayHeight;
             const mode = drawing.current;
-            const columns = mode.side
+            const columns = mode.side && !mode.resultOnly
               ? width > height
                 ? Math.min(2, pair.length)
                 : pair.length
               : 1;
             element.width = width * columns;
             element.height =
-              height * (mode.side ? Math.ceil(pair.length / columns) : 1);
+              height * (mode.side && !mode.resultOnly ? Math.ceil(pair.length / columns) : 1);
             const ctx = element.getContext("2d")!;
             ctx.drawImage(a, 0, 0, width, height);
-            if (mode.side)
+            if (mode.resultOnly) ctx.drawImage(b, 0, 0, width, height);
+            else if (mode.side)
               pair.forEach((picture, i) =>
                 ctx.drawImage(
                   picture!,
@@ -279,7 +281,7 @@ export function Compare({
               ctx.drawImage(b, 0, 0, width, height);
               ctx.restore();
             }
-            if (mode.side) {
+            if (mode.side && !mode.resultOnly) {
               ctx.font = "24px Segoe UI";
               pair.forEach((_, i) => {
                 const x = (i % columns) * width,
@@ -376,8 +378,9 @@ export function Compare({
             imageRendering: zoom > 100 ? "pixelated" : "auto",
           }}
         />
+        {!side && !resultOnly && <button className="swipe-handle" role="slider" aria-label="Swipe handle" aria-valuemin={0} aria-valuemax={100} aria-valuenow={split} style={{ left: `${split}%` }} onPointerDown={event => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (event.buttons !== 1) return; event.stopPropagation(); const box = event.currentTarget.parentElement!.getBoundingClientRect(); setSplit(Math.max(0, Math.min(100, (event.clientX - box.left) / box.width * 100))); }} onKeyDown={event => { if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); setSplit(old => Math.max(0, Math.min(100, old + (event.key === "ArrowRight" ? 1 : -1)))); } }}>↔</button>}
       </div>
-      {!side && (
+      {!side && !resultOnly && (
         <label>
           Comparison split
           <input
@@ -439,6 +442,7 @@ export function Compare({
           />
           Side by side
         </label>
+        {!operation.result?.items && <label className="check"><input type="checkbox" checked={resultOnly} onChange={event => setResultOnly(event.target.checked)} />Result only</label>}
         <label className="check">
           <input
             type="checkbox"
@@ -471,22 +475,7 @@ export function Compare({
             ))}
           </>
         )}
-        <label>
-          Zoom
-          <select
-            value={zoom}
-            onChange={(e) => {
-              setZoom(Number(e.target.value));
-              setPan({ x: 0, y: 0 });
-            }}
-          >
-            {[100, 200, 300, 400].map((n) => (
-              <option key={n} value={n}>
-                {n}%
-              </option>
-            ))}
-          </select>
-        </label>
+        <div role="group" aria-label="Zoom" className="zoom-segments">{[100,200,300,400].map(level => <button key={level} aria-pressed={zoom === level} onClick={() => { setZoom(level); setPan({ x: 0, y: 0 }); }}>{level}%</button>)}</div>
       </div>
       <p className="muted">
         Arrow keys step one frame. Drag the zoomed picture to pan.
@@ -519,6 +508,7 @@ export function TrialDialog({
   models = [],
   useModel,
   started = false,
+  switchStandard,
 }: {
   api: Api;
   value: { file: string; settings: Settings; media?: Media; job_id?: string };
@@ -530,6 +520,7 @@ export function TrialDialog({
     id: string,
   ): Promise<void> | void;
   started?: boolean;
+  switchStandard?(): Promise<void> | void;
 }) {
   const previous = operations.findLast(
     (o) =>
@@ -631,7 +622,9 @@ export function TrialDialog({
             Back
           </button>
         </div>
-        <div className="thumbnails">
+        {value.settings.preset === "fast" && <div className="card fast-panel"><h3>Fast does not clean up.</h3><button disabled={started || !switchStandard} onClick={async () => { try { await switchStandard?.(); setCategory("cleanup"); setSelected(["basicvsrpp-ntire21-decompress"]); } catch (error) { setError((error as Error).message); } }}>Switch to Standard</button><button onClick={() => { setCategory("motion"); setSelected([value.settings.interp_model || "rife-4.25"]); }}>Compare smoother motion instead</button></div>}
+        <div className="thumbnails range-track" onKeyDown={event => { if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); setStart(old => Math.max(0, Math.min(total-length, old + (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 5 : 1)))); } }} tabIndex={0} aria-label="Preview range">
+          <span className="range-box" aria-hidden="true" style={{ left: `${total ? start / total * 100 : 0}%`, width: `${total ? Math.min(length, total) / total * 100 : 100}%` }} />
           {thumbnails.map((src, i) => (
             <img
               src={src}
@@ -731,11 +724,9 @@ export function TrialDialog({
               ))}
             </select>
           </label>
-          <button
+          {operation?.state === "failed" && <button
             className="primary"
             disabled={
-              operation?.state === "waiting" ||
-              operation?.state === "running" ||
               !total ||
               !selected.length ||
               selected.some(
@@ -758,8 +749,8 @@ export function TrialDialog({
               }
             }}
           >
-            {operation?.state === "failed" ? "Try again" : "Compare selected models"}
-          </button>
+            Try again
+          </button>}
         </div>
         <p className="muted">
           A busy engine starts this after its current step, including outside
@@ -785,7 +776,8 @@ export function TrialDialog({
             return (
               <article className="card" key={id}>
                 <h3>{model?.catalog?.title || model?.display_name || id}</h3>
-                <p>{model?.catalog?.description}</p>
+                <p>{model?.catalog?.description || model?.catalog?.summary}</p>
+                <p role="status">{item ? "Ready" : operation?.state === "waiting" ? operation.phase : operation?.state === "failed" ? "Problem" : operation?.state === "running" ? `Making preview ${Math.round(operation.percent || 0)}%` : "Waiting"}</p>
                 <p>
                   {item
                     ? `About ${Math.floor(item.projected_whole_file_seconds / 3600)} h ${Math.round((item.projected_whole_file_seconds % 3600) / 60)} m for this video · ${item.fps.toFixed(2)} fps`

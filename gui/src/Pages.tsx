@@ -69,6 +69,7 @@ export function ModelsPage({
   operations,
   settings,
   compare,
+  health,
 }: {
   api: Api;
   models: Model[];
@@ -77,6 +78,7 @@ export function ModelsPage({
   operations: Operation[];
   settings?: Settings;
   compare?(): void;
+  health?: Health;
 }) {
   const [consent, setConsent] = useState<Model>();
   const [accepted, setAccepted] = useState(false);
@@ -227,6 +229,7 @@ export function ModelsPage({
                   "model_id" in o.request &&
                   o.request.model_id === m.id,
               );
+            const downloading = operation?.kind === "download" && ["running", "waiting"].includes(operation.state);
             return (
               <article className="card model-card" key={m.id}>
                 <div className="model-title">
@@ -298,7 +301,14 @@ export function ModelsPage({
                     ? "SHA-256 verified"
                     : "Weights not verified"}
                 </p>
-                {m.weights_verified ? (
+                {downloading ? (
+                  <div className="download-progress">
+                    <span>{operation.percent === undefined ? "Downloading…" : `Downloading ${Math.floor(operation.percent)}%`}</span>
+                    <span className="muted">{operation.phase}</span>
+                    <progress aria-label={`Downloading ${c?.title || m.display_name}`} max={100} value={operation.percent} />
+                    <button onClick={() => operate(`operations/${operation.id}/cancel`)}>Cancel</button>
+                  </div>
+                ) : m.weights_verified ? (
                   <button disabled>Installed</button>
                 ) : m.builtin ? (
                   <button className="primary" onClick={() => setConsent(m)}>
@@ -309,7 +319,7 @@ export function ModelsPage({
                     Verify again
                   </button>
                 )}
-                {operation && <OperationStatus operation={operation} cancel={operation.state === "running" || operation.state === "waiting" ? () => operate(`operations/${operation.id}/cancel`) : undefined} />}
+                {operation && !downloading && <OperationStatus operation={operation} cancel={operation.state === "running" || operation.state === "waiting" ? () => operate(`operations/${operation.id}/cancel`) : undefined} />}
                 {menu === m.id && (
                   <div className="model-menu" role="menu">
                     <button
@@ -349,6 +359,7 @@ export function ModelsPage({
                       role="menuitem"
                       onClick={() => {
                         setRemoval(m);
+                        setError("");
                         setMenu(undefined);
                       }}
                     >
@@ -373,7 +384,7 @@ export function ModelsPage({
             <p>Licence: {details.licence}</p>
             <p>{details.catalog?.licence_plain}</p>
             <p className="break">
-              Source: {details.weights.url || "Added from a local folder"}
+              Source: {details.weights.url ? new URL(details.weights.url).hostname : "Added from a local folder"}
             </p>
             <p>SHA-256: {details.weights.sha256.slice(0, 12)}… <button onClick={() => window.desktop.copy(details.weights.sha256)}>Copy</button></p>
             <p>
@@ -381,6 +392,8 @@ export function ModelsPage({
                 ? `${details.catalog.reference_speed.fps.toFixed(2)} fps · sampled process peak ${details.catalog.reference_speed.peak_memory_gb.toFixed(2)} GB · ${details.catalog.reference_speed.gpu} · ${details.catalog.reference_speed.mode || "standard"} · tile ${details.catalog.reference_speed.tile_size || "none"}, overlap ${details.catalog.reference_speed.tile_overlap || 0}`
                 : "Speed and peak memory have not been measured for this catalog entry."}
             </p>
+            <p>Peak GPU memory {details.catalog?.reference_speed?.peak_memory_gb.toFixed(2) || "not measured"} GB of {health?.vram_bytes ? (health.vram_bytes / 1e9).toFixed(1) : "unknown"} GB</p>
+            {[settings?.restore_model || "basicvsrpp-ntire21-decompress", settings?.interp_model || "rife-4.25", settings?.size_model].includes(details.id) && <p>Default for Standard</p>}
             <p>
               Invents detail:{" "}
               {details.catalog?.invents_detail || "Not specified"} · Flicker:{" "}
@@ -435,7 +448,8 @@ export function ModelsPage({
       {removal && (
         <div className="modal-shade">
           <div className="dialog" role="dialog" aria-modal="true">
-            <h2>Remove {removal.display_name}?</h2>
+            <h2>{error ? "This model is needed" : `Remove ${removal.catalog?.title || removal.display_name}?`}</h2>
+            {error && <p role="alert">{error}</p>}
             <p>
               This removes the model weights from this computer. Videos already
               finished remain unchanged. Models used in the queue cannot be
@@ -452,7 +466,6 @@ export function ModelsPage({
                     refresh();
                   } catch (e) {
                     setError((e as Error).message);
-                    setRemoval(undefined);
                   }
                 }}
               >
@@ -530,6 +543,7 @@ export function SettingsPage({
             </div>
             {health?.av1_supported === false && <p className="muted">{health.av1_unavailable_reason || "AV1 hardware encoding is unavailable."}</p>}
           </article>
+          <article className="card"><h2>After processing</h2><label className="check"><input type="checkbox" checked={!!draft.delete_original_after} onChange={event => change("delete_original_after", event.target.checked)} />Delete the original after a verified output</label><p className="muted">Off by default. Files are moved to the Recycle Bin only after the output passes all checks.</p></article>
           <article className="card"><details><summary>Advanced</summary><p className="muted">Apply to new videos. Keep defaults unless you need a specific adjustment.</p><div className="form-grid">{[["clip_length","Clip length",15],["clip_overlap","Clip overlap",2],["interpolation_safety_threshold","Interpolation safety threshold",0.2]].map(([key,label,fallback]) => <label key={key}>{label}<input type="number" step={key === "interpolation_safety_threshold" ? "0.01" : "1"} value={draft.advanced[key] ?? fallback} onChange={event => { dirty.current = true; setDraft(old => ({ ...old, advanced: { ...old.advanced, [key]: Number(event.target.value) } })); }} /></label>)}</div></details></article>
         </div>
         <div>
@@ -537,7 +551,7 @@ export function SettingsPage({
             <h2>App</h2><div className="form-grid">
               <label>Theme<select value={draft.theme} onChange={event => change("theme", event.target.value)}><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
               <label>Zoom<select value={draft.zoom || 100} onChange={event => { const zoom = Number(event.target.value); change("zoom", zoom); void window.desktop.zoom(zoom).catch(error => setError(error.message)); }}>{[80,90,100,110,125,150].map(zoom => <option key={zoom} value={zoom}>{zoom}%</option>)}</select></label>
-            </div><p className="muted">Above 100%, inner areas may scroll.</p>
+            </div><p className="muted">Above 100%, small windows can scroll.</p>
             <label className="check"><input type="checkbox" checked={draft.start_with_windows} onChange={event => change("start_with_windows", event.target.checked)} />Start with Windows (hidden in tray)</label>
           </article>
           <article className="card"><h2>Diagnostics</h2><label>Log folder<div className="input-button"><input value={draft.log_folder} placeholder={health?.home || "Engine home"} onChange={event => change("log_folder", event.target.value)} /><button onClick={() => window.desktop.openFolder(draft.log_folder || health?.home || "").catch(error => setError(error.message))}>Open</button></div></label><div className="toolbar"><button onClick={calibrate} disabled={operation?.state === "running" || operation?.state === "waiting"}>Run speed calibration</button><button onClick={() => window.desktop.copy(JSON.stringify({ health, settings: draft }, null, 2)).then(() => setMessage("Diagnostics copied."))}>Copy diagnostics</button></div>{operation && <OperationStatus operation={operation} />}</article>

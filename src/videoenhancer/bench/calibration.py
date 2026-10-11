@@ -27,6 +27,8 @@ def calibrate_models(
     registry = registry or ModelRegistry()
     results: dict[str, Any] = {}
     for installed in registry.list_models():
+        if not installed["weights_verified"]:
+            continue
         model_id, task = installed["id"], installed["task"]
         entry: dict[str, Any] = {"task": task, "backend": backend, "status": "failed"}
         results[model_id] = entry

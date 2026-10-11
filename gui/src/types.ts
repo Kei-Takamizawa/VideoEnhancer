@@ -8,6 +8,7 @@ export type Settings = {
   theme: string;
   zoom?: number;
   tray_explained?: boolean;
+  delete_original_after?: boolean;
   log_folder: string;
   advanced: Record<string, number>;
   backend?: string;
@@ -64,6 +65,9 @@ export type Job = {
   output_state?: "present" | "missing" | "recycled";
   starts?: string;
   preview_ready?: boolean;
+  original_delete_result?: string;
+  video_deletions?: Record<string, string>;
+  cancel_cleanup?: boolean;
 };
 export type Operation = {
   id: string;

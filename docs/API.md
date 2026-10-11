@@ -248,4 +248,37 @@ than every two seconds, plus a terminal sample. Segment waiting is separate.
 - Event snapshots reuse structural plans. Schedule preview returns expected
   planning only by default; `include_range: true` requests bound scenarios.
 
-Recycle Bin operations and automatic original deletion are not available.
+Guarded Recycle Bin operations and automatic original deletion are described below.
+
+
+## P1d-2 guarded deletion and timing
+
+`POST history/delete-files` takes `{ids: [job_id], output: true, original: false}`
+and returns `results`, one `{job_id, file, path, result}` per selected file.
+Results include `Moved to the Recycle Bin`, `File not found`, and `Kept: reason`.
+Only recorded regular files on fixed NTFS/ReFS drives are eligible. A same-folder
+hidden hard link and fsynced `deletions.jsonl` protect against permanent shell
+deletions and interrupted operations. Recovery runs on service startup.
+
+`delete_original_after` is a boolean in settings and individual jobs, default
+false. Automatic deletion verifies decoding, frame count, duration within one
+frame, and expected audio. Shared originals wait until no unfinished job uses
+them. Queue rows expose `original_delete_result`, `video_deletions`,
+`original_state`, `output_state`, and `cancel_cleanup`.
+
+Model-specific estimates add `frames * (1/fps_ref(model) - 1/fps_ref(default))`
+for each non-default category, using the same GPU and reference pipeline.
+Calibration stores `reference_pipelines` per GPU/driver with verified identities.
+Compare, Add, queue admission and planner use the shared estimator.
+`GET operations/{id}/stills/{model_id}` requires authentication and a published
+First look entry; it returns PNG bytes. Stills use the actual render tensor.
+
+History clear errors identify records that were not removed. Hidden cancellation
+cleanup failures become visible failed records. SSE uses manifest modification
+time caching and locked copies for its key; AV1 probes are cached by GPU/driver.
+
+Queue snapshots retain segment timing and fps while excluding per-frame quality
+and memory-sampling arrays from their internal projection. Full job details
+and persisted manifests retain those diagnostics. History-row cache invalidation
+uses file identity, modification time and size; read access alone does not
+change the displayed file state.

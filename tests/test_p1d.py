@@ -250,28 +250,20 @@ def test_pausing_one_video_admits_next_video(tmp_path, monkeypatch):
     engine.close()
 
 
-def test_reference_ratio_scales_selected_model_and_exact_calibration_wins():
-    from videoenhancer.estimate.model import _model_coefficient
+def test_reference_delta_scales_whole_pipeline_and_rejects_other_gpu():
+    from videoenhancer.estimate.model import model_delta
     from videoenhancer.models.registry import C1
 
-    default = {"backend": "cuda", "restore_model": C1}
-    scunet = {**default, "restore_model": "scunet-real-psnr"}
-    baseline = _model_coefficient("restore", default, None)
-    assert _model_coefficient("restore", scunet, None) / baseline == pytest.approx(
-        2.4727076215054278 / 0.5874732990888704
-    )
-    profile = {
-        "models": {
-            "scunet-real-psnr": dict(
-                task="restore",
-                status="measured",
-                backend="cuda",
-                seconds_per_pixel_frame=7e-7,
-            )
-        }
-    }
-    assert _model_coefficient("restore", scunet, profile) == 7e-7
-    assert _model_coefficient("restore", {**scunet, "backend": "cpu"}, None) == baseline
+    profile = {"gpu_name": "NVIDIA GeForce RTX 4060 Ti"}
+    default = {"backend": "cuda", "preset": "standard"}
+    assert model_delta(default, profile) == (0, True)
+    delta, usable = model_delta({**default, "restore_model": "scunet-real-psnr"}, profile)
+    assert usable
+    assert delta == pytest.approx(1 / 0.5874732990888704 - 1 / 2.4727076215054278)
+    assert model_delta({**default, "restore_model": C1}, profile) == (0, True)
+    assert model_delta(
+        {**default, "size_model": "span-liveaction-2x"}, {"gpu_name": "Other GPU"}
+    ) == (0, False)
 
 
 def test_cancelled_compare_keeps_completed_model_for_immediate_reuse(
@@ -320,7 +312,7 @@ def test_cancelled_compare_keeps_completed_model_for_immediate_reuse(
     assert resumed["state"] == "done"
     assert resumed["result"]["items"][0]["reused"]
     assert resumed["result"]["original_reused"]
-    assert rendered == [model["id"], model["id"], second["id"]]
+    assert rendered == [model["id"], second["id"]]
     assert not engine.processes
     engine.close()
 

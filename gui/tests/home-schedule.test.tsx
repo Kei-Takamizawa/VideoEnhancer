@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { HomePage, HistoryPage, historyWhen } from "../src/Home";
+import { HistoryDetail } from "../src/HistoryDetail";
 import { ScheduleView } from "../src/ScheduleView";
 import type { Api } from "../src/api";
 import type { Job, Plan, Queue, Schedule } from "../src/types";
@@ -400,4 +401,31 @@ describe("Schedule week", () => {
       }),
     );
   });
+});
+
+it("keeps the original unselected and reports each guarded deletion result", async () => {
+  const call = vi.fn(async () => ({ results: [{ file: "output", result: "Kept: file is open" }] }));
+  render(<HistoryDetail job={{ ...failed, original_state: "recycled", output_state: "missing" }} api={{ call } as unknown as Api} close={vi.fn()} action={vi.fn()} compare={vi.fn()} />);
+  expect((screen.getByRole("button", { name: "Compare again" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText("Moved to the Recycle Bin")).toBeTruthy();
+  expect(screen.getByText("File not found")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Delete video files…" }));
+  expect((screen.getByRole("checkbox", { name: "Original video" }) as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Move to Recycle Bin" }));
+  await waitFor(() => expect(screen.getByText("Output: Kept: file is open")).toBeTruthy());
+  expect(call).toHaveBeenCalledWith("history/delete-files", "POST", { ids: [failed.id], output: true, original: false });
+});
+it("saves an overnight row without changing its end date semantics", async () => {
+  const call = vi.fn(async () => ({ plan }));
+  render(<ScheduleView api={{ call } as unknown as Api} value={schedule} plan={plan} jobs={[]} applied={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText("Hours 1 start"), { target: { value: "23:00" } });
+  await waitFor(() => expect(call).toHaveBeenCalledWith("schedule", "PUT", expect.objectContaining({ weekly: [{ days: ["mon"], start: "23:00", end: "08:00" }] })), { timeout: 2000 });
+});
+it("creates an off-day exception through the new editor", async () => {
+  const call = vi.fn(async () => ({ plan }));
+  render(<ScheduleView api={{ call } as unknown as Api} value={schedule} plan={plan} jobs={[]} applied={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Add a day" }));
+  fireEvent.change(screen.getByLabelText("Exception date"), { target: { value: "2026-10-13" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save day" }));
+  await waitFor(() => expect(call).toHaveBeenCalledWith("schedule", "PUT", expect.objectContaining({ exceptions: [{ date: "2026-10-13", windows: "off" }] })), { timeout: 2000 });
 });

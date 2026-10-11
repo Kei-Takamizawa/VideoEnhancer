@@ -112,9 +112,7 @@ def _model_coefficient(
 ) -> float:
     entry = _model_entry(task, settings, profile)
     if entry is None:
-        return _coefficient(task, settings.get("backend", "cuda"), profile) * _reference_ratio(
-            task, settings
-        )
+        return _coefficient(task, settings.get("backend", "cuda"), profile)
     value = float(entry["seconds_per_pixel_frame"])
     if value < 0 or not math.isfinite(value):
         raise ValueError(f"Invalid calibrated model cost for {task}.")
@@ -133,26 +131,54 @@ def _reference_speed(model_id: str, strength: str) -> dict[str, Any]:
     return speed.get("variants", {}).get(strength, speed)
 
 
-def _reference_ratio(task: str, settings: dict[str, Any]) -> float:
-    """Scale uncalibrated CUDA costs only for matching reference measurements."""
+@lru_cache(maxsize=1)
+def _detected_gpu() -> str:
+    from videoenhancer.logging import environment_info
+
+    return str(environment_info().get("gpu") or "")
+
+
+def _gpu_key(name: str) -> str:
+    import re
+
+    return re.sub(
+        r"[^a-z0-9]",
+        "",
+        name.lower().replace("nvidia", "").replace("geforce", "").replace("8gb", ""),
+    )
+
+
+def model_delta(settings: dict[str, Any], profile: dict[str, Any] | None) -> tuple[float, bool]:
+    """Add measured whole-pipeline differences once per source frame."""
     from videoenhancer.models.registry import C1, RIFE
 
     if settings.get("backend", "cuda") != "cuda":
-        return 1.0
-    default = C1 if task == "restore" else RIFE
-    selected = settings.get("restore_model" if task == "restore" else "interp_model") or default
-    strength = settings.get("restore_strength", "medium")
-    baseline = _reference_speed(default, strength)
-    candidate = _reference_speed(selected, strength)
-    if (
-        not baseline
-        or not candidate
-        or any(
-            baseline.get(key) != candidate.get(key) for key in ("gpu", "input", "output", "mode")
+        return 0.0, not any(
+            settings.get(k) for k in ("restore_model", "interp_model", "size_model")
         )
-    ):
-        return 1.0
-    return float(baseline["fps"]) / float(candidate["fps"])
+    gpu = str((profile or {}).get("gpu_name") or _detected_gpu())
+    measured = (profile or {}).get("reference_pipelines", {})
+    delta, usable = 0.0, True
+    for key, default in (("restore_model", C1), ("interp_model", RIFE), ("size_model", C1)):
+        selected = settings.get(key)
+        if not selected or selected == default:
+            continue
+        strength = (
+            str(settings.get("restore_strength", "medium")) if key == "restore_model" else "medium"
+        )
+        candidate = measured.get(f"{selected}:{strength}") or _reference_speed(selected, strength)
+        baseline = measured.get(f"{default}:medium") or _reference_speed(default, "medium")
+        if (
+            not candidate
+            or not baseline
+            or _gpu_key(gpu) != _gpu_key(str(candidate.get("gpu", "")))
+            or any(candidate.get(k) != baseline.get(k) for k in ("gpu", "input", "output", "mode"))
+            or not all(float(s.get("fps", 0)) > 0 for s in (candidate, baseline))
+        ):
+            usable = False
+            continue
+        delta += 1 / float(candidate["fps"]) - 1 / float(baseline["fps"])
+    return delta, usable
 
 
 def _clip_factors(
@@ -167,7 +193,7 @@ def _clip_factors(
     if length <= 2 * overlap or overlap < 0:
         raise ValueError("Estimator clip length must exceed twice the nonnegative overlap.")
     if entry.get("single_frame") or length == 1:
-        return (2.0 if multiplier > 1 else 1.0), 1.0
+        return 1.0, 1.0
     owned = length - 2 * overlap
     return length / owned, max(1.0, (length - 1) / owned)
 
@@ -183,6 +209,18 @@ def predict_segment(
         raise ValueError("Frame count must be nonnegative and correction must be positive.")
     if frames == 0:
         return 0.0
+    delta, _ = model_delta(settings, profile)
+    from videoenhancer.models.registry import C1, RIFE
+
+    # Preserve the calibrated default pipeline; alternatives contribute deltas.
+    settings = {
+        **settings,
+        "restore_model": C1
+        if settings.get("preset", "standard") == "standard" or settings.get("restore_model")
+        else None,
+        "interp_model": RIFE,
+        "size_model": None,
+    }
     input_pixels, output_pixels, multiplier = _geometry(media, settings)
     backend = settings.get("backend", "cuda")
     costs = [
@@ -226,7 +264,7 @@ def predict_segment(
         )
     if overhead < 0 or not math.isfinite(overhead):
         raise ValueError("Segment overhead must be finite and nonnegative.")
-    return (sum(costs) * frames + overhead) * correction
+    return max(0.0, (sum(costs) * frames + overhead + delta * frames) * correction)
 
 
 def _ratios(manifest: dict[str, Any]) -> list[float]:
@@ -282,19 +320,27 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
 
     def measured(name: str) -> bool:
         if name in {"restore", "interpolate"} and "models" in (profile or {}):
-            value = (_model_entry(name, settings, profile) or {}).get("seconds_per_pixel_frame")
+            from videoenhancer.models.registry import C1, RIFE
+
+            baseline_settings = {**settings, "restore_model": C1, "interp_model": RIFE}
+            value = (_model_entry(name, baseline_settings, profile) or {}).get(
+                "seconds_per_pixel_frame"
+            )
             return isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
         value = components.get(name)
         if isinstance(value, dict):
             value = value.get("seconds_per_pixel_frame")
         return isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
 
+    _, references_usable = model_delta(settings, profile)
     calibrated = (
         bool(profile)
         and all(measured(name) for name in needed)
-        and not settings.get("size_model")
+        and references_usable
         and (profile or {}).get("finalization", {}).get("status") == "measured"
     )
+    if not references_usable:
+        uncertainty = 0.25
     return Estimate(seconds, seconds * (1 - uncertainty), seconds * (1 + uncertainty), calibrated)
 
 
