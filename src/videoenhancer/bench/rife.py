@@ -53,7 +53,7 @@ def _download_drive(path: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _prepare_files() -> tuple[Path, Path]:
+def _prepare_files(*, prepare_weights: bool = True) -> tuple[Path, Path]:
     models = get_home() / "models"
     models.mkdir(parents=True, exist_ok=True)
     cache = source_cache(("practical-rife-source.zip", "RIFEv4.25_0919.zip"))
@@ -88,11 +88,13 @@ def _prepare_files() -> tuple[Path, Path]:
                 target.write_bytes(expected)
             elif target.read_bytes() != expected:
                 raise RuntimeError("Pinned Practical-RIFE source changed; refusing to execute it.")
+    checkpoint = models / "rife425_flownet.pkl"
+    if not prepare_weights:
+        return source_root, checkpoint
     weight_archive = source_path(cache, cache / "RIFEv4.25_0919.zip")
     if not weight_archive.is_file() or _sha256(weight_archive) != WEIGHTS_ARCHIVE_SHA256:
         weight_archive.unlink(missing_ok=True)
         _download_drive(weight_archive)
-    checkpoint = models / "rife425_flownet.pkl"
     if not checkpoint.is_file() or _sha256(checkpoint) != WEIGHT_SHA256:
         with zipfile.ZipFile(weight_archive) as archive:
             temporary = checkpoint.with_suffix(".pkl.extracting")
@@ -116,23 +118,31 @@ def _prepare_files() -> tuple[Path, Path]:
     return source_root, checkpoint
 
 
-def load_rife_model(torch: Any | None = None, *, weights: Path | None = None) -> Any:
+def load_rife_model(
+    torch: Any | None = None, *, weights: Path | None = None, variant: str = "4.25"
+) -> Any:
     """Load Practical-RIFE 4.25 from its pinned external source and weights."""
     if torch is None:
         import torch as torch_module
 
         torch = torch_module
-    source_root, checkpoint = _prepare_files()
+    source_root, checkpoint = _prepare_files(prepare_weights=variant == "4.25")
     if weights is not None:
         checkpoint = weights
     code_root = source_root.parent / "rife425_source"
+    if variant != "4.25":
+        from videoenhancer.models.rife_variants import prepare_variant
+
+        code_root, variant_checkpoint = prepare_variant(variant)
+        if weights is None:
+            checkpoint = variant_checkpoint
     external_root = source_root / f"Practical-RIFE-{SOURCE_COMMIT}"
     if not external_root.is_dir():
         external_root = source_root
     sys.path.insert(0, str(external_root))
     sys.path.insert(0, str(code_root))
     module_path = code_root / "train_log" / "IFNet_HDv3.py"
-    spec = importlib.util.spec_from_file_location("ve_external_rife425_ifnet", module_path)
+    spec = importlib.util.spec_from_file_location(f"ve_external_rife_{variant}_ifnet", module_path)
     if spec is None or spec.loader is None:
         raise ImportError("Could not load the official RIFE 4.25 IFNet module.")
     module: Any = importlib.util.module_from_spec(spec)

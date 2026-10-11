@@ -200,6 +200,31 @@ See `.ai/LAST_REPORT.md` for measured acceptance results and remaining gaps.
   Built-in deletion removes weights only; its card and licence remain available
   for a future explicit install. No download starts from listing the catalog.
 
-Compare does not yet reuse individual rendered models across changed selections;
-a new request renders its selected models again. Learned size models and the
-DRUNet strength wrapper are not implemented in this cycle.
+## P1c-4 service additions
+
+`GET health` exposes `av1_supported` and `av1_unavailable_reason`. Availability
+uses the pipeline's CUDA AV1 encoder at 1920×1080, including flush. Unsupported
+encoding fails explicitly; the service never silently changes codecs.
+
+`POST compare/range` with `{file, job_id?}` returns a five-second range,
+`reason`, and `start`. Prepared per-frame motion analysis chooses the busiest
+window. Missing or stale analysis uses the middle with an explicit reason.
+This endpoint reads the source index and existing analysis; it does not run
+another whole-video scene analysis. Older prepared jobs have the fallback.
+
+Each new `POST compare` cancels older waiting or running comparisons. It leaves
+jobs and trials alone. Existing previews are copied and published immediately
+when their key matches the source path/size/mtime, CFR range, stage settings,
+selected model ID and SHA-256, and companion model identities. All cache hits
+complete without a GPU lease. Results include `original_reused`, each item's
+`reused`, `ready_seconds`, `time_to_first_tile_seconds`, and `total_seconds`
+when rendered. Existing five-session / 2 GB retention applies to copied previews.
+`standard-resize` is a virtual size-category comparison entry requiring no weights.
+Fast rejects cleanup comparisons with the explicit Standard-mode instruction.
+
+Settings and unstarted job patches accept `size_model` (empty means Standard
+resize), `restore_strength` (`light`, `medium`, `strong`), and `size_strength`
+(0.2 or 0.6). Existing queued settings stay frozen when defaults change.
+Trial operation states retain `percent_history`: UTC `time`, `elapsed_seconds`
+since operation processing starts, and `percent`, sampled no more frequently
+than every two seconds, plus a terminal sample. Segment waiting is separate.

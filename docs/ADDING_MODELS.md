@@ -173,10 +173,49 @@ Resume and every segment refuse a changed selection, manifest, or weights.
 Install a new version under a new ID and create a new job; do not edit a model
 between segments. P0 jobs with no model stages retain their existing resume path.
 
-## P1c-2 catalog status
+## Qualified optional models
 
-The additional cleanup, motion and size catalog proposed for P1c-2 is not yet
-implemented. Existing built-ins and compatible local-folder models remain
-available. No optional entry is advertised with unmeasured speed or memory.
-The current trial viewer supports Original/Enhanced rather than three model
-variants. See `.ai/LAST_REPORT.md` for the implemented scope and pending checks.
+Built-in catalog entries are optional downloads. Every entry needs explicit
+license consent and a verified checkpoint hash before installation. Catalog
+presentation does not change an existing job's frozen model identity.
+
+The `catalog` block describes the model: `category` (`cleanup`, `motion`, `size`),
+`title`, `description`, `summary` (plain English, 1–90 characters), `licence_plain`,
+`look_change`, `invents_detail`, and `flicker`. `reference_speed` contains measured
+`fps`, `torch_allocated_bytes`, `torch_reserved_bytes`, `sampled_process_peak_bytes`,
+`peak_memory_gb` (decimal GB), `sampling_seconds`, `tile_size`, `tile_overlap`,
+`gpu`, `input`, `output`, and `mode`. DRUNet also records strength `variants`.
+These are synthetic reference measurements, not quality scores or speed promises.
+
+The reference is 150 frames at 720×1280 and 30 fps, output at 1080×1920 and
+60 fps. Restoration and size use Standard; motion uses Fast. FPS excludes model
+loading. Torch peaks reset after loading. Windows PDH samples dedicated plus
+shared GPU memory for the rendering PID every second. The sampled budget is
+5.0 GB; it cannot establish the peak between samples. Normal jobs still sample
+every 30 seconds. Run `python scripts/reference_measure.py prepared-job.json
+output.mp4` on Windows with the prepared reference job and installed dependencies.
+
+Trusted adapters include `basicvsrpp`, `rife`, `spandrel`, `drunet`, and
+`spandrel-size`. Single-frame adapters require `temporal: false` and accept
+`architecture_params.tile_size` (default 256) and `tile_overlap` (default 32).
+Each tile adds the overlap as a halo and copies only its core to the output.
+`drunet` adds a constant fourth input channel, following the publisher's
+`(100 - quality_factor) / 100` map: Light 50 → 0.5, Medium 30 → 0.7, Strong
+10 → 0.9. It uses FP32 because this descriptor does not support half precision.
+
+Size adapters require `task: size` and `scale: 2` or `4`. They run after cleanup,
+before the existing final resize and interpolation. Empty `size_model` keeps
+Standard resize and the original pipeline. The optional blend wrapper validates
+both checkpoints and combines `strength * main + (1 - strength) * wdn`; the
+specified strengths are 0.2 and 0.6. Real-ESRGAN is omitted from the built-in
+catalog because both reference runs exceeded the sampled memory budget.
+
+RIFE variants select a trusted, versioned IFNet through `architecture_params.variant`
+(`4.26` or `4.25-lite`). The original archives and checkpoint bytes are pinned;
+no Python from a user model folder is imported. Archive-backed downloads require
+`weights.archive.sha256` and a safe `member` path, as well as the extracted
+checkpoint hash. DRUNet strengths share one card and one checkpoint.
+
+See [third-party model sources](THIRD_PARTY_MODELS.md) and `.ai/LAST_REPORT.md`
+for source hashes, licenses, omissions, and measured results. Existing C1,
+RIFE 4.25, and Standard resize remain the defaults.

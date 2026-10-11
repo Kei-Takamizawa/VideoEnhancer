@@ -155,31 +155,21 @@ class Engine:
             if torch.cuda.is_available():
                 self.environment["vram_bytes"] = torch.cuda.get_device_properties(0).total_memory
                 choose_backend("cuda")
-                from videoenhancer.config import executable
+                from videoenhancer.media.encode import probe_av1
 
-                result = proc.run(
-                    [
-                        executable("ffmpeg"),
-                        "-v",
-                        "error",
-                        "-f",
-                        "lavfi",
-                        "-i",
-                        "color=size=128x128:rate=1",
-                        "-frames:v",
-                        "1",
-                        "-c:v",
-                        "av1_nvenc",
-                        "-f",
-                        "null",
-                        "-",
-                    ],
-                    capture_output=True,
-                    timeout=10,
-                    check=False,
+                supported, reason = probe_av1()
+                self.environment.update(av1_supported=supported, av1_unavailable_reason=reason)
+                if reason:
+                    get_logger(self.home).warning("AV1 probe: %s", reason)
+            else:
+                self.environment.update(
+                    av1_supported=False,
+                    av1_unavailable_reason="CUDA hardware encoding is unavailable.",
                 )
-                self.environment["av1_supported"] = result.returncode == 0
         except Exception as error:
+            self.environment.update(
+                av1_supported=False, av1_unavailable_reason=" ".join(str(error).split())
+            )
             self._error(None, error)
 
     def _worker(self) -> None:
@@ -281,6 +271,9 @@ class Engine:
             "last_error": self.last_error,
             "home": str(self.home),
             "av1_supported": self.environment.get("av1_supported", False),
+            "av1_unavailable_reason": self.environment.get(
+                "av1_unavailable_reason", "Checking AV1 hardware encoding…"
+            ),
         }
 
     def queue(self) -> dict[str, Any]:
@@ -429,7 +422,13 @@ class Engine:
     def chosen(self, value: dict[str, Any]) -> dict[str, Any]:
         prefs = read_settings(self.home)
         settings = {k: prefs[k] for k in ("preset", "codec", "short_side", "fps")}
-        for key in ("restore_model", "interp_model"):
+        for key in (
+            "restore_model",
+            "interp_model",
+            "size_model",
+            "restore_strength",
+            "size_strength",
+        ):
             if prefs[key]:
                 settings[key] = prefs[key]
         settings.update(prefs["advanced"])
@@ -445,6 +444,10 @@ class Engine:
             raise ValueError("Invalid output short side.")
         if settings["fps"] not in {"off", "2x"}:
             raise ValueError("Invalid frame rate.")
+        if settings.get("restore_strength", "medium") not in {"light", "medium", "strong"}:
+            raise ValueError("Invalid cleanup strength.")
+        if settings.get("size_strength", 0.2) not in {0.2, 0.6}:
+            raise ValueError("Invalid enlarger strength.")
         return settings
 
     def output(self, source: Path, value: dict[str, Any]) -> Path:
@@ -641,10 +644,19 @@ class Engine:
                 ):
                     raise ValueError("Choose one to three different models of the same category.")
                 registry = ModelRegistry(self.home)
-                manifests = [registry.manifest(model_id) for model_id in models]
+                from videoenhancer.service.compare import compare_manifest
+
+                manifests = [compare_manifest(registry, model_id) for model_id in models]
                 if len({m["task"] for m in manifests}) != 1:
                     raise ValueError("Choose models of the same category.")
+                if manifests[0]["task"] == "restore" and value["settings"]["preset"] == "fast":
+                    raise ValueError(
+                        "Fast does not clean up. Switch this video to Standard "
+                        "to compare cleanup models."
+                    )
                 for model in manifests:
+                    if model["id"] == "standard-resize":
+                        continue
                     registry.weights(model, download=False)
                 for task, model_id in selected_models(value["settings"]).items():
                     registry.weights(registry.manifest(model_id, task), download=False)
@@ -669,8 +681,22 @@ class Engine:
             "phase": f"Waiting for the current segment (about {waiting:.0f} seconds remaining)",
             "created_at": datetime.now().astimezone().isoformat(),
         }
+        if kind == "compare":
+            for previous in list(self.operations.values()):
+                if previous["kind"] == "compare" and previous["state"] in {"waiting", "running"}:
+                    self.cancel_operation(previous["id"])
         self.operations[op["id"]] = op
         self._save_operation(op)
+        if kind == "compare":
+            from videoenhancer.service.compare import prime_cached
+
+            cached = prime_cached(value, self.home / "previews" / op["id"])
+            if cached:
+                op["result"] = cached
+                if cached.get("original") and len(cached["items"]) == len(value["models"]):
+                    op.update(state="done", phase="Reused preview", percent=100)
+                self._save_operation(op)
+                self._prune_compare_cache()
         return op
 
     def result_preview(self, job_id: str) -> dict[str, Any]:
@@ -814,6 +840,25 @@ class Engine:
             else max(600, 4 * predicted)
         )
 
+        history_started = time.monotonic()
+        history_sampled = -2.0
+        if op["kind"] == "trial":
+            op["percent_history"] = []
+
+        def keep_progress() -> None:
+            nonlocal history_sampled
+            elapsed = time.monotonic() - history_started
+            if op["kind"] == "trial" and elapsed - history_sampled >= 2:
+                op["percent_history"].append(
+                    {
+                        "time": datetime.now(UTC).isoformat(),
+                        "elapsed_seconds": elapsed,
+                        "percent": op.get("percent", 0),
+                    }
+                )
+                history_sampled = elapsed
+                self._save_operation(op)
+
         def abort() -> bool:
             if op["kind"] in {"trial", "compare"} and time.monotonic() >= deadline:
                 op["cancel_requested"] = True
@@ -830,6 +875,7 @@ class Engine:
                 env={**os.environ, "VE_HOME": str(self.home)},
             )
             self.processes[op["id"]] = process
+            keep_progress()
             while True:
                 try:
                     process.communicate(timeout=0.25)
@@ -838,6 +884,7 @@ class Engine:
                     progress_path = folder / "progress.json"
                     if progress_path.is_file():
                         op.update(json.loads(progress_path.read_text(encoding="utf-8")))
+                    keep_progress()
                     if abort():
                         _kill_process_tree(process.pid)
         if op.get("timed_out"):
@@ -900,9 +947,24 @@ class Engine:
                     )
                     self.store.save(job)
         op["result"] = result
+        if op["kind"] == "trial":
+            op["percent"] = 100
+            op["percent_history"].append(
+                {
+                    "time": datetime.now(UTC).isoformat(),
+                    "elapsed_seconds": time.monotonic() - history_started,
+                    "percent": 100,
+                    "terminal": True,
+                }
+            )
 
     def dispatch(self, method: str, parts: list[str], value: dict[str, Any]) -> Any:
-        if method == "GET" or "/".join(parts) in {"estimate", "trial/thumbnails", "queue"}:
+        if method == "GET" or "/".join(parts) in {
+            "estimate",
+            "trial/thumbnails",
+            "compare/range",
+            "queue",
+        }:
             return self._dispatch(method, parts, value)
         with self.lock:
             started = time.monotonic()
@@ -952,7 +1014,7 @@ class Engine:
                         .stat()
                         .st_size
                         if m["weights_verified"]
-                        else 0,
+                        else m["weights"].get("bytes", 0),
                     }
                     for m in registry.list_models()
                 ]
@@ -1007,6 +1069,28 @@ class Engine:
                     "data:image/jpeg;base64," + base64.b64encode(result.stdout).decode()
                 )
             return {"thumbnails": thumbnails, "duration": media.duration}
+        if route == "compare/range" and method == "POST":
+            from videoenhancer.service.compare import suggested_range
+
+            source = Path(value["file"]).resolve(strict=True)
+            analysis = None
+            if value.get("job_id"):
+                analysis = self.store.load(value["job_id"])
+                if source != Path(analysis["input"]["path"]).resolve():
+                    raise ValueError("The comparison file must match its job.")
+            else:
+                from videoenhancer.media.source_index import source_identity
+
+                identity = source_identity(source)
+                analysis = next(
+                    (
+                        job
+                        for job in self.store.list_jobs()
+                        if all(job.get("input", {}).get(k) == v for k, v in identity.items())
+                    ),
+                    None,
+                )
+            return suggested_range(source, analysis)
         if route == "estimate" and method == "POST":
             return self.estimate(value)
         if route == "queue" and method == "POST":
@@ -1073,7 +1157,7 @@ class Engine:
             return ModelRegistry(self.home).add(Path(value["folder"]))
         if len(parts) >= 2 and parts[0] == "models":
             registry = ModelRegistry(self.home)
-            model = registry.manifest(parts[1])
+            model = registry.public_manifest(parts[1])
             if method == "DELETE":
                 used = sum(
                     parts[1] in selected_models(j["settings"]).values()

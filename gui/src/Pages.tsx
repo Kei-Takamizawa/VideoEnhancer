@@ -327,7 +327,8 @@ export function ModelsPage({
             }}
           >
             {label} ·{" "}
-            {key === "size" ? 1 : models.filter((m) => group(m) === key).length}
+            {(key === "size" ? 1 : 0) +
+              models.filter((m) => group(m) === key).length}
           </button>
         ))}
         <button disabled>Faces · coming later</button>
@@ -336,7 +337,8 @@ export function ModelsPage({
         {category === "size" && (
           <article className="card model-card">
             <h2>
-              Standard resize <span className="badge">Default</span>
+              Standard resize{" "}
+              {!settings?.size_model && <span className="badge">Default</span>}
             </h2>
             <p className="muted">Non-learned resize</p>
             <p>Makes the picture bigger without AI. Never changes the look.</p>
@@ -356,19 +358,40 @@ export function ModelsPage({
             </dl>
             <p>No download</p>
             <button disabled>Installed</button>
+            {settings?.size_model && (
+              <button
+                onClick={async () => {
+                  await api.call("settings", "PUT", { size_model: "" });
+                  refresh();
+                }}
+              >
+                Make it my default
+              </button>
+            )}
           </article>
         )}
         {models
           .filter((m) => group(m) === category)
           .map((m) => {
             const c = m.catalog;
-            const key = m.task === "restore" ? "restore_model" : "interp_model";
+            const key =
+              m.task === "restore"
+                ? "restore_model"
+                : m.task === "size"
+                  ? "size_model"
+                  : "interp_model";
             const defaultId =
               settings?.[key] ||
               (m.task === "restore"
                 ? "basicvsrpp-ntire21-decompress"
-                : "rife-4.25");
-            const speed = c?.reference_speed;
+                : m.task === "size"
+                  ? ""
+                  : "rife-4.25");
+            const reference = c?.reference_speed;
+            const speed =
+              m.architecture === "drunet"
+                ? reference?.variants?.[settings?.restore_strength || "medium"] || reference
+                : reference;
             const label = speed
               ? speed.fps >= 30
                 ? "Fast"
@@ -406,13 +429,48 @@ export function ModelsPage({
                   {c?.description ||
                     "A model you added. Review its details before use."}
                 </p>
+                {m.architecture === "drunet" && (
+                  <label>
+                    Strength
+                    <select
+                      value={settings?.restore_strength || "medium"}
+                      onChange={async (e) => {
+                        await api.call("settings", "PUT", {
+                          restore_strength: e.target.value,
+                        });
+                        refresh();
+                      }}
+                    >
+                      <option value="light">Light</option>
+                      <option value="medium">Medium</option>
+                      <option value="strong">Strong</option>
+                    </select>
+                  </label>
+                )}
+                {m.id === "realesr-general-x4v3" && (
+                  <label>
+                    Look
+                    <select
+                      value={settings?.size_strength || 0.2}
+                      onChange={async (e) => {
+                        await api.call("settings", "PUT", {
+                          size_strength: Number(e.target.value),
+                        });
+                        refresh();
+                      }}
+                    >
+                      <option value={0.2}>Faithful</option>
+                      <option value={0.6}>Cleaner</option>
+                    </select>
+                  </label>
+                )}
                 <dl className="model-facts">
                   <div>
                     <dt>Speed</dt>
                     <dd
                       title={
                         speed
-                          ? `About ${(30 / speed.fps).toFixed(1)} h per hour of 30 fps video · ${speed.gpu}`
+                          ? `About ${(30 / speed.fps).toFixed(1)} h per hour of 30 fps video · ${reference?.gpu}`
                           : "No qualifying measurement on this computer yet"
                       }
                     >
@@ -517,7 +575,7 @@ export function ModelsPage({
             <p className="break">SHA-256: {details.weights.sha256}</p>
             <p>
               {details.catalog?.reference_speed
-                ? `${details.catalog.reference_speed.fps.toFixed(2)} fps · peak ${details.catalog.reference_speed.peak_memory_gb.toFixed(2)} GB · ${details.catalog.reference_speed.gpu}`
+                ? `${details.catalog.reference_speed.fps.toFixed(2)} fps · sampled process peak ${details.catalog.reference_speed.peak_memory_gb.toFixed(2)} GB · ${details.catalog.reference_speed.gpu} · ${details.catalog.reference_speed.mode || "standard"} · tile ${details.catalog.reference_speed.tile_size || "none"}, overlap ${details.catalog.reference_speed.tile_overlap || 0}`
                 : "Speed and peak memory have not been measured for this catalog entry."}
             </p>
             <p>
@@ -690,9 +748,17 @@ export function SettingsPage({
           >
             <option value="hevc">HEVC</option>
             <option value="h264">H.264</option>
-            <option value="av1">AV1</option>
+            <option value="av1" disabled={!health?.av1_supported}>
+              AV1
+            </option>
           </select>
         </label>
+        {!health?.av1_supported && (
+          <p className="span-two">
+            {health?.av1_unavailable_reason ||
+              "Checking AV1 hardware encoding…"}
+          </p>
+        )}
         <label>
           Default short side
           <select

@@ -232,6 +232,7 @@ export function AddDialog({
   defaults,
   models,
   av1 = false,
+  av1Reason,
   close,
   saved,
   trial,
@@ -241,6 +242,7 @@ export function AddDialog({
   defaults: Settings;
   models: Model[];
   av1?: boolean;
+  av1Reason?: string | null;
   close(): void;
   saved(): void;
   trial(
@@ -406,9 +408,16 @@ export function AddDialog({
               >
                 <option value="hevc">HEVC</option>
                 <option value="h264">H.264</option>
-                {av1 && <option value="av1">AV1</option>}
+                <option value="av1" disabled={!av1}>
+                  AV1
+                </option>
               </select>
             </label>
+            {!av1 && (
+              <p className="span-two">
+                {av1Reason || "Checking AV1 hardware encoding…"}
+              </p>
+            )}
             <label className="span-two">
               Output folder
               <div className="input-button">
@@ -461,10 +470,46 @@ export function AddDialog({
                 ))}
             </select>
           </label>
+          {models.find((m) => m.id === settings.restore_model)?.architecture ===
+            "drunet" && (
+            <label>
+              Cleanup strength
+              <select
+                value={settings.restore_strength || "medium"}
+                onChange={(e) => field("restore_strength", e.target.value)}
+              >
+                <option value="light">Light</option>
+                <option value="medium">Medium</option>
+                <option value="strong">Strong</option>
+              </select>
+            </label>
+          )}
+          {settings.size_model === "realesr-general-x4v3" && (
+            <label>
+              Enlarger look
+              <select
+                value={settings.size_strength || 0.2}
+                onChange={(e) => field("size_strength", Number(e.target.value))}
+              >
+                <option value={0.2}>Faithful</option>
+                <option value={0.6}>Cleaner</option>
+              </select>
+            </label>
+          )}
           <label>
             Bigger picture
-            <select disabled value="standard">
-              <option value="standard">Standard resize</option>
+            <select
+              value={settings.size_model || ""}
+              onChange={(e) => field("size_model", e.target.value)}
+            >
+              <option value="">Standard resize</option>
+              {models
+                .filter((m) => m.task === "size" && m.weights_verified)
+                .map((m) => (
+                  <option value={m.id} key={m.id}>
+                    {m.catalog?.title || m.display_name}
+                  </option>
+                ))}
             </select>
           </label>
         </details>

@@ -1,0 +1,49 @@
+{
+  "id": "scunet-real-psnr",
+  "display_name": "SCUNet real PSNR",
+  "version": "1",
+  "description": "Cleans mixed noise and compression on each picture. Calm, slightly smoothing.",
+  "task": "restore",
+  "architecture": "spandrel",
+  "architecture_params": {
+    "tile_size": 256,
+    "tile_overlap": 32
+  },
+  "weights": {
+    "filename": "scunet.pth",
+    "url": "https://github.com/cszn/KAIR/releases/download/v1.0/scunet_color_real_psnr.pth",
+    "sha256": "fa78899ba2caec9d235a900e91d96c689da71c42029230c2028b00f09f809c2e",
+    "bytes": 71982841
+  },
+  "licence": "Apache-2.0",
+  "commercial_use_allowed": true,
+  "scale": 1,
+  "temporal": false,
+  "precision": "fp16",
+  "catalog": {
+    "category": "cleanup",
+    "title": "All-round cleaner",
+    "description": "Cleans mixed noise and compression on each picture. Calm, slightly smoothing.",
+    "look_change": "little",
+    "invents_detail": "low",
+    "flicker": "possible",
+    "default": false,
+    "licence_plain": "Free for any use",
+    "summary": "Cleans mixed noise and compression, with a slightly smoother look.",
+    "reference_speed": {
+      "gpu": "RTX 4060 Ti 8GB",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "1080x1920 at 60 fps",
+      "fps": 0.5874732990888704,
+      "peak_memory_gb": 1.741873152,
+      "torch_allocated_bytes": 1081937408,
+      "torch_reserved_bytes": 1373634560,
+      "sampled_process_peak_bytes": 1741873152,
+      "sampling_seconds": 1,
+      "tile_size": 256,
+      "tile_overlap": 32,
+      "mode": "standard",
+      "seconds": 5
+    }
+  }
+}

@@ -104,12 +104,14 @@ def analyze(path: str | Path, backend: str = "auto") -> dict[str, Any]:
     mapping = nearest_mapping(pts, duration, Fraction(info.cfr_fps))
     cuts = []
     scores = []
+    motion_scores = []
     previous: np.ndarray | None = None
     source_count = 0
     for index, thumbnail in enumerate(_thumbnails(path, media, selected)):
         source_count += 1
         if previous is not None:
             delta, distance = _cut_score(previous, thumbnail)
+            motion_scores.append({"frame": index, "delta": round(delta, 3)})
             if delta >= 24 and distance >= 0.18:
                 cuts.append(index)
                 scores.append(
@@ -167,6 +169,7 @@ def analyze(path: str | Path, backend: str = "auto") -> dict[str, Any]:
         "keyframes": keyframes,
         "scene_cuts": normalized_cuts,
         "scene_scores": scores,
+        "motion_scores": motion_scores,
         "analysis_seconds": time.perf_counter() - started,
         "backend": selected,
     }

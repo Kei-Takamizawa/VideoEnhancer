@@ -19,19 +19,19 @@ button, Menu, or Shift+F10 opens Only on this date. Every save restarts the eigh
 second Undo timer. Settings groups Defaults, App, Advanced, Diagnostics and About.
 
 Models uses category cards, explicit licence consent, Verify again, Details,
-Make it my default and Remove. Unknown speed is shown as not measured. The
-optional publisher catalog is not qualified yet; existing built-ins and your
-own compatible models remain available. Defaults affect new jobs only.
+Make it my default and Remove. Qualified publisher cards show synthetic reference
+speeds; unknown speed for your own model is shown as not measured. Defaults affect
+new jobs only. Nine additional optional models are qualified in P1c-4.
 
 Compare renders Original and up to three installed models of one category, with
 one synchronized frame clock. Its initial view is side by side; uncheck Side by
 side for a swipe view and choose Left/Right. Zoom and panning apply to every
 picture. Arrow keys step, Space toggles playback, and Loop can be switched off.
 Use this is disabled for a job that has started. Back returns to the opener and
-leaves admitted work running; Cancel explicitly stops it. There is no learned
-size comparison yet. The range control uses the middle when no motion ranking
-is available. Thumbnail-box dragging and rendering only missing selections are
-still outstanding.
+leaves admitted work running; Cancel explicitly stops it. Learned size comparison
+includes SPAN and Standard resize. The service chooses saved motion data or the
+middle fallback and reuses previews by key. The GUI range box and automatic
+selection/render interactions are deferred to P1d.
 
 For isolated packaging while another package is open, set `VE_GUI_PACKAGE_OUT`
 to a fresh output folder before `npm run package`. Automated Electron tests use
@@ -115,8 +115,8 @@ Full-job analysis still checks the entire video's decoded frame count.
 
 Home's Preview result reads a completed segment or finished output and produces
 a short CPU-encoded comparison. It does not run restoration again or acquire the
-GPU worker lease. The current viewer compares Original and Enhanced; the proposed
-multi-model catalog and multi-model Compare workflow are not implemented yet.
+GPU worker lease. This result viewer compares Original and Enhanced; the separate
+Compare workflow can show Original plus three models from the same category.
 
 The comparison canvas uses WebCodecs and one integer frame clock. It draws only
 matching frame pairs, rather than trusting two independent video clocks. Arrow
@@ -170,7 +170,25 @@ service restart.
 If no event or heartbeat arrives for 30 seconds, the client keeps its last
 snapshot, shows **Reconnecting…**, and retries after 1, 2, 5 and 10 seconds.
 Retries refresh the service discovery; restoring/focusing the window also
-reconnects. This cycle retains the P1b Queue/Plan/Schedule/Models/Settings screens.
-Home, History, redesigned hours editing and multi-model Compare are not shipped.
-Console-free Electron cold start is not established; the Electron launch still
-needs the planned pythonw selection. Do not treat this draft as P1c completion.
+reconnects. P1c now includes Home, History, hours editing and multi-model Compare.
+Windows service launch uses pythonw and hidden subprocess settings. The upcoming
+P1d redesign and the owner-deferred interactions below remain separate work.
+
+## P1c-4 scope
+
+Add and Settings always show the same AV1 availability from health. If AV1 is
+unavailable, its option is disabled and the same one-line reason appears.
+
+Qualified optional catalog cards show measured reference speeds. Model details
+identify the reference mode, sampled per-process GPU memory and tiling. Optional
+cleanup, motion and size defaults apply to new jobs; queued jobs keep their
+captured settings. DRUNet has one card with Light / Medium / Strong settings.
+The size default remains Standard resize. Each qualified manifest includes a
+short `summary` for the upcoming design; the card layout is unchanged.
+
+Owner feedback defers the draggable Compare range box, 800 ms automatic
+re-render, install-then-select, their GUI tests, and dark/light screenshots to
+P1d. This cycle implements cache reuse, cancellation and busiest-range selection
+in the service. The existing four-stream viewer and explicit Render action stay.
+Fast cleanup comparisons remain unavailable. The proposed GUI Switch to Standard
+action is also deferred with the Compare redesign.

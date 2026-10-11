@@ -448,6 +448,7 @@ export default function App() {
           defaults={settings}
           models={models}
           av1={health?.av1_supported}
+          av1Reason={health?.av1_unavailable_reason}
           close={() => setFiles(undefined)}
           saved={() => setFiles(undefined)}
           trial={(file, prefs, media, apply) =>

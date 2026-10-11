@@ -24,6 +24,9 @@ DEFAULTS: dict[str, Any] = {
     "seen_failures": [],
     "restore_model": "",
     "interp_model": "",
+    "size_model": "",
+    "restore_strength": "medium",
+    "size_strength": 0.2,
 }
 
 
@@ -56,6 +59,8 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
         "short_side": {"keep", 1080, 1440, 2160},
         "fps": {"off", "2x"},
         "theme": {"system", "dark", "light"},
+        "restore_strength": {"light", "medium", "strong"},
+        "size_strength": {0.2, 0.6},
     }
     for key, allowed in choices.items():
         if value[key] not in allowed:
@@ -74,7 +79,11 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"{key} must be an absolute folder path.")
     from videoenhancer.models.registry import ModelRegistry
 
-    for key, task in (("restore_model", "restore"), ("interp_model", "interpolate")):
+    for key, task in (
+        ("restore_model", "restore"),
+        ("interp_model", "interpolate"),
+        ("size_model", "size"),
+    ):
         if not isinstance(value[key], str):
             raise ValueError(f"{key} must be a model id.")
         if value[key]:

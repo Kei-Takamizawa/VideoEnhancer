@@ -11,6 +11,9 @@ export type Settings = {
   backend?: string;
   restore_model?: string;
   interp_model?: string;
+  size_model?: string;
+  restore_strength?: "light" | "medium" | "strong";
+  size_strength?: 0.2 | 0.6;
   seen_failures?: string[];
 };
 export type Media = {
@@ -91,6 +94,7 @@ export type Health = {
   driver?: string;
   vram_bytes?: number;
   av1_supported?: boolean;
+  av1_unavailable_reason?: string | null;
   engine_state: string;
   job_id?: string;
   next_change?: string;
@@ -145,6 +149,7 @@ export type Model = {
     category: "cleanup" | "motion" | "size";
     title: string;
     description: string;
+    summary?: string;
     look_change: "very_little" | "little" | "noticeable";
     invents_detail: "low" | "medium" | "high";
     flicker: "none" | "possible";
@@ -156,6 +161,12 @@ export type Model = {
       output: string;
       fps: number;
       peak_memory_gb: number;
+      torch_allocated_bytes?: number;
+      torch_reserved_bytes?: number;
+      tile_size?: number | null;
+      tile_overlap?: number | null;
+      mode?: string;
+      variants?: Record<string, { fps: number; peak_memory_gb: number }>;
     };
   };
 };

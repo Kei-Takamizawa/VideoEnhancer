@@ -32,6 +32,8 @@ def _real(settings: dict[str, Any], media: dict[str, Any], cuts: set[int]) -> li
     stages: list[Stage] = []
     if "restore" in selected:
         stages.append(registry.create_stage(selected["restore"], "restore", settings, rate, cuts))
+    if "size" in selected:
+        stages.append(registry.create_stage(selected["size"], "size", settings, rate, cuts))
     if preset != "passthrough":
         stages.append(ResizeStage(*output_size(settings, media)))
     if output_rate(settings, media) == Fraction(media["cfr_fps"]) * 2:

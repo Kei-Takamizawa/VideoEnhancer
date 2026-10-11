@@ -46,6 +46,7 @@ def process_segment(
     abort: Callable[[], bool],
     batch_size: int = 2,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    reference_measurement: bool = False,
 ) -> dict[str, Any]:
     from videoenhancer.models.registry import validate_job_models
 
@@ -65,6 +66,7 @@ def process_segment(
     memory_sampler = JobMemorySampler(interval_seconds=30, on_sample=memory_progress)
     memory_sampler.start()
     try:
+        load_started = time.perf_counter()
         for stage in stages:
             stage.setup()
     except BaseException:
@@ -72,6 +74,10 @@ def process_segment(
             stage.teardown()
         memory_sampler.stop()
         raise
+    model_loading_seconds = time.perf_counter() - load_started
+    render_started = time.perf_counter()
+    if reference_measurement and backend == "cuda":
+        torch.cuda.reset_peak_memory_stats()
     context_before = sum(s.context_before for s in stages)
     context_after = sum(s.context_after for s in stages)
     start, end = segment["start"], segment["end"]
@@ -748,6 +754,7 @@ def process_segment(
         }
         quality_seconds += time.perf_counter() - metric_started
     elapsed = time.perf_counter() - started
+    render_seconds = time.perf_counter() - render_started
     return {
         "inline_quality": inline_quality,
         "inline_quality_seconds": quality_seconds,
@@ -755,6 +762,9 @@ def process_segment(
         "input_frames": end - start,
         "output_frames": written,
         "fps": (end - start) / elapsed,
+        "model_loading_seconds": model_loading_seconds,
+        "fps_without_model_loading": (end - start) / render_seconds,
+        "peak_torch_allocated_bytes": torch.cuda.max_memory_allocated() if backend == "cuda" else 0,
         "decode_seconds": decode_seconds,
         "stage_seconds": stage_seconds,
         "clip_joints": [

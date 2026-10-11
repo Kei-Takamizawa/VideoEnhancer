@@ -1,0 +1,50 @@
+{
+  "id": "rife-4.26",
+  "display_name": "Practical-RIFE 4.26",
+  "version": "1",
+  "description": "The newest version. Sometimes better on fast motion, sometimes not.",
+  "task": "interpolate",
+  "architecture": "rife",
+  "architecture_params": {
+    "variant": "4.26"
+  },
+  "weights": {
+    "filename": "rife426.pkl",
+    "url": "https://drive.google.com/uc?id=1gViYvvQrtETBgU1w8axZSsr7YUuw31uy",
+    "sha256": "45c7f74156704769dc9f85cfcaf8552e1e926f9399dcfa3a553dee88fac6f53f",
+    "bytes": 24636301
+  },
+  "licence": "MIT",
+  "commercial_use_allowed": true,
+  "scale": 1,
+  "temporal": true,
+  "clip_length": 3,
+  "clip_overlap": 1,
+  "precision": "fp16",
+  "catalog": {
+    "category": "motion",
+    "title": "Smooth motion, newest",
+    "description": "The newest version. Sometimes better on fast motion, sometimes not.",
+    "look_change": "very_little",
+    "invents_detail": "low",
+    "flicker": "none",
+    "default": false,
+    "licence_plain": "Free for any use",
+    "summary": "Makes in-between frames with the newer motion model.",
+    "reference_speed": {
+      "gpu": "RTX 4060 Ti 8GB",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "1080x1920 at 60 fps",
+      "fps": 16.419470085026173,
+      "peak_memory_gb": 1.964171264,
+      "torch_allocated_bytes": 1154681344,
+      "torch_reserved_bytes": 1595932672,
+      "sampled_process_peak_bytes": 1964171264,
+      "sampling_seconds": 1,
+      "tile_size": null,
+      "tile_overlap": null,
+      "mode": "fast",
+      "seconds": 5
+    }
+  }
+}

@@ -10,7 +10,7 @@ from test_model_registry import fake_model as fake_model
 
 from videoenhancer.models.registry import C1, ModelRegistry
 from videoenhancer.pipeline.runner import process_segment
-from videoenhancer.service.compare import render_compare
+from videoenhancer.service.compare import cache_key, render_compare
 from videoenhancer.service.engine import Engine
 from videoenhancer.service.settings import save_settings
 
@@ -68,9 +68,10 @@ def test_compare_uses_one_index_one_analysis_and_publishes_each_real_cpu_preview
     monkeypatch.setattr(module, "process_segment", cpu_fixture)
     destination = home / "previews" / "comparison"
     destination.mkdir(parents=True)
+    source_path = video_factory(frames=90)
     result = render_compare(
         {
-            "file": str(video_factory(frames=90)),
+            "file": str(source_path),
             "seconds": 3,
             "models": ids,
             "settings": {
@@ -88,6 +89,103 @@ def test_compare_uses_one_index_one_analysis_and_publishes_each_real_cpu_preview
     assert len(list(destination.glob("*-preview.mp4"))) == 4
     assert not list(destination.glob("*-raw.mp4"))
     assert json.loads((destination / "progress.json").read_text())["percent"] == 100
+    reused_folder = home / "previews" / "reused"
+    reused_folder.mkdir()
+    monkeypatch.setattr(
+        module,
+        "process_segment",
+        lambda *_a, **_k: pytest.fail("Cached models must not render again"),
+    )
+    monkeypatch.setattr(
+        module, "Encoder", lambda *_a, **_k: pytest.fail("Cached Original must not render again")
+    )
+    reused = render_compare(
+        {
+            "file": str(source_path),
+            "seconds": 3,
+            "models": ids[:2],
+            "settings": {
+                "preset": "standard",
+                "backend": "cpu",
+                "short_side": "keep",
+                "fps": "off",
+            },
+        },
+        reused_folder,
+    )
+    assert reused["original_reused"]
+    assert all(item["reused"] for item in reused["items"])
+    settings = {"preset": "standard", "backend": "cpu", "short_side": "keep", "fps": "off"}
+    engine = Engine(home)
+    monkeypatch.setattr(engine, "chosen", lambda _: settings)
+    monkeypatch.setattr(ModelRegistry, "weights", lambda *_a, **_k: Path("unused"))
+    monkeypatch.setattr(engine, "geometry_warning", lambda *_: None)
+    immediate = engine.operation(
+        "compare", dict(file=str(source_path), seconds=3, models=ids[:2], settings=settings)
+    )
+    assert immediate["state"] == "done"
+    assert immediate["result"]["original_reused"]
+    assert all(item["reused"] for item in immediate["result"]["items"])
+    assert not engine.processes
+    engine.close()
+    before = cache_key(source_path, 0, 90, settings, ids[0], registry)
+    assert cache_key(source_path, 1, 90, settings, ids[0], registry) != before
+    assert (
+        cache_key(source_path, 0, 90, {**settings, "short_side": 1080}, ids[0], registry) != before
+    )
+    model_path = registry.folder(ids[0]) / "model.json"
+    changed = json.loads(model_path.read_text())
+    changed["weights"]["sha256"] = "a" * 64
+    model_path.write_text(json.dumps(changed))
+    assert cache_key(source_path, 0, 90, settings, ids[0], registry) != before
+    changed["weights"]["sha256"] = model["weights"]["sha256"]
+    model_path.write_text(json.dumps(changed))
+    source_path.touch()
+    assert cache_key(source_path, 0, 90, settings, ids[0], registry) != before
+
+
+def test_new_compare_cancels_previous_compare_only(fake_model, monkeypatch):
+    from types import SimpleNamespace
+
+    folder, model, registry = fake_model
+    registry.add(folder)
+    engine = Engine(registry.home)
+    settings = {"preset": "standard", "restore_model": model["id"], "fps": "off", "backend": "cpu"}
+    monkeypatch.setattr(engine, "chosen", lambda _: settings)
+    monkeypatch.setattr(engine, "geometry_warning", lambda *_: None)
+    monkeypatch.setattr(
+        "videoenhancer.service.engine.probe", lambda *_a, **_k: SimpleNamespace(to_dict=lambda: {})
+    )
+    killed = []
+    monkeypatch.setattr("videoenhancer.service.engine._kill_process_tree", killed.append)
+    request = {"file": str(folder / model["weights"]["filename"]), "models": [model["id"]]}
+    old = engine.operation("compare", request)
+    old["state"] = "running"
+    engine.processes[old["id"]] = SimpleNamespace(pid=12345, poll=lambda: None)
+    trial = engine.operation("trial", {"file": request["file"]})
+    new = engine.operation("compare", request)
+    assert old["cancel_requested"] is True
+    assert killed == [12345]
+    assert "cancel_requested" not in trial
+    assert new["state"] == "waiting"
+    engine.processes.clear()
+    engine.close()
+
+
+def test_current_licence_display_preserves_existing_resume_identity(tmp_path, monkeypatch):
+    registry = ModelRegistry(tmp_path)
+    path = registry.folder(C1) / "model.json"
+    legacy = registry.manifest(C1)
+    legacy.update(licence="Apache-2.0", commercial_use_allowed=True)
+    path.write_text(json.dumps(legacy))
+    monkeypatch.setattr(registry, "weights", lambda *_args, **_kwargs: Path("unused"))
+    before = registry.snapshot(C1, "restore")
+    public = registry.public_manifest(C1)
+    assert public["licence"] == "Code Apache-2.0; the weights' terms are not stated"
+    assert public["commercial_use_allowed"] is False
+    assert next(m for m in registry.list_models() if m["id"] == C1)["licence"] == public["licence"]
+    assert registry.snapshot(C1, "restore") == before
+    assert registry.manifest(C1)["licence"] == "Apache-2.0"
 
 
 def test_defaults_validate_weights_and_removal_protects_queued_models(
@@ -128,3 +226,16 @@ def test_compare_cache_retains_five_sessions_and_two_gb(tmp_path):
     assert sum(o["state"] == "done" for o in engine.operations.values()) == 5
     assert not (engine.home / "previews/session-0/original-preview.mp4").exists()
     engine.close()
+
+
+def test_cache_record_cannot_copy_a_file_outside_its_session(tmp_path):
+    from videoenhancer.service.compare import reuse_preview
+
+    old = tmp_path / "old"
+    new = tmp_path / "new"
+    old.mkdir()
+    new.mkdir()
+    (tmp_path / "private.mp4").write_bytes(b"must not be copied")
+    (old / "cache.json").write_text(json.dumps({"key": {"filename": "../private.mp4", "fps": 30}}))
+    assert reuse_preview(new, "key", "original") is None
+    assert not (new / "original-preview.mp4").exists()

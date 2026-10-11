@@ -1,9 +1,9 @@
 import { expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AddDialog } from "../src/Queue";
-import { ModelsPage } from "../src/Pages";
+import { ModelsPage, SettingsPage } from "../src/Pages";
 import type { Api } from "../src/api";
-import type { Model, Settings } from "../src/types";
+import type { Health, Model, Settings } from "../src/types";
 
 const settings: Settings = {
   preset: "standard",
@@ -37,6 +37,45 @@ const model: Model = {
     licence_plain: "Free for any use",
   },
 };
+
+it("Add and Settings show the same unavailable AV1 reason", () => {
+  const api = { call: vi.fn().mockResolvedValue({}) } as unknown as Api;
+  const reason = "AV1 hardware encoding is unavailable: driver rejected encode";
+  const add = render(
+    <AddDialog
+      api={api}
+      files={[]}
+      defaults={settings}
+      models={[]}
+      av1={false}
+      av1Reason={reason}
+      close={vi.fn()}
+      saved={vi.fn()}
+      trial={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByText("More options"));
+  expect(
+    screen.getByRole("option", { name: "AV1" }).hasAttribute("disabled"),
+  ).toBe(true);
+  expect(screen.getByText(reason)).toBeTruthy();
+  add.unmount();
+  render(
+    <SettingsPage
+      api={api}
+      value={settings}
+      health={
+        { av1_supported: false, av1_unavailable_reason: reason } as Health
+      }
+      saved={vi.fn()}
+      calibrate={vi.fn()}
+    />,
+  );
+  expect(
+    screen.getByRole("option", { name: "AV1" }).hasAttribute("disabled"),
+  ).toBe(true);
+  expect(screen.getByText(reason)).toBeTruthy();
+});
 
 it("adds while preparing, keeps mode and model choices when returning from Compare", async () => {
   const saved = vi.fn(),
@@ -132,4 +171,27 @@ it("changes only the new-job default and exposes exact model details", async () 
   );
   fireEvent.click(screen.getByRole("menuitem", { name: "Details" }));
   expect(screen.getByText(`SHA-256: ${model.weights.sha256}`)).toBeTruthy();
+});
+
+it("keeps DRUNet on one card and persists its three strength choices", async () => {
+  const call = vi.fn(async () => ({}));
+  render(
+    <ModelsPage
+      api={{ call } as unknown as Api}
+      models={[{ ...model, id: "drunet-deblock", architecture: "drunet" }]}
+      settings={settings}
+      refresh={vi.fn()}
+      operate={vi.fn()}
+      operations={[]}
+    />,
+  );
+  expect(screen.getAllByText("Gentle fixture")).toHaveLength(1);
+  const selector = screen.getByLabelText("Strength");
+  expect(selector.querySelectorAll("option")).toHaveLength(3);
+  fireEvent.change(selector, { target: { value: "strong" } });
+  await waitFor(() =>
+    expect(call).toHaveBeenCalledWith("settings", "PUT", {
+      restore_strength: "strong",
+    }),
+  );
 });

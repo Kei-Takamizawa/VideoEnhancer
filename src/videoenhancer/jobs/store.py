@@ -375,9 +375,19 @@ class JobStore:
                 raise ValueError("Already started. Remove it and add it again to change mode.")
             if job["state"] not in {"queued", "paused"}:
                 raise ValueError("Wait for preparation before changing mode.")
-            if model_patch and set(model_patch) - {"restore_model", "interp_model"}:
-                raise ValueError("Choose a cleanup or motion model.")
+            if model_patch and set(model_patch) - {
+                "restore_model",
+                "interp_model",
+                "size_model",
+                "restore_strength",
+                "size_strength",
+            }:
+                raise ValueError("Choose a cleanup, motion or size model.")
             chosen = {**job["settings"], "preset": preset, **(model_patch or {})}
+            if chosen.get("restore_strength", "medium") not in {"light", "medium", "strong"}:
+                raise ValueError("Invalid cleanup strength.")
+            if chosen.get("size_strength", 0.2) not in {0.2, 0.6}:
+                raise ValueError("Invalid enlarger strength.")
             if preset == "fast":
                 chosen.pop("restore_model", None)
             registry = ModelRegistry(self.home)

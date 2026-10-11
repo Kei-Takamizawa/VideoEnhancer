@@ -2,6 +2,7 @@
 
 import importlib
 import subprocess
+import tempfile
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,35 @@ NVENC_SETTINGS = {
     "constqp": "18",
     "bf": "0",
 }
+
+
+def probe_av1() -> tuple[bool, str | None]:
+    """Exercise the production CUDA encoder and muxer at a supported HD size."""
+    encoder = None
+    try:
+        if not torch.cuda.is_available():
+            return False, "CUDA hardware encoding is unavailable."
+        with tempfile.TemporaryDirectory(prefix="ve-av1-probe-") as folder:
+            encoder = Encoder(
+                Path(folder) / "probe.mp4",
+                1920,
+                1080,
+                Fraction(30),
+                "av1",
+                "cuda",
+                {"color_matrix": "bt709", "color_primaries": "bt709", "color_transfer": "bt709"},
+            )
+            with torch.inference_mode():
+                frame = torch.zeros((3, 1080, 1920), device="cuda")
+                for _ in range(2):
+                    encoder.write(frame)
+            encoder.finish()
+            encoder = None
+        return True, None
+    except Exception as error:
+        if encoder is not None:
+            encoder.abort()
+        return False, "AV1 hardware encoding is unavailable: " + " ".join(str(error).split())
 
 
 def packet_bytes(packets: Any) -> bytes:
@@ -125,9 +155,14 @@ class Encoder:
                 gop=str(max(1, round(float(rate) * 2))),
                 profile="high" if codec == "h264" else "main10" if codec == "hevc" else "main",
             )
-            self.encoder = nvc.CreateEncoder(
-                width, height, "NV12" if self.bit_depth == 8 else "P010", True, **options
-            )
+            try:
+                self.encoder = nvc.CreateEncoder(
+                    width, height, "NV12" if self.bit_depth == 8 else "P010", True, **options
+                )
+            except Exception as error:
+                raise RuntimeError(
+                    f"{codec.upper()} hardware encoder could not start: {error}"
+                ) from error
             self.stream = self.raw_path.open("wb")
         else:
             implementation = {"hevc": "libx265", "h264": "libx264", "av1": "libaom-av1"}[codec]
@@ -200,7 +235,12 @@ class Encoder:
             host_surface = surface.cpu().contiguous()
             if host_surface.dtype == torch.uint16:
                 host_surface = host_surface.view(torch.uint8).reshape(-1)
-            packets = self.encoder.Encode(host_surface.numpy())
+            try:
+                packets = self.encoder.Encode(host_surface.numpy())
+            except Exception as error:
+                raise RuntimeError(
+                    f"{self.codec.upper()} hardware encoding failed: {error}"
+                ) from error
             self.stream.write(packet_bytes(packets))
         else:
             assert self.process is not None and self.process.stdin is not None
@@ -214,10 +254,19 @@ class Encoder:
 
     def finish(self) -> None:
         if self.backend == "cuda":
-            self.stream.write(packet_bytes(self.encoder.EndEncode()))
+            try:
+                self.stream.write(packet_bytes(self.encoder.EndEncode()))
+            except Exception as error:
+                raise RuntimeError(
+                    f"{self.codec.upper()} hardware encoding failed: {error}"
+                ) from error
             self.stream.close()
             self.encoder = None
             metadata = color_bsf(self.media, self.codec)
+            if self.codec == "av1":
+                # IVF packets carry encoder timestamps; stream-copy ignores -r.
+                # Assign the pipeline's exact rational CFR without re-encoding.
+                metadata += f",setts=pts=N:dts=N:duration=1:time_base={1 / self.rate}"
             command = [
                 executable("ffmpeg"),
                 "-v",
