@@ -1,0 +1,50 @@
+{
+  "id": "rife-4.25-lite",
+  "display_name": "Practical-RIFE 4.25 lite",
+  "version": "1",
+  "description": "Faster, slightly less accurate on fast motion.",
+  "task": "interpolate",
+  "architecture": "rife",
+  "architecture_params": {
+    "variant": "4.25-lite"
+  },
+  "weights": {
+    "filename": "rife425lite.pkl",
+    "url": "https://drive.google.com/uc?id=1zlKblGuKNatulJNFf5jdB-emp9AqGK05",
+    "sha256": "81cdba223fe72a120130cc8552e5d2ecac824259d406f0c15323b3decf96b8b1",
+    "bytes": 24467405
+  },
+  "licence": "MIT",
+  "commercial_use_allowed": true,
+  "scale": 1,
+  "temporal": true,
+  "clip_length": 3,
+  "clip_overlap": 1,
+  "precision": "fp16",
+  "catalog": {
+    "category": "motion",
+    "title": "Smooth motion, faster",
+    "description": "Faster, slightly less accurate on fast motion.",
+    "look_change": "very_little",
+    "invents_detail": "low",
+    "flicker": "none",
+    "default": false,
+    "licence_plain": "Free for any use",
+    "summary": "Makes in-between frames with a lighter motion model.",
+    "reference_speed": {
+      "gpu": "RTX 4060 Ti 8GB",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "1080x1920 at 60 fps",
+      "fps": 16.66263449424283,
+      "peak_memory_gb": 1.82366208,
+      "torch_allocated_bytes": 1146762240,
+      "torch_reserved_bytes": 1457520640,
+      "sampled_process_peak_bytes": 1823662080,
+      "sampling_seconds": 1,
+      "tile_size": null,
+      "tile_overlap": null,
+      "mode": "fast",
+      "seconds": 5
+    }
+  }
+}

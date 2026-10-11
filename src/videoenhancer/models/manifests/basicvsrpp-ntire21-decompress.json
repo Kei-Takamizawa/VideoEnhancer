@@ -1,8 +1,8 @@
 {
   "id": "basicvsrpp-ntire21-decompress",
-  "display_name": "BasicVSR++ NTIRE 2021 decompression (C1)",
+  "display_name": "BasicVSR++ NTIRE21 Track 3",
   "version": "1",
-  "description": "BasicVSR++ NTIRE 2021 decompression (C1)",
+  "description": "Removes blockiness and smeared detail using neighbouring frames. Keeps faces and the filtered look as they are.",
   "task": "restore",
   "architecture": "basicvsrpp",
   "architecture_params": {
@@ -12,13 +12,40 @@
   "weights": {
     "filename": "weights.pth",
     "sha256": "6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a",
-    "url": "https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track3_20210304-6daf4a40.pth"
+    "url": "https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track3_20210304-6daf4a40.pth",
+    "bytes": 176414092
   },
-  "licence": "Apache-2.0 (OpenMMLab); verify rights for training data and intended use.",
-  "commercial_use_allowed": true,
+  "licence": "Code Apache-2.0; the weights' terms are not stated",
+  "commercial_use_allowed": false,
   "scale": 1,
   "temporal": true,
   "clip_length": 15,
   "clip_overlap": 2,
-  "precision": "fp16"
+  "precision": "fp16",
+  "catalog": {
+    "category": "cleanup",
+    "title": "Gentle cleanup",
+    "description": "Removes blockiness and smeared detail using neighbouring frames. Keeps faces and the filtered look as they are.",
+    "look_change": "very_little",
+    "invents_detail": "low",
+    "flicker": "none",
+    "default": true,
+    "licence_plain": "Code free; weights' terms not stated",
+    "summary": "Removes video blockiness while keeping faces and the filtered look.",
+    "reference_speed": {
+      "gpu": "RTX 4060 Ti 8GB",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "1080x1920 at 60 fps",
+      "fps": 2.4727076215054278,
+      "peak_memory_gb": 4.342366208,
+      "torch_allocated_bytes": 2886402048,
+      "torch_reserved_bytes": 3978297344,
+      "sampled_process_peak_bytes": 4342366208,
+      "sampling_seconds": 1,
+      "tile_size": null,
+      "tile_overlap": null,
+      "mode": "standard",
+      "seconds": 5
+    }
+  }
 }

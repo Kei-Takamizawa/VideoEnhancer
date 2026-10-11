@@ -38,11 +38,15 @@ class RifeInterpolateStage(Stage):
         self.last_padding = (0, 0)
         self.weights = weights
         self.precision = (manifest or {}).get("precision", "fp16")
+        self.variant = (manifest or {}).get("architecture_params", {}).get("variant", "4.25")
 
     def setup(self) -> None:
-        self.model = (
-            load_rife_model() if self.weights is None else load_rife_model(weights=self.weights)
-        ).eval()
+        if self.variant != "4.25":
+            self.model = load_rife_model(weights=self.weights, variant=self.variant).eval()
+        else:
+            self.model = (
+                load_rife_model() if self.weights is None else load_rife_model(weights=self.weights)
+            ).eval()
         if self.backend == "cuda":
             self.model = self.model.cuda()
             self.model = self.model.half() if self.precision == "fp16" else self.model.float()

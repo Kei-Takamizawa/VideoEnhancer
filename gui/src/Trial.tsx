@@ -3,7 +3,7 @@ import { createFile } from "mp4box";
 import type { Sample } from "mp4box";
 import type { Api } from "./api";
 import { filename } from "./api";
-import type { Media, Operation, Settings } from "./types";
+import type { Media, Model, Operation, Settings } from "./types";
 import { OperationStatus } from "./Pages";
 
 type Movie = { config: VideoDecoderConfig; samples: Sample[]; fps: number };
@@ -166,28 +166,49 @@ export function Compare({
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [split, setSplit] = useState(50);
-  const [side, setSide] = useState(false);
+  const [side, setSide] = useState(!!operation.result?.items);
+  const [loop, setLoop] = useState(true);
+  const [left, setLeft] = useState(0),
+    [right, setRight] = useState(1);
   const [zoom, setZoom] = useState(100);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [error, setError] = useState("");
-  const drawing = useRef({ split, side });
-  drawing.current = { split, side };
+  const paths = operation.result?.items
+    ? [
+        operation.result.original!,
+        ...operation.result.items.map((item) => item.preview),
+      ]
+    : [
+        operation.result?.preview?.original,
+        operation.result?.preview?.enhanced,
+      ];
+  const labels = operation.result?.items
+    ? [
+        "Original",
+        ...operation.result.items.map((item) => item.name || item.id),
+      ]
+    : ["Original", "Enhanced"];
+  const drawing = useRef({ split, side, left, right, loop, labels });
+  drawing.current = { split, side, left, right, loop, labels };
+  const pathKey = paths.join("|");
   useEffect(() => {
     let alive = true;
     let raf = 0;
     const owned: FrameReader[] = [];
     const run = async () => {
       try {
-        const paths = operation.result!.preview!;
         const movies = await Promise.all(
-          [paths.original, paths.enhanced].map((p) =>
-            api.blob(p.replace("/v1/", "")).then(demux),
-          ),
+          pathKey
+            .split("|")
+            .map((p) => api.blob(p.replace("/v1/", "")).then(demux)),
         );
         if (!alive) return;
         if (
-          Math.abs(movies[0].fps - movies[1].fps) > 0.001 ||
-          movies[0].samples.length !== movies[1].samples.length
+          movies.some(
+            (m) =>
+              Math.abs(movies[0].fps - m.fps) > 0.001 ||
+              movies[0].samples.length !== m.samples.length,
+          )
         )
           throw new Error(
             "The previews have different frame counts or frame rates.",
@@ -201,31 +222,55 @@ export function Compare({
           const state = clock.current;
           if (state.playing)
             state.frame =
-              (state.anchorFrame +
-                Math.floor(((now - state.anchor) / 1000) * movies[0].fps)) %
-              movies[0].samples.length;
+              state.anchorFrame +
+              Math.floor(((now - state.anchor) / 1000) * movies[0].fps);
+          if (state.frame >= movies[0].samples.length) {
+            if (drawing.current.loop) state.frame %= movies[0].samples.length;
+            else {
+              state.frame = movies[0].samples.length - 1;
+              state.playing = false;
+              setPlaying(false);
+            }
+          }
           const pair = owned.map((r) => r.frame(state.frame));
           if (owned.some((r) => r.error)) {
             setError(owned.find((r) => r.error)!.error);
             return;
           }
           if (
-            pair[0] &&
-            pair[1] &&
-            Math.abs(pair[0].timestamp - pair[1].timestamp) <=
-              1e6 / movies[0].fps
+            pair.every(
+              (picture) =>
+                picture &&
+                Math.round((picture.timestamp / 1e6) * movies[0].fps) ===
+                  state.frame,
+            )
           ) {
-            const a = pair[0],
-              b = pair[1],
+            const a = pair[Math.min(drawing.current.left, pair.length - 1)]!,
+              b = pair[Math.min(drawing.current.right, pair.length - 1)]!,
               element = canvas.current!;
             const width = a.displayWidth,
               height = a.displayHeight;
             const mode = drawing.current;
-            element.width = width * (mode.side ? 2 : 1);
-            element.height = height;
+            const columns = mode.side
+              ? width > height
+                ? Math.min(2, pair.length)
+                : pair.length
+              : 1;
+            element.width = width * columns;
+            element.height =
+              height * (mode.side ? Math.ceil(pair.length / columns) : 1);
             const ctx = element.getContext("2d")!;
             ctx.drawImage(a, 0, 0, width, height);
-            if (mode.side) ctx.drawImage(b, width, 0, width, height);
+            if (mode.side)
+              pair.forEach((picture, i) =>
+                ctx.drawImage(
+                  picture!,
+                  (i % columns) * width,
+                  Math.floor(i / columns) * height,
+                  width,
+                  height,
+                ),
+              );
             else {
               ctx.save();
               ctx.beginPath();
@@ -234,9 +279,29 @@ export function Compare({
               ctx.drawImage(b, 0, 0, width, height);
               ctx.restore();
             }
+            if (mode.side) {
+              ctx.font = "24px Segoe UI";
+              pair.forEach((_, i) => {
+                const x = (i % columns) * width,
+                  y = Math.floor(i / columns) * height;
+                ctx.fillStyle = "rgba(0,0,0,0.7)";
+                ctx.fillRect(
+                  x,
+                  y,
+                  Math.min(width, ctx.measureText(mode.labels[i]).width + 20),
+                  34,
+                );
+                ctx.fillStyle = "white";
+                ctx.fillText(mode.labels[i], x + 10, y + 25);
+              });
+            }
             element.dataset.frame = String(state.frame);
             element.dataset.syncDelta = String(
-              Math.abs(a.timestamp - b.timestamp),
+              Math.max(...pair.map((p) => p!.timestamp)) -
+                Math.min(...pair.map((p) => p!.timestamp)),
+            );
+            element.dataset.frames = JSON.stringify(
+              pair.map((p) => Math.round((p!.timestamp / 1e6) * movies[0].fps)),
             );
             setFrame(state.frame);
           }
@@ -254,7 +319,7 @@ export function Compare({
       owned.forEach((r) => r.close());
       readers.current = [];
     };
-  }, [api, operation.id]);
+  }, [api, operation.id, pathKey]);
   const seek = (n: number) => {
     clock.current = {
       frame: Math.max(0, Math.min(count - 1, n)),
@@ -270,6 +335,12 @@ export function Compare({
       className="compare"
       tabIndex={0}
       onKeyDown={(e) => {
+        if (e.code === "Space" && !(e.target instanceof HTMLInputElement)) {
+          e.preventDefault();
+          e.currentTarget
+            .querySelector<HTMLButtonElement>(".preview-play")
+            ?.click();
+        }
         if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
           e.preventDefault();
           seek(clock.current.frame + (e.key === "ArrowRight" ? 1 : -1));
@@ -277,12 +348,15 @@ export function Compare({
       }}
     >
       <p>
-        Processed at {operation.result?.pipeline?.fps.toFixed(2)} fps · previews{" "}
-        {fps.toFixed(2)} fps
+        {operation.result?.pipeline
+          ? `Processed at ${operation.result.pipeline.fps.toFixed(2)} fps · `
+          : ""}
+        Previews {fps.toFixed(2)} fps
       </p>
       <div className="compare-labels">
-        <strong>Original</strong>
-        <strong>Enhanced</strong>
+        {labels.map((label) => (
+          <strong key={label}>{label}</strong>
+        ))}
       </div>
       <div
         className="canvas-viewport"
@@ -327,6 +401,7 @@ export function Compare({
       </label>
       <div className="toolbar">
         <button
+          className="preview-play"
           disabled={!count}
           onClick={() => {
             const next = !playing;
@@ -348,16 +423,54 @@ export function Compare({
           Next frame
         </button>
         <span>
-          Frame {frame + 1}/{count} · Loop
+          Frame {frame + 1}/{count} ·{" "}
+          {((operation.result?.start_seconds || 0) + frame / fps).toFixed(1)} /{" "}
+          {((operation.result?.start_seconds || 0) + count / fps).toFixed(1)} s
         </span>
         <label className="check">
           <input
             type="checkbox"
             checked={side}
-            onChange={(e) => setSide(e.target.checked)}
+            onChange={(e) => {
+              setSide(e.target.checked);
+              setZoom(e.target.checked ? 100 : 200);
+              setPan({ x: 0, y: 0 });
+            }}
           />
           Side by side
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={loop}
+            onChange={(e) => setLoop(e.target.checked)}
+          />
+          Loop
+        </label>
+        {!side && labels.length > 2 && (
+          <>
+            {[
+              ["Left", left, setLeft],
+              ["Right", right, setRight],
+            ].map(([label, selected, change]) => (
+              <label key={String(label)}>
+                {String(label)}
+                <select
+                  value={Number(selected)}
+                  onChange={(e) =>
+                    (change as (n: number) => void)(Number(e.target.value))
+                  }
+                >
+                  {labels.map((name, i) => (
+                    <option key={name} value={i}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </>
+        )}
         <label>
           Zoom
           <select
@@ -391,15 +504,24 @@ export function TrialDialog({
   value,
   operations,
   close,
+  models = [],
+  useModel,
+  started = false,
 }: {
   api: Api;
   value: { file: string; settings: Settings; media?: Media; job_id?: string };
   operations: Operation[];
   close(): void;
+  models?: Model[];
+  useModel?(
+    key: "restore_model" | "interp_model",
+    id: string,
+  ): Promise<void> | void;
+  started?: boolean;
 }) {
   const previous = operations.findLast(
     (o) =>
-      o.kind === "trial" &&
+      o.kind === "compare" &&
       (value.job_id
         ? o.job_id === value.job_id
         : o.request?.file === value.file),
@@ -413,6 +535,20 @@ export function TrialDialog({
   const [id, setId] = useState(previous?.id || "");
   const [initial, setInitial] = useState<Operation | undefined>(previous);
   const [error, setError] = useState("");
+  const [category, setCategory] = useState(
+    value.settings.preset === "standard" ? "cleanup" : "motion",
+  );
+  const key = category === "cleanup" ? "restore_model" : "interp_model";
+  const candidates = models.filter(
+    (m) => m.task === (category === "cleanup" ? "restore" : "interpolate"),
+  );
+  const [selected, setSelected] = useState<string[]>([
+    value.settings.preset === "standard"
+      ? value.settings.restore_model || "basicvsrpp-ntire21-decompress"
+      : value.settings.interp_model || "rife-4.25",
+  ]);
+  const [chosen, setChosen] = useState(value.settings[key] || selected[0]);
+  const [consent, setConsent] = useState<Model>();
   const operation = operations.find((o) => o.id === id) || initial;
   useEffect(() => {
     let alive = true;
@@ -445,8 +581,14 @@ export function TrialDialog({
         aria-labelledby="trial-title"
       >
         <div className="page-heading">
-          <h2 id="trial-title">Trial — {filename(value.file)}</h2>
-          <button onClick={close}>Close</button>
+          <h2 id="trial-title">Compare models — {filename(value.file)}</h2>
+          <button
+            onClick={async () => {
+              close();
+            }}
+          >
+            Back
+          </button>
         </div>
         <div className="thumbnails">
           {thumbnails.map((src, i) => (
@@ -468,6 +610,70 @@ export function TrialDialog({
             onChange={(e) => setStart(Number(e.target.value))}
           />
         </label>
+        <div className="filter-pills">
+          <label>
+            Comparing
+            <select
+              value={category}
+              onChange={(e) => {
+                const next = e.target.value;
+                setCategory(next);
+                const model = models.find(
+                  (m) =>
+                    m.weights_verified &&
+                    m.task === (next === "cleanup" ? "restore" : "interpolate"),
+                );
+                setSelected(model ? [model.id] : []);
+                setChosen(
+                  next === "cleanup"
+                    ? value.settings.restore_model ||
+                        "basicvsrpp-ntire21-decompress"
+                    : value.settings.interp_model || "rife-4.25",
+                );
+              }}
+            >
+              <option
+                value="cleanup"
+                disabled={value.settings.preset !== "standard"}
+              >
+                Cleanup
+              </option>
+              <option value="motion">Smoother motion</option>
+              <option value="size" disabled>
+                Bigger picture · Standard resize
+              </option>
+            </select>
+          </label>
+          <span className="badge">Original</span>
+          {candidates.map((m) => (
+            <button
+              key={m.id}
+              aria-pressed={selected.includes(m.id)}
+              disabled={
+                m.weights_verified &&
+                !selected.includes(m.id) &&
+                selected.length >= 3
+              }
+              onClick={() =>
+                m.weights_verified
+                  ? setSelected((old) =>
+                      old.includes(m.id)
+                        ? old.filter((id) => id !== m.id)
+                        : [...old, m.id],
+                    )
+                  : setConsent(m)
+              }
+            >
+              {m.weights_verified
+                ? selected.includes(m.id)
+                  ? "✓ "
+                  : ""
+                : "+ "}
+              {m.catalog?.title || m.display_name}
+              {m.weights_verified ? "" : " · installs model weights"}
+            </button>
+          ))}
+        </div>
         <div className="toolbar">
           <label>
             Length
@@ -487,14 +693,19 @@ export function TrialDialog({
             disabled={
               operation?.state === "waiting" ||
               operation?.state === "running" ||
-              !total
+              !total ||
+              !selected.length ||
+              selected.some(
+                (id) => !models.some((m) => m.id === id && m.weights_verified),
+              )
             }
             onClick={async () => {
               try {
-                const op = await api.call<Operation>("trial", "POST", {
+                const op = await api.call<Operation>("compare", "POST", {
                   ...value,
                   start: Math.min(start, Math.max(0, total - length)),
                   seconds: length,
+                  models: selected,
                 });
                 setId(op.id);
                 setInitial(op);
@@ -504,22 +715,94 @@ export function TrialDialog({
               }
             }}
           >
-            Render trial
+            Compare selected models
           </button>
         </div>
         <p className="muted">
-          A busy engine runs this between segments. A trial may run at most{" "}
-          {length} seconds past the end of operating hours.
+          A busy engine starts this after its current step, including outside
+          your hours.
         </p>
-        {operation && (
+        {operation && operation.state !== "done" && (
           <OperationStatus
             operation={operation}
             cancel={() => void api.call(`operations/${id}/cancel`, "POST", {})}
           />
         )}
-        {operation?.state === "done" && operation.result?.preview && (
+        {operation?.state === "done" && <p className="muted">Compare: done</p>}
+        {operation?.result?.original && (
           <Compare api={api} operation={operation} />
-        )}{" "}
+        )}
+        <div className="model-grid">
+          {selected.map((id) => {
+            const model = models.find((m) => m.id === id);
+            const item = operation?.result?.items?.find((m) => m.id === id);
+            return (
+              <article className="card" key={id}>
+                <h3>{model?.catalog?.title || model?.display_name || id}</h3>
+                <p>{model?.catalog?.description}</p>
+                <p>
+                  {item
+                    ? `About ${Math.floor(item.projected_whole_file_seconds / 3600)} h ${Math.round((item.projected_whole_file_seconds % 3600) / 60)} m for this video · ${item.fps.toFixed(2)} fps`
+                    : "Measuring speed…"}
+                </p>
+                <button
+                  disabled={started || !useModel || !item || chosen === id}
+                  title={
+                    started
+                      ? "Already started. Remove it and add it again to use another model."
+                      : undefined
+                  }
+                  onClick={async () => {
+                    try {
+                      await useModel?.(key, id);
+                      setChosen(id);
+                    } catch (e) {
+                      setError((e as Error).message);
+                    }
+                  }}
+                >
+                  {chosen === id ? "Chosen" : "Use this"}
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      await api.call("settings", "PUT", { [key]: id });
+                    } catch (e) {
+                      setError((e as Error).message);
+                    }
+                  }}
+                >
+                  Make it my default
+                </button>
+              </article>
+            );
+          })}
+        </div>
+        {consent && (
+          <div className="modal-shade">
+            <div className="dialog" role="dialog" aria-modal="true">
+              <h3>Install {consent.catalog?.title || consent.display_name}?</h3>
+              <p>Licence: {consent.licence}</p>
+              <p className="break">Source: {consent.weights.url}</p>
+              <button onClick={() => setConsent(undefined)}>Cancel</button>
+              <button
+                onClick={async () => {
+                  try {
+                    await api.call(`models/${consent.id}/download`, "POST", {
+                      agree: true,
+                      licence: consent.licence,
+                    });
+                    setConsent(undefined);
+                  } catch (e) {
+                    setError((e as Error).message);
+                  }
+                }}
+              >
+                Accept licence and download
+              </button>
+            </div>
+          </div>
+        )}
         {error && (
           <p role="alert" className="error">
             {error}

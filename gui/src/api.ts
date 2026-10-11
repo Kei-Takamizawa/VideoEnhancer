@@ -33,29 +33,65 @@ export async function events(
   connection: Connection,
   signal: AbortSignal,
   receive: (data: unknown) => void,
+  status: (reconnecting: boolean) => void = () => {},
+  reconnect?: () => Promise<Connection>,
 ) {
-  const response = await fetch(`${connection.base_url}/events`, {
-    headers: { Authorization: `Bearer ${connection.token}` },
-    signal,
-  });
-  if (!response.ok || !response.body)
-    throw new Error("The engine event stream is unavailable.");
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+  let attempt = 0;
   while (!signal.aborted) {
-    const chunk = await reader.read();
-    if (chunk.done)
-      throw new Error("The engine connection closed. Retry to reconnect.");
-    buffer += decoder.decode(chunk.value, { stream: true });
-    let boundary;
-    while ((boundary = buffer.indexOf("\n\n")) >= 0) {
-      const message = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      const line = message
-        .split("\n")
-        .find((line) => line.startsWith("data: "));
-      if (line) receive(JSON.parse(line.slice(6)));
+    const stream = new AbortController();
+    const cancel = () => stream.abort();
+    signal.addEventListener("abort", cancel, { once: true });
+    let silence = setTimeout(cancel, 30000);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const response = await fetch(`${connection.base_url}/events`, {
+        headers: { Authorization: `Bearer ${connection.token}` },
+        signal: stream.signal,
+      });
+      if (!response.ok || !response.body)
+        throw new Error("The engine event stream is unavailable.");
+      reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (!stream.signal.aborted) {
+        const chunk = await reader.read();
+        if (chunk.done) throw new Error("The engine connection closed.");
+        buffer += decoder.decode(chunk.value, { stream: true });
+        let boundary;
+        while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+          const message = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          clearTimeout(silence);
+          silence = setTimeout(cancel, 30000);
+          attempt = 0;
+          status(false);
+          if (message.startsWith("event: update")) {
+            const line = message.split("\n").find((line) => line.startsWith("data: "));
+            if (line) receive(JSON.parse(line.slice(6)));
+          }
+        }
+      }
+    } catch {
+      if (!signal.aborted) status(true);
+    } finally {
+      clearTimeout(silence);
+      stream.abort();
+      signal.removeEventListener("abort", cancel);
+      await reader?.cancel().catch(() => {});
+    }
+    if (signal.aborted) return;
+    const delay = [1000, 2000, 5000, 10000][Math.min(attempt++, 3)];
+    await new Promise<void>((resolve) => {
+      const finish = () => { clearTimeout(timer); signal.removeEventListener("abort", finish); resolve(); };
+      const timer = setTimeout(finish, delay);
+      signal.addEventListener("abort", finish, { once: true });
+    });
+    if (!signal.aborted && reconnect) {
+      try {
+        connection = await reconnect();
+      } catch {
+        status(true);
+      }
     }
   }
 }

@@ -13,6 +13,13 @@ from videoenhancer.service.engine import Engine
 from videoenhancer.service.server import APP_ORIGIN, LocalServer, discovery, service_lock
 
 
+def wait_prepared(engine):
+    deadline = time.monotonic() + 15
+    while any(j["state"] == "preparing" for j in engine.store.list_jobs()):
+        assert time.monotonic() < deadline, "Preparation did not finish"
+        time.sleep(0.02)
+
+
 @pytest.fixture
 def api(tmp_path):
     engine = Engine(tmp_path / "home")
@@ -92,6 +99,8 @@ def test_cpu_queue_sse_controls_and_completed_output(api, video_factory):
         {"file": str(source), "settings": settings, "output": str(source.parent / "second.mp4")},
     ) as response:
         second = json.load(response)
+    assert first["state"] == second["state"] == "preparing"
+    wait_prepared(engine)
     request(f"queue/{second['id']}/move", "POST", {"position": 1}).close()
     assert engine.store.list_jobs()[0]["id"] == second["id"]
     request(f"queue/{first['id']}/pause", "POST", {}).close()
@@ -137,6 +146,7 @@ def test_schedule_preview_and_persisted_settings(api, video_factory):
             dict(days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"], start="22:00", end="08:00")
         ],
     )
+    wait_prepared(engine)
     with request("schedule/preview", "POST", schedule) as response:
         preview = json.load(response)
         assert preview["next_window"] and preview["plan"]["jobs"][0]["completion"]
@@ -191,6 +201,7 @@ def test_saved_schedule_used_by_controller_with_fake_clock(api, monkeypatch, vid
             stopped.set()
             return controller.SegmentResult("aborted")
 
+    wait_prepared(engine)
     controller.run_queue(home=engine.home, clock=clock, executor=Executor(), stopped=stopped.is_set)
     assert observed and observed[0].hour == 9
 

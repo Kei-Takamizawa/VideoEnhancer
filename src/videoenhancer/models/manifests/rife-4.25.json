@@ -2,20 +2,47 @@
   "id": "rife-4.25",
   "display_name": "Practical-RIFE 4.25",
   "version": "1",
-  "description": "Practical-RIFE 4.25",
+  "description": "Makes new in-between frames. Recommended by its author for most scenes.",
   "task": "interpolate",
   "architecture": "rife",
   "architecture_params": {},
   "weights": {
     "filename": "flownet.pkl",
     "sha256": "6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2",
-    "url": "https://drive.google.com/uc?id=1ZKjcbmt1hypiFprJPIKW0Tt0lr_2i7bg"
+    "url": "https://drive.google.com/uc?id=1ZKjcbmt1hypiFprJPIKW0Tt0lr_2i7bg",
+    "bytes": 24636301
   },
-  "licence": "MIT (hzwer); verify rights for third-party weights and intended use.",
+  "licence": "MIT",
   "commercial_use_allowed": true,
   "scale": 1,
   "temporal": true,
   "clip_length": 3,
   "clip_overlap": 1,
-  "precision": "fp16"
+  "precision": "fp16",
+  "catalog": {
+    "category": "motion",
+    "title": "Smooth motion",
+    "description": "Makes new in-between frames. Recommended by its author for most scenes.",
+    "look_change": "very_little",
+    "invents_detail": "low",
+    "flicker": "none",
+    "default": true,
+    "licence_plain": "Free for any use",
+    "summary": "Makes new frames between existing pictures for smoother motion.",
+    "reference_speed": {
+      "gpu": "RTX 4060 Ti 8GB",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "1080x1920 at 60 fps",
+      "fps": 16.430266891262384,
+      "peak_memory_gb": 1.964171264,
+      "torch_allocated_bytes": 1154199040,
+      "torch_reserved_bytes": 1595932672,
+      "sampled_process_peak_bytes": 1964171264,
+      "sampling_seconds": 1,
+      "tile_size": null,
+      "tile_overlap": null,
+      "mode": "fast",
+      "seconds": 5
+    }
+  }
 }

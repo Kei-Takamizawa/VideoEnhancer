@@ -31,7 +31,7 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
   let child = app.process();
   try {
     const page = await app.firstWindow();
-    await expect(page.getByText("Your queue is empty.")).toBeVisible({
+    await expect(page.getByText("Nothing in the queue.")).toBeVisible({
       timeout: 40000,
     });
     await app.evaluate(({ dialog }, file) => {
@@ -41,6 +41,7 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
       });
     }, process.env.VE_GUI_OWNER_CLIP!);
     await page.getByRole("button", { name: "+ Add videos" }).click();
+    await page.getByText("More options", { exact: true }).click();
     await page
       .getByRole("textbox", { name: /Output folder/ })
       .fill(path.join(env.VE_HOME, "outputs"));
@@ -48,9 +49,11 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
       page.getByRole("button", { name: "Add to queue" }),
     ).toBeEnabled({ timeout: 30000 });
     await page.getByRole("button", { name: "Add to queue" }).click();
-    await expect(page.locator(".state")).toHaveText("Running", {
-      timeout: 30000,
-    });
+    await expect(page.getByText("Now processing", { exact: true })).toBeVisible(
+      {
+        timeout: 30000,
+      },
+    );
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].close(),
     );
@@ -111,10 +114,12 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
     });
     child = app.process();
     const reopened = await app.firstWindow();
-    await expect(reopened.locator(".state")).toHaveText("Done", {
+    await reopened
+      .getByRole("button", { name: "History", exact: true })
+      .click();
+    await expect(reopened.getByText("Finished", { exact: true })).toBeVisible({
       timeout: 150000,
     });
-    await expect(reopened.getByText("100.0%")).toBeVisible();
     console.log(
       JSON.stringify({
         checkpoint_state: checkpoint.state,

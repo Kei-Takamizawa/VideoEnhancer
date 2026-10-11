@@ -1,12 +1,12 @@
 """Probe stream metadata and exact packet presentation times."""
 
 import json
-import subprocess
 from dataclasses import asdict, dataclass, field
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from videoenhancer import proc
 from videoenhancer.config import executable
 
 STANDARD_RATES = tuple(
@@ -77,7 +77,7 @@ def packet_timeline(path: str | Path, time_base: Fraction) -> tuple[list[Fractio
         "csv=p=0",
         str(path),
     ]
-    result = subprocess.run(command, capture_output=True, text=True, check=True)
+    result = proc.run(command, capture_output=True, text=True, check=True)
     records: list[tuple[int, int]] = []
     for line in result.stdout.splitlines():
         fields = line.split(",")
@@ -91,7 +91,11 @@ def packet_timeline(path: str | Path, time_base: Fraction) -> tuple[list[Fractio
 
 
 def probe(
-    path: str | Path, count_frames: bool = False, *, count_packets: bool = False
+    path: str | Path,
+    count_frames: bool = False,
+    *,
+    count_packets: bool = False,
+    read_timeline: bool = True,
 ) -> MediaInfo:
     source = Path(path).expanduser().resolve()
     if not source.is_file():
@@ -99,7 +103,7 @@ def probe(
     command = [executable("ffprobe"), "-v", "error", "-show_format", "-show_streams", "-of", "json"]
     if count_frames:
         command += ["-count_frames"]
-    result = subprocess.run([*command, str(source)], capture_output=True, text=True, check=True)
+    result = proc.run([*command, str(source)], capture_output=True, text=True, check=True)
     raw = json.loads(result.stdout)
     streams = raw.get("streams", [])
     video = next(
@@ -129,7 +133,7 @@ def probe(
     duration = float(video.get("duration", raw.get("format", {}).get("duration", 0)))
     count_text = video.get("nb_read_frames") if count_frames else video.get("nb_frames")
     count = int(count_text) if str(count_text).isdigit() else round(duration * float(rate))
-    pts, durations = packet_timeline(source, tb)
+    pts, durations = packet_timeline(source, tb) if read_timeline else ([], [])
     is_vfr = any(abs((b - a) - 1 / rate) > tb for a, b in zip(pts, pts[1:], strict=False))
     if count_packets:
         count = len(pts)

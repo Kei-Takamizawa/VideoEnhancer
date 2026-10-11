@@ -11,6 +11,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from videoenhancer import proc
 from videoenhancer.config import executable
 from videoenhancer.media.mux import _run
 from videoenhancer.media.timing import output_rate
@@ -58,7 +59,7 @@ def _temporal(
     count = joint_count = regular_count = 0
     details = []
     with tempfile.TemporaryFile() as errors:
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors)
+        process = proc.Popen(command, stdout=subprocess.PIPE, stderr=errors)
         try:
             assert process.stdout is not None
             for raw in process.stdout:

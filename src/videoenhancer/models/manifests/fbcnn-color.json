@@ -1,0 +1,49 @@
+{
+  "id": "fbcnn-color",
+  "display_name": "FBCNN color",
+  "version": "1",
+  "description": "Cleans each picture on its own. Good for calm clips; can flicker a little on moving ones.",
+  "task": "restore",
+  "architecture": "spandrel",
+  "architecture_params": {
+    "tile_size": 256,
+    "tile_overlap": 32
+  },
+  "weights": {
+    "filename": "fbcnn.pth",
+    "url": "https://github.com/jiaxi-jiang/FBCNN/releases/download/v1.0/fbcnn_color.pth",
+    "sha256": "8b0e4ef23d59cf7ac934a342cb31a17619e4fa4a0b3374a9d78c5174312387e8",
+    "bytes": 287755111
+  },
+  "licence": "Apache-2.0",
+  "commercial_use_allowed": true,
+  "scale": 1,
+  "temporal": false,
+  "precision": "fp16",
+  "catalog": {
+    "category": "cleanup",
+    "title": "Picture deblock",
+    "description": "Cleans each picture on its own. Good for calm clips; can flicker a little on moving ones.",
+    "look_change": "little",
+    "invents_detail": "low",
+    "flicker": "possible",
+    "default": false,
+    "licence_plain": "Free for any use",
+    "summary": "Cleans each picture on its own; moving clips can flicker a little.",
+    "reference_speed": {
+      "gpu": "RTX 4060 Ti 8GB",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "1080x1920 at 60 fps",
+      "fps": 1.5173738670480155,
+      "peak_memory_gb": 1.930616832,
+      "torch_allocated_bytes": 1194374144,
+      "torch_reserved_bytes": 1562378240,
+      "sampled_process_peak_bytes": 1930616832,
+      "sampling_seconds": 1,
+      "tile_size": 256,
+      "tile_overlap": 32,
+      "mode": "standard",
+      "seconds": 5
+    }
+  }
+}

@@ -8,6 +8,7 @@ import math
 import re
 import shutil
 import tempfile
+import zipfile
 from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
@@ -19,7 +20,7 @@ from videoenhancer.pipeline.stages import Stage
 
 C1 = "basicvsrpp-ntire21-decompress"
 RIFE = "rife-4.25"
-BUILTINS = {C1, RIFE}
+BUILTINS = {path.stem for path in (Path(__file__).parent / "manifests").glob("*.json")}
 AdapterFactory = Callable[[dict[str, Any], Path, dict[str, Any], Fraction, set[int]], Stage]
 ADAPTERS: dict[str, tuple[str, AdapterFactory]] = {}
 
@@ -28,7 +29,7 @@ def register_adapter(name: str, task: str, factory: AdapterFactory) -> None:
     """Register trusted repository code, never a path from a manifest."""
     if name in ADAPTERS:
         raise ValueError(f"Adapter already registered: {name}")
-    if task not in {"restore", "interpolate"}:
+    if task not in {"restore", "interpolate", "size"}:
         raise ValueError(f"Unsupported adapter task: {task}")
     ADAPTERS[name] = (task, factory)
 
@@ -78,8 +79,8 @@ def validate_manifest(value: Any, task: str | None = None) -> dict[str, Any]:
     for field in ("display_name", "version", "description", "licence", "architecture"):
         if not isinstance(value[field], str) or not value[field].strip():
             raise ValueError(f"Model manifest {field} must be nonempty text.")
-    if value["task"] not in {"restore", "interpolate"}:
-        raise ValueError("Model task must be restore or interpolate.")
+    if value["task"] not in {"restore", "interpolate", "size"}:
+        raise ValueError("Model task must be restore, interpolate or size.")
     if task is not None and value["task"] != task:
         raise ValueError(f"Model {value['id']} has task {value['task']}; expected {task}.")
     adapter = ADAPTERS.get(value["architecture"])
@@ -90,8 +91,12 @@ def validate_manifest(value: Any, task: str | None = None) -> dict[str, Any]:
     for field in ("commercial_use_allowed", "temporal"):
         if type(value[field]) is not bool:
             raise ValueError(f"Model manifest {field} must be a boolean.")
-    if type(value["scale"]) is not int or value["scale"] != 1:
-        raise ValueError("The restore/interpolate pipeline currently requires scale=1.")
+    if type(value["scale"]) is not int or value["scale"] not in (
+        {2, 4} if value["task"] == "size" else {1}
+    ):
+        raise ValueError(
+            "Restoration and interpolation require scale=1; size requires scale=2 or 4."
+        )
     if value["precision"] not in {"fp16", "fp32"}:
         raise ValueError("Model precision must be fp16 or fp32.")
     params = value["architecture_params"]
@@ -102,9 +107,22 @@ def validate_manifest(value: Any, task: str | None = None) -> dict[str, Any]:
             raise ValueError("BasicVSR++ accepts only mid_channels and num_blocks.")
         if any(type(number) is not int or number < 1 for number in params.values()):
             raise ValueError("BasicVSR++ architecture parameters must be positive integers.")
-    elif value["architecture"] in {"rife", "spandrel"} and params:
-        raise ValueError(f"{value['architecture']} architecture_params must be empty.")
-    if value["architecture"] == "spandrel" and value["temporal"]:
+    elif value["architecture"] in {"spandrel", "drunet", "spandrel-size"}:
+        allowed = {"tile_size", "tile_overlap"}
+        if value["architecture"] == "drunet":
+            allowed.add("quality_factor")
+            if params.get("quality_factor") not in {50, 30, 10}:
+                raise ValueError("DRUNet quality factor must be 50, 30 or 10.")
+        if set(params) - allowed or any(type(n) is not int or n < 0 for n in params.values()):
+            raise ValueError("Invalid single-frame architecture parameters.")
+        if params.get("tile_size", 256) < 64 or params.get("tile_overlap", 32) >= params.get(
+            "tile_size", 256
+        ):
+            raise ValueError("Tile size must be at least 64 and larger than overlap.")
+    elif value["architecture"] == "rife" and params:
+        if set(params) != {"variant"} or params["variant"] not in {"4.26", "4.25-lite"}:
+            raise ValueError("Unknown pinned RIFE variant.")
+    if value["architecture"] in {"spandrel", "drunet", "spandrel-size"} and value["temporal"]:
         raise ValueError("Spandrel restoration is single-frame; temporal must be false.")
     if value["architecture"] in {"basicvsrpp", "rife"} and not value["temporal"]:
         raise ValueError("BasicVSR++ and RIFE require temporal=true.")
@@ -138,6 +156,37 @@ def validate_manifest(value: Any, task: str | None = None) -> dict[str, Any]:
         url = weights["url"]
         if not isinstance(url, str) or urlparse(url).scheme != "https" or not urlparse(url).netloc:
             raise ValueError("weights.url must be an HTTPS URL.")
+    archive = weights.get("archive")
+    if archive:
+        if not isinstance(archive, dict) or not re.fullmatch(
+            r"[0-9a-f]{64}", archive.get("sha256", "")
+        ):
+            raise ValueError("Publisher archive requires its pinned SHA-256.")
+        member = archive.get("member", "")
+        if (
+            not isinstance(member, str)
+            or not member
+            or Path(member).is_absolute()
+            or ".." in Path(member).parts
+        ):
+            raise ValueError("Publisher archive member must be a safe relative path.")
+    blend = weights.get("blend")
+    if blend:
+        if value["architecture"] != "spandrel-size" or not isinstance(blend, dict):
+            raise ValueError("Only the size adapter supports a blend checkpoint.")
+        filename = blend.get("filename", "")
+        if (
+            not filename
+            or filename in {".", ".."}
+            or any(char in filename for char in "/\\:")
+            or filename.endswith((".", " "))
+        ):
+            raise ValueError("Blend weights filename must be a plain filename.")
+        if (
+            not re.fullmatch(r"[0-9a-f]{64}", blend.get("sha256", ""))
+            or urlparse(blend.get("url", "")).scheme != "https"
+        ):
+            raise ValueError("Blend weights require SHA-256 and an HTTPS publisher URL.")
     estimates = value.get("vram_estimate_mb", {})
     if not isinstance(estimates, dict) or any(
         not isinstance(key, str)
@@ -147,6 +196,36 @@ def validate_manifest(value: Any, task: str | None = None) -> dict[str, Any]:
         for key, number in estimates.items()
     ):
         raise ValueError("vram_estimate_mb must map size classes to nonnegative numbers.")
+    catalog = value.get("catalog")
+    if catalog is not None:
+        if not isinstance(catalog, dict):
+            raise ValueError("catalog must be an object.")
+        category = {"restore": "cleanup", "interpolate": "motion", "size": "size"}[value["task"]]
+        if catalog.get("category") != category:
+            raise ValueError(f"This adapter requires catalog category {category}.")
+        for field in ("title", "description", "licence_plain"):
+            if not isinstance(catalog.get(field), str) or not catalog[field].strip():
+                raise ValueError(f"catalog.{field} must be nonempty text.")
+        if "summary" in catalog and (
+            not isinstance(catalog["summary"], str) or not 1 <= len(catalog["summary"]) <= 90
+        ):
+            raise ValueError("catalog.summary must contain 1-90 characters.")
+        for field, choices in {
+            "look_change": {"very_little", "little", "noticeable"},
+            "invents_detail": {"low", "medium", "high"},
+            "flicker": {"none", "possible"},
+        }.items():
+            if catalog.get(field) not in choices:
+                raise ValueError(f"Invalid catalog.{field}.")
+        if "reference_speed" in catalog:
+            speed = catalog["reference_speed"]
+            if not isinstance(speed, dict) or any(
+                type(speed.get(key)) not in {int, float}
+                or not math.isfinite(speed[key])
+                or speed[key] <= 0
+                for key in ("fps", "peak_memory_gb")
+            ):
+                raise ValueError("Catalog speed and memory require positive measured numbers.")
     return value
 
 
@@ -186,6 +265,14 @@ class ModelRegistry:
         value = validate_manifest(json.loads(path.read_text(encoding="utf-8")), task)
         if value["id"] != model_id:
             raise ValueError("Model manifest id does not match its folder.")
+        if model_id in BUILTINS:
+            shipped = json.loads(
+                (Path(__file__).parent / "manifests" / f"{model_id}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            if "catalog" in shipped:
+                value["catalog"] = shipped["catalog"]
         return value
 
     def weights(self, model: dict[str, Any], *, download: bool = False) -> Path:
@@ -211,6 +298,28 @@ class ModelRegistry:
                     )
                 _, legacy = _prepare_files()
                 shutil.copyfile(legacy, path)
+            elif model["architecture"] == "rife" and model["architecture_params"].get("variant"):
+                from videoenhancer.models.rife_variants import prepare_variant
+
+                if self.home.resolve() != get_home().resolve():
+                    raise ValueError("Set VE_HOME to this registry before downloading RIFE.")
+                _, checkpoint = prepare_variant(model["architecture_params"]["variant"])
+                shutil.copyfile(checkpoint, path)
+            elif "url" in model["weights"] and model["weights"].get("archive"):
+                from videoenhancer.bench.basicvsr import _verified_download
+
+                bundle = path.with_suffix(".publisher.zip")
+                archive = model["weights"]["archive"]
+                try:
+                    _verified_download(bundle, model["weights"]["url"], archive["sha256"])
+                    with (
+                        zipfile.ZipFile(bundle) as zipped,
+                        zipped.open(archive["member"]) as source,
+                        path.open("wb") as target,
+                    ):
+                        shutil.copyfileobj(source, target)
+                finally:
+                    bundle.unlink(missing_ok=True)
             elif "url" in model["weights"]:
                 from videoenhancer.bench.basicvsr import _verified_download
 
@@ -219,12 +328,23 @@ class ModelRegistry:
             raise ValueError(f"Model {model['id']} weights missing: {path.name}")
         if sha256(path) != expected:
             raise ValueError(f"Model {model['id']} weights SHA-256 mismatch; refusing to load.")
+        blend = model["weights"].get("blend")
+        if blend:
+            secondary = self.folder(model["id"]) / blend["filename"]
+            if secondary.is_symlink():
+                raise ValueError("Blend weights cannot be a symbolic link.")
+            if not secondary.exists() and download:
+                from videoenhancer.bench.basicvsr import _verified_download
+
+                _verified_download(secondary, blend["url"], blend["sha256"])
+            if not secondary.is_file() or sha256(secondary) != blend["sha256"]:
+                raise ValueError("Blend weights missing or SHA-256 mismatch.")
         return path
 
     def list_models(self) -> list[dict[str, Any]]:
         result = []
         for path in sorted(self.root.glob("*/model.json")):
-            model = self.manifest(path.parent.name)
+            model = self.public_manifest(path.parent.name)
             try:
                 self.weights(model)
                 verified = True
@@ -234,6 +354,26 @@ class ModelRegistry:
                 {**model, "builtin": model["id"] in BUILTINS, "weights_verified": verified}
             )
         return result
+
+    def public_manifest(self, model_id: str) -> dict[str, Any]:
+        """Current licence presentation without changing frozen resume identities."""
+        model = self.manifest(model_id)
+        if model_id in BUILTINS:
+            shipped = json.loads(
+                (Path(__file__).parent / "manifests" / f"{model_id}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            model = {
+                **model,
+                "licence": shipped["licence"],
+                "commercial_use_allowed": shipped["commercial_use_allowed"],
+                "weights": {
+                    **model["weights"],
+                    "bytes": shipped["weights"].get("bytes", model["weights"].get("bytes", 0)),
+                },
+            }
+        return model
 
     def add(self, folder: Path) -> dict[str, Any]:
         model = validate_manifest(json.loads((folder / "model.json").read_text(encoding="utf-8")))
@@ -249,6 +389,16 @@ class ModelRegistry:
         with tempfile.TemporaryDirectory(prefix=".install-", dir=self.root) as temporary:
             staged = Path(temporary)
             shutil.copyfile(weights, staged / weights.name)
+            blend = model["weights"].get("blend")
+            if blend:
+                secondary = folder / blend["filename"]
+                if (
+                    secondary.is_symlink()
+                    or not secondary.is_file()
+                    or sha256(secondary) != blend["sha256"]
+                ):
+                    raise ValueError("Blend weights missing or SHA-256 mismatch.")
+                shutil.copyfile(secondary, staged / secondary.name)
             if sha256(staged / weights.name) != model["weights"]["sha256"]:
                 raise ValueError("Model weights changed while installing.")
             (staged / "model.json").write_text(json.dumps(model, indent=2) + "\n", encoding="utf-8")
@@ -262,16 +412,32 @@ class ModelRegistry:
         return model
 
     def remove(self, model_id: str) -> None:
+        from videoenhancer.jobs.store import JobStore
+
+        used = sum(
+            model_id in selected_models(job["settings"]).values()
+            for job in JobStore(self.home).list_jobs()
+            if job["state"] not in {"done", "failed", "cancelled"}
+        )
+        if used:
+            raise ValueError(f"Used by {used} videos in the queue")
+        model = self.manifest(model_id)
         if model_id in BUILTINS:
-            raise ValueError(f"Cannot remove built-in model: {model_id}")
-        self.manifest(model_id)
-        shutil.rmtree(self.folder(model_id))
+            (self.folder(model_id) / model["weights"]["filename"]).unlink(missing_ok=True)
+            if model["weights"].get("blend"):
+                (self.folder(model_id) / model["weights"]["blend"]["filename"]).unlink(
+                    missing_ok=True
+                )
+        else:
+            shutil.rmtree(self.folder(model_id))
 
     def snapshot(self, model_id: str, task: str, *, download: bool = True) -> dict[str, Any]:
         model = self.manifest(model_id, task)
         self.weights(model, download=download)
+        # Presentation metadata cannot invalidate an existing resumable job.
+        identity = {key: value for key, value in model.items() if key != "catalog"}
         digest = hashlib.sha256(
-            json.dumps(model, sort_keys=True, separators=(",", ":")).encode()
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
         return {
             "id": model_id,
@@ -306,6 +472,8 @@ def selected_models(
         raise ValueError(
             "--interp-model requires active 2x interpolation for this preset and input rate."
         )
+    if settings.get("size_model"):
+        selected["size"] = settings["size_model"]
     return selected
 
 
@@ -361,3 +529,15 @@ def _spandrel(
 register_adapter("basicvsrpp", "restore", _basicvsr)
 register_adapter("rife", "interpolate", _rife)
 register_adapter("spandrel", "restore", _spandrel)
+register_adapter("drunet", "restore", _spandrel)
+
+
+def _spandrel_size(
+    model: dict[str, Any], weights: Path, settings: dict[str, Any], _rate: Fraction, _cuts: set[int]
+) -> Stage:
+    from videoenhancer.models.spandrel import SpandrelSizeStage
+
+    return SpandrelSizeStage(model, weights, settings)
+
+
+register_adapter("spandrel-size", "size", _spandrel_size)

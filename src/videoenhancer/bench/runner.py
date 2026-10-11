@@ -19,6 +19,8 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from videoenhancer import proc
+
 MODEL_CATALOG: dict[str, dict[str, str]] = {
     "rife": {
         "name": "Practical-RIFE 4.25",
@@ -192,9 +194,7 @@ def _generate_hevc_clip(ffmpeg: str | None, directory: Path) -> Path | None:
 def _run(command: list[str], timeout: float = 90) -> tuple[bool, str, float]:
     begin = time.perf_counter()
     try:
-        result = subprocess.run(
-            command, capture_output=True, text=True, timeout=timeout, check=False
-        )
+        result = proc.run(command, capture_output=True, text=True, timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc), time.perf_counter() - begin
     elapsed = time.perf_counter() - begin

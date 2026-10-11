@@ -8,7 +8,9 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from videoenhancer import proc
 from videoenhancer.config import executable
+from videoenhancer.files import retry_permission
 from videoenhancer.media.probe import probe
 from videoenhancer.media.timing import output_rate
 
@@ -30,7 +32,7 @@ def _audio_duration_matches(original: dict[str, Any], actual: dict[str, Any]) ->
 
 
 def _run(command: list[str], abort: Callable[[], bool] | None, *, cwd: Path | None = None) -> None:
-    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, cwd=cwd)
+    process = proc.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, cwd=cwd)
     try:
         while True:
             try:
@@ -199,9 +201,9 @@ def assemble(
         # Both operations refuse an output created while assembly was in progress.
         # Windows rename also works on external drives without hard-link support.
         if os.name == "nt":
-            os.rename(temporary, output)
+            retry_permission(os.rename, temporary, output)
         else:
-            os.link(temporary, output)
+            retry_permission(os.link, temporary, output)
         return output
     finally:
         temporary.unlink(missing_ok=True)

@@ -1,0 +1,56 @@
+{
+  "id": "basicvsrpp-denoise",
+  "display_name": "BasicVSR++ denoise",
+  "version": "1",
+  "description": "Calms grain and noise across frames. Not made for blockiness; may soften very fine edges slightly. Faster than Gentle cleanup.",
+  "task": "restore",
+  "architecture": "basicvsrpp",
+  "architecture_params": {
+    "mid_channels": 64,
+    "num_blocks": 15
+  },
+  "weights": {
+    "filename": "denoise.pth",
+    "url": "https://www.dropbox.com/sh/gopo637rbutlxde/AACGnXDlvQMjwfCey3m2g34za?dl=1",
+    "sha256": "28f6920c4681bd8468a831d479459872c7f020d95c40eb3ced4745670bf2d596",
+    "bytes": 39152529,
+    "archive": {
+      "sha256": "9ebecdddd2367058b96b043032efe27bdbe1471651c66e02629d724fcb146f41",
+      "bytes": 463593013,
+      "member": "basicvsr_plusplus_denoise-28f6920c.pth"
+    }
+  },
+  "licence": "Code Apache-2.0; the weights' terms are not stated",
+  "commercial_use_allowed": false,
+  "scale": 1,
+  "temporal": true,
+  "clip_length": 15,
+  "clip_overlap": 2,
+  "precision": "fp16",
+  "catalog": {
+    "category": "cleanup",
+    "title": "Grain and noise calmer",
+    "description": "Calms grain and noise across frames. Not made for blockiness; may soften very fine edges slightly. Faster than Gentle cleanup.",
+    "look_change": "little",
+    "invents_detail": "low",
+    "flicker": "none",
+    "default": false,
+    "licence_plain": "Code free; weights' terms not stated",
+    "summary": "Calms grain and noise across frames; may soften very fine edges.",
+    "reference_speed": {
+      "gpu": "RTX 4060 Ti 8GB",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "1080x1920 at 60 fps",
+      "fps": 5.219462023784134,
+      "peak_memory_gb": 3.925020672,
+      "torch_allocated_bytes": 2073742848,
+      "torch_reserved_bytes": 3860856832,
+      "sampled_process_peak_bytes": 3925020672,
+      "sampling_seconds": 1,
+      "tile_size": null,
+      "tile_overlap": null,
+      "mode": "standard",
+      "seconds": 5
+    }
+  }
+}

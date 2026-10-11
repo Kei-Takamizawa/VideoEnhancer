@@ -34,7 +34,7 @@ def test_invalid_advanced_settings_are_rejected(api):
     assert error.value.code == 400
 
 
-def test_trial_waits_for_operating_hours_and_waiting_cancel(api, video_factory):
+def test_trial_starts_outside_hours_and_waiting_cancel(api, video_factory, monkeypatch):
     engine, _, request = api
     request("schedule", "PUT", {"enabled": True, "weekly": []}).close()
     operation = engine.operation(
@@ -45,9 +45,12 @@ def test_trial_waits_for_operating_hours_and_waiting_cancel(api, video_factory):
             "settings": {"backend": "cpu", "preset": "fast"},
         },
     )
+    called = []
+    monkeypatch.setattr(engine, "_run_operation", lambda op: called.append(op["id"]))
     engine._auxiliary()
-    assert operation["state"] == "waiting"
-    assert operation["phase"] == "Waiting for operating hours"
+    assert operation["state"] == "done"
+    assert called == [operation["id"]]
+    operation = engine.operation("verify", {"model_id": "example"})
     request(f"operations/{operation['id']}/cancel", "POST", {}).close()
     assert operation["state"] == "cancelled"
 

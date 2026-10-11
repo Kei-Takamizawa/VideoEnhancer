@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from videoenhancer.files import retry_permission
+
 UTC = UTC
 DAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
@@ -107,7 +109,7 @@ class Schedule:
         self.override_until = config.get("override_until")
         self._cached_current: Interval | None = None
         self._override: datetime | None = None
-        if self.override_until and self.override_until != "job-complete":
+        if self.override_until and self.override_until not in {"job-complete", "queue-complete"}:
             parsed = datetime.fromisoformat(self.override_until)
             self._override = resolve_wall(parsed, self.zone) if parsed.tzinfo is None else parsed
 
@@ -135,13 +137,15 @@ class Schedule:
         }
 
     @staticmethod
-    def clear_job_complete_override(path: str | Path) -> bool:
+    def clear_job_complete_override(path: str | Path, *, queue_complete: bool = False) -> bool:
         """Clear only a job-complete override, preserving the latest disk settings."""
         source = Path(path)
         if not source.exists():
             return False
         config = json.loads(source.read_text(encoding="utf-8"))
-        if config.get("override_until") != "job-complete":
+        if config.get("override_until") != "job-complete" and not (
+            queue_complete and config.get("override_until") == "queue-complete"
+        ):
             return False
         config["override_until"] = None
         temporary: Path | None = None
@@ -159,7 +163,7 @@ class Schedule:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, source)
+            retry_permission(os.replace, temporary, source)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
@@ -200,7 +204,7 @@ class Schedule:
         lower, upper = instant(start), instant(end)
         if upper <= lower:
             return []
-        if not self.enabled or self.override_until == "job-complete":
+        if not self.enabled or self.override_until in {"job-complete", "queue-complete"}:
             return [Interval(start.astimezone(self.zone), end.astimezone(self.zone))]
         raw = []
         day = lower.astimezone(self.zone).date()
@@ -230,7 +234,7 @@ class Schedule:
             self._cached_current.end
         ):
             return self._cached_current
-        if not self.enabled or self.override_until == "job-complete":
+        if not self.enabled or self.override_until in {"job-complete", "queue-complete"}:
             return Interval(
                 now.astimezone(self.zone), datetime(9998, 1, 1, tzinfo=UTC).astimezone(self.zone)
             )

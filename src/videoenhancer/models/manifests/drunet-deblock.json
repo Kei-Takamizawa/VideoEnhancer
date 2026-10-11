@@ -1,0 +1,97 @@
+{
+  "id": "drunet-deblock",
+  "display_name": "DRUNet deblocking color",
+  "version": "1",
+  "description": "Smooths blocks and ringing on each picture without adding detail. Strong can look waxy.",
+  "task": "restore",
+  "architecture": "drunet",
+  "architecture_params": {
+    "tile_size": 256,
+    "tile_overlap": 32,
+    "quality_factor": 30
+  },
+  "weights": {
+    "filename": "drunet.pth",
+    "url": "https://github.com/cszn/KAIR/releases/download/v1.0/drunet_deblocking_color.pth",
+    "sha256": "b26323e888230b1b5b58957add8dc9b9ea7fa2f69bdf6a0c3cca9db82167209f",
+    "bytes": 130590513
+  },
+  "licence": "MIT",
+  "commercial_use_allowed": true,
+  "scale": 1,
+  "temporal": false,
+  "precision": "fp32",
+  "catalog": {
+    "category": "cleanup",
+    "title": "Adjustable deblock",
+    "description": "Smooths blocks and ringing on each picture without adding detail. Strong can look waxy.",
+    "look_change": "little",
+    "invents_detail": "low",
+    "flicker": "possible",
+    "default": false,
+    "licence_plain": "Free for any use",
+    "summary": "Smooths blocks and ringing at three strengths; Strong can look waxy.",
+    "reference_speed": {
+      "gpu": "RTX 4060 Ti 8GB",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "1080x1920 at 60 fps",
+      "fps": 1.135053299878224,
+      "peak_memory_gb": 1.909645312,
+      "torch_allocated_bytes": 1176314880,
+      "torch_reserved_bytes": 1539309568,
+      "sampled_process_peak_bytes": 1909645312,
+      "sampling_seconds": 1,
+      "tile_size": 256,
+      "tile_overlap": 32,
+      "mode": "standard",
+      "seconds": 5,
+      "variants": {
+        "light": {
+          "gpu": "RTX 4060 Ti 8GB",
+          "input": "720x1280 at 30 fps, 150 frames",
+          "output": "1080x1920 at 60 fps",
+          "fps": 1.1331047541256662,
+          "peak_memory_gb": 1.968365568,
+          "torch_allocated_bytes": 1175909376,
+          "torch_reserved_bytes": 1598029824,
+          "sampled_process_peak_bytes": 1968365568,
+          "sampling_seconds": 1,
+          "tile_size": 256,
+          "tile_overlap": 32,
+          "mode": "standard",
+          "seconds": 5
+        },
+        "medium": {
+          "gpu": "RTX 4060 Ti 8GB",
+          "input": "720x1280 at 30 fps, 150 frames",
+          "output": "1080x1920 at 60 fps",
+          "fps": 1.135053299878224,
+          "peak_memory_gb": 1.909645312,
+          "torch_allocated_bytes": 1176314880,
+          "torch_reserved_bytes": 1539309568,
+          "sampled_process_peak_bytes": 1909645312,
+          "sampling_seconds": 1,
+          "tile_size": 256,
+          "tile_overlap": 32,
+          "mode": "standard",
+          "seconds": 5
+        },
+        "strong": {
+          "gpu": "RTX 4060 Ti 8GB",
+          "input": "720x1280 at 30 fps, 150 frames",
+          "output": "1080x1920 at 60 fps",
+          "fps": 1.1361655321313633,
+          "peak_memory_gb": 1.932713984,
+          "torch_allocated_bytes": 1176139776,
+          "torch_reserved_bytes": 1562378240,
+          "sampled_process_peak_bytes": 1932713984,
+          "sampling_seconds": 1,
+          "tile_size": 256,
+          "tile_overlap": 32,
+          "mode": "standard",
+          "seconds": 5
+        }
+      }
+    }
+  }
+}
