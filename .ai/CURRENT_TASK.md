@@ -1,231 +1,300 @@
-# CURRENT_TASK: Cycle P1d-2 (accurate estimates, safe deletion, finish UI v2)
+# CURRENT_TASK: Cycle P1d-3 (close out P1d: estimates without calibration, live progress, a cheaper event stream)
 
-- **Task ID:** VE-P1d-2
+- **Task ID:** VE-P1d-3
 - **Date:** 2026-10-11
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
-**Start condition:** continue on branch `p1d-ui-v2` (draft PR #5, head `6a91197`). PR #4 is merged into `main` as `efb45e3`. First merge `origin/main` into `p1d-ui-v2` with a merge commit (no rebase, no force-push), so that the PR is compared with the real base. Save this file as `.ai/CURRENT_TASK.md`, commit it, and write `.ai/LAST_REPORT.md` (English) at the end. Update the report again after the final CI run, so it never says "pending CI". Do not push to `main`.
+**Start condition:** continue on branch `p1d-ui-v2` (draft PR #5, head `fbaf4d3`). If `origin/main` has moved, merge it into `p1d-ui-v2` with a merge commit first (no rebase, no force-push). Save this file as `.ai/CURRENT_TASK.md`, commit it, and write `.ai/LAST_REPORT.md` (English) at the end. Update the report again after the final CI run, so it never says "pending CI". Do not push to `main`.
+
+This is meant to be the last P1d cycle. After it, the owner runs the visual check and then merges PR #5.
 
 ## Working rules
 
 1. Do not stop the cycle for one blocked item. Write the question under "Questions for the designer", choose the safest option that keeps existing outputs unchanged (or skip only that item), and continue. Stop early only if every remaining item is blocked.
-2. **New:** an open question is not a blocker when this task already gives a fail-closed rule for it. Implement the safe parts and the guard, then ask.
-3. Order: Part E (estimates) → Part S (safe deletion) → Part F (first look) → Part U (finish UI v2) → Part P (performance) → Part R (robustness) → Part G (acceptance) → Part X (optional). Long GPU measurements run whenever the GPU is free.
+2. An open question is not a blocker when this task already gives a fail-closed rule for it. Implement the safe parts and the guard, then ask.
+3. Order: Part S (deletion fixes) → Part E (estimates) → Part L (live progress and event stream) → Part A (Add checks) → Part P (harness and budgets) → Part G (acceptance) → Part X (optional). Long GPU measurements run whenever the GPU is free.
 4. If time runs out, finish earlier items completely and mark the rest NOT RUN. Never report a test as passed if it did not run.
 5. The owner's queue, settings and videos on this PC are not test data. Use synthetic footage and a separate engine home for every test.
+6. No result is selected because it is favourable. Report every run of a gated measurement.
 
-## 0. Status after P1d (review of `6a91197`)
+## 0. Status after P1d-2 (review of `fbaf4d3`)
 
 Accepted as done (keep, do not redo):
-- **D:** the 7 design components, byte-identical, and `design/p1d/README.md`.
-- **A2 to A5:**
-  - A2: cancel keeps finished previews.
-  - A3: the busiest part skips scene cuts.
-  - A4: AV1 minimum size 130×66, a Keep-size job and a 3-segment job verified.
-  - A5: docs and missing tests.
-- **B1:** the global pause flag. **B2:** cancel and remove.
-- **B4:** History removal with Undo. **B6:** event-stream cache and the 400 ms preview.
-- **U1, U2, U4, U5:** window shell, dock, zoom and theme in code. Schedule screen mostly done.
-- **G5:** the 14 GPU strict-equality and D2 tests pass. **CI:** 4 of 4 green.
+- **E:** the per-model delta rule. With a calibrated profile, all four 30 s jobs were within −3.4% to −6.2%.
+- **S:** guarded recycling, journal, crash recovery, History deletion and the automatic original deletion. All four real-PC checks passed, with matching SHA-256 values. Part S below lists the review findings to fix.
+- **F:** the first look comes from the real render (C1 22.9 s from GPU admission).
+- **U:** every row of the P1d-2 gap table.
+- **P:** the harness, the manifest cache and the AV1 minimum-size cache.
+- **R:** all three robustness items.
+- **G:** 30 GPU tests and 61 packaged boards. CI is 4 of 4 green on `fbaf4d3`, and PR #5 is mergeable.
 
-Designer answers to the three P1d questions:
-1. **Recycle Bin:** you were right that no shell flag guarantees recycling before deletion. Part S makes the result safe whatever the shell does, using a hard-link guard. Build it now.
-2. **Estimates:** part of the miss was my instruction. I told you to scale one stage by a whole-pipeline speed ratio. Part E replaces A1.
-3. **Remaining UI and measurements:** Part U lists every gap found in review. Part P adds the measurement harness that was missing.
+Designer answers to your seven questions:
+1. **Estimates without calibration.** You were right not to fit coefficients to the acceptance clips. The cause is in the defaults, and Part E fixes it:
+   - `DEFAULT_COMPONENTS` (`estimate/model.py:17-36`) are provisional numbers.
+   - The default interpolate term alone is 95.4 ms per source frame. The whole real Fast pipeline is 66.9 ms (60.23 s / 900 frames).
+   - Calibration never runs by itself.
+   - A profile matches only the exact GPU name and driver string (`jobs/store.py:172-206`). So a driver update silently falls back to these defaults: C1 +37%, Fast +147%.
+2. **RIFE full preview 65.16 s > 63.5 s.** My gate was wrong.
+   - The P1d numbers were timed from `render_compare` entry, with shared resources already warm. P1d-2 timed from cold GPU admission, as I asked. The two are not comparable.
+   - With the stricter boundary, C1 still improved by 12.9% (75.1 → 65.4 s) and SCUNet by 6.4% (196.7 → 184.1 s).
+   - Accepted. The new baselines, all from cold GPU admission, are C1 65.4 s, SCUNet 184.1 s and RIFE 4.25 65.2 s. A later change may not exceed them by more than 5%.
+3. **Service CPU 10.03%.** This is a real cost that grows with History. Part L fixes it.
+4. **Hard-link guard.** Agreed. Fail closed and keep the bytes.
+5. **Standalone Trial.** No GUI code calls `POST trial`. In UI v2, Compare is the only trial surface, and it already shows the first look. No change. Keep the trial API for the CLI and tests.
+6. **Progress spacing 999.5 ms.** My wording was too literal; 0.5 ms is timer jitter. The review also found that the 1 Hz rate exists only in the perf fixture. In the product, progress reaches the GUI only with the 5 s structural refresh (`live_progress` is not in the snapshot key, `engine.py:493`). Part L and Part P give the new rule.
+7. **Input delay and interaction duration.** Gate both. Event Timing input delay must be ≤50 ms. Interaction duration must be ≤200 ms, the web.dev "good" threshold for Interaction to Next Paint. Details are in Part P.
 
-## 1. Part E: estimates that follow the chosen models
+The downscale note (1440p or 4K source with output 1080) stays non-blocking, with "Use Keep", as you built it.
 
-**What went wrong:**
-- `reference_speed.fps` is the speed of the whole pipeline, but the ratio multiplied only the restore term (`estimate/model.py:205-208`).
-- `size_model` adds no cost at all (`model.py:295`). The SPAN estimate equals the plain C1 estimate.
-- `model.py:170` doubles single-frame restore cost when fps is doubled, although restore runs once per source frame.
+## 1. Part S: deletion review findings
 
-**New rule:**
-1. Keep today's estimate for the default pipeline of each mode. It is the one that "Run speed calibration" and the per-job correction already tune.
-2. For each non-default model, add a per-source-frame delta: `Δ = 1 / fps_ref(model) − 1 / fps_ref(category default)`. Both values come from `reference_speed`, measured in the same reference pipeline on the same GPU. A job with several non-default stages adds their deltas.
-3. Remove the single-frame `restore_factor` 2.0. The reference speed already contains the real cost.
-4. **Without a usable reference** (different GPU, or none):
-   - the estimate is marked "uncalibrated" and its shown range widens to ±25%;
-   - "Run speed calibration" also measures every installed, verified non-default model on the reference clip and stores the result per GPU.
-5. The Add cards, the Up next times, admission control, the planner and Compare's "About X for this video" all use this one function.
+The P1d-2 scheme stays: preflight, journal, hard-link guard, shell recycle, confirm or restore, crash recovery. The review of `service/deletion.py` at `fbaf4d3` found two narrow races that can lose a user's video, and several smaller faults. These come first in this cycle.
+
+**Critical (bytes can be lost):**
+
+- **S-C1. The guard is removed without proving that the bin item is our file.**
+  - `_finish` (`deletion.py:229-233`) removes the guard when the path is gone and the shell reported `recycled`. Nothing holds the file between the `samefile` check (`:315`) and the shell call.
+  - If another program replaces the path with a different file B in that window, the shell recycles B. Removing the guard then deletes the last link to the original A.
+  - Recovery (`:229-233`) has the same gap.
+  - **Fix:**
+    - Repeat the `samefile(path, guard)` check immediately before the shell call.
+    - Take the bin item's file-system path from `psiNewlyCreated` and store it in the journal at the shell phase.
+    - Remove the guard only if `samefile(bin item, guard)` holds, in `_finish` and in recovery.
+    - Otherwise keep the bytes: move the guard back to the original path when it is free, without replacing anything; when it is not free, keep the guard and report its full path.
+- **S-C2. Recovery does not coordinate with a deletion running in another process.**
+  - `recover()` runs at every service start (`engine.py:98-104`), and `VideoDeletion.lock` belongs to one instance (`:205`).
+  - The CLI `run` path runs auto-delete under `worker.lock`, not `serve.lock` (`controller.py:976-978`, `cli.py:497-502`).
+  - A recovery can therefore remove the guard of a deletion that is still in progress in another process.
+  - **Fix:**
+    - Use one cross-process deletion lock: an OS file lock in the engine home. Hold it for the whole `delete()` and for `recover()`.
+    - Record the owning process id and its start time in each journal entry.
+    - Recovery never touches an entry whose owner is alive. When it cannot take the lock, it retries later: on the next deletion, or at least every 60 s.
+
+**Major (wrong behaviour, no byte loss traced):**
+
+- **S-M1. Identity is never checked.**
+  - The recorded size, `mtime_ns` and edge hash of the original (`store.py:83-96`) are not compared before deletion. Outputs have no recorded identity.
+  - So History can recycle a different file that now sits at the recorded path, for example a newer output with the same default name, or a new download with the same name.
+  - **Fix:**
+    - Before deleting an original, require a match with its recorded identity.
+    - Record the same identity for the output when it is published, and require it before deleting the output.
+    - For older jobs without an output identity, require `output_bytes` to match and the modification time to be no later than `finished_at` plus 60 s.
+    - On any mismatch, return "Kept: the file changed after this job used it".
+- **S-M2. Read-only videos.**
+  - READONLY is copied back onto the guard before `guard.unlink()` (`:231-232`, `:244-245`), so the unlink fails after a real recycle. The guard is left for good, and recovery fails at every start.
+  - **Fix:** remove the guard link without changing the attributes the bin item keeps, for example with `FileDispositionInfoEx` and `FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE`.
+  - Also stop setting HIDDEN on the guard. Attributes belong to the file, not the name, so hiding the guard also hides the user's original during the operation.
+- **S-M3. Concurrency.**
+  - Auto-delete creates its own `VideoDeletion` (`:415`) and runs on the worker thread without `engine.lock`. History deletion uses `Engine.deletion` under `engine.lock`.
+  - Auto-delete also saves a job snapshot taken before a decode that can take minutes (`:394-423`). That overwrites newer `video_deletions` and history changes, and recreates a removed job folder (`store.py:304`).
+  - **Fix:**
+    - Use one shared deletion object per process, plus the S-C2 lock.
+    - After the decode, re-read the job and write only its own fields.
+    - Skip the save if the job was removed in the meantime.
+- **S-M4. No Windows dialogs, and no stalled queue.**
+  - A "too big for the Recycle Bin" or similar shell prompt from the windowless service can block the queue worker overnight, or block every mutating API call while `engine.lock` is held.
+  - **Change from P1d-2:** now that the guard keeps the bytes whatever the shell does (proven on the real NTFS volume in P1d-2), pass `FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI` together with `FOFX_RECYCLEONDELETE`. If the shell deletes the name instead of recycling it, the existing restore path brings the file back.
+  - This is allowed only behind the guard and only after S-C1 is fixed.
+  - **Before calling the shell**, read the volume's Recycle Bin settings when they are readable: per-volume `MaxCapacity` and `NukeOnDelete` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume\{GUID}`, plus any policy override. Verify these names on the PC; if they cannot be read, call the shell as described. If recycling is off for that drive, or the file is larger than the bin's maximum size, keep the file without calling the shell. Results:
+    - "Kept: the file is too big for the Recycle Bin";
+    - "Kept: the Recycle Bin is turned off for this drive".
+  - Run the shell step outside `engine.lock` and off the queue worker, so a deletion never delays the next job.
+  - Replace raw HRESULT text (`:171-172`) with plain reasons.
+- **S-M5. Retained guards are invisible.**
+  - Recovery results are thrown away (`engine.py:104`), and the "guard retained" messages do not say where the bytes are.
+  - **Fix:**
+    - Show every non-resolved result in History, or as a Home notice when no job matches. Include the full guard path and a "Show in folder" action.
+    - A guard is never deleted while its entry is unresolved.
+
+**Minor:**
+- After the guard exists, every exception, not only `OSError`, goes through `_finish` (`:324`).
+- **The "unfinished job uses it" checks** (`:296-301`, `:402-407`): compare file identity (`samefile` or file ID), not path strings.
+- **`verify_output`:**
+  - Add CPU tests with real small files: pass, short frame count, wrong duration, missing audio when the source has audio, and no video stream.
+  - Every failure gives a non-empty reason.
+  - Apply the same audio checks the mux applies at assembly (`mux.py:180-193`).
+
+**Tests:**
+- **Fake-shell unit tests** for each finding above:
+  - the path replaced between the guard and the shell (the original's bytes survive);
+  - a second process recovering while a deletion is held open (nothing is touched);
+  - a read-only file;
+  - an identity mismatch;
+  - a stale auto-delete save;
+  - bin "too big" and "turned off" (kept, no shell call);
+  - a non-OSError after the guard.
+- **On the real PC**, synthetic files on NTFS only:
+  - the three P1d-2 checks again;
+  - a read-only file recycled and restored from the bin with its attributes;
+  - the path-replacement race through a test hook, where the original's SHA-256 is unchanged.
+- **Never change the owner's Recycle Bin settings.** Test the size and off cases with fakes.
+
+## 2. Part E: estimates before calibration
+
+**Facts from the review:**
+- Default Fast estimate: 162.9 ms per source frame. The actual was 66.9 ms.
+- Default Standard estimate: about 591 ms per source frame. The actual was about 435 ms.
+- Calibration runs only from Settings or `ve bench --calibrate`, has no timeout, and its wall time is unknown.
+- `calibrated` is a single boolean. "No machine profile" and "no reference for the chosen model" show the same badge.
+- In the no-reference case the model delta is skipped silently (`model.py:171-179`). A model 4× slower than C1 is then estimated as C1.
+
+**Rules:**
+1. **Built-in profile for the RTX 4060 Ti 8 GB.**
+   - Commit a machine profile (numbers only) produced by `bench --calibrate` on this PC from the 5 s **reference** clip, never from an acceptance clip. State in the report which run it came from.
+   - Use it when no measured profile exists for this GPU. Match it by GPU name, not by driver.
+2. **Driver change.**
+   - When a measured profile exists for the same GPU name with another driver, use the newest one.
+   - This does not make the estimate "uncalibrated". Settings shows "Speed measured with driver X. This PC now has driver Y." next to "Run speed calibration".
+3. **Labels.** Keep three cases apart:
+   - **Measured or built-in profile:** a normal estimate. Settings says which profile is used.
+   - **No profile for this GPU:** "uncalibrated" badge and a ±25% range, as now.
+   - **A chosen model has no reference for this GPU** (for example a model added later with `ve models add`): the Add card says "Speed unknown for <model>. Run speed calibration." It must never quietly reuse the default model's cost. Adding stays allowed.
+4. **Calibration.**
+   - It stays manual; the app never uses the GPU without the owner's action.
+   - Make it cancellable.
+   - Record its wall time. Show "about N min" on the button from the last run, or from the installed models when there is no run yet.
+   - Report the wall time with only the default models installed, and with every installed model.
+5. The Add cards, Up next, admission, the planner and Compare's "About X for this video" keep using the one estimate function.
 
 **Acceptance on the RTX 4060 Ti:**
-- **Clip:** synthetic, 30 s, portrait 720×1280 at 30 fps, output 1080×1920 at 60 fps, HEVC, so that it has several segments.
-- **Four jobs:** Standard with C1 (the default), Standard with SCUNet, Standard with C1 + SPAN, and Fast (the default).
-- **Gate:** the first estimate, before any per-job correction, is within ±15% of the actual processing time for each job.
-- Also report the 2 s clips from P1d again, but they do not gate.
-- Report every segment that overran the operating hours. There must be none beyond the one allowed overrun step.
+- **Setup:** a fresh engine home with no measured profile, so the built-in profile is used. No per-job correction.
+- **Jobs:**
+  - the four 30 s portrait jobs from P1d-2: C1, SCUNet, C1 + SPAN and Fast;
+  - a 30 s landscape job: 1280×720 at 30 fps, Standard with C1, output 1920×1080 at 60 fps.
+- **Gate:** the first estimate of each job is within ±15% of the actual time.
+- **Tests:**
+  - A changed driver string gives the same estimate (within 0.1%) and the Settings note.
+  - A fixture model without `reference_speed` shows "Speed unknown".
+  - Unit tests cover the profile selection order: measured exact → measured same GPU (newest driver) → built-in → defaults.
 
-## 2. Part S: safe deletion (P1d B3 and B5)
+## 3. Part L: live progress and a cheaper event stream
 
-The product rule is unchanged: a user's video may go to the Recycle Bin, and must never be permanently deleted by this app. Put all of this in one module. It is the only code allowed to remove a user's video path.
+**Facts from the review:**
+- **Every second, per client:**
+  - `os.stat` runs on all ~1,010 manifests under the store lock (`store.py:393-408`);
+  - operations are deep-copied through JSON, and a sorted-key dump is made (`engine.py:470-487`);
+  - `health()` re-reads `schedule.json` and queries the registry (`engine.py:219-300`).
+- **Every 5 s:**
+  - `list_jobs` deep-copies every manifest (`store.py:428-431`);
+  - `queue()` stats the original and output of every job and deep-copies the rows again;
+  - the result is keyed on `id(queue)`, so it is serialised again even when nothing changed; `server.py:252` then drops the duplicate.
+- **Progress:**
+  - `live_progress` is not in the key, so progress reaches the GUI only about every 5 s;
+  - the GUI applies every message without a throttle (`App.tsx:211-225`);
+  - the child reports about 7 times per second in Fast and once per C1 clip (about every 4.8 s) in Standard.
+- **History sorting:** sort and grouping run over all 1,000 records on every render (`Home.tsx:586-625`).
 
-**S1. Preflight.** Any failed check keeps the file and returns "Kept: <reason>":
-- the path is exactly the job's recorded output or original;
-- it exists and is a regular file, not a symlink, junction or other reparse point;
-- it is on a local fixed drive (`GetDriveTypeW` returns `DRIVE_FIXED`) whose file system supports hard links (NTFS or ReFS);
-- no unfinished job uses it;
-- it is not open in another program, for example a video player. Check this with a share-deny open.
+**Rules:**
+1. **Two kinds of events.**
+   - **Progress event:** only for running jobs, and small: id, percent, work left, finish time, fps, phase and step.
+     - Send it when a value changes, at most once per second per client.
+     - While a job runs, send one at least every 2 s. Recompute "work left" from the measured rate, so it counts down smoothly between child reports.
+   - **Structural snapshot:** only when something structural changed, for example a job added, removed or changing state, a manifest revision, an operation, health or the schedule.
+     - Unchanged data is not rebuilt or serialised on a timer.
+     - If you keep a safety refresh, make it at least 60 s apart, and make an unchanged check cost no more than comparing keys.
+2. **Terminal records** (done, failed, cancelled):
+   - Build each row once per manifest revision and cache its serialised form. Never deep-copy whole manifests to build the list.
+   - The list carries only what the History list, the detail panel and their actions need (review list: `Home.tsx:690-735`, `HistoryDetail.tsx:31-33`, `App.tsx:435-440`).
+   - Anything heavier, for example the full media probe for "Compare again" or "Retry", comes from a structured per-job JSON endpoint when the action needs it.
+3. **File states** (`output_state`, `original_state`) of terminal records are refreshed:
+   - by a background pass at most every 60 s;
+   - when History opens;
+   - right after the app's own deletions and restores.
 
-**S2. Journal.** Before any change, append the operation to `<engine home>/deletions.jsonl`: path, size, SHA-256 of the first and last 1 MiB, guard path, time.
+   They are not refreshed every 5 s for every job.
+4. **`health()`:** cache `schedule.json` by modification time. Query the registry at most every 60 s.
+5. **GUI:**
+   - Progress text repaints at most once per second, as a guard even when the service already limits it.
+   - Memoise History sort and grouping on the record set, so a progress event does not re-sort 1,000 records.
 
-**S3. Guard.**
-- Create an NTFS hard link to the file in the same folder, named `.<name>.ve-guard-<random>` and marked hidden.
-- If the link cannot be created, keep the file.
+**Acceptance:** see Part P (service CPU and real-engine progress).
 
-**S4. Recycle.**
-- Use `IFileOperation` with `FOFX_RECYCLEONDELETE`, without `FOF_NOCONFIRMATION`, and with a progress sink.
-- Record whether `PostDeleteItem` reported a Recycle Bin item. A non-NULL `psiNewlyCreated` means it went to the bin; NULL means it was fully deleted.
-- Show no UI. The service runs without a window.
+## 4. Part A: Add checks
 
-**S5. Confirm.** It is a success only if all three hold:
-- the original path is gone;
-- the shell reported a Recycle Bin item;
-- the guard still exists with the same size.
+1. **HDR source.**
+   - A PQ or HLG file makes `probe()` raise before the HDR warning is built (`probe.py:120-121` versus `engine.py:663-664`). One HDR file then fails the whole multi-file estimate with HTTP 400.
+   - Evaluate each file on its own. The HDR file gets its "HDR" warning with "Remove it", and the other files get normal estimates.
+   - Test it through the real API with a synthetic PQ-tagged clip in a mixed multi-file request, not a fabricated warning.
+2. **Service enforcement.**
+   - At add time the service applies the same blocking rules as the dialog: HDR, free space, Smart App Control, cleanup below 256 px and the AV1 minimum size. `ve add` and the API cannot bypass them.
+   - The error names the rule.
+   - Downscale stays a non-blocking note.
 
-Then remove the guard. The result is "Moved to the Recycle Bin".
+## 5. Part P: harness and budgets (revised)
 
-**S6. Otherwise restore.**
-- If the original path is gone without a confirmed bin item, move the guard back to the original path with `MoveFileExW`, without replacing anything. The result is "Kept: the Recycle Bin did not take the file".
-- If the original path still exists, remove the guard and return "Kept: <reason>".
-- Verify the restored file's size and partial hashes against the journal.
+1. **Repeats.**
+   - Run every renderer measurement 10 times. Report all samples, the median and p90. The gate uses the median.
+   - Run the service CPU measurement 3 times and gate on the median.
+2. **Screens.**
+   - **Warm switch** (second and later visit) between Home, History, Schedule, Models and Settings, with the 1,000-record fixture: median ≤100 ms.
+   - **Cold first open of History** with 1,000 records: median ≤300 ms.
+   - Measure the two separately. Remove `history_open_ms = screens.History`.
+3. **Input.**
+   - Event Timing input delay (`processingStart − startTime`): max ≤50 ms.
+   - Interaction duration: p98 ≤200 ms over all recorded interactions. Also report the max and which interaction it was.
+4. **Progress.**
+   - The average progress-text change rate is ≤1.0 Hz over 30 s, and no two paints are less than 900 ms apart.
+   - Measure it with the fake engine, and with the real engine on the GPU during one Fast and one Standard job.
+   - With the real engine, at least 95% of the gaps between progress events are between 0.9 s and 2.1 s.
+5. **Service CPU.**
+   - **Fixture:**
+     - 1,000 terminal records with realistic diagnostics (timing, quality and detector fields of a real finished job);
+     - 10 queued jobs and one running Standard job;
+     - one idle client.
 
-**S7. Crash recovery.**
-- At service start, read the journal and finish or roll back every unfinished entry. If the original is missing and no bin item was confirmed, restore from the guard.
-- Delete orphaned guards only after their entry is resolved.
+     Commit the synthetic fixture generator under `gui/tests/perf/`.
+   - **Gate:** ≤5% of one core.
+   - **Scaling:** also report 5,000 records without a gate, to show that the cost no longer grows with History.
+6. **Unchanged budgets:**
+   - keystroke ≤50 ms;
+   - preview ≤500 ms after the last keystroke;
+   - idle renderer ≤2% of one core.
+7. **Part F totals:** after Part L, measure the full preview from cold GPU admission again for C1, SCUNet and RIFE 4.25. Each must be within 5% of the new baselines.
 
-**S8. Endpoint and UI (old B3).**
-- Delete video files takes job ids plus `{output, original}` and returns a result per file.
-- History shows "Moved to the Recycle Bin", "File not found" or "Kept: <reason>".
-- "Compare again" is disabled with a reason when the original is gone.
-- The History detail panel and the "Delete video files?" dialog follow the design (Part U).
+## 6. Part G: acceptance
 
-**S9. Delete the original after a verified output (old B5).**
-- Implement it exactly as P1d B5 described:
-  - the job setting `delete_original_after`, with its default in Settings › After processing, off;
-  - the Add switch "Delete the original when it is done";
-  - the four output checks: it decodes to the end, the frame count is equal, the duration is within one frame, audio is present when the source had it;
-  - the wait while another unfinished job uses the same original;
-  - "Original kept: <reason>" in History.
-- The destructive step goes only through S1 to S7.
-
-**S10. Tests.**
-- **Fake shell**, covering:
-  - recycled;
-  - fully deleted, where the file must be restored byte-identical;
-  - refused;
-  - a crash after each of S2 to S5, recovered at restart;
-  - a non-fixed drive, a FAT32 or exFAT volume, a file in use, and a reparse point, all kept.
-- **On the real PC:**
-  - a synthetic file on the system drive goes to the Recycle Bin and the user can restore it;
-  - a fake "fully deleted" outcome on the real NTFS volume is restored from the guard, with the same SHA-256;
-  - one GPU job with `delete_original_after` succeeds, and one forced check failure keeps the original.
-
-## 3. Part F: first look from the real render
-
-Today each uncached model runs a separate 15-frame render with a second model load.
-- Take the "First look" still from the **first completed clip of the actual preview render**. The pipeline already processes clips of 15 frames with overlap, so no extra run or model load is needed.
-- The still must equal the matching frame of the finished preview before encoding. Test this on CPU fixtures.
-- Measure from GPU admission, not from `render_compare` entry, to the first look and to the full preview, for C1, SCUNet and RIFE 4.25.
-  - Target: the C1 first look within 25 s.
-  - The total time per model must not be worse than in P1d (C1 75.1 s, SCUNet 196.7 s, RIFE 63.5 s).
-- Add a test for the stills endpoint.
-
-## 4. Part U: finish UI v2
-
-The 7 components in `design/p1d/components/` stay the source of truth. Every row below is a gap found in review at `6a91197` and must be closed.
-
-| Area | What to build or fix |
-| --- | --- |
-| Global | Connecting: the designed panel. Reconnecting: action buttons disabled, with "Last update HH:MM". Unreachable: "Can't reach the engine", Retry and Copy details. The Smart App Control panel as designed. Title bar: the app icon, not the text "VE". |
-| Tokens | Control height 32 px and radius 9 px as in the design (today 36 px and 10 px). Check other sizes against the components. |
-| Home | "Result only" in Preview result. "Waits until you resume it" for paused videos. "Pause this video. The next one starts instead." as the Pause tooltip. "Your hours this week" as the card title. The designed empty state. Cancel dialog buttons "Keep working" and "Cancel video". While cleanup runs after Cancel, the row shows "Cancelling…". |
-| Add videos | The "Delete the original when it is done" switch (S9) and the "File format" label. "Bigger picture" disabled with "More choices come later." when no verified size model is installed. Per-warning fix buttons; see the warning table below. The designed busy and partial states. |
-| History | The detail panel with every designed field and action: Play, Show in folder, Compare again, Copy details, Remove from history, Delete video files…. No label may be clipped at 1100×700 or 1280×800, at 100% and 110% zoom. The "Delete video files?" dialog (S8), "Select all" in select mode, the "File not found" and "Moved to the Recycle Bin" states, and the designed empty and no-match states. |
-| Schedule | Tooltips anchored to their bar and flipped or clamped inside the window, not pinned at the bottom. Remove `Schedule.tsx` (the Custom dialog and drag code) and its CSS. Port its tests that still apply to `ScheduleView`. |
-| Models | The remove-blocked dialog with real reasons: the default for Standard, "N videos in the queue use it, including <file>", "which is being processed now". Details: "Peak GPU memory X GB of N GB" from the detected VRAM, the source host, and "Default for Standard". The busy-install state. |
-| Settings | The "After processing" section with the switch (S9), and the hint "Above 100%, small windows can scroll." |
-| Compare | A visible range box with click-to-place, Left and Right 1 s, Shift 5 s, and the position slider. The designed Swipe mode with its handle, and zoom as a segmented control. The tile states Waiting ("Starts after the current step, about N min"), First look, "Making preview N%", Ready, and Problem with Try again. The Fast panel ("Fast does not clean up.", Switch to Standard, Compare smoother motion instead). Model descriptions visible. The designed labels; drop "Compare selected models", because rendering is automatic. |
-
-The Add-dialog warnings each get the fix that actually solves them. Today `Queue.tsx:311` shows "Use Keep" for every "too small" warning, which is wrong.
-
-| Warning | Blocks adding | Fix button |
-| --- | --- | --- |
-| Output too small for cleanup (under 256 px) | yes | "Use 1080" |
-| Output too small for AV1 (under 130×66) | yes | "Use HEVC" |
-| Not enough space | yes | "Choose a folder…" |
-| HDR is not supported | yes | "Remove it", which removes that file |
-| Smart App Control is blocking | yes | "Read instructions" |
-| The chosen size is smaller than the source (for example 1080 for a 1440×2560 video) | **no**: a note, not a blocker, because shrinking can be intended | "Use Keep" |
-
-GUI tests: bring back coverage for the finalization display ("Finishing: checking the file") and the Alt+Up / Alt+Down reorder, which were lost with the old pages. Add tests for the B8 fields (`waiting_count`, file states, `publisher_url`) and for the warning table.
-
-## 5. Part P: performance harness and budgets
-
-- Add a repeatable harness under `gui/tests/perf/`. Use Playwright for Electron with Performance marks and the Event Timing API. Fixtures:
-  - a History of 1,000 records;
-  - a queue of 10 videos while one Standard video is running, driven by a fake engine for the renderer budgets and by the real engine for the service budgets.
-- **The event stream:**
-  - cache each job's manifest by modification time, so it no longer re-reads every manifest each second;
-  - cache the AV1 minimum size per GPU and driver version in the engine home, so that about 14 NVENC probes do not run at every service start.
-- **Budgets.** Report every number, with how it was taken:
-  - the service's event-stream work with 1,000 History records and one idle client: at most 5% of one CPU core;
-  - no keystroke in a Schedule time field delayed by more than 50 ms;
-  - the preview result shown at most 500 ms after the last keystroke;
-  - switching screens: at most 100 ms;
-  - input latency: at most 50 ms;
-  - idle renderer with progress updating: at most 2% of one core;
-  - opening History with 1,000 records: at most 300 ms;
-  - progress text: at most once per second.
-
-## 6. Part R: robustness
-
-- **Clear history** either finishes completely or reports what was not removed. The GUI restores any rows it hid optimistically when the service reports an error.
-- **Event snapshot:** build the cache key from copies taken under the lock, so that a live operation dict cannot raise "Snapshot unavailable".
-- **Cancel:** if `remove()` fails for a hidden `remove_on_cancel` job, the job reappears in History as failed with the reason. It must not stay hidden on disk.
-
-## 7. Part G: acceptance
-
-- **G1:** screenshots of every board in `design/p1d/README.md` from the packaged app with synthetic data:
-  - at 1280×800 and 1100×700;
-  - dark and light for the 7 main screens, dark for the other states;
-  - side by side with the design for the 7 main screens.
-  Store them outside the repository and list their paths.
-- **G2:** extend the CI e2e clipping test to the Add dialog, Compare and the History detail panel, including tooltips inside the window. It runs in CI.
-- **G3:** every Part P budget, with numbers.
-- **G4:** the GPU evidence for Part E (4 jobs), Part F (3 models) and Part S (the real-PC checks).
-- **G5:** run **all** GPU-marked tests, not only the 14 from P1d: `test_model_registry.py`, `test_source_index.py`, `test_pipeline.py`, `test_p1a_pipeline.py`, `test_media.py`, `test_quality_trial.py` and any others. The default pipeline output must not change.
+- **G1:** screenshots, at 1280×800 and 1100×700, of only the screens this cycle changes, for example Settings with the calibration note and the Add dialog with an HDR file. Store them outside the repository and list their paths.
+- **G2:** the CI clipping tests stay green.
+- **G3:** every Part P number.
+- **G4:** the GPU evidence:
+  - Part E: 5 jobs;
+  - Part L: real-engine progress;
+  - Part P7: the 3 totals;
+  - Part S: run the real-PC deletion checks again if the deletion code changed.
+- **G5:** all GPU-marked tests. The default pipeline output must not change; strict equality as before.
 - **G6:**
   - `ruff`, `ruff format --check`, `pyright`, CPU tests and the D2 suite;
-  - GUI lint, typecheck, unit tests, build and e2e;
+  - GUI lint, typecheck, unit tests, build, e2e and package;
   - Windows and Ubuntu CI green on the final commit, recorded in the report.
-- **The owner's visual check:** not your job. I will write `P1d_owner_check.md` after your report.
+- **The owner's visual check** is not your job. After this cycle, build the package and give its path in the report. The owner will run `P1d_owner_check.md`.
 
-## 8. Constraints
+## 7. Constraints
 
 - Windows 11, no WSL. All code, comments, UI text and docs are in English.
 - **Never commit:**
   - media, weights, previews or generated videos;
   - `node_modules` or build output;
-  - the design export or the screenshots;
+  - the design export or screenshots;
   - the owner's logs or private sample names.
-- **User videos:** never deleted permanently. Only Part S may remove a user's video path, and only to the Recycle Bin, behind the guard.
+- **User videos:** never deleted permanently. Only the deletion module may remove a user's video path, and only to the Recycle Bin, behind the guard.
 - No models that add skin texture, and no GAN real-world video models. No new catalog entries.
 - Keep the service security model. No telemetry, no auto-update.
 - Update `docs/GUI.md`, `docs/API.md` and `docs/TROUBLESHOOTING.md` for every change.
 
-## 9. Part X: optional, only after everything above
+## 8. Part X: optional, only after everything above passes
 
 - **X1.** Re-qualify the Real-ESRGAN blend with tile 128 and halo 16. It qualifies if the sampled process peak is at most 5.0 GB.
 - **X2.** Keep the last compare model loaded for 120 s while the queue is idle. Report the gain, and turn it off if it ever delays a queued job.
 
-## 10. Report (`.ai/LAST_REPORT.md`, English)
+## 9. Report (`.ai/LAST_REPORT.md`, English)
 
-- A table per part (E, S, F, U, P, R, G, X): done / partial / NOT RUN / BLOCKED, with evidence (tests, numbers, file:line for key changes).
-- **Part E:** for each of the 4 jobs, the estimated time, the actual time and the error.
-- **Part S:** the result of each real-PC check, with SHA-256 values.
+- A table per part (S, E, L, A, P, G, X): done / partial / NOT RUN / BLOCKED, with evidence (tests, numbers, file:line for key changes).
+- **Part E:** for each of the 5 jobs, the estimate, the actual time and the error. Also the calibration wall times, and which run produced the built-in profile.
+- **Part P:** every sample, the median and p90.
+- **Part S:** each finding, fixed or not, with its test.
+- The path of the packaged app for the owner's check.
 - "Questions for the designer", each with the default you chose.
 - Exact reproduction steps.
 
