@@ -1,265 +1,295 @@
-# CURRENT_TASK: Cycle P1c-4 (qualify the optional models, finish Compare, close P1c)
+# CURRENT_TASK: Cycle P1d (UI v2 from the owner's Claude Design, and the engine work it needs)
 
-- **Task ID:** VE-P1c-4
-- **Date:** 2026-10-10
+- **Task ID:** VE-P1d
+- **Date:** 2026-10-11
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
-**Start condition:** continue on branch `p1c-redesign` (draft PR #4, last commit `db8585c`, CI green on Windows and Ubuntu). Save this file as `.ai/CURRENT_TASK.md`, commit it, and write `.ai/LAST_REPORT.md` (English) at the end. Do not push to `main`. If the owner adds an "Owner feedback" addendum below, treat it as part of this task. Its items come before Part M2.
+**Start condition:** the owner merges PR #4 (`p1c-redesign`, head `fe2b509`) into `main`. Create the branch `p1d-ui-v2` from the latest `main`. If PR #4 is still unmerged when you start, branch from `fe2b509` and say so in the report. Save this file as `.ai/CURRENT_TASK.md`, commit it, open a draft PR to `main`, and write `.ai/LAST_REPORT.md` (English) at the end. Do not push to `main`.
 
-## Working rules (unchanged)
+## Working rules
 
 1. Do not stop the cycle for one blocked item. Write the question under "Questions for the designer", choose the safest option that keeps existing outputs unchanged (or skip only that item), and continue. Stop early only if every remaining item is blocked.
-2. Order: Owner feedback (if any) → Part M2 (model qualification) → Part C2 (Compare interactions) → Part E (evidence gaps). Long GPU measurements run whenever the GPU is free.
+2. Order: Part D (design package) → Part A (fixes from the P1c-4 review) → Part B (engine and service features for the new UI) → Part U (UI v2) → Part C (Compare) → Part G (acceptance) → Part X (optional). Long GPU measurements run whenever the GPU is free.
 3. If time runs out, finish earlier items completely and mark the rest NOT RUN. Never report a test as passed if it did not run.
+4. The owner's queue, settings and videos on this PC are not test data. Use synthetic footage and a separate engine home for every test.
 
-## 0. Status after P1c-3 (review of `db8585c`)
+## 0. Status after P1c-4 (review of `fe2b509`)
 
 Accepted as done (keep, do not redo):
+- **F1 AV1:** the probe uses the production encoder at 1920×1080, `av1_unavailable_reason` is in `health`, Add and Settings share it, no silent codec switch, AV1 timestamps fixed with `setts`.
+- **M2:** 9 new entries qualified. C1 and RIFE 4.25 have `reference_speed`.
+- **C2 service side:** reuse by cache key, cancellation of the previous compare, `POST compare/range`, three-model GPU compare.
+- **E:** trial percent history; no 0% stretch over 60 s.
+- **F3:** `summary` exists for every built-in entry, 52 to 69 characters.
+- **CI:** 4 of 4 checks green on `fe2b509`.
 
-- **Part U:** done, including U-rest.
-- **Model catalog foundation:**
-  - catalog blocks for C1 and RIFE 4.25, and category cards;
-  - consent, verification, Details, defaults captured before preparation, and guarded removal.
-- **Compare foundation:**
-  - `POST compare` with up to three models;
-  - shared index and range analysis, progressive previews, and the 5-session / 2 GB cache;
-  - four-stream WebCodecs viewer with side by side, swipe, zoom, shared pan, frame step and Use this.
-- **GPU acceptance:**
-  - G1: percent and Work left moved 13.97 s after segment start.
-  - G2: three jobs and two trials finished, the whole run took 2,255.6 s.
-  - G3: 935 window polls with no unexpected window.
-- **Four-stream sync:** 100 random seeks and 300 played frames with 0 mismatches.
+Designer answers to the three P1c-4 questions:
+1. **1xDeH264_realplksr:** stays omitted. The licence string "CC-BY-0.4" is ambiguous, and omission is the safe default.
+2. **2xLiveActionV1_SPAN:** follow the publisher's Apache-2.0 licence. Set `commercial_use_allowed` from that licence and show it as such.
+3. **Real-ESRGAN blend:** stays omitted for now. One retry with a smaller tile is optional item X1.
 
-**Designer decision on Question 3 (Fast has no cleanup stage):** confirmed, Fast does not compare cleanup models.
-- When Compare opens for a Fast job or a Fast Add dialog, the Cleanup category chip is disabled with the note "Fast does not clean up. Switch this video to Standard to compare cleanup models."
-- When the job has not started, the note includes a "Switch to Standard" button that changes the mode, re-estimates, and enables the chip.
-- Smoother motion and Bigger picture stay available in Fast.
+## 1. Part D: the design package
 
-## 1. Part M2: qualify every optional catalog entry
+The owner made the new UI in Claude Design and exported it as a standalone HTML file.
 
-The catalog design (M1 to M3 in Appendix A) is unchanged. This cycle completes the **qualification** of each entry in the M2 table. Work in this order:
-1. The BasicVSR++ variants (Track 1, Track 2, denoise), which use the existing adapter.
-2. The spandrel single-frame models (SCUNet real PSNR, FBCNN, 1xDeH264_realplksr).
-3. RIFE 4.26 and RIFE 4.25 lite.
-4. The DRUNet strength wrapper (Light / Medium / Strong).
-5. The `size` stage with 2xLiveActionV1_SPAN and Real-ESRGAN realesr-general-x4v3 (with the `wdn` blend).
+- **The file:** `VideoEnhancer_Desktop.html`, 7,153,595 bytes, SHA-256 `f19cd6ed307e71e35ef319f4025b70e6e6a72b9d2e6a87cff165cd3e15d7a642`. The owner puts it at `.tmp/design/VideoEnhancer_Desktop.html` in the repository folder; `.tmp/` is already ignored by Git. Check the SHA-256 and do not commit the file.
+- **Its format:**
+  - The page holds four `<script type="__bundler/...">` blocks: `manifest`, `ext_resources`, `page_order` and `template`.
+  - `manifest` is JSON that maps a UUID to `{mime, compressed, data}`. `data` is base64, gzip-compressed when `compressed` is true.
+  - The 61 top-level entries are nested HTML bundles, one per artboard, and each has the same four blocks. The `template` of the top level lists the artboards with their titles and sizes.
+  - Inside the nested bundles are 7 component sources and the runtime (`dc-runtime.js`, React 18.3.1). The nested template imports a component through `<dc-import>`, with `theme` (dark/light), `size` (1280x800/1100x700) and `variant` (the state) attributes.
+- **Extract and commit** the 7 components to `design/p1d/components/`. The files must be byte-identical to these:
 
-**Qualification of one entry** (all steps must pass, otherwise the entry stays omitted with the failing step in the report):
+  | File | Bytes | SHA-256 |
+  | --- | --- | --- |
+  | `Main.dc.html` (Home) | 75,986 | `5792f656be5f734aa2088a6aa3c40b8fbcbc7b637f4ec0778a59ba56ab25bd8d` |
+  | `AddVideos.dc.html` | 27,641 | `a3949a26dabd18fbcb9390b6261003c97c94d5804b33d7ed763b1669e84f3412` |
+  | `History.dc.html` | 45,053 | `7a4ea00afa8cd26660e394779e638177993ac78ae6cfa7cc0273db5419c92d43` |
+  | `Schedule.dc.html` | 43,378 | `7a4197762622501b7d5216761b5935dbee34794f548c5ebf5d74436d534e411e` |
+  | `Models.dc.html` | 37,088 | `82a06dcf542e7ac18005fdfbfe595cf68e09c943e95e58af64a13ee23c00408d` |
+  | `Compare.dc.html` | 47,339 | `1acbd48ad2c91cdac5ccb31e57a29044c94614cecde89a3c1754063b565d5e1c` |
+  | `Settings.dc.html` | 25,801 | `23cde72b6ed1b9f7bc3cebf808cd24a755bb613f0cb0ccc93dfba5446c586ef1` |
 
-1. **Source.** Download from the original publisher's URL listed in M2. Use a mirror only if it serves a byte-identical file. Record the URL, byte size and SHA-256 you computed.
-2. **Licence.** Copy the exact licence string from the publisher's repository or model page. For weights whose terms are not stated (the BasicVSR++ files), write "Code Apache-2.0; the weights' terms are not stated" and keep `commercial_use_allowed: false`. This is a personal, non-commercial app, so such entries are allowed.
-3. **Load.** The file loads through its adapter with no custom CUDA build. For RIFE 4.26 and 4.25 lite, unpack the publisher archive and check that the pinned RIFE adapter loads the matching IFNet version. If it needs a different IFNet definition, add it as a versioned adapter variant without changing 4.25's behaviour.
-4. **Reference measurement on the RTX 4060 Ti.**
-   - Use one fixed synthetic 5 s clip, 720×1280 at 30 fps, rendered to 1080×1920, with the model in its real pipeline position.
-   - Record input fps over the whole clip, without model loading.
-   - Record the Torch peaks: `torch.cuda.max_memory_allocated` and `max_memory_reserved`, reset before the run.
-   - Record the process GPU memory peak, dedicated plus shared, sampled **every 1 s** during the run. This 1 s sampling is the budget measurement for this cycle. The 30 s job sampling stays for normal jobs.
-   - The entry passes the budget when the sampled process peak is at most 5.0 GB. Single-frame models may use tiling with overlap to get there; record the tile size.
-   - Write `reference_speed` (fps, Torch peaks, sampled process peak, tile size) into the manifest's catalog block.
-   - Measure **C1 (Gentle cleanup)** and **RIFE 4.25 (Smooth motion)** the same way, so every card shows a measured speed.
-5. **Compare check.** Run a real 5 s compare on the GPU with the entry and the category default. Both previews render, and the card shows the measured speed.
-6. **Defaults unchanged.** The default pipeline (C1, RIFE 4.25, non-learned resize) produces byte-identical output before and after this cycle, using the existing strict C1/RIFE tensor-equality test and the CPU fixtures.
+- Add `design/p1d/README.md` (English). It lists the 61 boards (component, variant, theme, size) and says that the components are the visual source of truth for P1d. Do not commit the runtime or the extraction script.
+- **How to use the design:**
+  - Layout, spacing, tokens, copy, states and keyboard behaviour come from the components. Re-implement them in the existing React + TypeScript renderer. Do not ship the dc runtime.
+  - Where the design shows sample data, use real data: file names, times, model names and descriptions, counts, "Driver [version]", "[model publisher's page]".
+  - Where the design's copy describes behaviour, the app must really behave that way, or the copy must change to match the engine. For example, "It will try again with smaller parts" must not appear unless the engine retries with smaller parts.
 
-DRUNet wrapper:
-- Spandrel's default call fixes the noise level, so pass the strength map yourself.
-- Pick the three strengths from the publisher's documented deblocking setting, which is a quality-factor map for JPEG-style deblocking.
-- For Light, Medium and Strong, use quality factors 50, 30 and 10, unless the publisher's code defines the map differently. In that case, follow the publisher and report the mapping.
-- Show the three choices as one card with a three-way selector, not three cards.
+The boards by component:
+- **Main (Home), 21 boards and 4 derived states:**
+  - working, waiting, finishing, empty, drop, zoom, preview, tray, long, menu
+  - confirmCancel, confirmRemove, log, actionError, problem
+  - connecting, reconnecting, unreachable, sac
+  - derived: paused, preparing, overrun, previewPause
+- **AddVideos, 8:** default, options, optionsNoAv1, one, warnings, busy, partial.
+- **History, 11:** default, failed, notFound, select, deleteFiles, clear, toast, empty, noMatch.
+- **Schedule, 7:** default, addDay, runUntil, override, off.
+- **Models, 6:** default, details, licence, remove.
+- **Compare, 5:** default, failed, swipe, fast.
+- **Settings, 3:** default, advanced.
 
-Size stage:
-- The stage runs after cleanup and before the final resize and RIFE.
-- With "Standard resize", the pipeline is exactly today's (byte-identical).
-- The Real-ESRGAN blend uses the publisher's documented interpolation of the `x4v3` and `wdn-x4v3` weights. Offer two fixed points, "Faithful" (denoise strength 0.2) and "Cleaner" (0.6), as a two-way selector on the card.
+## 2. Part A: fixes from the P1c-4 review
 
-## 2. Part C2: finish the Compare interactions
+- **A1. Model-aware estimates.**
+  - The estimator ignores the chosen model today. With SCUNet the measured speed is 0.587 fps against C1's 2.473 fps, so the Add dialog would promise a time 4.2× too short. SPAN adds 1.77×.
+  - Scale each stage's cost by the ratio of the model's `reference_speed` to the category default's `reference_speed`. Both were measured on the same reference clip. A calibrated profile for that exact model wins when it exists.
+  - The Add cards, the Up next times, the Schedule plan and Compare's "About X for this video" all use this one estimator.
+  - Evidence on the GPU: one short Standard job with SCUNet and one with SPAN. Estimated and actual processing time must agree within ±15%.
+- **A2. Cancel must not destroy reusable previews.**
+  - Today a cancelled compare deletes every `*.mp4`, including finished model previews that the reuse cache could serve. This races with `prime_cached`.
+  - Delete only incomplete files. Keep finished previews in the cache under its existing limits (5 sessions, 2 GB).
+  - Add a test: start a compare, cancel it after one model is ready, start a new compare with the same key, and that model is served from the cache without GPU work.
+- **A3. "Busiest part" ignores scene cuts.** Exclude cut frames, and 2 frames on each side, from the motion sum in `compare/range`. Add a test with a hard cut inside a calm clip: the chosen window must not be the cut.
+- **A4. AV1 coverage.** Run on the GPU and report `ffprobe` `codec_name`, size, frame count and duration for each case:
+  - a Keep-size job with a 720×1280 output;
+  - a job with at least 3 segments, to cover concatenation;
+  - the smallest output size the production AV1 encoder accepts, found by probing. For outputs below it, the Add dialog shows a blocking warning before queueing ("Output too small for AV1. Choose HEVC or a larger size."), and the service refuses with the same text.
+- **A5. Docs and dead code.**
+  - Fix `docs/ADDING_MODELS.md` lines 6 and 7, which contradict its later section.
+  - Remove the `realesr-general-x4v3` GUI selectors that have no catalog entry.
+  - Make `docs/THIRD_PARTY_MODELS.md` line 58 true: either add a test for the blend path or remove the claim.
+  - Add the missing service tests for `restore_strength` and `size_strength` validation and for `percent_history`.
 
-1. **Range box.** The 5 s box on the thumbnail strip can be dragged with the mouse and moved with the arrow keys (1 s per step, Shift for 5 s). The default range is the busiest 5 s from the analysis data. The middle of the video is the fallback only when that data is missing.
-2. **Automatic re-render.** Changing the range or the model selection starts a new render 800 ms after the last change. The new render cancels any render still running, and the tiles show "Making preview" again. The explicit Render button stays as a fallback for errors.
-3. **Reuse rendered models.**
-   - The cache key is the source identity (path, size, mtime), the CFR range, the stage settings, the model id and the model's SHA-256.
-   - A model whose preview exists for the same key is shown at once, not rendered again.
-   - The Original preview is reused the same way.
-4. **Install, then select.** Installing a model from a dashed "+ Name" chip selects it after verification. If three models are already selected, it replaces the last one. The render starts automatically.
-5. **Three different models on the GPU.** One measured compare with three different qualified models of the same category, for example Gentle cleanup, Crisper cleanup and All-round cleaner. Report each model's fps, the time to the first tile, and the total time.
-6. **Fast and cleanup:** see the decision in section 0.
+## 3. Part B: engine and service features for the new UI
 
-## 3. Part E: evidence gaps
+- **B1. Pause all versus pausing one video.**
+  - "Pause all" becomes a global flag and no longer rewrites every job's state.
+  - "Resume all" clears the flag. Videos the user paused one by one stay paused ("Waits until you resume it").
+  - Pausing the running video lets the next queued video start, within the operating hours. This matches the design's tooltip "Pause this video. The next one starts instead."
+  - `health` exposes `paused_all`.
+  - Tests: pause one, pause all, resume all, and that video is still paused.
+- **B2. Cancel and remove.**
+  - A video with no completed segment: the menu's Cancel opens "Remove … from the queue?". Confirming removes the job completely, with no History entry.
+  - A started video: Cancel marks it cancelled and deletes its intermediate work files at once, because a cancelled job cannot be resumed. The record stays in History as "Cancelled". The confirm text says the work so far is lost and the original stays as it is (design board `confirmCancel`).
+  - The original file is never touched by Cancel or Remove.
+- **B3. Delete video files to the Recycle Bin.**
+  - Add a service endpoint that takes job ids plus `{output: bool, original: bool}` and moves only those jobs' recorded output and original paths to the Windows Recycle Bin. It accepts no free paths.
+  - Use the Windows shell with undo (for example `IFileOperation` with recycle-on-delete). A file that would be deleted permanently must be **kept**. This covers a network drive, the bin turned off, or a file too large for the bin. The result then says, per file, "Kept: <reason>".
+  - Verify afterwards that the file left its folder and that no permanent delete happened.
+  - The History record stays. It shows "File not found" or "Moved to the Recycle Bin" as appropriate. "Compare again" is disabled with a reason when the original is gone.
+  - Tests: mock the shell API for success, refusal and permanent-delete-only. On the real PC, one manual check with a synthetic file that ends up in the Recycle Bin.
+- **B4. History removal.**
+  - "Remove from history" (one or many) hides the records at once and allows Undo for 10 s, then removes them, together with their work folders, as `remove` does today.
+  - "Clear history…" removes every done, failed and cancelled record after its confirm dialog, with no Undo.
+  - Neither ever touches video files.
+- **B5. Delete the original after a verified output.**
+  - Each job has a setting `delete_original_after`. Its default comes from Settings `delete_original_after_processing`, which is false by default. The Add dialog switch sets it per job.
+  - After finalization succeeds, check all of these:
+    - the output decodes to the end;
+    - its frame count equals the expected output frame count;
+    - its duration is within one output frame of the expected one;
+    - it has an audio stream when the source had one.
+  - Only then send the original to the Recycle Bin through B3.
+  - If any check fails or the bin cannot take the file, keep the original. History then shows "Original kept: <reason>".
+  - If another unfinished job uses the same original, wait until the last of them has finished.
+  - Never do this for trials, compares or previews.
+  - Tests cover every check, including a forced failure that keeps the original.
+- **B6. Schedule and plan performance.** Today one pointer move costs three 120-day plan builds, and the event stream rebuilds a 120-day plan every second for each client.
+  - `schedule/preview` builds only the expected plan, unless the caller asks for the best and worst range. The new design does not show that range.
+  - The GUI sends at most one preview 400 ms after the last edit and cancels stale requests.
+  - The event stream caches the queue snapshot and the plan. It rebuilds them when jobs, schedule or settings change, and at most once every 5 s when only progress changed.
+  - Budgets on the RTX 4060 Ti PC, with a Standard job running and 10 queued jobs:
+    - no keystroke in a time field is delayed by more than 50 ms;
+    - the preview result is shown at most 500 ms after the last keystroke;
+    - with one idle client, the service's event-stream work uses at most 5% of one CPU core.
+  - Report the measurements and how you took them.
+- **B7. First look in trials and compares.**
+  - After a compare gets the GPU, each model tile first gets a "First look": a still image of one frame near the start of the range, taken from a short run of 15 frames. Original gets the same frame.
+  - The full preview continues afterwards. The finished preview keeps the existing frame-identity rules (the D2 suite). The first look is only a preview of it and is labelled "First look".
+  - Target: at most 25 s from GPU admission to the C1 first look on the RTX 4060 Ti. Report the time to first look and to the full preview for C1, SCUNet and RIFE 4.25.
+- **B8. Data the new screens need.** Expose these in the existing API:
+  - the waiting count for the dock badge (queued, paused and preparing videos);
+  - per History record: mode, time taken, output size, original size, output folder, failure reason, and the state of the output and original files (present, missing, in Recycle Bin);
+  - the driver version for Settings › About;
+  - the publisher page URL for each catalog entry, for the licence dialog.
 
-- **G2 trial progress:**
-  - Keep each trial's percent history (time and percent, at most every 2 s) in its operation state.
-  - Rerun only the two G2 trials (one while a job runs, one outside operating hours).
-  - Show that neither stays at 0% for more than 60 s.
-- **Owner visual check:** the owner runs `/mnt/project-files/design/P1c_owner_check.md` (Japanese) on this branch. You do not need to run it. Keep the owner's queue untouched.
+## 4. Part U: UI v2
 
-## 4. Acceptance criteria
+- **U1. Window shell.**
+  - Frameless window with `titleBarStyle: "hidden"` and `titleBarOverlay`. The native Windows caption buttons and Snap Layouts stay.
+  - A 32 px title bar with the app icon and name, as in the design. The overlay colours follow the theme.
+  - Closing hides the window to the tray, as today. The first time, the tray dialog explains this (board `tray`); that it was shown is remembered.
+  - The minimum window stays 1100×700.
+- **U2. Dock.**
+  - Five items as designed: Home, History, Schedule, Models, a divider, then Settings with a gear.
+  - Tooltips appear on hover and on keyboard focus.
+  - Badges: Home shows the waiting count; History shows a dot for unseen failures.
+  - Ctrl+1 to Ctrl+5 switch screens.
+  - Compare is not in the dock. It opens full-window with Back and without the dock.
+- **U3. Tokens and type.**
+  - Use exactly the CSS custom properties of the design for `dark` and `light`: `--bg`, `--surface`, `--raised`, `--border`, `--text`, `--text2`, `--muted`, `--accent`, `--on-accent`, `--success`, `--warning`, `--danger`, `--on-danger`, the `-soft` variants, `--band`, `--hover`, `--scrim`, `--shadow`.
+  - Font "Segoe UI Variable Text", base 13 px. The other sizes, radii and control heights come from the components.
+  - Remove the old teal tokens and the undefined `--text-3` and `--surface-2`.
+  - No `backdrop-filter`, no blur and no CSS animations. Transitions stay at 120 to 150 ms, as designed.
+- **U4. Zoom.**
+  - Zoom is 80, 90, 100, 110, 125 or 150%, applied with `webContents.setZoomFactor`.
+  - Change it with Ctrl+Plus (also Ctrl+= and the numpad keys), Ctrl+Minus and Ctrl+0, or in Settings.
+  - Replace Electron's default menu zoom so a key press never zooms twice.
+  - Show the toast "90%" with "Ctrl+0 resets to 100%".
+  - The setting is saved and applied before the first paint.
+  - At 100%, no screen scrolls at 1100×700. Above 100%, inner areas may scroll (the Settings hint says so).
+- **U5. Theme.** "System" follows `nativeTheme` live, including the title bar overlay. Light and Dark force the theme.
+- **U6. Screens.** Implement every board and state listed in Part D with real data. The following are the points the design leaves open, and the defects my review found. The review measured the export in headless Chromium with Arial-metric fonts; Segoe UI widths were not measurable there.
+  - **Home:**
+    - All states. The "Your hours this week" card shows 5 days starting today.
+    - The menu closes on an outside click and on Escape.
+    - The log dialog shows the job log and the log file's real path.
+    - Preview result is side by side or result only, as designed.
+    - The problem banner time is formatted ("Problem · Sun 10/11, 23:02"), not a raw ISO string.
+    - Singular and plural are correct ("Drop to add 1 video").
+  - **Add videos:**
+    - The Standard and Fast estimates cover all files together.
+    - The fix buttons in `warnings` work: "Choose a folder…" opens the folder picker; "Remove it" removes that file; "Use Keep" sets Size to Keep; "Read instructions" opens `docs/TROUBLESHOOTING.md`.
+    - "Bigger picture" is enabled when a verified size model is installed (SPAN). Otherwise it is disabled with the note "More choices come later."
+    - Closed selects must not clip their text. Today "BasicVSR++ decompression (de…" is clipped.
+  - **History:**
+    - The grid is virtualized and stays smooth with 1,000 records. Counts and groups are real (Today, Yesterday, Last 7 days, Earlier in <Month>).
+    - Portrait and landscape thumbnails are centre-cropped into the designed tile.
+    - "Show in folder" selects the file.
+    - **Defect:** the detail panel's action row "Play | Show in folder | Compare again" overflows by 38 to 75 px, and "Compare again" is cut off. No action label may be clipped at 1100×700 or 1280×800, at zoom 100% or 110%.
+  - **Schedule:**
+    - Numeric rows, quick fills that also turn the switch on, and "All day", which is stored as 00:00–00:00.
+    - "next day", the overlap note, and Up and Down by 15 minutes.
+    - Special days with several time ranges.
+    - "Run now until a time…" shows the new finish before it starts. The override state has Stop.
+    - The timeline is read-only and shows "was …" after a change. Autosave with "Saved · Undo".
+    - Remove the "Custom…" dialog and all drag code.
+    - **Defect:** the bar tooltips (about 365 px wide) run up to 62 px past the window edge. Tooltips must stay inside the window: flip or clamp them.
+  - **Models:**
+    - Only real catalog entries. The design's examples ("Strong Restore", "Detail Restore", "Low-light Cleanup" and the rest) are not products, and models that add texture stay excluded.
+    - Card title = the catalog `title` in plain words (for example "Gentle cleanup"). `display_name` (for example "BasicVSR++ NTIRE21 Track 3") goes under it in the details. The card shows `summary`.
+    - The DRUNet strength selector, and per-card download progress with Cancel. Remove the duplicate operation list.
+    - Details: licence and `licence_plain`, source host, short SHA-256 with copy, speed on this PC, peak memory "of N GB" from the detected VRAM, invents detail, flicker.
+    - The licence dialog's checkbox gates Download, and it links to the real publisher page.
+    - The remove-blocked dialog gives the real reasons.
+  - **Compare:** Part C.
+  - **Settings:**
+    - Autosave with "Saved". Zoom and System theme really work.
+    - "Start with Windows" keeps its current default, off. The design shows it on only as an example.
+    - About shows the real driver version.
+  - **Global states:** connecting, reconnecting (buttons disabled, "Last update HH:MM"), unreachable (Retry, Copy details), the Smart App Control panel, the action error, and the toasts.
+- **U7. Accessibility.**
+  - Everything works by keyboard, with a visible focus ring.
+  - Dialogs trap focus and close on Escape. The safe button is focused first.
+  - Status is never shown by colour alone.
+  - Every control has a hit area of at least 24×24 px, even where the visual is smaller (checkboxes 13 to 18 px, seek bars 6 px, the small links in the design).
+- **U8. Renderer performance budgets.** Measure with Performance marks in the packaged app on the RTX 4060 Ti PC while a Standard job runs:
+  - switching screens takes at most 100 ms, from click to the next painted frame;
+  - input latency is at most 50 ms;
+  - with the window visible, idle, and progress updating, the renderer uses at most 2% of one CPU core;
+  - opening History with 1,000 records takes at most 300 ms.
+  - Progress text updates at most once per second.
+- **U9. Clean-up.** Remove the dead `QueuePage` and `PlanPage` and the unused CSS. Update the tests.
 
-- **A6:** every M2 entry is either qualified (all six steps) or omitted, with the failing step and its evidence. C1 and RIFE 4.25 have measured `reference_speed`. Install, Verify again, Make it my default and Remove work for each qualified entry. The default pipeline output is unchanged.
-- **A7:** the three-model GPU compare is done (C2 item 5). The four-stream sync test still passes. Range drag, auto re-render, reuse and install-then-select all have component tests and one Electron e2e test with synthetic previews.
-- **A3:** the G2 trial rerun shows no 0% stretch longer than 60 s.
-- **A8:** checks are green: `ruff`, `ruff format --check`, `pyright`, CPU tests, the D2 suite, GUI lint, typecheck, unit tests, build and e2e. Windows and Ubuntu CI is green for the final commit.
-- **A9:** Models and Compare screenshots with synthetic footage at 1280×800 in dark and light, showing the qualified entries.
+## 5. Part C: Compare (the GUI parts deferred from P1c-4)
 
-## 5. Constraints
+- **Range box.** Click places the 5 s box. Left and Right move it 1 s, Shift 5 s. The position slider moves through the whole video. It starts on the busiest part (A3). Length is 3, 5 or 10 s.
+- **Choosing models.**
+  - Pick a category, then up to 3 models. Original is always shown.
+  - Models that are not installed appear as "+ Name". Installing one selects it after verification. If 3 are already picked, it replaces the last one.
+- **Automatic re-render.**
+  - Changing the moment or the models starts a render 800 ms after the last change. It cancels the running one (keeping finished previews, A2) and serves cached models at once.
+  - "Try again" stays for failures.
+- **Tile states:** Waiting ("Starts after the current step, about N min"), First look (B7), Making preview N%, Ready, and Problem with Try again.
+- **Viewer:** side by side, or swipe with Left and Right pickers; zoom 100 to 400% with shared pan; play and pause with Space, frame step with Left and Right, seek, Loop, "Frame n/N". Keep the four-stream sync test passing.
+- **Per model:** "About X for this video" (A1), Use this / Chosen, Make it my default.
+- **Fast videos:** the "Fast does not clean up." panel, with "Switch to Standard" (enabled before the video starts) and "Compare smoother motion instead".
+- **At 1100×700:** no button wraps. Long model titles may end in an ellipsis, with the full name in a tooltip.
 
-- Windows 11, no WSL. All code, comments, UI text and docs in English.
-- Never commit media, weights, previews, generated videos, `node_modules`, build output, the owner's logs, or private sample names. Screenshots use synthetic footage only and stay outside the repository.
-- No models that add skin texture and no GAN real-world video models. Do not add entries beyond the M2 table.
+## 6. Part G: acceptance
+
+- **G1. Screens:**
+  - Build the packaged app with synthetic data that reproduces each board in Part D.
+  - Take screenshots at 1280×800 and 1100×700: dark and light for the 7 main screens, dark for the other states. For the 7 main screens at 1280×800 dark, put the design board and the app side by side in one image.
+  - Store the screenshots outside the repository and list their paths in the report.
+- **G2. No clipping and no page scroll.** An Electron e2e test opens each main screen at 1100×700 and 1280×800 at zoom 100%. It asserts:
+  - the page does not scroll;
+  - no button or label is clipped (`scrollWidth > clientWidth` without an ellipsis style);
+  - nothing is hidden behind the dock;
+  - no tooltip runs outside the window.
+  The test runs in CI.
+- **G3. Performance:** the B6 and U8 budgets, each with measured numbers.
+- **G4. GPU evidence:**
+  - A1 estimate accuracy (2 jobs);
+  - A4 AV1 cases;
+  - B7 first-look times;
+  - B5 with a real synthetic file: one success, where the original lands in the Recycle Bin, and one forced failure, where the original is kept;
+  - B3 on the real PC.
+- **G5. Unchanged default output:** the strict C1/RIFE tensor-equality tests and the D2 suite pass. The default pipeline output does not change.
+- **G6. Checks:**
+  - `ruff`, `ruff format --check`, `pyright`, CPU tests and the D2 suite;
+  - GUI lint, typecheck, unit tests, build and e2e;
+  - Windows and Ubuntu CI green on the final commit.
+- **The owner's visual check:** not your job. I will write `P1d_owner_check.md` after your report.
+
+## 7. Constraints
+
+- Windows 11, no WSL. All code, comments, UI text and docs are in English.
+- **Never commit:**
+  - media, weights, previews or generated videos;
+  - `node_modules` or build output;
+  - the 7 MB design export or the screenshots;
+  - the owner's logs or private sample names.
+  The 7 component files in `design/p1d/components/` are allowed.
+- **User files:** never delete a user's video permanently. Videos may only go to the Recycle Bin, through B3, with verification.
+- No models that add skin texture, and no GAN real-world video models. Do not add catalog entries beyond the P1c-4 M2 table.
 - Keep the service security model. No telemetry, no auto-update.
-- Update `docs/ADDING_MODELS.md`, `docs/THIRD_PARTY_MODELS.md` (licence and source per qualified model), `docs/GUI.md` and `docs/API.md`.
+- Update `docs/GUI.md`, `docs/API.md` and `docs/TROUBLESHOOTING.md`, and fix the stale "P1c partial reliability update" section in `docs/GUI.md`.
 
-## 6. Report (`.ai/LAST_REPORT.md`, English)
+## 8. Part X: optional, only after everything above
 
-- A table per M2 entry: qualified or omitted, URL, SHA-256, licence, fps, Torch peaks, sampled process peak, tile size, and the failing step if any.
-- The C2 results and the three-model compare timings.
-- The G2 trial percent histories.
-- A section "Questions for the designer", each with the default you chose meanwhile.
+- **X1.** Re-qualify the Real-ESRGAN blend ("Sharper detail") with tile 128 and halo 16. If the sampled process peak is at most 5.0 GB, finish steps 5 and 6. Otherwise it stays omitted, with the numbers.
+- **X2.** Keep the last compare model loaded for 120 s while the queue is idle, so re-renders start faster. Report the gain. Turn it off if it ever delays a queued job.
+
+## 9. Report (`.ai/LAST_REPORT.md`, English)
+
+- A table per part (D, A, B, U, C, G, X): done / partial / NOT RUN, with evidence (tests, numbers, file:line for key changes).
+- The design-versus-app screenshot list (G1), the clipping-test result (G2) and every performance number (G3).
+- The GPU evidence (G4), with exact commands and `ffprobe` output for AV1.
+- "Questions for the designer", each with the default you chose.
 - Exact reproduction steps.
 
 Never report a test as passed if it did not run.
-
-## Owner feedback
-
-Added 2026-10-11 after the owner ran `P1c_owner_check.md`. Items 1 to 7, 10, 11, 13 and 14 passed. The owner is now redesigning the whole GUI (cycle P1d: bottom dock, compact layout, numeric schedule input, new History actions). That changes this cycle as follows.
-
-**F1. AV1 must be available for every video (do this first).**
-- Today the Add dialog offers AV1 only when `health.av1_supported` is true, and the owner sees videos where AV1 is missing. The RTX 4060 Ti supports AV1 hardware encoding, so the probe is the suspect (not verified).
-- Find the root cause. Probe the same encoder path the pipeline uses, at a realistic size (at least 1920×1080), not a tiny lavfi frame. Log the failure reason and expose it as `av1_unavailable_reason` in `health`.
-- The Add dialog and Settings must use the same availability. If AV1 is unavailable, show the reason in one line instead of hiding the option silently.
-- If an AV1 job fails at encode time, fail it with a clear message. Never switch codecs silently.
-- Evidence: a unit test with the probe mocked; on the GPU, AV1 outputs for a portrait job (720×1280 in, 1080×1920 out) and a landscape job (1920×1080 in and out). Report `ffprobe` `codec_name=av1` and the frame counts.
-
-**F2. Defer the GUI parts of Part C2 to P1d.** The new design will replace these screens, so do not build UI that will be thrown away.
-- Do: C2 item 3 (reuse by cache key), the service side of item 2 (a new render request cancels the running one), the service side of item 1 (an API that returns the busiest 5 s range), and item 5 (the three-model GPU compare).
-- Skip and mark **DEFERRED to P1d** (not failed): the draggable range box, the 800 ms automatic re-render in the GUI, and install-then-select in the GUI, with their component and e2e tests.
-- A7 now means: item 5 done, reuse and cancellation have service tests, and the four-stream sync test still passes.
-- A9 screenshots: DEFERRED to P1d.
-
-**F3. Model descriptions for the new Models cards.** The new design shows a one-line description on each card and the details after a click. If the catalog block has no such field, add `summary` (English, at most 90 characters, plain words) next to the existing long description, and fill it for every qualified entry, C1 and RIFE 4.25. Do not change the Models screen layout in this cycle.
-
-**F4. Not in this cycle (planned for P1d, listed so you do not start them):** schedule input and its performance, the faster first trial result, History multi-select and file deletion, deleting the original after a verified output, the dock, zoom and the new colours.
-
-Order for this cycle: F1 → Part M2 → C2 (F2 scope) → Part E.
-
-## Appendix A. Part M specification (unchanged)
-
-Work order inside Part M: (1) the `catalog` manifest block, the Models screen (M3) and the entries that run on the existing `basicvsrpp`, `rife` and `spandrel` adapters; (2) the DRUNet strength wrapper; (3) the `size` stage. If time runs out, the `size` stage goes last.
-
-### M1. What the catalog is
-
-Built-in manifests gain a `catalog` block so the Models screen can describe each model in plain words. Every catalog model is optional: nothing downloads without the owner's consent, and the current defaults (BasicVSR++ NTIRE21 Track 3 for cleanup, RIFE 4.25 for motion, the non-learned resize for size) keep producing exactly what they produce today.
-
-Suggested manifest additions (names are suggestions):
-
-```json
-"catalog": {
-  "category": "cleanup",
-  "title": "Gentle cleanup",
-  "description": "Removes blockiness and smeared detail using neighbouring frames. Keeps faces and the filtered look as they are.",
-  "look_change": "very_little",
-  "invents_detail": "low",
-  "flicker": "none",
-  "default": true,
-  "licence_plain": "Code free for any use; the weights' terms are not stated",
-  "reference_speed": {"gpu": "RTX 4060 Ti 8GB", "input": "720x1280", "output": "1080x1920", "fps": 2.38, "peak_memory_gb": 4.7}
-},
-"weights": {"url": "...", "mirrors": ["..."], "sha256": "...", "bytes": 0}
-```
-
-- `category`: `cleanup` (1x restoration), `motion` (frame interpolation), `size` (learned enlarging before the final resize). `faces` is reserved for P2 and shown as a disabled tab "Faces · coming later".
-- `look_change`: very_little / little / noticeable. `invents_detail`: low / medium / high (from the training type: fidelity-trained = low, perceptual or unknown losses = medium, GAN = high). `flicker`: none (video models) / possible (single-frame models).
-- `reference_speed` and memory are **measured by you** on the owner's RTX 4060 Ti (720×1280 input, 1080×1920 output, the model in its real pipeline position). Never copy speeds from papers. After a compare on the owner's PC, the GUI shows the speed measured there.
-- SHA-256 and size are computed by you from the downloaded file. Prefer the original publisher's URL; a mirror is allowed only if it serves a byte-identical file (same SHA-256).
-- `licence` keeps the exact licence string; `licence_plain` is the short text for the card ("Free for any use", "Free with credit (CC BY 4.0)", "Personal use only (non-commercial)").
-
-### M2. Catalog for this cycle
-
-Only models that run on the existing adapters (`basicvsrpp`, `rife`, `spandrel`), plus one small wrapper for DRUNet. Models that need a new adapter (FTVSR, EDVR, FastDVDnet, IFRNet, EMA-VFI) are out of scope for P1c.
-
-| Category | Card title | Model and weights (verify) | Licence | Character for the card | Look / invents detail / flicker |
-| --- | --- | --- | --- | --- | --- |
-| cleanup | **Gentle cleanup** (default, already installed) | BasicVSR++ NTIRE21 decompression Track 3 (`basicvsr_plusplus_c128n25_ntire_decompress_track3_20210304-6daf4a40.pth`) | Apache-2.0 code; weights' terms not stated | Removes blockiness and smeared detail using neighbouring frames. Keeps faces and the filtered look as they are. | very little / low / none |
-| cleanup | **Cleanup, other training** | BasicVSR++ NTIRE21 Track 1 (fixed-quality x265 training), existing adapter | Same | Same idea, trained on a different kind of compression. Usually looks almost the same; sometimes calmer. | very little / low / none |
-| cleanup | **Crisper cleanup** | BasicVSR++ NTIRE21 Track 2 (`..._ntire_decompress_track2_20210314-eeae05e6.pth`), existing adapter | Same | Trained to look sharper rather than to match the original exactly. Can add a little artificial sharpness. | little / medium / none |
-| cleanup | **Grain and noise calmer** | BasicVSR++ denoise (`basicvsr_plusplus_denoise-28f6920c.pth`, mid 64, 15 blocks), existing adapter | Same | Calms grain and noise across frames. Not made for blockiness; may soften very fine edges slightly. Faster than Gentle cleanup. | little / low / none |
-| cleanup | **Adjustable deblock** (Light / Medium / Strong) | DRUNet deblocking (`github.com/cszn/KAIR/releases/download/v1.0/drunet_deblocking_color.pth`) through spandrel with your own wrapper that passes the strength map (spandrel's default call fixes it); three catalog choices share one weights file | MIT | Smooths blocks and ringing on each picture without adding detail. Strong can look waxy. | little / low / possible |
-| cleanup | **All-round cleaner** | SCUNet real PSNR (`github.com/cszn/KAIR/releases/download/v1.0/scunet_color_real_psnr.pth`) | Apache-2.0 | Cleans mixed noise and compression on each picture. Calm, slightly smoothing. | little / low / possible |
-| cleanup | **Picture deblock** | FBCNN (already used as a benchmark candidate) | Apache-2.0 | Cleans each picture on its own. Good for calm clips; can flicker a little on moving ones. | little / low / possible |
-| cleanup | **H.264 remover (community)** | 1xDeH264_realplksr (`github.com/Phhofm/models/releases/download/1xDeH264_realplksr/1xDeH264_realplksr.safetensors`) | CC BY 4.0 | Made by the community for H.264 blockiness. Crisper, slower, and less predictable. | noticeable / medium / possible |
-| motion | **Smooth motion** (default, already installed) | RIFE 4.25 | MIT | Makes new in-between frames. Recommended by its author for most scenes. | very little / low / none |
-| motion | **Smooth motion, newest** | RIFE 4.26 (from the Practical-RIFE release; verify the source) | MIT | The newest version. Sometimes better on fast motion, sometimes not. | very little / low / none |
-| motion | **Smooth motion, faster** | RIFE 4.25 lite | MIT | Faster, slightly less accurate on fast motion. | very little / low / none |
-| size | **Standard resize** (default, no download) | the existing non-learned resize | none | Makes the picture bigger without AI. Never changes the look. | very little / low / none |
-| size | **Faithful 2× enlarger** | 2xLiveActionV1_SPAN (from `github.com/jcj83429/upscaling`) | CC BY-NC-SA 4.0 (personal use only) | Enlarges real-life video and tidies compression edges and halos. Keeps grain and colours. Can over-sharpen a little. | little / medium / possible |
-| size | **Sharper detail** | Real-ESRGAN realesr-general-x4v3 (and the `wdn` version for a blend) | BSD-3-Clause | Makes edges crisper. Can invent texture that was not there, so it may change skin and hair. | noticeable / medium / possible |
-
-Rules:
-
-- Do not add models that add skin texture or are GAN real-world video models (for example h264Texturize, SkinDiffDetail, RealBasicVSR). The product keeps the beauty-filter look and never redraws faces.
-- Every model must stay within the memory budget from P1a-6 (process total under 5 GB at 720×1280 → 1080×1920); single-frame models may use tiling with overlap. A model that cannot meet it, cannot be downloaded, or whose licence cannot be confirmed is left out, with the reason in the report.
-- The `size` stage runs after cleanup and before the final resize to the chosen size and before RIFE. With "Standard resize" the pipeline is exactly today's.
-
-### M3. Models screen (U6)
-
-```
-| Models                                       [Add my own model…] [Compare on my video] |
-| (Cleanup · 8) (Smoother motion · 3) (Bigger picture · 3) (Faces · coming later)        |
-| +--------------------------------+ +--------------------------------+ +-------------+ |
-| | Gentle cleanup        [Default]| | Crisper cleanup                | | Adjustable  | |
-| | BasicVSR++ · compressed video  | | BasicVSR++ · perceptual        | | deblock     | |
-| | Removes blockiness and smeared | | Trained to look sharper rather | | ...         | |
-| | detail using neighbouring ...  | | than to match the original...  | |             | |
-| | Speed      Changes the look  Licence                             | |             | |
-| | Slow       Very little       Free   | ...                        | |             | |
-| | 176 MB                [Installed]| | 176 MB              [Install] | |             | |
-| +--------------------------------+ +--------------------------------+ +-------------+ |
-```
-
-- Tabs per category with counts; Faces is disabled. Card grid (cards at least 320 px wide): title (17 px / 650), technical name (12 px, text-3), Default badge, description (14 px, text-2), three small facts (Speed: Fast / Medium / Slow / Very slow from the measured fps, with "about N h per hour of video" in the tooltip; Changes the look; Licence plain text), size, and one button: Install (accent) or Installed. The ⋯ menu has Make it my default, Verify again, Details (exact licence, source URL, SHA-256, measured speed and memory), Remove (refused for a model used by queued jobs: "Used by 2 videos in the queue").
-- Install opens the licence dialog from P1b (licence name and source URL, explicit agreement, consent recorded), then shows download progress and the SHA-256 result on the card.
-- "Make it my default" sets the default model of that category in Settings; Standard uses the cleanup default, both modes use the motion and size defaults. New jobs pick up defaults; queued jobs keep their settings.
-- The Add dialog's More options lists installed models per category (Cleanup model, Smoother motion, Bigger picture).
-- "Add my own model…" keeps the P1b validation; user models choose their category in their manifest (`docs/ADDING_MODELS.md` explains the new fields).
-
-## Appendix B. Part C specification (unchanged)
-
-### C1. Engine
-
-- `POST compare` with `{file, start, seconds (3/5/10, default 5), models: [up to 3 model ids of the same category], settings}` returns one operation. It renders the source excerpt once ("Original", resized with the pipeline's own resize to the output size) and then each model through the real pipeline with that model in place of the stage it belongs to (other stages as in the settings). Previews are H.264 8-bit, as the Trial previews are.
-- Per model: progress, measured speed, and "about X h Y m for this video" from the measured speed and the estimator. Each model's preview is available as soon as it is done.
-- Scheduling as in S4 and analysis as in D1 (one source index and one range scene analysis per compare, shared by all models). A model that is not installed is installed first, only after its licence dialog.
-- Keep previews of the last 5 compare sessions (at most 2 GB, oldest removed first); previews tied to a job are removed with the job. Outside Git, under the engine home.
-- The P1b Trial (`POST trial`) stays for the API, and the GUI's Trial becomes Compare with one model (classic Original vs result). The Compare preview cache (last 5 sessions, at most 2 GB) is implemented here.
-
-### C2. Compare screen
-
-```
-| [<]  Compare models                                                     [Change video…] |
-|      beach_walk.mp4 · 5 seconds from 0:42                                              |
-| 0:42 – 0:47   Picked a part with lots of motion. Drag the box to choose other seconds.   |
-| [▒▒▒▒[■]▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒]   (thumbnail strip)   |
-| Compare (Original) (✓ Gentle cleanup) (✓ Cleanup, alternative) (✓ Picture deblock)       |
-|         (+ Sharper detail · installs 5 MB)        [All side by side|Swipe two] [Fit|2×|4×] |
-| +----------+  +----------+  +----------+  +----------+                                  |
-| | Original |  | Gentle   |  | Cleanup, |  | Picture  |                                  |
-| |          |  | cleanup  |  | altern.  |  | deblock  |                                  |
-| |   9:16   |  |          |  |          |  |  Making  |                                  |
-| |          |  |          |  |          |  |  preview |                                  |
-| |          |  |          |  |          |  |  · 64%   |                                  |
-| +----------+  +----------+  +----------+  +----------+                                  |
-| Your file     Default       Calmer, a     Each frame                                   |
-| as it is      About 2 h 40m bit softer    on its own                                    |
-|               [Chosen]      [Use this]    Measuring speed…                              |
-| [|<] [▶] [>|]  ───────●───────────────  0:44.2 / 0:47.0  [Loop]  All pictures stay in step, frame by frame. |
-```
-
-- Top: a thumbnail strip of the whole source with a draggable box for the chosen seconds. The default range is the busiest part (most motion from the analysis data), else the middle. Changing the range renders again.
-- A small "Comparing: Cleanup ▾" selector before the chips picks the category (Cleanup, Smoother motion, Bigger picture); the other stages stay as in the job's settings.
-- Chips: Original is always shown; up to 3 installed models of one category can be selected (selected = filled chip with a check). Models not installed appear as dashed chips "+ Name · installs N MB" (opens the licence dialog, then installs and adds it). Changing the selection renders only what is missing.
-- Layouts: **All side by side** (portrait sources: up to 4 in one row, about 240 px wide each at 1280×800; landscape sources: a 2×2 grid) and **Swipe two** (one large picture with a draggable divider and a "Left"/"Right" picker for any two of the shown items; zoom 2× by default).
-- Zoom Fit / 2× / 4×, nearest neighbour when zoomed, with synchronized panning (drag any picture to move all of them). Frame step with buttons and the arrow keys, Play/Pause with Space, Loop, a position slider and "0:44.2 / 0:47.0".
-- Synchronization: extend the P1b WebCodecs frame clock to up to 4 streams; draw only when every visible stream has the same frame index.
-- Each tile: name label on the picture; two caption lines (character, "About 2 h 40 m for this video" or "Measuring speed…"); "Use this" sets the model for the job (only before it starts) or for the open Add dialog. For a job that already started the button is disabled with "Already started. Remove it and add it again to use another model." The chosen tile has an accent border and the button reads "Chosen". The tile's ⋯ menu has "Make it my default".
-- Opened from: Models "Compare on my video" (pick a file), Add dialog "Try models first", Home and Up next row menus, History "Compare again". The back button returns to where it was opened.
-
