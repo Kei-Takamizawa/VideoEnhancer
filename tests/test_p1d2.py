@@ -188,3 +188,25 @@ def test_live_operation_changes_do_not_break_event_snapshots(tmp_path):
         stop.set()
         worker.join(timeout=5)
         engine.close()
+
+
+def test_manifest_scan_ignores_non_directory_entries(tmp_path, monkeypatch):
+    import os
+
+    from test_controller import _job
+
+    from videoenhancer.jobs.store import JobStore
+
+    store = JobStore(tmp_path / "home")
+    job = _job(store, tmp_path)
+    lock = store.jobs_dir / "manifest.lock"
+    lock.write_text("synthetic lock", encoding="utf-8")
+    original = os.stat
+
+    def checked_stat(path, *args, **kwargs):
+        assert str(path) != str(lock / "manifest.json"), "lock file was treated as a job folder"
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", checked_stat)
+    assert [item["id"] for item in store.list_jobs()] == [job["id"]]
+    assert store.event_state()[0][0][0] == job["id"]

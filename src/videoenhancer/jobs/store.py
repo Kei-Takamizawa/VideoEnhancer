@@ -359,6 +359,8 @@ class JobStore:
     ) -> list[tuple[Any, dict[str, Any], str]]:
         records = []
         for directory in os.scandir(self.jobs_dir):
+            if not directory.is_dir():
+                continue
             path = os.path.join(directory.path, "manifest.json")
             try:
                 info = os.stat(path)
@@ -384,7 +386,7 @@ class JobStore:
                     cached = (key, job, revision)
                     self._manifest_cache[directory.name] = cached
                 records.append(cached)
-            except FileNotFoundError:
+            except (FileNotFoundError, NotADirectoryError):
                 self._manifest_cache.pop(directory.name, None)
         return records
 

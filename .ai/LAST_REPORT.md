@@ -20,7 +20,7 @@
 | Calibrate installed verified alternatives | done | `src/videoenhancer/bench/reference.py`; actual isolated calibration profile |
 | Four 30-second first estimates | PASS after independent calibration | All calibrated errors between −3.41% and −6.18%; initial misses retained below |
 | Two-second non-gating checks | done | Measurements below |
-| Operating-hours GPU overrun observation | RUNNING | Valid 15-minute UTC exception, C1 job admitted with operating hours enabled. Actual completion and overrun count will be recorded. |
+| Operating-hours GPU overrun observation | PASS, zero overruns | Valid UTC 13:30–13:45 exception; two C1 segments 185.261067/198.088900 s; finalization ended 13:37:59.602009. `hours-normal/results.json` under evidence root. |
 
 The initial estimates use the installed model references and the existing default
 pipeline coefficients. The second run uses an independently measured machine
@@ -200,7 +200,7 @@ repeated copying; this does not change grouping or displayed labels.
 | G4 E/F/S GPU evidence | partial | Part S PASS; timing gates as documented |
 | G5 all GPU-marked Python tests | PASS | 30 passed, 301 deselected, 162.12 s |
 | G6 local static/CPU/GUI checks | PASS with explicitly skipped optional tests | Results below |
-| G6 final Windows/Ubuntu CI | NOT RUN on the implementation commit yet | Run results will replace this row after push |
+| G6 final Windows/Ubuntu CI | RUNNING | Earlier Ubuntu failures and fixes retained in Errors below; new final-source run follows scan fix |
 | Owner visual check | NOT RUN | Explicitly outside implementer scope; no owner-check file fabricated |
 
 ### Executed checks and logs
@@ -209,7 +209,8 @@ repeated copying; this does not change grouping or displayed labels.
 | --- | --- | --- |
 | Ruff check + format check of repository | PASS | 111 Python files formatted |
 | Pyright, Windows and Linux targets after CI fix | PASS, 0 errors / 0 warnings for each | `.tmp/p1d2-pyright-windows2.log`, linux.log |
-| Deletion/First-look/cache/robustness tests after CI fix | PASS, 28 tests, 6.32 s | `.tmp/p1d2-ci-fix-tests2.log` |
+| Deletion/First-look/cache/robustness tests after ctypes fix | PASS, 28 tests, 6.32 s | `.tmp/p1d2-ci-fix-tests2.log` |
+| Job scan/service/metadata regression suite after POSIX fix | PASS, 26 tests, 22.06 s | `.tmp/p1d2-ci-scan-tests.log` |
 | Full CPU including soak, excluding GPU | PASS, 303 passed / 3 skipped / 30 deselected, 315.69 s | `.tmp/p1d2-cpu-finalhead.log` |
 | Added deletion/B8 tests | PASS, 25 tests, 3.24 s | `.tmp/p1d2-new-tests.log` |
 | Live-operation and P1d regression set after lock change | PASS, 26 tests, 13.16 s | `.tmp/p1d2-lock-final.log` |
@@ -440,8 +441,12 @@ Additional derived Models downloading evidence: `gui-evidence/boards/derived-Mod
 - Ubuntu CI on `3c02607` failed Pyright with 14 Windows ctypes attribute errors.
   Explicit typing of the runtime Windows API boundary corrects non-Windows
   static analysis while preserving Windows behavior.
+- Ubuntu CPU CI on `8ba213f` found seven failures from a lock file being
+  scanned as a job directory (POSIX raises NotADirectoryError). The scan now
+  skips non-directories and handles a directory-to-file race. A regression
+  test verifies that lock files are never inspected as manifest folders.
 - Performance failures are retained above, not treated as syntax defects.
 - Node emits NO_COLOR/FORCE_COLOR warnings; they do not change test assertions.
-- Interim implementation commit: local checks PASS; scheduled GPU completion
-  and all-GPU rerun are still RUNNING. Final CI and those results will be
-  recorded in a report-only follow-up; this is not a completion claim.
+- Implementation and local evidence committed/pushed in `3c02607`; Windows
+  ctypes typing and strict progress harness fix in `8ba213f`. The job scan
+  fix is the next source commit. CI result will be recorded after verification.
