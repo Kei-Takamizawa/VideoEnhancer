@@ -63,12 +63,12 @@ No formula was fitted to these acceptance timings.
 
 | Item | Status | Evidence |
 | --- | --- | --- |
-| Recorded path / regular file / fixed NTFS-ReFS / no reparse / exclusive-open / unfinished-use checks | done | `src/videoenhancer/service/deletion.py:31`; refusal tests |
-| fsync journal, hidden same-folder hard link, progress-sink recycling | done | `VideoDeletion` at line 196; no `FOF_NOCONFIRMATION` |
+| Recorded path / regular file / fixed NTFS-ReFS / no reparse / exclusive-open / unfinished-use checks | done | `src/videoenhancer/service/deletion.py:34`; refusal tests |
+| fsync journal, hidden same-folder hard link, progress-sink recycling | done | `VideoDeletion` at line 201; no `FOF_NOCONFIRMATION` |
 | Confirm bin item and guard; otherwise restore without replacement | done | Shell-failure and byte-preservation tests; real NTFS result below |
 | Recover planned, guarded, shell and confirmed phases, including crash after guard removal | done | 18 deletion tests PASS |
 | Per-file endpoint and History detail / disabled Compare | done | `HistoryDetail.tsx`; HTTP and GUI tests |
-| Automatic original deletion after four output checks; shared source waits; default off | done | `deletion.py:328,387`; real GPU success and forced-failure cases |
+| Automatic original deletion after four output checks; shared source waits; default off | done | `deletion.py:333,392`; real GPU success and forced-failure cases |
 
 Expected: recycling removes the original path and permits restoration from the
 bin; a fully deleted or rejected outcome retains/restores identical bytes.
@@ -195,12 +195,12 @@ repeated copying; this does not change grouping or displayed labels.
 | Item | Status | Evidence |
 | --- | --- | --- |
 | G1 all 61 packaged boards / both sizes / main dark+light / comparisons | PASS | 122 screenshots, 7 side-by-side images; full inventory below |
-| G2 CI clipping tests | PASS locally | Add, Compare and History detail at both sizes/100%/110%; Schedule tooltip edges at both sizes/zooms |
+| G2 CI clipping tests | PASS locally and Windows CI | Add, Compare and History detail at both sizes/100%/110%; Schedule tooltip edges at both sizes/zooms |
 | G3 performance | partial | Part P includes numerical FAIL |
 | G4 E/F/S GPU evidence | partial | Part S PASS; timing gates as documented |
-| G5 all GPU-marked Python tests | PASS | 30 passed, 301 deselected, 162.12 s |
+| G5 all GPU-marked Python tests | PASS | 30 passed, 306 deselected, 166.13 s |
 | G6 local static/CPU/GUI checks | PASS with explicitly skipped optional tests | Results below |
-| G6 final Windows/Ubuntu CI | RUNNING | Earlier Ubuntu failures and fixes retained in Errors below; new final-source run follows scan fix |
+| G6 Windows/Ubuntu CI, final source | PASS | Both push and PR workflows on `86c81a932da80eb5915c90d355662809084dc3fe`; exact final report-only HEAD evidence referenced below |
 | Owner visual check | NOT RUN | Explicitly outside implementer scope; no owner-check file fabricated |
 
 ### Executed checks and logs
@@ -211,10 +211,10 @@ repeated copying; this does not change grouping or displayed labels.
 | Pyright, Windows and Linux targets after CI fix | PASS, 0 errors / 0 warnings for each | `.tmp/p1d2-pyright-windows2.log`, linux.log |
 | Deletion/First-look/cache/robustness tests after ctypes fix | PASS, 28 tests, 6.32 s | `.tmp/p1d2-ci-fix-tests2.log` |
 | Job scan/service/metadata regression suite after POSIX fix | PASS, 26 tests, 22.06 s | `.tmp/p1d2-ci-scan-tests.log` |
-| Full CPU including soak, excluding GPU | PASS, 303 passed / 3 skipped / 30 deselected, 315.69 s | `.tmp/p1d2-cpu-finalhead.log` |
+| Full CPU including soak, excluding GPU, before portability fixes | PASS, 303 passed / 3 skipped / 30 deselected, 315.69 s | `.tmp/p1d2-cpu-finalhead.log` |
 | Added deletion/B8 tests | PASS, 25 tests, 3.24 s | `.tmp/p1d2-new-tests.log` |
 | Live-operation and P1d regression set after lock change | PASS, 26 tests, 13.16 s | `.tmp/p1d2-lock-final.log` |
-| All GPU markers | PASS, 30 tests, 162.12 s | `.tmp/p1d2-gpu-all.log` |
+| All GPU markers, final rerun | PASS, 30 tests, 306 deselected, 166.13 s | `.tmp/p1d2-gpu-final.log` |
 | GUI lint/typecheck | PASS | `.tmp/p1d2-gui-lint-final.log`, typecheck-final.log |
 | GUI unit tests | PASS, 35 tests, 5.58 s | `.tmp/p1d2-gui-unit-final.log` |
 | GUI build and Windows folder package | PASS | `.tmp/p1d2-gui-package-final.log` |
@@ -228,6 +228,24 @@ History detail deletion dialogs, range/swipe controls and bar tooltip hover.
 Optional GPU GUI resume and visible-console flow tests were not enabled; SKIP
 is not a pass. Native external-player, accessibility and physical reboot checks
 were not claimed. Logs under `.tmp` are ignored local reproduction evidence.
+
+## Final source CI and final-head evidence
+
+Final source commit: `86c81a932da80eb5915c90d355662809084dc3fe`.
+Both push and pull-request workflows completed successfully:
+[push run 38144162448](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38144162448),
+[PR run 38144165578](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38144165578).
+
+| Job | Result | Checks |
+| --- | --- | --- |
+| Windows | PASS | CPU 303 passed / 4 skipped / 30 deselected, 388.66 s; GUI unit 35; Electron e2e 2 passed / 5 skipped; lint, types, build PASS |
+| Ubuntu | PASS | CPU 302 passed / 5 skipped / 30 deselected, 76.63 s; GUI unit 35; lint, types, build PASS; native Electron e2e is Windows-only |
+
+The final follow-up changes only this report and must pass both OS checks before
+handoff. Its exact HEAD SHA, workflow/job URLs and conclusions are recorded in
+`C:/Users/pro/Documents/VideoEnhancer-P1d-2/final-ci.json` after that verification.
+This external evidence avoids putting a self-referential commit hash in a file
+that is itself part of the commit. `source-ci.json` stores the source-run details.
 
 ## Part X — optional
 
@@ -437,7 +455,7 @@ Additional derived Models downloading evidence: `gui-evidence/boards/derived-Mod
   15-minute schedule validator correctly rejected it before GPU admission.
   A valid quarter-hour exception fixture replaces it. The first overrun helper
   also lacked the Windows multiprocessing main guard, so its child failed
-  before GPU rendering. Corrected guarded C1 schedule validation is running.
+  before GPU rendering. Corrected guarded C1 schedule validation completed with zero overruns.
 - Ubuntu CI on `3c02607` failed Pyright with 14 Windows ctypes attribute errors.
   Explicit typing of the runtime Windows API boundary corrects non-Windows
   static analysis while preserving Windows behavior.
@@ -447,6 +465,12 @@ Additional derived Models downloading evidence: `gui-evidence/boards/derived-Mod
   test verifies that lock files are never inspected as manifest folders.
 - Performance failures are retained above, not treated as syntax defects.
 - Node emits NO_COLOR/FORCE_COLOR warnings; they do not change test assertions.
+- Windows CPU CI emits one Torch cudaGetDeviceCount/cudaErrorNotSupported warning
+  on the CPU runner. CUDA tests are not inferred from those CPU checks.
+- CI runner actions emit Node 20 deprecation notices; no action-version or
+  dependency upgrade is introduced in this implementation cycle.
 - Implementation and local evidence committed/pushed in `3c02607`; Windows
   ctypes typing and strict progress harness fix in `8ba213f`. The job scan
-  fix is the next source commit. CI result will be recorded after verification.
+  fix is committed/pushed in `86c81a9`. Origin matches the tested source SHA;
+  both final-source workflows PASS. This report-only follow-up is pushed and
+  checked before delivery, with exact final HEAD evidence in `final-ci.json`.
