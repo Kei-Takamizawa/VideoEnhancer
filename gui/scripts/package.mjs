@@ -6,7 +6,7 @@ const folders = await packager({
   name: "VideoEnhancer",
   platform: "win32",
   arch: "x64",
-  out: "release",
+  out: process.env.VE_GUI_PACKAGE_OUT || "release",
   overwrite: true,
   asar: true,
   ignore: [

@@ -9,6 +9,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from videoenhancer.files import retry_permission
+
 DEFAULTS: dict[str, Any] = {
     "output_folder": "",
     "preset": "standard",
@@ -19,6 +21,9 @@ DEFAULTS: dict[str, Any] = {
     "theme": "system",
     "log_folder": "",
     "advanced": {},
+    "seen_failures": [],
+    "restore_model": "",
+    "interp_model": "",
 }
 
 
@@ -35,7 +40,7 @@ def write_json(path: Path, data: Any) -> None:
             json.dump(data, stream, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
-        temporary.replace(path)
+        retry_permission(temporary.replace, path)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -43,7 +48,8 @@ def write_json(path: Path, data: Any) -> None:
 def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
     if set(value) - set(DEFAULTS):
         raise ValueError("Unknown setting.")
-    value = {**read_settings(home), **value}
+    previous = read_settings(home)
+    value = {**previous, **value}
     choices = {
         "preset": {"standard", "fast"},
         "codec": {"h264", "hevc", "av1"},
@@ -56,9 +62,24 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"Invalid {key}.")
     if not isinstance(value["start_with_windows"], bool):
         raise ValueError("Start with Windows must be on or off.")
+    if not isinstance(value["seen_failures"], list) or any(
+        not isinstance(item, str) or len(item) > 80 for item in value["seen_failures"]
+    ):
+        raise ValueError("Seen failures must be a list of job ids.")
+    value["seen_failures"] = list(
+        dict.fromkeys([*previous["seen_failures"], *value["seen_failures"]])
+    )
     for key in ("output_folder", "log_folder"):
         if not isinstance(value[key], str) or (value[key] and not Path(value[key]).is_absolute()):
             raise ValueError(f"{key} must be an absolute folder path.")
+    from videoenhancer.models.registry import ModelRegistry
+
+    for key, task in (("restore_model", "restore"), ("interp_model", "interpolate")):
+        if not isinstance(value[key], str):
+            raise ValueError(f"{key} must be a model id.")
+        if value[key]:
+            registry = ModelRegistry(home)
+            registry.weights(registry.manifest(value[key], task), download=False)
     advanced = value["advanced"]
     if not isinstance(advanced, dict) or set(advanced) - {
         "clip_length",

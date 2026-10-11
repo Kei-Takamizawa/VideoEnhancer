@@ -9,16 +9,26 @@ import shutil
 import time
 import uuid
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from videoenhancer.files import retry_permission
+
 from .segments import plan_segments
 
 SCHEMA_VERSION = 1
-JOB_STATES = {"queued", "running", "paused", "cancelled", "failed", "done"}
+JOB_STATES = {"preparing", "queued", "running", "paused", "cancelled", "failed", "done"}
+QUARANTINE_MESSAGE = (
+    "Needs attention: this video's work files are locked by another program. "
+    "Close that program, then Retry."
+)
+
+
+class JobQuarantinedError(TimeoutError):
+    """A single locked job must not restart the controller."""
 
 
 @contextmanager
@@ -136,10 +146,14 @@ def require_disk_space(
         )
 
 
-def _require_unreserved_output(store: JobStore, destination: Path) -> None:
+def _require_unreserved_output(
+    store: JobStore, destination: Path, skip_job_id: str | None = None
+) -> None:
     if destination.exists():
         raise FileExistsError(f"Output already exists: {destination}. Choose another output path.")
     for job in store.list_jobs():
+        if job["id"] == skip_job_id:
+            continue
         if job["state"] != "done" and Path(job["output"]).expanduser().resolve() == destination:
             raise FileExistsError(
                 f"Output is reserved by unfinished job {job['id']}: {destination}. "
@@ -222,8 +236,40 @@ class JobStore:
 
     def load(self, job_id: str) -> dict[str, Any]:
         directory = self.job_dir(job_id)
-        with _manifest_lock(directory):
-            return self._load_unlocked(directory / "manifest.json")
+        if not (directory / "quarantine.json").exists():
+            try:
+                with self._lock(directory):
+                    return self._load_unlocked(directory / "manifest.json")
+            except JobQuarantinedError:
+                pass
+        # The manifest is replaced atomically; reading the last durable version
+        # requires no lock and does not modify the locked work files.
+        job = self._load_unlocked(directory / "manifest.json")
+        job.update(state="failed", error=QUARANTINE_MESSAGE, quarantined=True)
+        return job
+
+    @contextmanager
+    def _lock(self, directory: Path) -> Iterator[None]:
+        for attempt in range(3):
+            stack = ExitStack()
+            try:
+                stack.enter_context(_manifest_lock(directory))
+            except TimeoutError:
+                if attempt < 2:
+                    continue
+                temporary = directory / f"quarantine.{uuid.uuid4().hex}.tmp"
+                try:
+                    temporary.write_text(
+                        json.dumps(dict(time=_now(), message=QUARANTINE_MESSAGE, timeouts=3)),
+                        encoding="utf-8",
+                    )
+                    retry_permission(os.replace, temporary, directory / "quarantine.json")
+                finally:
+                    temporary.unlink(missing_ok=True)
+                raise JobQuarantinedError(QUARANTINE_MESSAGE) from None
+            with stack:
+                yield
+            return
 
     @staticmethod
     def _load_unlocked(path: Path) -> dict[str, Any]:
@@ -239,24 +285,43 @@ class JobStore:
         manifest.setdefault("control_generation", 0)
         directory = self.job_dir(str(manifest["id"]))
         directory.mkdir(parents=True, exist_ok=True)
-        with _manifest_lock(directory):
+        if (directory / "quarantine.json").exists():
+            raise JobQuarantinedError(QUARANTINE_MESSAGE)
+        with self._lock(directory):
             target = directory / "manifest.json"
+            preparation_finished = False
             if target.exists():
                 current = self._load_unlocked(target)
+                preparation_finished = (
+                    current["state"] == "preparing" and manifest["state"] != "preparing"
+                )
                 if "position" in current:
                     manifest["position"] = current["position"]
                 if int(current.get("control_generation", 0)) > int(
                     manifest.get("control_generation", 0)
                 ):
-                    manifest["state"] = current["state"]
+                    if current["state"] != "preparing":
+                        manifest["state"] = current["state"]
                     manifest["control_generation"] = current["control_generation"]
             self._write_unlocked(manifest)
-            if not (directory / "control.json").exists():
+            if preparation_finished or not (directory / "control.json").exists():
                 self._write_control_unlocked(manifest)
 
     def _write_unlocked(self, manifest: dict[str, Any]) -> None:
         directory = self.job_dir(str(manifest["id"]))
         manifest["updated_at"] = _now()
+        if manifest["state"] == "running":
+            manifest.setdefault("started_at", manifest["updated_at"])
+        if manifest["state"] in {"done", "failed", "cancelled"}:
+            manifest.setdefault("finished_at", manifest["updated_at"])
+            if manifest.get("started_at"):
+                manifest["took_seconds"] = max(
+                    0.0,
+                    (
+                        datetime.fromisoformat(manifest["finished_at"])
+                        - datetime.fromisoformat(manifest["started_at"])
+                    ).total_seconds(),
+                )
         target = directory / "manifest.json"
         temporary = directory / f"manifest.{uuid.uuid4().hex}.tmp"
         try:
@@ -265,7 +330,7 @@ class JobStore:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, target)
+            retry_permission(os.replace, temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -288,30 +353,75 @@ class JobStore:
         jobs.insert(position - 1, selected)
         for index, job in enumerate(jobs, start=1):
             directory = self.job_dir(str(job["id"]))
-            with _manifest_lock(directory):
+            with self._lock(directory):
                 latest = self._load_unlocked(directory / "manifest.json")
                 if latest.get("position") != index:
                     latest["position"] = index
                     self._write_unlocked(latest)
 
+    def change_mode(
+        self, job_id: str, preset: str, model_patch: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        """Change a prepared, unstarted job without changing its frame partition."""
+        from videoenhancer.estimate import predict_segment
+        from videoenhancer.models.registry import ModelRegistry, record_models, selected_models
+
+        if preset not in {"standard", "fast"}:
+            raise ValueError("Mode must be Standard or Fast.")
+        directory = self.job_dir(job_id)
+        with self._lock(directory):
+            job = self._load_unlocked(directory / "manifest.json")
+            if job.get("started_at") or any(s["state"] != "pending" for s in job["segments"]):
+                raise ValueError("Already started. Remove it and add it again to change mode.")
+            if job["state"] not in {"queued", "paused"}:
+                raise ValueError("Wait for preparation before changing mode.")
+            if model_patch and set(model_patch) - {"restore_model", "interp_model"}:
+                raise ValueError("Choose a cleanup or motion model.")
+            chosen = {**job["settings"], "preset": preset, **(model_patch or {})}
+            if preset == "fast":
+                chosen.pop("restore_model", None)
+            registry = ModelRegistry(self.home)
+            for task, model_id in selected_models(chosen, job["media"]).items():
+                registry.weights(registry.manifest(model_id, task), download=False)
+            models = record_models(chosen, self.home, job["media"])
+            profile = load_machine_profile(self.home, backend=chosen["backend"], models=models)
+            job.update(
+                settings=chosen, models=models, machine_profile=profile, correction_factor=1.0
+            )
+            for segment in job["segments"]:
+                segment["predicted_seconds"] = predict_segment(
+                    job["media"], chosen, segment["end"] - segment["start"], profile
+                )
+            self._write_unlocked(job)
+        return job
+
     def set_state(self, job_id: str, state: str) -> dict[str, Any]:
         if state not in JOB_STATES:
             raise ValueError(f"Invalid job state: {state}")
         directory = self.job_dir(job_id)
-        with _manifest_lock(directory):
+        with self._lock(directory):
             job = self._load_unlocked(directory / "manifest.json")
             if state == "queued":
                 from videoenhancer.models.registry import validate_job_models
 
                 validate_job_models(job, self.home)
+                if not job.get("cfr_map") and not job.get("media", {}).get("frame_count"):
+                    state = "preparing"
             job["state"] = state
+            if state == "queued":
+                job.pop("finished_at", None)
+                job.pop("took_seconds", None)
             job["control_generation"] = int(job.get("control_generation", 0)) + 1
             if state == "queued":
                 for segment in job["segments"]:
-                    if segment["state"] == "failed":
+                    if segment["state"] == "failed" or (
+                        (directory / "quarantine.json").exists() and segment["state"] == "running"
+                    ):
                         segment["state"] = "pending"
             self._write_unlocked(job)
             self._write_control_unlocked(job)
+            if state == "queued":
+                (directory / "quarantine.json").unlink(missing_ok=True)
         return job
 
     def _write_control_unlocked(self, job: dict[str, Any]) -> None:
@@ -327,7 +437,7 @@ class JobStore:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, target)
+            retry_permission(os.replace, temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -347,6 +457,7 @@ def add_job(
     *,
     disk_free: Callable[[Path], int] | int | None = None,
     target_segment_seconds: float = 180.0,
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """Analyze an input and enqueue a durable, frame-exact conversion plan."""
     source = Path(path).expanduser().resolve(strict=True)
@@ -378,7 +489,7 @@ def add_job(
         raise ValueError("backend must be cpu or cuda")
     store = JobStore(home)
     with _manifest_lock(store.jobs_dir):
-        _require_unreserved_output(store, destination)
+        _require_unreserved_output(store, destination, job_id)
     identity = input_identity(source)
     # Check before the potentially long analysis pass, then again with the
     # measured media geometry before storing the job.
@@ -415,7 +526,7 @@ def add_job(
     now = _now()
     manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
-        "id": uuid.uuid4().hex,
+        "id": job_id or uuid.uuid4().hex,
         "input": identity,
         "output": str(destination),
         "settings": chosen,
@@ -438,7 +549,7 @@ def add_job(
         "estimated_output_bytes": output_bytes,
     }
     with _manifest_lock(store.jobs_dir):
-        _require_unreserved_output(store, destination)
+        _require_unreserved_output(store, destination, job_id)
         manifest["position"] = len(store.list_jobs()) + 1
         store.save(manifest)
     return manifest

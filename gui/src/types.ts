@@ -10,6 +10,8 @@ export type Settings = {
   advanced: Record<string, number>;
   backend?: string;
   restore_model?: string;
+  interp_model?: string;
+  seen_failures?: string[];
 };
 export type Media = {
   display_width: number;
@@ -43,15 +45,23 @@ export type Job = {
   segments: number;
   fps?: number;
   log: string;
+  overrun_seconds?: number;
+  finished_at?: string;
+  started_at?: string;
+  took_seconds?: number;
+  output_bytes?: number;
+  starts?: string;
+  preview_ready?: boolean;
 };
 export type Operation = {
   id: string;
   kind: string;
   state: string;
   phase: string;
+  percent?: number;
   error?: string;
   job_id?: string;
-  request?: { file?: string };
+  request?: { file?: string; model_id?: string };
   result?: {
     pipeline?: { fps: number };
     output_fps?: number;
@@ -59,6 +69,15 @@ export type Operation = {
     sha256?: string;
     bytes?: number;
     weights_verified?: boolean;
+    original?: string;
+    start_seconds?: number;
+    items?: {
+      id: string;
+      name?: string;
+      preview: string;
+      fps: number;
+      projected_whole_file_seconds: number;
+    }[];
   };
 };
 export type Queue = {
@@ -76,7 +95,7 @@ export type Health = {
   job_id?: string;
   next_change?: string;
   next_change_kind: string;
-  last_error?: string;
+  last_error?: { time: string; job_id: string | null; message: string };
   home: string;
   smart_app_control: { status: string; blocked: boolean; message?: string };
 };
@@ -102,7 +121,13 @@ export type Plan = {
       completion?: string;
     }[];
   }[];
-  timeline: (Window & { job_id: string; phase: string })[];
+  timeline: (Window & {
+    job_id: string;
+    phase: string;
+    overrun_seconds?: number;
+    start_percent?: number;
+    end_percent?: number;
+  })[];
   jobs: { job_id: string; completion: string | null }[];
 };
 export type Model = {
@@ -116,12 +141,30 @@ export type Model = {
   builtin: boolean;
   weights_verified: boolean;
   weights: { url?: string; sha256: string };
+  catalog?: {
+    category: "cleanup" | "motion" | "size";
+    title: string;
+    description: string;
+    look_change: "very_little" | "little" | "noticeable";
+    invents_detail: "low" | "medium" | "high";
+    flicker: "none" | "possible";
+    default?: boolean;
+    licence_plain: string;
+    reference_speed?: {
+      gpu: string;
+      input: string;
+      output: string;
+      fps: number;
+      peak_memory_gb: number;
+    };
+  };
 };
 export type Connection = { base_url: string; token: string };
 export interface Desktop {
   connection(): Promise<Connection>;
   files(kind: "videos" | "folder"): Promise<string[]>;
   openFolder(folder: string): Promise<void>;
+  play(file: string): Promise<void>;
   copy(text: string): Promise<void>;
   filePath(file: File): string;
 }

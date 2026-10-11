@@ -82,7 +82,9 @@ export function QueuePage({
                   ? `Finalizing: ${job.step}`
                   : job.state === "queued"
                     ? "Waiting"
-                    : job.state.charAt(0).toUpperCase() + job.state.slice(1)}
+                    : job.state === "preparing"
+                      ? "Preparing…"
+                      : job.state.charAt(0).toUpperCase() + job.state.slice(1)}
               </strong>
               <button
                 aria-label={`Actions for ${filename(job.input)}`}
@@ -101,6 +103,12 @@ export function QueuePage({
                   {job.state === "done" ? "Finished" : "Finish"}:{" "}
                   {when(job.eta)}
                 </strong>
+                {!!job.overrun_seconds && (
+                  <p>
+                    Finishing one step after your hours, about{" "}
+                    {Math.ceil(job.overrun_seconds / 60)} min
+                  </p>
+                )}
                 <p>
                   {duration(job.estimate.seconds)} GPU ·{" "}
                   {duration(job.estimate.low)}–{duration(job.estimate.high)}
@@ -235,7 +243,12 @@ export function AddDialog({
   av1?: boolean;
   close(): void;
   saved(): void;
-  trial(file: string, settings: Settings, media?: Media): void;
+  trial(
+    file: string,
+    settings: Settings,
+    media?: Media,
+    apply?: (key: "restore_model" | "interp_model", id: string) => void,
+  ): void;
 }) {
   const [settings, setSettings] = useState({ ...defaults });
   const added = useRef(new Set<string>());
@@ -246,34 +259,25 @@ export function AddDialog({
   useEffect(() => {
     let current = true;
     setLoading(true);
+    setPreviews({});
+    let remaining = files.length;
     const timer = setTimeout(
       () =>
-        Promise.all(
-          files.map(
-            async (file) =>
-              [
-                file,
-                await api.call<Preview>("estimate", "POST", {
-                  file,
-                  settings,
-                  output_folder: settings.output_folder,
-                }),
-              ] as const,
-          ),
-        )
-          .then((results) => {
-            if (current) {
-              setPreviews(Object.fromEntries(results));
-              setError("");
-              setLoading(false);
-            }
-          })
-          .catch((e) => {
-            if (current) {
-              setError(e.message);
-              setLoading(false);
-            }
-          }),
+        files.forEach(async (file) => {
+          try {
+            const preview = await api.call<Preview>("estimate", "POST", {
+              file,
+              settings,
+              output_folder: settings.output_folder,
+            });
+            if (current) setPreviews((old) => ({ ...old, [file]: preview }));
+          } catch (error) {
+            if (current) setError((error as Error).message);
+          } finally {
+            remaining--;
+            if (current && !remaining) setLoading(false);
+          }
+        }),
       200,
     );
     return () => {
@@ -290,93 +294,149 @@ export function AddDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-title"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && e.target instanceof HTMLInputElement) {
+            e.preventDefault();
+            e.currentTarget
+              .querySelector<HTMLButtonElement>(".add-submit")
+              ?.click();
+          }
+        }}
       >
         <h2 id="add-title">
           Add {files.length === 1 ? "video" : `${files.length} videos`}
         </h2>
-        <div className="form-grid">
-          <label>
-            Preset
-            <select
-              value={settings.preset}
-              onChange={(e) => field("preset", e.target.value)}
+        <div className="mode-cards">
+          {["standard", "fast"].map((mode) => (
+            <button
+              key={mode}
+              aria-pressed={settings.preset === mode}
+              onClick={() => field("preset", mode)}
             >
-              <option value="standard">
-                Standard — restore compression damage
-              </option>
-              <option value="fast">Fast — resize and smooth motion</option>
-            </select>
-          </label>
-          <label>
-            Output short side
-            <select
-              value={settings.short_side}
-              onChange={(e) =>
-                field(
-                  "short_side",
-                  e.target.value === "keep" ? "keep" : Number(e.target.value),
-                )
-              }
-            >
-              <option value="keep">Keep</option>
-              {[1080, 1440, 2160].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Frame rate
-            <select
-              value={settings.fps}
-              onChange={(e) => field("fps", e.target.value)}
-            >
-              <option value="off">Keep</option>
-              <option value="2x">2×</option>
-            </select>
-          </label>
-          <label>
-            Codec
-            <select
-              value={settings.codec}
-              onChange={(e) => field("codec", e.target.value)}
-            >
-              <option value="hevc">HEVC</option>
-              <option value="h264">H.264</option>
-              {av1 && <option value="av1">AV1</option>}
-            </select>
-          </label>
-          <label className="span-two">
-            Output folder
-            <div className="input-button">
-              <input
-                placeholder="Source folder / enhanced"
-                value={settings.output_folder}
-                onChange={(e) => field("output_folder", e.target.value)}
-              />
-              <button
-                onClick={async () => {
-                  const selected = await window.desktop.files("folder");
-                  if (selected[0]) field("output_folder", selected[0]);
-                }}
-              >
-                Browse…
-              </button>
-            </div>
-          </label>
+              <strong>{mode === "standard" ? "Standard" : "Fast"}</strong>
+              <p>
+                {mode === "standard"
+                  ? "Cleans up blockiness and noise, then makes motion smoother. Keeps the original look."
+                  : "Only makes motion smoother and resizes. No cleanup."}
+              </p>
+              <p>
+                {previews[files[0]]
+                  ? `${duration(previews[files[0]].presets[mode].seconds)} of work`
+                  : "Preparing…"}
+              </p>
+              <p className="mode-finish">
+                {previews[files[0]]
+                  ? `Done ${when(previews[files[0]].presets[mode].finish)}`
+                  : ""}
+              </p>
+            </button>
+          ))}
         </div>
         <details>
-          <summary>Advanced</summary>
+          <summary className="output-summary">
+            <span>
+              Output:{" "}
+              {settings.short_side === "keep"
+                ? "Original size"
+                : `${settings.short_side}p`}{" "}
+              ·{" "}
+              {previews[files[0]]
+                ? (() => {
+                    const [n, d = "1"] =
+                      previews[files[0]].media.cfr_fps.split("/");
+                    return `${((Number(n) / Number(d)) * (settings.fps === "2x" ? 2 : 1)).toFixed(0)} fps`;
+                  })()
+                : settings.fps === "2x"
+                  ? "Double frame rate"
+                  : "Original frame rate"}{" "}
+              · {settings.codec.toUpperCase()} ·{" "}
+              {settings.output_folder
+                ? `Saved in ${settings.output_folder}`
+                : 'Saved next to the original, in "enhanced"'}
+            </span>
+            <span>More options</span>
+          </summary>
+          <div className="form-grid">
+            <label>
+              Mode
+              <select
+                value={settings.preset}
+                onChange={(e) => field("preset", e.target.value)}
+              >
+                <option value="standard">
+                  Standard — restore compression damage
+                </option>
+                <option value="fast">Fast — resize and smooth motion</option>
+              </select>
+            </label>
+            <label>
+              Output short side
+              <select
+                value={settings.short_side}
+                onChange={(e) =>
+                  field(
+                    "short_side",
+                    e.target.value === "keep" ? "keep" : Number(e.target.value),
+                  )
+                }
+              >
+                <option value="keep">Keep</option>
+                {[1080, 1440, 2160].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Frame rate
+              <select
+                value={settings.fps}
+                onChange={(e) => field("fps", e.target.value)}
+              >
+                <option value="off">Keep</option>
+                <option value="2x">2×</option>
+              </select>
+            </label>
+            <label>
+              Codec
+              <select
+                value={settings.codec}
+                onChange={(e) => field("codec", e.target.value)}
+              >
+                <option value="hevc">HEVC</option>
+                <option value="h264">H.264</option>
+                {av1 && <option value="av1">AV1</option>}
+              </select>
+            </label>
+            <label className="span-two">
+              Output folder
+              <div className="input-button">
+                <input
+                  placeholder="Source folder / enhanced"
+                  value={settings.output_folder}
+                  onChange={(e) => field("output_folder", e.target.value)}
+                />
+                <button
+                  onClick={async () => {
+                    const selected = await window.desktop.files("folder");
+                    if (selected[0]) field("output_folder", selected[0]);
+                  }}
+                >
+                  Browse…
+                </button>
+              </div>
+            </label>
+          </div>
           <label>
-            Restoration model
+            Cleanup model
             <select
               value={settings.restore_model || ""}
               onChange={(e) => field("restore_model", e.target.value)}
             >
               <option value="">Preset default</option>
               {models
-                .filter((m) => m.task === "restore")
+                .filter((m) => m.task === "restore" && m.weights_verified)
                 .map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.display_name}
@@ -385,9 +445,31 @@ export function AddDialog({
                 ))}
             </select>
           </label>
+          <label>
+            Smoother motion
+            <select
+              value={settings.interp_model || ""}
+              onChange={(e) => field("interp_model", e.target.value)}
+            >
+              <option value="">Preset default</option>
+              {models
+                .filter((m) => m.task === "interpolate" && m.weights_verified)
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.catalog?.title || m.display_name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label>
+            Bigger picture
+            <select disabled value="standard">
+              <option value="standard">Standard resize</option>
+            </select>
+          </label>
         </details>
         <div className="estimate-list">
-          {loading && <p role="status">Reading live estimates…</p>}
+          {loading && <p role="status">Preparing…</p>}
           {files.map((file) => (
             <div className="estimate-file" key={file}>
               <strong>{filename(file)}</strong>
@@ -402,7 +484,7 @@ export function AddDialog({
                             {preset === "standard" ? "Standard" : "Fast"}
                           </strong>
                           <p>
-                            {duration(e.seconds)} GPU ({duration(e.low)}–
+                            {duration(e.seconds)} of work ({duration(e.low)}–
                             {duration(e.high)})
                           </p>
                           <p>Finish: {when(e.finish)}</p>
@@ -434,15 +516,16 @@ export function AddDialog({
           </button>
           <button
             disabled={busy || !previews[files[0]]}
-            onClick={() => trial(files[0], settings, previews[files[0]]?.media)}
+            onClick={() =>
+              trial(files[0], settings, previews[files[0]]?.media, field)
+            }
           >
-            Trial…
+            Try models first
           </button>
           <button
-            className="primary"
+            className="primary add-submit"
             disabled={
               busy ||
-              loading ||
               !!error ||
               files.some((f) =>
                 previews[f]?.warnings.some(

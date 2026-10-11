@@ -36,11 +36,24 @@ failure, 413 unsupported/oversized body. Routes below omit the `/v1/` prefix.
 
 ## Health, queue and estimates
 
+Queue items include `preview_ready`, `starts`, `overrun_seconds`, and, when
+available, `started_at`, `finished_at`, `took_seconds` and finished `output_bytes`.
+Remaining estimates and schedule previews include the active step's live frames.
+`GET queue/<id>/thumbnail` returns an authenticated cached JPEG from the source,
+or from the output for a finished job. `POST queue/<id>/preview` starts a persisted
+CPU-only `result-preview` operation and returns its operation ID; the existing
+operation/file routes provide status and Original/Enhanced video URLs.
+`schedule/override` accepts `{"until":"queue-complete"}` to continue until all
+queue jobs are terminal. A paused or preparing job keeps that override active.
+The older `job-complete` value remains supported.
+`POST queue/<id>/retry` requires a failed job and requeues it while preserving
+valid completed segments; it also clears a released-lock quarantine.
+
 | Method / route | Response or effect | Example |
 | --- | --- | --- |
 | GET health | Engine version, environment versions, GPU/driver/VRAM, Smart App Control, engine state, current job, next change and last error | `Invoke-VeApi 'health'` |
 | GET queue | Compact durable jobs with phase/step/percent, segments, fps, ETA, estimates; all-job completion and auxiliary operations | `Invoke-VeApi 'queue'` |
-| POST queue | Analyze and add to the existing JobStore; requires already verified selected weights. Returns durable manifest | `Invoke-VeApi 'queue' 'POST' @{file='C:\Video\clip.mp4'; settings=@{preset='standard'; codec='hevc'; short_side=1080; fps='2x'}; output_folder='C:\Video\enhanced'}` |
+| POST queue | Return a durable preparing manifest immediately; analyze and validate selected weights in a background thread, then queue or fail the job | `Invoke-VeApi 'queue' 'POST' @{file='C:\Video\clip.mp4'; settings=@{preset='standard'; codec='hevc'; short_side=1080; fps='2x'}; output_folder='C:\Video\enhanced'}` |
 | POST queue/{id}/move | Reorder using one-based position | `Invoke-VeApi 'queue/JOB_ID/move' 'POST' @{position=1}` |
 | POST queue/{id}/pause | Persist paused state; active segment aborts | `Invoke-VeApi 'queue/JOB_ID/pause' 'POST' @{}` |
 | POST queue/{id}/resume | Persist queued state, respecting the schedule | `Invoke-VeApi 'queue/JOB_ID/resume' 'POST' @{}` |
@@ -130,3 +143,63 @@ data: {"queue":{"jobs":[],"operations":[],"completion":null},"health":{"engine_s
 The desktop uses header-authenticated fetch streaming, retains the last snapshot
 on disconnect, and provides Retry. Tokens and private paths must be redacted
 before sharing logs.
+
+## P1c reliability changes (partial cycle)
+
+`POST queue` now returns a `preparing` job. Poll queue/SSE until it becomes
+queued or failed. Preparation does not download weights. Cancel and pause are
+preserved across preparation. A preparing job cannot run before its frame map
+and input fingerprint have been stored.
+
+Health `last_error` is null or `{time, job_id, message}`. Running jobs from an
+interrupted service are reset at startup, including jobs behind the head.
+Operations are persisted in `previews/<id>/state.json`; interrupted operations
+are returned as failed with `Interrupted. Try again.`. Trial admission ignores
+operating hours but retains the between-segment lease. Trials have a hard
+`max(600 seconds, 4 * prediction)` deadline. Source indexes are reused and
+scene analysis is limited to the requested range and temporal context.
+
+Segment children send frame/step/memory heartbeats every two seconds. Queue/SSE
+use live frames for processing percent (capped at 99.9% before completion) and
+fps. Manifests receive heartbeat updates at most every ten seconds. Dedicated
+and shared Windows GPU counters can be unavailable and are then null; RSS is
+per PID. Segment stdout/stderr are in `jobs/<id>/logs/seg_NNNNN.log`, trimmed to
+the last 1 MiB by the parent. `GET queue/<id>/details` returns `{text}` containing
+the manifest and the last 40 segment-log lines.
+
+SSE snapshot exceptions emit `event: error` with plain text and are retried
+within the same stream. Heartbeats remain every ten seconds. Snapshot generation,
+estimates, thumbnails and input analysis do not hold the shared mutation lock.
+See `.ai/LAST_REPORT.md` for measured acceptance results and remaining gaps.
+
+## P1c-3 additions
+
+- `POST queue/<id>/mode` with `{preset: "standard" | "fast"}` changes a prepared,
+  unstarted job and re-estimates its existing segments. Preparing jobs must wait;
+  started jobs are refused. `POST queue/<id>/model` takes `restore_model` or
+  `interp_model` under the same checks. Neither changes existing output files.
+- `PUT settings` accepts `restore_model`, `interp_model` and `seen_failures`.
+  Defaults must refer to installed, verified weights. Seen failure ids accumulate
+  so concurrent History acknowledgements cannot erase one another.
+- `POST compare` accepts `{file, start?, seconds: 3 | 5 | 10, models: [ids], settings,
+  job_id?}`. One to three installed models must have the same task. The operation
+  uses the between-segment lease and ignores operating hours, as Trial does.
+  One source index and one range analysis are shared; Original is rendered once.
+  `result.original` and `result.items[].preview` become available progressively.
+  Each item also includes measured `fps` and `projected_whole_file_seconds`.
+  Previews are H.264 8-bit. The cache retains at most five completed sessions
+  and 2 GB, removing the oldest first; removed sessions have state `expired`.
+  Job-associated previews are deleted when removing the History entry.
+- `GET operations/<id>/files/<name>` accepts only published preview names.
+  Compare files can be read while later models are still being processed.
+- `POST queue/<id>/preview` is CPU-only. Cancelling the operation or quitting
+  terminates encoding and deletes partial preview files, preserving job output.
+- `POST schedule/preview` returns `plan`, `best` and `worst`. Planned timeline
+  bars include `start_percent` and `end_percent`.
+- Model deletion refuses weights used by active queue jobs or active previews.
+  Built-in deletion removes weights only; its card and licence remain available
+  for a future explicit install. No download starts from listing the catalog.
+
+Compare does not yet reuse individual rendered models across changed selections;
+a new request renders its selected models again. Learned size models and the
+DRUNet strength wrapper are not implemented in this cycle.

@@ -19,11 +19,12 @@ test("unsigned owner folder finds the external engine and enforces renderer isol
   delete env.VE_ENGINE_ROOT;
   const app = await _electron.launch({
     executablePath: process.env.VE_GUI_PACKAGE_EXE!,
+    args: [`--user-data-dir=${path.join(env.VE_HOME, "desktop")}`],
     env,
   });
   try {
     const page = await app.firstWindow();
-    await expect(page.getByText("Your queue is empty.")).toBeVisible({
+    await expect(page.getByText("Nothing in the queue.")).toBeVisible({
       timeout: 40000,
     });
     await expect

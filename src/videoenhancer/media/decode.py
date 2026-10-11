@@ -11,6 +11,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from videoenhancer import proc
 from videoenhancer.config import executable
 from videoenhancer.media.color import nv12_to_rgb
 
@@ -183,7 +184,7 @@ class IndexedDecoder:
             "rawvideo",
             "pipe:1",
         ]
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = proc.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         assert process.stdout is not None
         size = width * height * 3 // 2 * (2 if depth > 8 else 1)
         current_index = first - 1
@@ -195,9 +196,7 @@ class IndexedDecoder:
                 while current_index < index:
                     raw = read_exact(process.stdout, size)
                     if len(raw) != size:
-                        stderr = (
-                            process.stderr.read().decode(errors="replace") if process.stderr else ""
-                        )
+                        stderr = proc.stderr_text(process)
                         raise RuntimeError(
                             f"Decode failed at input frame {index}: {stderr}. Re-probe the input."
                         )

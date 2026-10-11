@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from videoenhancer.files import retry_permission
+
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ve", description="VideoEnhancer conversion engine")
@@ -183,7 +185,7 @@ def _save_schedule(home: Path, payload: dict[str, Any]) -> dict[str, Any]:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, target)
+        retry_permission(os.replace, temporary, target)
     finally:
         temporary.unlink(missing_ok=True)
     return checked

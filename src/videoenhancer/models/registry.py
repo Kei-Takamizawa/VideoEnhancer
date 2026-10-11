@@ -147,6 +147,32 @@ def validate_manifest(value: Any, task: str | None = None) -> dict[str, Any]:
         for key, number in estimates.items()
     ):
         raise ValueError("vram_estimate_mb must map size classes to nonnegative numbers.")
+    catalog = value.get("catalog")
+    if catalog is not None:
+        if not isinstance(catalog, dict):
+            raise ValueError("catalog must be an object.")
+        category = "cleanup" if value["task"] == "restore" else "motion"
+        if catalog.get("category") != category:
+            raise ValueError(f"This adapter requires catalog category {category}.")
+        for field in ("title", "description", "licence_plain"):
+            if not isinstance(catalog.get(field), str) or not catalog[field].strip():
+                raise ValueError(f"catalog.{field} must be nonempty text.")
+        for field, choices in {
+            "look_change": {"very_little", "little", "noticeable"},
+            "invents_detail": {"low", "medium", "high"},
+            "flicker": {"none", "possible"},
+        }.items():
+            if catalog.get(field) not in choices:
+                raise ValueError(f"Invalid catalog.{field}.")
+        if "reference_speed" in catalog:
+            speed = catalog["reference_speed"]
+            if not isinstance(speed, dict) or any(
+                type(speed.get(key)) not in {int, float}
+                or not math.isfinite(speed[key])
+                or speed[key] <= 0
+                for key in ("fps", "peak_memory_gb")
+            ):
+                raise ValueError("Catalog speed and memory require positive measured numbers.")
     return value
 
 
@@ -186,6 +212,14 @@ class ModelRegistry:
         value = validate_manifest(json.loads(path.read_text(encoding="utf-8")), task)
         if value["id"] != model_id:
             raise ValueError("Model manifest id does not match its folder.")
+        if model_id in BUILTINS:
+            shipped = json.loads(
+                (Path(__file__).parent / "manifests" / f"{model_id}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            if "catalog" in shipped:
+                value["catalog"] = shipped["catalog"]
         return value
 
     def weights(self, model: dict[str, Any], *, download: bool = False) -> Path:
@@ -262,16 +296,28 @@ class ModelRegistry:
         return model
 
     def remove(self, model_id: str) -> None:
+        from videoenhancer.jobs.store import JobStore
+
+        used = sum(
+            model_id in selected_models(job["settings"]).values()
+            for job in JobStore(self.home).list_jobs()
+            if job["state"] not in {"done", "failed", "cancelled"}
+        )
+        if used:
+            raise ValueError(f"Used by {used} videos in the queue")
+        model = self.manifest(model_id)
         if model_id in BUILTINS:
-            raise ValueError(f"Cannot remove built-in model: {model_id}")
-        self.manifest(model_id)
-        shutil.rmtree(self.folder(model_id))
+            (self.folder(model_id) / model["weights"]["filename"]).unlink(missing_ok=True)
+        else:
+            shutil.rmtree(self.folder(model_id))
 
     def snapshot(self, model_id: str, task: str, *, download: bool = True) -> dict[str, Any]:
         model = self.manifest(model_id, task)
         self.weights(model, download=download)
+        # Presentation metadata cannot invalidate an existing resumable job.
+        identity = {key: value for key, value in model.items() if key != "catalog"}
         digest = hashlib.sha256(
-            json.dumps(model, sort_keys=True, separators=(",", ":")).encode()
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
         return {
             "id": model_id,

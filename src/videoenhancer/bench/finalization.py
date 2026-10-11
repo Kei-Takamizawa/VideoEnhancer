@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import itertools
 import shutil
-import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -12,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from videoenhancer import proc
 from videoenhancer.config import executable
 from videoenhancer.media.mux import assemble
 from videoenhancer.media.probe import probe
@@ -58,7 +58,7 @@ def calibrate_finalization(directory: Path) -> dict[str, Any]:
             (300, 720, 1280),
         ):
             clip = root / "clip.mp4"
-            subprocess.run(
+            proc.run(
                 [
                     executable("ffmpeg"),
                     "-v",

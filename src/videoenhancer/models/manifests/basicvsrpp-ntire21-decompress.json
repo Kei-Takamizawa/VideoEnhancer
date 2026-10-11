@@ -20,5 +20,15 @@
   "temporal": true,
   "clip_length": 15,
   "clip_overlap": 2,
-  "precision": "fp16"
+  "precision": "fp16",
+  "catalog": {
+    "category": "cleanup",
+    "title": "Gentle cleanup",
+    "description": "Removes blockiness and smeared detail using neighbouring frames. Keeps faces and the filtered look as they are.",
+    "look_change": "very_little",
+    "invents_detail": "low",
+    "flicker": "none",
+    "default": true,
+    "licence_plain": "Apache-2.0 code; weights' terms not stated"
+  }
 }

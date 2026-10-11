@@ -2,23 +2,31 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 import psutil
 import torch
 
+from videoenhancer import proc
+
 
 class JobMemorySampler:
     """Sample engine PID dedicated GPU bytes, Torch reserve, RSS, and NVML."""
 
-    def __init__(self, interval_seconds: int = 60) -> None:
+    def __init__(
+        self, interval_seconds: int = 60, on_sample: Callable[[dict[str, Any]], None] | None = None
+    ) -> None:
         self.interval_seconds = interval_seconds
         self.samples: list[dict[str, Any]] = []
+        self.on_sample = on_sample
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._nvml: Any = None
@@ -34,15 +42,19 @@ class JobMemorySampler:
 
     @staticmethod
     def _dedicated_bytes(pid: int) -> int | None:
+        return JobMemorySampler._windows_bytes(pid, "Dedicated Usage")
+
+    @staticmethod
+    def _windows_bytes(pid: int, counter: str) -> int | None:
         if os.name != "nt":
             return None
         try:
-            powershell = shutil.which("pwsh.exe") or shutil.which("pwsh")
+            powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
             if powershell is None:
                 return None
             # Use Windows' built-in PDH query to avoid making pywin32 a runtime
             # dependency. Match only this engine PID across all GPU adapters.
-            counter_path = "\\GPU Process Memory(*)\\Dedicated Usage"
+            counter_path = f"\\GPU Process Memory(*)\\{counter}"
             command = (
                 f"$prefix='pid_{pid}_'; "
                 f"$samples=(Get-Counter '{counter_path}' -ErrorAction Stop).CounterSamples; "
@@ -52,7 +64,7 @@ class JobMemorySampler:
                 "[Console]::Out.WriteLine([long](($items | "
                 "Measure-Object -Property CookedValue -Sum).Sum))"
             )
-            result = subprocess.run(
+            result = proc.run(
                 [powershell, "-NoProfile", "-NonInteractive", "-Command", command],
                 capture_output=True,
                 text=True,
@@ -79,6 +91,7 @@ class JobMemorySampler:
             "timestamp": time.time(),
             "pid": pid,
             "process_dedicated_gpu_bytes": self._dedicated_bytes(pid),
+            "process_shared_gpu_bytes": self._windows_bytes(pid, "Shared Usage"),
             "torch_reserved_bytes": reserved,
             "process_rss_bytes": rss,
             "device_nvml_used_bytes": nvml_bytes,
@@ -92,6 +105,11 @@ class JobMemorySampler:
             },
         }
         self.samples.append(record)
+        if self.on_sample is not None:
+            self.on_sample(record)
+        # Emit samples as they happen so a killed child leaves memory evidence.
+        if sys.stderr is not None:
+            print("Memory sample: " + json.dumps(record), file=sys.stderr, flush=True)
         return record
 
     def start(self) -> None:

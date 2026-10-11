@@ -17,5 +17,15 @@
   "temporal": true,
   "clip_length": 3,
   "clip_overlap": 1,
-  "precision": "fp16"
+  "precision": "fp16",
+  "catalog": {
+    "category": "motion",
+    "title": "Smooth motion",
+    "description": "Makes new in-between frames. Recommended by its author for most scenes.",
+    "look_change": "very_little",
+    "invents_detail": "low",
+    "flicker": "none",
+    "default": true,
+    "licence_plain": "Free for any use (MIT)"
+  }
 }

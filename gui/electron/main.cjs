@@ -15,6 +15,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
+const { servicePython } = require("./python.cjs");
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -92,12 +93,16 @@ async function startService() {
     );
     engineRoot = location.root;
   }
-  const python =
+  const configuredPython =
     process.env.VE_PYTHON ||
     path.join(engineRoot, ".venv", "Scripts", "python.exe");
   await fs.mkdir(home, { recursive: true });
   const log = await fs.open(path.join(home, "service-start.log"), "a");
-  child = spawn(python, ["-m", "videoenhancer.cli", "serve"], {
+  const python = await servicePython(configuredPython);
+  await log.write(`Service executable: ${python.executable}\n`);
+  if (python.fallback)
+    await log.write("pythonw.exe is missing; falling back to python.exe with windowsHide.\n");
+  child = spawn(python.executable, ["-m", "videoenhancer.cli", "serve"], {
     cwd: engineRoot,
     env: { ...process.env, VE_HOME: home },
     windowsHide: true,
@@ -281,7 +286,7 @@ else {
       });
       window = new BrowserWindow({
         width: 1280,
-        height: 840,
+        height: 800,
         minWidth: 1100,
         minHeight: 700,
         show: false,
@@ -365,6 +370,13 @@ else {
         if (typeof text !== "string" || text.length > 100000)
           throw new Error("Details are too large.");
         clipboard.writeText(text);
+      });
+      handle("play", async (file) => {
+        if (typeof file !== "string" || !path.isAbsolute(file) || file.includes("\0"))
+          throw new Error("Choose an absolute local video file.");
+        if (!(await fs.stat(file)).isFile()) throw new Error("The video does not exist.");
+        const error = await shell.openPath(file);
+        if (error) throw new Error(error);
       });
       tray = new Tray(
         nativeImage.createFromPath(path.join(__dirname, "icon.png")),
