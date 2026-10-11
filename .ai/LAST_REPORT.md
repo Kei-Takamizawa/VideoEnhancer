@@ -151,14 +151,15 @@ The fixture publishes progress once per second. No hidden history expansion.
 
 | Budget | Latest observation | Required | Result |
 | --- | ---: | ---: | --- |
-| Screen switch / open History | History 94.9; Schedule 29.0; Models 30.1; Settings 29.6; Home 46.2 ms | ≤100 ms | PASS |
-| Open History, 1,000 records | 94.9 ms, 9 DOM cards | ≤300 ms | PASS |
-| Schedule key-to-paint, five keys | max 31.5 ms | ≤50 ms | PASS |
-| Last key to preview paint | 460.1 ms | ≤500 ms | PASS |
-| Event Timing input processing delay | max 1.2 ms | ≤50 ms | PASS under stated input-delay metric |
-| Event Timing full interaction duration | max 120 ms | No separate duration threshold specified | Observed, not hidden |
-| Idle renderer with progress | 0.622733% of one core | ≤2% | PASS |
-| Progress text observed frequency | 29 changes / 30.015 s = 0.966184 Hz | ≤1 Hz | PASS average frequency |
+| Screen switch / open History | History 100.6; Schedule 42.4; Models 30.2; Settings 30.1; Home 46.7 ms | ≤100 ms | FAIL for History |
+| Open History, 1,000 records | 100.6 ms, 9 DOM cards | ≤300 ms | PASS |
+| Schedule key-to-paint, five keys | max 31.9 ms | ≤50 ms | PASS |
+| Last key to preview paint | 448.5 ms | ≤500 ms | PASS |
+| Event Timing input processing delay | max 2.1 ms | ≤50 ms | PASS under stated input-delay metric |
+| Event Timing full interaction duration | max 128 ms | No separate duration threshold specified | Observed, not hidden |
+| Idle renderer with progress | 0.623190% of one core | ≤2% | PASS |
+| Progress text average frequency | 29 changes / 30.010 s = 0.966345 Hz | ≤1 Hz | PASS average only |
+| Progress text strict spacing | Minimum observed gap 999.5 ms | ≥1,000 ms between updates | FAIL |
 | Real service SSE work, prescribed fixture | 4.477952% (1.390625 CPU s / 31.054933 wall s), 7 SSE events | ≤5% of one core | PASS |
 | Real service, diagnostic-rich terminal records | 10.027181% (3.140625 CPU s / 31.321116 wall s), 7 SSE events | ≤5% of one core | FAIL |
 
@@ -167,7 +168,9 @@ buffered reads in the same measured process. It cannot establish service-only
 CPU and is retained only as a superseded diagnostic. An earlier renderer run
 passed screen switching at 66.6 ms for History; the later 127.7 ms miss remains
 reported. No failed measurement is replaced with a selected favorable result.
-Latest evidence: `C:/Users/pro/Documents/VideoEnhancer-P1d-2/perf-final-grouping/renderer-perf.json`.
+Latest evidence: `C:/Users/pro/Documents/VideoEnhancer-P1d-2/perf-strict-final/renderer-perf.json`.
+Post-grouping first run was 94.9 ms/PASS; the fresh strict-harness rerun
+was 100.6 ms/FAIL. Both are retained, with no favorable result selection.
 Earlier failed run retained: `perf-final/renderer-perf.json` under the same root.
 Separate-client service evidence: `service-perf-final/results.json` and
 `service-perf-isolated-client/results-fps-only.json` under the same root.
@@ -205,7 +208,8 @@ repeated copying; this does not change grouping or displayed labels.
 | Check | Result | Log |
 | --- | --- | --- |
 | Ruff check + format check of repository | PASS | 111 Python files formatted |
-| Pyright | PASS, 0 errors / 0 warnings | `.tmp/p1d2-pyright-final.log` |
+| Pyright, Windows and Linux targets after CI fix | PASS, 0 errors / 0 warnings for each | `.tmp/p1d2-pyright-windows2.log`, linux.log |
+| Deletion/First-look/cache/robustness tests after CI fix | PASS, 28 tests, 6.32 s | `.tmp/p1d2-ci-fix-tests2.log` |
 | Full CPU including soak, excluding GPU | PASS, 303 passed / 3 skipped / 30 deselected, 315.69 s | `.tmp/p1d2-cpu-finalhead.log` |
 | Added deletion/B8 tests | PASS, 25 tests, 3.24 s | `.tmp/p1d2-new-tests.log` |
 | Live-operation and P1d regression set after lock change | PASS, 26 tests, 13.16 s | `.tmp/p1d2-lock-final.log` |
@@ -214,7 +218,7 @@ repeated copying; this does not change grouping or displayed labels.
 | GUI unit tests | PASS, 35 tests, 5.58 s | `.tmp/p1d2-gui-unit-final.log` |
 | GUI build and Windows folder package | PASS | `.tmp/p1d2-gui-package-final.log` |
 | GUI e2e including package smoke and complete board inventory | PASS, 4 passed / 3 skipped, 2.2 min | `.tmp/p1d2-e2e-finalhead.log` |
-| Renderer performance test after grouping fix | PASS, History switch 94.9 ms | `.tmp/p1d2-perf-grouping.log` |
+| Renderer performance test after grouping fix | Latest FAIL, History 100.6 ms and minimum progress gap 999.5 ms; prior run 94.9 ms PASS under average-frequency check | `.tmp/p1d2-perf-strict.log`, grouping.log |
 
 GUI actions included actual Electron opening/closing, synthetic video addition,
 CPU processing completion through SSE, paired frame seeking/playback (100 random
@@ -241,7 +245,8 @@ were not claimed. Logs under `.tmp` are ignored local reproduction evidence.
    and unchanged output settings; report the failed threshold.
 3. The diagnostic-rich service fixture fails the 5% one-core CPU budget.
    History switching improved from 127.7/110.7 ms to 94.9 ms after eliminating
-   repeated date formatter construction and array copies; all observations
+   repeated date formatter construction and array copies. Latest rerun is
+   100.6 ms and remains FAIL; all observations
    are retained. No UI or architecture redesign was made.
    Diagnostic-rich service event-stream work remains 10.027% >5%; further
    architecture/cadence changes require a designer decision. Default: preserve
@@ -251,7 +256,11 @@ were not claimed. Logs under `.tmp` are ignored local reproduction evidence.
    prohibited confirmation flag. Default: fail closed and keep/restore bytes.
 5. Standalone Trial still waits for its completed preview. Default: implement
    the explicitly specified Compare actual-render still; no Trial flow redesign.
-6. Input delay and complete interaction duration differ. Both are reported.
+6. Nominal one-Hz progress delivery has observed minimum 989 ms and latest
+   999.5 ms paint intervals.
+   Default: report strict spacing as FAIL and retain current progress delivery;
+   a different rendering/delivery policy requires designer review.
+7. Input delay and complete interaction duration differ. Both are reported.
    Default: use Event Timing input processing delay for the input-delay gate,
    and separately apply the screen/preview paint budgets.
 
@@ -428,6 +437,9 @@ Additional derived Models downloading evidence: `gui-evidence/boards/derived-Mod
   A valid quarter-hour exception fixture replaces it. The first overrun helper
   also lacked the Windows multiprocessing main guard, so its child failed
   before GPU rendering. Corrected guarded C1 schedule validation is running.
+- Ubuntu CI on `3c02607` failed Pyright with 14 Windows ctypes attribute errors.
+  Explicit typing of the runtime Windows API boundary corrects non-Windows
+  static analysis while preserving Windows behavior.
 - Performance failures are retained above, not treated as syntax defects.
 - Node emits NO_COLOR/FORCE_COLOR warnings; they do not change test assertions.
 - Interim implementation commit: local checks PASS; scheduled GPU completion

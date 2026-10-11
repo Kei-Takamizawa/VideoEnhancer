@@ -14,6 +14,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+# Windows-only entry points are absent from non-Windows ctypes type stubs.
+_windows_ctypes: Any = ctypes
+
 
 def fingerprint(path: Path) -> dict[str, Any]:
     size = path.stat().st_size
@@ -29,10 +32,12 @@ def fingerprint(path: Path) -> dict[str, Any]:
 
 
 class WindowsFiles:
+    kernel: Any
+
     def __init__(self) -> None:
         if os.name != "nt":
             raise OSError("Video recycling requires Windows.")
-        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.kernel = _windows_ctypes.WinDLL("kernel32", use_last_error=True)
 
     def preflight(self, path: Path) -> int:
         kernel = self.kernel
@@ -42,14 +47,14 @@ class WindowsFiles:
                 raise OSError("the path is a reparse point or cannot be inspected")
         root = ctypes.create_unicode_buffer(32768)
         if not kernel.GetVolumePathNameW(str(path), root, len(root)):
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise _windows_ctypes.WinError(_windows_ctypes.get_last_error())
         if kernel.GetDriveTypeW(root.value) != 3:
             raise OSError("the file is not on a local fixed drive")
         filesystem = ctypes.create_unicode_buffer(256)
         if not kernel.GetVolumeInformationW(
             root.value, None, 0, None, None, None, filesystem, len(filesystem)
         ):
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise _windows_ctypes.WinError(_windows_ctypes.get_last_error())
         if filesystem.value.upper() not in {"NTFS", "REFS"}:
             raise OSError("the volume does not support the required hard-link guard")
         kernel.CreateFileW.restype = ctypes.c_void_p
@@ -71,19 +76,19 @@ class WindowsFiles:
 
     def attributes(self, path: Path, value: int) -> None:
         if not self.kernel.SetFileAttributesW(str(path), value):
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise _windows_ctypes.WinError(_windows_ctypes.get_last_error())
 
     def restore(self, guard: Path, path: Path) -> None:
         # No MOVEFILE_REPLACE_EXISTING: a concurrent new path is never overwritten.
         if not self.kernel.MoveFileExW(str(guard), str(path), 8):
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise _windows_ctypes.WinError(_windows_ctypes.get_last_error())
 
     def recycle(self, path: Path, post: Callable[[bool], None]) -> str:
         """IFileOperation with a real PostDeleteItem progress sink, no confirmation suppression."""
         import uuid as uu
 
         ptr, hr, uint = ctypes.c_void_p, ctypes.c_long, ctypes.c_uint32
-        callback = ctypes.WINFUNCTYPE
+        callback = _windows_ctypes.WINFUNCTYPE
 
         class Guid(ctypes.Structure):
             _fields_ = [("bytes", ctypes.c_ubyte * 16)]
@@ -91,8 +96,8 @@ class WindowsFiles:
         def guid(value: str) -> Guid:
             return Guid((ctypes.c_ubyte * 16).from_buffer_copy(uu.UUID(value).bytes_le))
 
-        ole = ctypes.OleDLL("ole32")
-        shell = ctypes.WinDLL("shell32")
+        ole = _windows_ctypes.OleDLL("ole32")
+        shell = _windows_ctypes.WinDLL("shell32")
         ole.CoInitializeEx(None, 2)
         operation, item = ptr(), ptr()
         refs = [1]

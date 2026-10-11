@@ -36,3 +36,7 @@ before the helper stops it.
 The renderer numbers also retain Event Timing interaction duration separately
 from input delay (`processingStart - startTime`). A failed budget is still saved
 in the JSON report and must be reported as a failure.
+
+Progress evidence includes the average frequency and minimum observed interval.
+The strict once-per-second budget requires every observed interval to be at least
+1,000 ms; a nominal 1 Hz source can still fail because delivery/paint timing varies.

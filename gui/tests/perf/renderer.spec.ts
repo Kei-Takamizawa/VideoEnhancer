@@ -63,6 +63,8 @@ test("P1d renderer budgets with 1000 History records and live Standard progress"
     const task = (value: { metrics: { name: string; value: number }[] }) => value.metrics.find(metric => metric.name === "TaskDuration")!.value;
     numbers.idle_renderer_one_core_percent = (task(after) - task(before)) / ((Date.now() - begin) / 1000) * 100;
     numbers.progress_changes = await page.evaluate(() => (window as unknown as { progressChanges: number[] }).progressChanges);
+    const changes = numbers.progress_changes as number[];
+    numbers.minimum_progress_gap_ms = Math.min(...changes.slice(1).map((value, index) => value - changes[index]));
     numbers.progress_updates_per_second = (numbers.progress_changes as number[]).length / ((Date.now() - begin) / 1000);
     const evidence = process.env.VE_GUI_EVIDENCE || path.resolve("test-results/perf-evidence");
     mkdirSync(evidence, { recursive: true });
@@ -78,5 +80,6 @@ test("P1d renderer budgets with 1000 History records and live Standard progress"
     expect(numbers.idle_renderer_one_core_percent as number).toBeLessThanOrEqual(2);
     expect(numbers.progress_updates_per_second as number).toBeGreaterThan(0);
     expect(numbers.progress_updates_per_second as number).toBeLessThanOrEqual(1);
+    expect(numbers.minimum_progress_gap_ms as number).toBeGreaterThanOrEqual(1000);
   } finally { await app.close(); await fixture.close(); }
 });
