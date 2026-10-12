@@ -112,6 +112,8 @@ Brief Windows sharing violations on preview progress files are retried at the
 next poll. If an operation fails, the service stops its remaining child tree
 before releasing ownership, so a failed preview cannot silently keep using the
 GPU alongside the next operation.
+The tray polls status every three seconds. Health replies reuse compact job
+metadata rather than copying the full History diagnostics on each poll.
 
 Automatic original deletion is off by default. `Original kept: reason` explains
 failed output checks or another unfinished job using the same original.

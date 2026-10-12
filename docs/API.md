@@ -297,6 +297,9 @@ History opens. A background pass also refreshes file states every 60 seconds;
 owned deletions refresh immediately. Windows directory notifications invalidate
 manifest caches. Schedule reads use modification-time caching; registry and
 installed-model checks are cached for 60 seconds.
+Direct `GET health` also caches only job IDs, states, error messages and phases
+by engine-home change generation. The desktop tray's three-second health poll
+does not copy terminal probes, profiles or diagnostics.
 Temporary sharing violations while reading an operation's advisory progress
 file are retried on the next poll; cancellation is still checked. A failed
 operation terminates its remaining child tree before dropping process ownership.

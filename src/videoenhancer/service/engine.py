@@ -81,6 +81,9 @@ class Engine:
         self.preview_threads: dict[str, threading.Thread] = {}
         self.paused = False
         self._event_lock = threading.RLock()
+        self._health_jobs_lock = threading.Lock()
+        self._health_jobs_generation = -1
+        self._health_jobs: list[dict[str, Any]] = []
         self._event_wire_key: tuple[Any, ...] | None = None
         self._event_wire = ""
         self._event_cache: dict[str, Any] | None = None
@@ -297,7 +300,15 @@ class Engine:
             raise RuntimeError("Engine has not stopped; keep the service open and retry Quit.")
 
     def health(self, jobs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-        jobs = self.store.list_jobs(include_analysis=False) if jobs is None else jobs
+        if jobs is None:
+            from videoenhancer.service.events import generation
+
+            with self._health_jobs_lock:
+                current_generation = generation(self.home)
+                if current_generation != self._health_jobs_generation:
+                    _, self._health_jobs = self.store.event_state()
+                    self._health_jobs_generation = current_generation
+                jobs = self._health_jobs
         running = next((j for j in jobs if j["state"] == "running"), None)
         finalizing = next(
             (

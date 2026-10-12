@@ -184,6 +184,7 @@ reference profile without running calibration. A profile measured with another
 driver remains usable, with both driver versions shown. Run speed calibration
 stays manual, shows an approximate duration, and offers Cancel while running.
 The gear in the navigation dock opens Settings.
+Tray status refreshes use cached compact job metadata, including with a large History.
 Models without a reference show Speed unknown in Add; adding remains allowed.
 PQ/HLG warnings apply to each file separately. The service enforces the same
 blocking rules as the dialog, including additions from the CLI.

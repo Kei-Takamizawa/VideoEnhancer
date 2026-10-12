@@ -303,6 +303,36 @@ def test_idle_events_do_not_stat_history_each_second(tmp_path, monkeypatch):
     engine.close()
 
 
+def test_direct_health_reuses_compact_metadata_and_invalidates_on_change(tmp_path, monkeypatch):
+    from test_controller import _job
+
+    from videoenhancer.service.engine import Engine
+
+    engine = Engine(tmp_path / "home")
+    job = _job(engine.store, tmp_path)
+    engine.store.set_state(job["id"], "running")
+    expected = engine.health(engine.store.event_state()[1])
+    calls = []
+    original = engine.store.event_state
+
+    def compact():
+        calls.append(True)
+        return original()
+
+    def full(*args, **kwargs):
+        raise AssertionError("Health must not copy full terminal manifests.")
+
+    monkeypatch.setattr(engine.store, "event_state", compact)
+    monkeypatch.setattr(engine.store, "list_jobs", full)
+    assert engine.health() == expected
+    assert engine.health() == expected
+    assert calls == [True]
+    engine.store.set_state(job["id"], "done")
+    assert engine.health()["job_id"] is None
+    assert calls == [True, True]
+    engine.close()
+
+
 def test_api_free_space_and_av1_minimum_are_enforced(api, video_factory, monkeypatch):
     import urllib.error
     from types import SimpleNamespace
