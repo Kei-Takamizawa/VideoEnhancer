@@ -1,7 +1,7 @@
 # VE-P1d-3 implementation and acceptance report
 
 - Task ID / Cycle: VE-P1d-3.
-- Status: PARTIAL. Implemented changes and required isolated acceptance are complete locally. The additional 5,000-record real progress cadence FAIL remains a designer question; CI results are recorded below once verified.
+- Status: PARTIAL. Implemented changes and isolated acceptance are complete locally. The additional 5,000-record real progress cadence FAIL remains a designer question; Source CI is verified; final exact-head evidence is referenced below.
 - Branch: p1d-ui-v2; Draft PR #5. Start clean fbaf4d3, origin/main efb45e3 unchanged and already an ancestor.
 - Exact task saved without omission and committed in 02b128a. No owner queue/settings/media used.
 - Evidence root: `C:/Users/pro/Documents/VideoEnhancer-P1d-3`; media, models, previews, packages and screenshots stay outside Git.
@@ -22,6 +22,8 @@
 | NTFS acceptance | PASS | Native recycle/restore, read-only, actual replacement B race, forced-permanent fake. Four cases, zero remaining guards; original/restored SHA-256 `2be8374271de213e71a7661f42ba36842e1c44772e32c29f8f9bf00e1a6939fb`. `deletion-real/results.json`. |
 | Automatic GPU success/failure | PASS | automatic-retry/auto-delete/results.json: real Fast output passes independent decode/frame/duration/audio checks. Success recycles/restores exact item; forced verification failure keeps original. Both SHA-256 values e36555e29cf375f98a552e807a1ff005ba60df289b260cb242256544dfeba76a before/after. |
 
+Latest changed-screen test including Compare: 1 PASS / 6.7 s (.tmp/p1d3-compare-owner-visible.log). All 12 changed-state captures are listed in G1.
+
 Related integration: 82 PASS / 3 SKIP / 1 deselected (29.59 s); final full CPU coverage described in G. Real size/off cases use fakes rather than altering Windows settings.
 
 ## Part E
@@ -29,7 +31,7 @@ Related integration: 82 PASS / 3 SKIP / 1 deselected (29.59 s); final full CPU c
 | Item | Status | Evidence |
 | --- | --- | --- |
 | Selection | PASS | `jobs/store.py:164`: measured exact, newest same GPU/other driver, built-in GPU, defaults. Unit order tests. Changed driver estimate identical (0% difference, within 0.1%); Settings note. |
-| Unknown model | PASS | Per-file and aggregate unknown_models propagate; individual/combined Add cards suppress numeric time. Compare projection returns unknown; Home suppresses unknown time. Internal scheduler placeholder preserved; see questions. |
+| Unknown model | PASS | Per-file and aggregate unknown_models propagate; individual/combined Add cards suppress numeric time. Compare projection returns unknown; Home suppresses unknown time. Internal scheduler placeholder preserved; see questions. First estimates use correction 1.0 in fresh homes; normal subsequent segment correction remains unchanged and is visible in the saved segment predictions. |
 | Manual calibration | PASS | No automatic calibration; wall/duration/Cancel recorded. Actual running child cancelled in 0.140477 s; exit 1, worker stopped, no profiles published. calibration-cancel/results.json. |
 | Reference provenance | done | `estimate/profiles/rtx-4060-ti-8gb.json` derives from P1d-2 `calibrated-acceptance/calibration-summary.json`: independent synthetic 150-frame/5-second 720x1280 reference. No acceptance clip fitting. Numbers/model identities/GPU metadata only. Built-in data is immutable; finalization observation stays local. |
 
@@ -62,10 +64,10 @@ First failed C1 attempt is retained in estimates/results.json: estimate 370.4831
 | Desktop throttle/memoisation | PASS (fake) | Text updates <=1 Hz and >=900 ms; stable History grouping on history_revision. Ten-repeat results below. |
 | Real Fast/Standard progress | PASS (dedicated fixtures) | Standard uses 1,000 diagnostic-rich terminal rows/ten queued; each 30-second observation from real CUDA controller/SSE/renderer. Raw event/paint times retained in progress-fast and progress-standard. See extra 5,000-row FAIL below. |
 
-| Job | Event gaps | Gap range s | Gaps in 0.9â€“2.1 s | Paint Hz | Minimum paint gap ms | Status |
+| Job | Event gaps | Gap range s | Gaps in 0.9ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“2.1 s | Paint Hz | Minimum paint gap ms | Status |
 | --- | ---: | --- | ---: | ---: | ---: | --- |
-| Real fast | 29 | 1.000600â€“1.015300 | 100.0% | 0.833111 | 1000.800 | PASS |
-| Real standard | 28 | 1.001400â€“1.573200 | 100.0% | 0.466458 | 1005.400 | PASS |
+| Real fast | 29 | 1.000600ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“1.015300 | 100.0% | 0.833111 | 1000.800 | PASS |
+| Real standard | 28 | 1.001400ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“1.573200 | 100.0% | 0.466458 | 1005.400 | PASS |
 
 ## Part A
 
@@ -97,6 +99,14 @@ Renderer method: fresh Electron launch per repeat, 1,000 terminal fixture record
 
 Input delay max 2.500 ms; interaction p98 168.000 ms. Maximum interaction: {"repeat": 4, "duration": 184, "event": "pointerdown", "target": "unknown"}. First run could not identify its target; the second instruments DOM event context and identifies History.
 
+Per-repeat input/interaction summaries (all saved observations retained; gates still use global input max / interaction p98):
+
+| Metric | All 10 samples | Median | p90 |
+| --- | --- | ---: | ---: |
+| input_delay_max_ms | 1.200, 2.500, 2.300, 1.400, 1.400, 1.800, 1.900, 1.400, 1.600, 1.500 | 1.550 | 2.320 |
+| interaction_p98_ms | 129.600, 91.520, 129.600, 140.480, 124.480, 107.840, 140.480, 140.480, 91.520, 91.520 | 127.040 | 140.480 |
+| interaction_max_ms | 168.000, 112.000, 168.000, 184.000, 168.000, 136.000, 184.000, 184.000, 112.000, 112.000 | 168.000 | 184.000 |
+
 ### renderer-perf-context (10 repeats)
 
 | Metric | Every sample (repeat order) | Median | p90 |
@@ -114,6 +124,14 @@ Input delay max 2.500 ms; interaction p98 168.000 ms. Maximum interaction: {"rep
 | keystroke_paint_max_ms (derived from saved raw keys) | 33.100, 32.000, 30.500, 32.200, 32.700, 29.500, 32.600, 27.800, 29.000, 33.400 | 32.100 | 33.130 |
 
 Input delay max 2.300 ms; interaction p98 126.880 ms. Maximum interaction: {"repeat": 6, "duration": 184, "event": "pointerdown", "target": "History"}. First run could not identify its target; the second instruments DOM event context and identifies History.
+
+Per-repeat input/interaction summaries (all saved observations retained; gates still use global input max / interaction p98):
+
+| Metric | All 10 samples | Median | p90 |
+| --- | --- | ---: | ---: |
+| input_delay_max_ms | 2.200, 2.300, 1.900, 2.100, 1.700, 1.200, 1.500, 1.200, 1.600, 1.600 | 1.650 | 2.210 |
+| interaction_p98_ms | 107.840, 86.400, 91.520, 129.600, 91.520, 140.480, 91.520, 129.600, 91.520, 91.520 | 91.520 | 130.688 |
+| interaction_max_ms | 136.000, 112.000, 112.000, 168.000, 112.000, 184.000, 112.000, 168.000, 112.000, 112.000 | 112.000 | 169.600 |
 
 The keystroke summary was added after the second measurement module loaded; the table derives the median/p90 from saved raw observations without claiming another measurement. Its earlier all-key maximum <=50 ms assertion was stricter and passed.
 
@@ -152,10 +170,10 @@ Every cold run is retained. Initial SCUNet failed on progress sharing; initial R
 | GUI build/package | PASS | .tmp/p1d3-package-owner.log; package-owner/VideoEnhancer-win32-x64/VideoEnhancer.exe. |
 | Final-package e2e/clipping | PASS | 4 PASS, 1.4 min; actual CPU service/Add/completion/SSE/window lifecycle, frame viewer and clipping, Schedule tooltip, changed screens and package isolation. |
 | GPU markers | PASS | 30 PASS / 336 deselected, 166.16 s; gpu-suite/pytest.log. Existing strict equivalence checks passed. |
-| Windows + Ubuntu CI | NOT RUN | Awaiting source push and final commit checks. |
+| Windows + Ubuntu CI | PASS (implementation source) | 1595b83c714d05b47a57e48dc48f13ef4000f313: push and pull_request each have Windows/Ubuntu success, 4/4 jobs. Exact final-head evidence is referenced below. |
 | Owner visual check | NOT RUN (owner task) | P1d_owner_check.md; package supplied below. |
 
-The broad opt-in package e2e initially also ran the accepted board inventory: 4 PASS / 3 SKIP / 1 FAIL (board 28 fixture mutated preview_ready without a structural event). Fixed the fixture to explicitly publish a snapshot, reran only board 28: 1 PASS (2.6 s). Existing 60 captures are retained, not regenerated as a new acceptance claim. GPU/resume/windows-flow opt-ins remain skipped in this CPU fixture run; required GPU markers/progress/deletion are separate.
+The first broad opt-in package e2e unintentionally repeated the already accepted board inventory (the task said keep/do not redo); no new design acceptance is claimed from that repeat: 4 PASS / 3 SKIP / 1 FAIL (board 28 fixture mutated preview_ready without a structural event). Fixed the fixture to explicitly publish a snapshot, reran only board 28: 1 PASS (2.6 s). Existing 60 captures are retained, not regenerated as a new acceptance claim. GPU/resume/windows-flow opt-ins remain skipped in this CPU fixture run; required GPU markers/progress/deletion are separate.
 
 ### G1 changed-screen evidence
 
@@ -171,8 +189,10 @@ Only newly changed state captures are claimed (the latest Home fixture also show
 - `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/History-retained-guard-1100x700.png`
 - `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Add-HDR-and-unknown-speed-1280x800.png`
 - `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Add-HDR-and-unknown-speed-1100x700.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Compare-unknown-whole-video-speed-1280x800.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Compare-unknown-whole-video-speed-1100x700.png`
 
-Images reviewed for visibility at both sizes; Settings profile/note/Cancel and Add HDR/aggregate Speed unknown are visible. Owner design approval is NOT RUN.
+Images reviewed for visibility at both sizes; Settings profile/note/Cancel, Add HDR/aggregate Speed unknown, Home unknown Up next and Compare unknown whole-video speed are visible. Compare fixture uses actual synthetic decoded paired footage and an isolated API unknown projection, not real restoration quality. Owner design approval is NOT RUN.
 
 ## Part X
 
@@ -190,7 +210,7 @@ Images reviewed for visibility at both sizes; Settings profile/note/Cancel and A
 ## Errors, warnings and deliberately unrun scope
 
 - First C1 built-in finalization failure and first scaling-client failure are retained above.
-- Real Standard renderer initial launch queried progress before queue arrival: FAIL before any timing sample. Harness now waits for .now-percent. The next 5,000-record Standard sample recorded six gaps, 0% in 0.9ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ2.1 s (3.126ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ4.290 s), paint rate 0.233308 Hz, minimum 2645.6 ms: FAIL. All evidence retained in standard-progress-retry/real-progress.json. Dedicated Fast and 1,000-history Standard checks subsequently PASS as listed; the 5,000-row additional condition remains unresolved.
+- Real Standard renderer initial launch queried progress before queue arrival: FAIL before any timing sample. Harness now waits for .now-percent. The next 5,000-record Standard sample recorded six gaps, 0% in 0.9ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ2.1 s (3.126ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ4.290 s), paint rate 0.233308 Hz, minimum 2645.6 ms: FAIL. All evidence retained in standard-progress-retry/real-progress.json. Dedicated Fast and 1,000-history Standard checks subsequently PASS as listed; the 5,000-row additional condition remains unresolved.
 - One broad edit accidentally removed estimate implementation; static checks exposed it, and the body was restored before API validation.
 - Initial full CPU attempt: 2 FAIL / 327 PASS / 3 SKIP / 30 deselected. Fixed empty auto-delete background scans contending under a no-sleep mock, and updated an SSE exception injection to the new event_message boundary. Full rerun PASS above.
 - Cold SCUNet first attempt FAIL at 22.828581 s: transient PermissionError reading progress.json. Fixed advisory-file retry on next poll, plus child-tree cleanup on any operation failure (the old finally forgot a live child). RIFE then took 114.984709 s with the leftover SCUNet process competing: FAIL/contaminated, retained. Both are rerun independently after the fix. Related regression: 48 PASS / 35.04 s. New cleanup regressions separately 19 PASS / 8.41 s.
@@ -262,4 +282,9 @@ Service: run gui/tests/perf/prepare_service.py with fresh --root, --model-home, 
 
 ## Git and CI completion
 
-Task instructions recorded in 02b128a. Implementation commit, push verification and final CI are not yet completed. Source CI will be recorded after push, then a report-only commit will reference exact-head evidence stored outside Git.
+- Task instructions committed in 02b128a; implementation in 1595b83c714d05b47a57e48dc48f13ef4000f313 (41 changed files). Branch pushed and origin head verified by ls-remote. PR #5 remains draft and mergeable; no merge performed.
+- Implementation CI: [push run](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38190449013) and [pull_request run](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38190452148): completed/success, Windows and Ubuntu in each, four successful jobs. Checked UTC 2026-10-12T01:15:43.462028+00:00. Structured evidence: ci-1595b83c.json; full log .tmp/p1d3-ci-source-complete.log.
+- Final evidence/report update adds the Compare unknown-speed screenshot fixture, completes every per-repeat input/interaction summary, and records verified CI. Processing/UI implementation is identical to the validated source commit.
+- Exact-head CI evidence for the final commit containing this report is recorded externally at `C:/Users/pro/Documents/VideoEnhancer-P1d-3/final-ci.json`: head_sha, checked_utc, both runs and all four job conclusions. This avoids trying to embed a commit's own hash inside a file that contributes to that hash. Match head_sha with git rev-parse HEAD.
+- Final package: `C:/Users/pro/Documents/VideoEnhancer-P1d-3/package-owner/VideoEnhancer-win32-x64/VideoEnhancer.exe`. It uses this external Python engine; preserve the configured engine/FFmpeg/model paths. Owner runs P1d_owner_check.md next.
+- Completion status stays PARTIAL because the additional 5,000-record real cadence failure is unresolved; optional X is NOT RUN. No subsequent implementation cycle is started.
