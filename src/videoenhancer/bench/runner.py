@@ -990,6 +990,7 @@ def run_bench(
     basicvsrpp, codeformer, keep, scrfd, bisenet. Model downloads remain disabled
     unless a trusted expected hash and a loader adapter are available.
     """
+    began = time.perf_counter()
     try:
         import torch
     except ImportError:
@@ -1190,6 +1191,8 @@ def run_bench(
             "pipeline_seconds": end_to_end["pipeline_seconds"],
             "analysis_seconds_excluded": end_to_end["analysis_seconds"],
         }
+    if calibrate:
+        report["profile"]["calibration_wall_seconds"] = time.perf_counter() - began
     json_path, markdown_path = target / "bench_report.json", target / "bench_report.md"
     json_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     _write_markdown(report, markdown_path)
@@ -1198,7 +1201,8 @@ def run_bench(
         safe_driver = re.sub(r"[^A-Za-z0-9._-]+", "_", gpu["driver"] or "unknown-driver")
         profile_dir = _get_home() / "profiles"
         profile_dir.mkdir(parents=True, exist_ok=True)
-        (profile_dir / f"{safe_name}_{safe_driver}.json").write_text(
-            json.dumps(report["profile"], indent=2), encoding="utf-8"
-        )
+        profile_path = profile_dir / f"{safe_name}_{safe_driver}.json"
+        temporary_profile = profile_path.with_suffix(".tmp")
+        temporary_profile.write_text(json.dumps(report["profile"], indent=2), encoding="utf-8")
+        os.replace(temporary_profile, profile_path)
     return report

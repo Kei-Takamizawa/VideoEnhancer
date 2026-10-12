@@ -96,6 +96,7 @@ def probe(
     *,
     count_packets: bool = False,
     read_timeline: bool = True,
+    allow_hdr: bool = False,
 ) -> MediaInfo:
     source = Path(path).expanduser().resolve()
     if not source.is_file():
@@ -117,7 +118,7 @@ def probe(
     if video is None:
         raise ValueError("The file has no video stream. Choose a video file.")
     transfer = video.get("color_transfer", "unknown")
-    if transfer in {"smpte2084", "arib-std-b67"}:
+    if not allow_hdr and transfer in {"smpte2084", "arib-std-b67"}:
         raise ValueError("HDR (PQ/HLG) input is unsupported in v1. Convert the input to SDR first.")
     width, height = int(video["width"]), int(video["height"])
     tags = video.get("tags", {})

@@ -66,7 +66,7 @@ export async function events(
           silence = setTimeout(cancel, 30000);
           attempt = 0;
           status(false);
-          if (message.startsWith("event: update")) {
+          if (message.startsWith("event: update") || message.startsWith("event: progress")) {
             const line = message.split("\n").find((line) => line.startsWith("data: "));
             if (line) receive(JSON.parse(line.slice(6)));
           }

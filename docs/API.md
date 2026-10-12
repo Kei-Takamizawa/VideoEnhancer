@@ -257,7 +257,7 @@ Guarded Recycle Bin operations and automatic original deletion are described bel
 and returns `results`, one `{job_id, file, path, result}` per selected file.
 Results include `Moved to the Recycle Bin`, `File not found`, and `Kept: reason`.
 Only recorded regular files on fixed NTFS/ReFS drives are eligible. A same-folder
-hidden hard link and fsynced `deletions.jsonl` protect against permanent shell
+hard link and fsynced `deletions.jsonl` protect against permanent shell
 deletions and interrupted operations. Recovery runs on service startup.
 
 `delete_original_after` is a boolean in settings and individual jobs, default
@@ -274,11 +274,56 @@ Compare, Add, queue admission and planner use the shared estimator.
 First look entry; it returns PNG bytes. Stills use the actual render tensor.
 
 History clear errors identify records that were not removed. Hidden cancellation
-cleanup failures become visible failed records. SSE uses manifest modification
-time caching and locked copies for its key; AV1 probes are cached by GPU/driver.
+cleanup failures become visible failed records. AV1 probes are cached by GPU/driver.
 
 Queue snapshots retain segment timing and fps while excluding per-frame quality
 and memory-sampling arrays from their internal projection. Full job details
 and persisted manifests retain those diagnostics. History-row cache invalidation
 uses file identity, modification time and size; read access alone does not
 change the displayed file state.
+
+## P1d-3 progress, estimates and deletion safety
+
+`GET events` publishes two authenticated SSE event types. `update` carries a
+structural snapshot only when its revision changes. `progress` carries
+`{progress: [{id, percent, work_left, finish_time, fps, phase, step}]}` for
+running jobs, at most once per second. Remaining work is extrapolated from the
+measured frame rate between child reports. Terminal rows and their serialized
+representations are cached per manifest revision. Full diagnostic manifests are
+available through `GET queue/<id>/json`; removed jobs return 404.
+
+`GET queue?refresh_files=true` refreshes terminal original/output presence when
+History opens. A background pass also refreshes file states every 60 seconds;
+owned deletions refresh immediately. Windows directory notifications invalidate
+manifest caches. Schedule reads use modification-time caching; registry and
+installed-model checks are cached for 60 seconds.
+Temporary sharing violations while reading an operation's advisory progress
+file are retried on the next poll; cancellation is still checked. A failed
+operation terminates its remaining child tree before dropping process ownership.
+
+Estimates select an exact measured GPU/driver profile, then the newest measured
+profile for the same GPU, then a matching built-in GPU profile, then provisional
+defaults. The RTX 4060 Ti built-in profile comes from an independent five-second
+reference calibration. `health.speed_profile` identifies the source, driver note
+and approximate manual calibration minutes. Calibration records wall time and
+can be cancelled through `POST operations/<id>/cancel`. A selected model without
+a reference appears in `estimate.unknown_models`; clients suppress its numeric
+time and request manual calibration. Adding the job remains allowed.
+
+Multi-file estimates evaluate HDR independently: PQ/HLG files receive their own
+blocking warning without suppressing other files. API and CLI additions enforce
+HDR, available space, Smart App Control, cleanup's 256-pixel minimum and the
+detected AV1 minimum. The downscale note remains nonblocking.
+
+Deletion compares recorded input/output identities, including size, modification
+time and edge hash. Legacy outputs require matching recorded byte count and a
+modification time no later than completion plus 60 seconds. A cross-process
+`deletion.lock` covers deletion and recovery; journals record owner PID/start time.
+Recovery skips live owners and retries at least every 60 seconds. The guard is
+removed only after the returned Recycle Bin path identifies the same file.
+Read-only guard removal preserves the recycled file's attributes. Readable
+per-volume limits/policies prevent shell calls for disabled or undersized bins.
+Shell dialogs are suppressed behind the guard; unconfirmed deletion restores
+the original name or retains its full guard path. Unresolved `deletion_notices`
+appear on the matching History row or in health for Home. Automatic deletion
+runs off the queue worker and merges only its own fields into an existing job.

@@ -500,6 +500,9 @@ def main(argv: list[str] | None = None) -> int:
                     job["id"] for job in store.list_jobs() if job["state"] in {"queued", "running"}
                 }
                 run_queue(ignore_schedule=args.ignore_schedule, home=home)
+                from videoenhancer.service.deletion import wait_original_deletions
+
+                wait_original_deletions(home)
                 outcomes = {
                     job["id"]: job["state"] for job in store.list_jobs() if job["id"] in candidates
                 }

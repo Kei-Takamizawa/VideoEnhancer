@@ -169,7 +169,7 @@ def load_machine_profile(
     backend: str = "cuda",
     models: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Load the newest calibration for this exact GPU and driver, if any."""
+    """Prefer exact measured hardware, newest same-GPU measurement, then built-in data."""
     import platform
 
     cpu_name = platform.processor() or platform.machine()
@@ -179,14 +179,22 @@ def load_machine_profile(
         environment = environment_info()
         gpu_name = gpu_name or environment.get("gpu")
         driver = driver or environment.get("driver")
-    if backend == "cuda" and (not gpu_name or not driver):
+    if backend == "cuda" and not gpu_name:
         return None
     directory = _home(home) / "profiles"
-    if not directory.exists():
-        return None
     candidates = sorted(
         directory.glob("*.json"), key=lambda path: path.stat().st_mtime_ns, reverse=True
     )
+
+    def exact_driver(path: Path) -> bool:
+        try:
+            return str(json.loads(path.read_text(encoding="utf-8")).get("driver")) == str(driver)
+        except (OSError, ValueError):
+            return False
+
+    if backend == "cuda":
+        candidates.sort(key=lambda path: not exact_driver(path))
+        candidates.extend((Path(__file__).parents[1] / "estimate" / "profiles").glob("*.json"))
     for path in candidates:
         try:
             profile = json.loads(path.read_text(encoding="utf-8"))
@@ -194,10 +202,7 @@ def load_machine_profile(
                 profile.get("schema_version") == 1
                 and profile.get("backend", "cuda") == backend
                 and (
-                    (
-                        profile.get("gpu_name") == gpu_name
-                        and str(profile.get("driver")) == str(driver)
-                    )
+                    (profile.get("gpu_name") == gpu_name)
                     if backend == "cuda"
                     else profile.get("cpu_name") == cpu_name
                 )
@@ -233,6 +238,18 @@ def load_machine_profile(
                             and key.split(":")[0] in identities
                         }
                 profile["profile_path"] = str(path.resolve())
+                profile["source"] = (
+                    "builtin"
+                    if path.parent.name == "profiles" and path.parent.parent.name == "estimate"
+                    else "measured"
+                )
+                profile["current_driver"] = driver
+                profile["driver_note"] = (
+                    f"Speed measured with driver {profile.get('driver')}. "
+                    f"This PC now has driver {driver}."
+                    if profile["source"] == "measured" and str(profile.get("driver")) != str(driver)
+                    else None
+                )
                 return profile
         except (OSError, ValueError, TypeError):
             continue
@@ -327,6 +344,37 @@ class JobStore:
             if preparation_finished or not (directory / "control.json").exists():
                 self._write_control_unlocked(manifest)
 
+    def load_existing(self, job_id: str) -> dict[str, Any] | None:
+        with _manifest_lock(self.jobs_dir):
+            if not (self.job_dir(job_id) / "manifest.json").exists():
+                return None
+            return self.load(job_id)
+
+    def patch_existing(self, job_id: str, fields: dict[str, Any]) -> bool:
+        """Merge owned fields into an existing job without recreating removed history."""
+        with _manifest_lock(self.jobs_dir):
+            directory = self.job_dir(job_id)
+            if not (directory / "manifest.json").exists():
+                return False
+            with self._lock(directory):
+                latest = self._load_unlocked(directory / "manifest.json")
+                if all(
+                    (
+                        all(latest.get(key, {}).get(k) == v for k, v in value.items())
+                        if key == "video_deletions"
+                        else latest.get(key) == value
+                    )
+                    for key, value in fields.items()
+                ):
+                    return True
+                for key, value in fields.items():
+                    if key == "video_deletions":
+                        latest.setdefault(key, {}).update(value)
+                    else:
+                        latest[key] = value
+                self._write_unlocked(latest)
+                return True
+
     def _write_unlocked(self, manifest: dict[str, Any]) -> None:
         directory = self.job_dir(str(manifest["id"]))
         manifest["updated_at"] = _now()
@@ -351,6 +399,9 @@ class JobStore:
                 stream.flush()
                 os.fsync(stream.fileno())
             retry_permission(os.replace, temporary, target)
+            from videoenhancer.service.events import changed
+
+            changed(self.home)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -390,10 +441,48 @@ class JobStore:
                 self._manifest_cache.pop(directory.name, None)
         return records
 
+    def queue_jobs(self) -> list[dict[str, Any]]:
+        """Cache compact terminal projections; keep full probes private to per-job actions."""
+        if not hasattr(self, "_queue_cache"):
+            self._queue_cache: dict[str, tuple[Any, dict[str, Any]]] = {}
+        rows = []
+        for key, job, _revision in self._cached_jobs():
+            cached = self._queue_cache.get(job["id"])
+            if cached is None or cached[0] != key:
+                excluded = {"cfr_map", "source_pts", "keyframes", "motion_scores", "scene_cuts"}
+                row = {k: v for k, v in job.items() if k not in excluded}
+                row["segments"] = [
+                    {k: v for k, v in segment.items() if k != "stats"}
+                    | {"stats": {"fps": segment.get("stats", {}).get("fps")}}
+                    for segment in job["segments"]
+                ]
+                if job["state"] in {"done", "failed", "cancelled"}:
+                    row["machine_profile"] = None
+                    row["timing"] = {
+                        "events": [
+                            e
+                            for e in job.get("timing", {}).get("events", [])
+                            if e.get("step") == "aggregating"
+                        ]
+                    }
+                    row["media"] = {
+                        k: job["media"].get(k)
+                        for k in (
+                            "display_width",
+                            "display_height",
+                            "cfr_fps",
+                            "frame_count",
+                            "duration",
+                        )
+                    }
+                self._queue_cache[job["id"]] = (key, row)
+                cached = self._queue_cache[job["id"]]
+            rows.append(cached[1])
+        return rows
+
     def event_state(self) -> tuple[list[tuple[str, str]], list[dict[str, Any]]]:
         """Copy only immutable revisions and small health fields for idle SSE work."""
-        # The full queue refresh checks quarantine markers at least every five
-        # seconds; the idle heartbeat only needs changed manifest revisions.
+        # Notifications invalidate changed manifests; idle clients compare cached keys.
         records = self._cached_jobs(check_quarantine=False)
         revisions = sorted((job["id"], revision) for _, job, revision in records)
         health = [
@@ -536,6 +625,9 @@ class JobStore:
                 stream.flush()
                 os.fsync(stream.fileno())
             retry_permission(os.replace, temporary, target)
+            from videoenhancer.service.events import changed
+
+            changed(self.home)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -595,10 +687,28 @@ def add_job(
     # measured media geometry before storing the job.
     require_disk_space(destination.parent, identity["size"], disk_free)
     require_disk_space(store.home, identity["size"], disk_free)
+    if any("Smart App Control" in str(job.get("error", "")) for job in store.list_jobs()):
+        raise ValueError("Windows Smart App Control is blocking the video component.")
     from videoenhancer.media.analyze import analyze
 
     analysis = analyze(source, backend=chosen["backend"])
     media = analysis["media"]
+    from videoenhancer.jobs.checks import geometry_warning
+
+    capabilities = {}
+    if chosen.get("codec") == "av1" and chosen.get("backend") == "cuda":
+        from videoenhancer.logging import environment_info
+        from videoenhancer.service.av1_cache import capabilities as av1_capabilities
+
+        environment = environment_info()
+        capabilities = av1_capabilities(
+            store.home, str(environment.get("gpu") or ""), str(environment.get("driver") or "")
+        )
+    if str(media.get("color_transfer", "")) in {"smpte2084", "arib-std-b67"}:
+        raise ValueError("HDR is not supported. Choose an SDR video.")
+    warning = geometry_warning(store.home, media, chosen, capabilities)
+    if warning:
+        raise ValueError(warning)
     output_bytes = estimated_output_size(identity["size"], media, chosen)
     require_disk_space(destination.parent, output_bytes, disk_free)
     require_disk_space(store.home, output_bytes, disk_free)

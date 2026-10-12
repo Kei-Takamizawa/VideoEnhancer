@@ -192,7 +192,7 @@ def test_add_job_checks_home_volume_before_analysis(tmp_path: Path, monkeypatch:
         add_job(source, output=output_dir / "result.mp4", home=home, disk_free=disk_free)
 
 
-def test_machine_profile_requires_matching_gpu_and_driver(tmp_path: Path) -> None:
+def test_machine_profile_matches_gpu_and_notes_driver_change(tmp_path: Path) -> None:
     directory = tmp_path / "profiles"
     directory.mkdir()
     profile = {
@@ -205,6 +205,9 @@ def test_machine_profile_requires_matching_gpu_and_driver(tmp_path: Path) -> Non
     assert load_machine_profile(tmp_path, gpu_name="RTX Test", driver="999.1") == {
         **profile,
         "profile_path": str((directory / "test.json").resolve()),
+        "source": "measured",
+        "current_driver": "999.1",
+        "driver_note": None,
     }
     assert load_machine_profile(tmp_path, gpu_name="Other GPU", driver="999.1") is None
 

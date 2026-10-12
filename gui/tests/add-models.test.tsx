@@ -218,3 +218,26 @@ it.each([
     await waitFor(() => expect(call).toHaveBeenCalledWith("estimate", "POST", expect.objectContaining({ settings: expect.objectContaining(update) }), expect.any(AbortSignal)));
   }
 });
+
+it("Add distinguishes a chosen model with unknown speed from an uncalibrated GPU", async () => {
+  const known = { seconds: 50, low: 40, high: 60, calibrated: true };
+  const unknown = { ...known, calibrated: false, unknown_models: ["fixture-without-reference"], profile_source: "builtin" };
+  const file = "C:\\synthetic\\unknown.mp4";
+  const media = { display_width: 720, display_height: 1280, cfr_fps: "30", duration: 30, frame_count: 900 };
+  const api = { call: vi.fn().mockResolvedValue({ files: { [file]: { media, warnings: [], output: "C:\\synthetic\\output.mp4", presets: { standard: unknown, fast: known } } }, presets: { standard: unknown, fast: known } }) } as unknown as Api;
+  render(<AddDialog api={api} files={[file]} defaults={settings} models={[]} close={vi.fn()} saved={vi.fn()} trial={vi.fn()} />);
+  await waitFor(() => expect(screen.getByText("Speed unknown for fixture-without-reference. Run speed calibration.")).toBeTruthy());
+  expect(screen.queryByText("uncalibrated")).toBeNull();
+  const standard = screen.getByRole("button", { name: /^Standard Cleans/ });
+  expect(standard.textContent).toContain("Speed unknown");
+  expect(standard.textContent).not.toContain("of work");
+});
+
+it("Settings shows the measured-driver note, calibration duration and Cancel", async () => {
+  const call = vi.fn().mockResolvedValue({});
+  render(<SettingsPage api={{ call } as unknown as Api} value={settings} health={{ speed_profile: { source: "measured", driver_note: "Speed measured with driver X. This PC now has driver Y.", calibration_minutes: 3 } } as Health} saved={vi.fn()} calibrate={vi.fn()} operation={{ id: "calibration", kind: "calibrate", state: "running", phase: "Measuring" }} />);
+  expect(screen.getByText("Speed measured with driver X. This PC now has driver Y.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Run speed calibration (about 3 min)" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(call).toHaveBeenCalledWith("operations/calibration/cancel", "POST"));
+});

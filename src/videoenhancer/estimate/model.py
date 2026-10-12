@@ -42,6 +42,8 @@ class Estimate:
     low: float
     high: float
     calibrated: bool
+    unknown_models: tuple[str, ...] = ()
+    profile_source: str = "defaults"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -148,7 +150,9 @@ def _gpu_key(name: str) -> str:
     )
 
 
-def model_delta(settings: dict[str, Any], profile: dict[str, Any] | None) -> tuple[float, bool]:
+def model_delta(
+    settings: dict[str, Any], profile: dict[str, Any] | None, unknown: list[str] | None = None
+) -> tuple[float, bool]:
     """Add measured whole-pipeline differences once per source frame."""
     from videoenhancer.models.registry import C1, RIFE
 
@@ -176,6 +180,8 @@ def model_delta(settings: dict[str, Any], profile: dict[str, Any] | None) -> tup
             or not all(float(s.get("fps", 0)) > 0 for s in (candidate, baseline))
         ):
             usable = False
+            if unknown is not None:
+                unknown.append(str(selected))
             continue
         delta += 1 / float(candidate["fps"]) - 1 / float(baseline["fps"])
     return delta, usable
@@ -332,7 +338,8 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
             value = value.get("seconds_per_pixel_frame")
         return isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
 
-    _, references_usable = model_delta(settings, profile)
+    unknown_models: list[str] = []
+    _, references_usable = model_delta(settings, profile, unknown_models)
     calibrated = (
         bool(profile)
         and all(measured(name) for name in needed)
@@ -341,7 +348,14 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
     )
     if not references_usable:
         uncertainty = 0.25
-    return Estimate(seconds, seconds * (1 - uncertainty), seconds * (1 + uncertainty), calibrated)
+    return Estimate(
+        seconds,
+        seconds * (1 - uncertainty),
+        seconds * (1 + uncertainty),
+        calibrated,
+        tuple(unknown_models),
+        str((profile or {}).get("source", "measured" if profile else "defaults")),
+    )
 
 
 def update_correction(manifest: dict[str, Any], predicted: float, actual: float) -> None:
@@ -458,6 +472,8 @@ def observe_finalization(
     manifest.setdefault("timing", {})["finalization_observation"] = observation
     profile = manifest.get("machine_profile") or {}
     path = profile.get("profile_path")
+    if profile.get("source") == "builtin":
+        return
     if path is None:
         return
     path = Path(path)

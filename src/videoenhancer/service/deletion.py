@@ -9,10 +9,13 @@ import os
 import stat
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import psutil
 
 # Windows-only entry points are absent from non-Windows ctypes type stubs.
 _windows_ctypes: Any = ctypes
@@ -83,7 +86,78 @@ class WindowsFiles:
         if not self.kernel.MoveFileExW(str(guard), str(path), 8):
             raise _windows_ctypes.WinError(_windows_ctypes.get_last_error())
 
-    def recycle(self, path: Path, post: Callable[[bool], None]) -> str:
+    def unlink_guard(self, path: Path) -> None:
+        kernel = self.kernel
+        kernel.CreateFileW.restype = ctypes.c_void_p
+        kernel.CreateFileW.argtypes = [
+            ctypes.c_wchar_p,
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.c_void_p,
+        ]
+        handle = kernel.CreateFileW(str(path), 0x10000, 7, None, 3, 0x200080, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise OSError("the guard could not be opened for removal")
+        kernel.SetFileInformationByHandle.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+        ]
+        kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        try:
+            flags = ctypes.c_uint32(0x1 | 0x2 | 0x10)
+            if not kernel.SetFileInformationByHandle(
+                handle, 21, ctypes.byref(flags), ctypes.sizeof(flags)
+            ):
+                raise OSError("the guard could not be removed; its bytes were retained")
+        finally:
+            kernel.CloseHandle(handle)
+
+    def bin_refusal(self, path: Path) -> str:
+        if os.name != "nt":
+            return ""
+        import winreg
+
+        kernel = self.kernel
+        root, volume = ctypes.create_unicode_buffer(32768), ctypes.create_unicode_buffer(32768)
+        if not kernel.GetVolumePathNameW(
+            str(path), root, len(root)
+        ) or not kernel.GetVolumeNameForVolumeMountPointW(root.value, volume, len(volume)):
+            return ""
+        volume_id = volume.value[volume.value.find("{") : volume.value.find("}") + 1]
+        base = r"Software\Microsoft\Windows\CurrentVersion"
+
+        def read(hive: Any, key: str, name: str) -> int | None:
+            try:
+                with winreg.OpenKey(hive, key) as opened:
+                    return int(winreg.QueryValueEx(opened, name)[0])
+            except OSError:
+                return None
+
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            if read(hive, base + r"\Policies\Explorer", "NoRecycleFiles") == 1:
+                return "the Recycle Bin is turned off for this drive"
+        key = base + r"\Explorer\BitBucket\Volume" + "\\" + volume_id
+        if read(winreg.HKEY_CURRENT_USER, key, "NukeOnDelete") == 1:
+            return "the Recycle Bin is turned off for this drive"
+        capacity = read(winreg.HKEY_CURRENT_USER, key, "MaxCapacity")
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            percentage = read(hive, base + r"\Policies\Explorer", "RecycleBinSize")
+            if percentage is not None:
+                total = ctypes.c_ulonglong()
+                kernel.GetDiskFreeSpaceExW(root.value, None, ctypes.byref(total), None)
+                capacity = int(total.value * percentage / 100 / (1024 * 1024))
+        return (
+            "the file is too big for the Recycle Bin"
+            if capacity is not None and path.stat().st_size > capacity * 1024 * 1024
+            else ""
+        )
+
+    def recycle(self, path: Path, post: Callable[[bool, str | None], None]) -> str:
         """IFileOperation with a real PostDeleteItem progress sink, no confirmation suppression."""
         import uuid as uu
 
@@ -142,9 +216,21 @@ class WindowsFiles:
 
         def deleted(_this: Any, flags: Any, old: Any, result: int, created: Any) -> int:
             outcome[0] = result >= 0 and bool(created)
-            outcome[1] = "" if result >= 0 else f"shell error 0x{result & 0xFFFFFFFF:08x}"
+            outcome[1] = (
+                "" if result >= 0 else "Windows could not move this file to the Recycle Bin"
+            )
             try:
-                post(bool(outcome[0]))
+                bin_path = None
+                if outcome[0]:
+                    name = ptr()
+                    try:
+                        invoke(created, 5, [uint, ptr], 0x80058000, ctypes.byref(name))
+                        bin_path = ctypes.wstring_at(name)
+                    finally:
+                        if name:
+                            ole.CoTaskMemFree.argtypes = [ptr]
+                            ole.CoTaskMemFree(name)
+                post(bool(outcome[0]), bin_path)
                 return 0
             except Exception:
                 return -2147467259
@@ -169,7 +255,7 @@ class WindowsFiles:
             vtable = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ptr))).contents
             result = callback(hr, ptr, *types)(vtable[index])(obj, *args)
             if result < 0:
-                raise OSError(f"Shell operation failed: 0x{result & 0xFFFFFFFF:08x}")
+                raise OSError("Windows could not complete the Recycle Bin operation")
             return int(result)
 
         try:
@@ -185,8 +271,8 @@ class WindowsFiles:
             )
             if result < 0 or not operation or not item:
                 raise OSError("Could not create the shell operation.")
-            # SILENT + NOERRORUI + EARLYFAILURE + RECYCLEONDELETE; never NOCONFIRMATION.
-            invoke(operation, 5, [uint], 0x4 | 0x400 | 0x100000 | 0x80000)
+            # Confirmation suppression is allowed only with the verified hard-link guard.
+            invoke(operation, 5, [uint], 0x10 | 0x4 | 0x400 | 0x100000 | 0x80000)
             invoke(operation, 18, [ptr, ptr], item, ctypes.byref(sink))
             invoke(operation, 21, [])
             return str(outcome[1])
@@ -198,19 +284,99 @@ class WindowsFiles:
             ole.CoUninitialize()
 
 
+@contextmanager
+def deletion_lock(home: Path) -> Iterator[None]:
+    home.mkdir(parents=True, exist_ok=True)
+    with (home / "deletion.lock").open("a+b") as lock:
+        if lock.seek(0, 2) == 0:
+            lock.write(b"0")
+            lock.flush()
+        lock.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise BlockingIOError("another video deletion is in progress") from None
+        try:
+            yield
+        finally:
+            lock.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def same_file(first: Path, second: Path) -> bool:
+    try:
+        return os.path.samefile(first, second)
+    except OSError:
+        return False
+
+
+def owner_alive(entry: dict[str, Any]) -> bool:
+    try:
+        return (
+            abs(
+                psutil.Process(int(entry["owner_pid"])).create_time()
+                - float(entry["owner_started"])
+            )
+            < 0.001
+        )
+    except psutil.AccessDenied:
+        return True
+    except (psutil.NoSuchProcess, KeyError, ValueError):
+        return False
+
+
 class VideoDeletion:
     def __init__(self, home: Path, files: Any = None):
         self.home, self.files = home, files
         self.journal = home / "deletions.jsonl"
         self.lock = threading.RLock()
+        self.notices: list[dict[str, Any]] = []
 
     def _append(self, entry: dict[str, Any], phase: str, **extra: Any) -> None:
-        entry.update(phase=phase, time=datetime.now(UTC).isoformat(), **extra)
+        entry.update(
+            phase=phase,
+            time=datetime.now(UTC).isoformat(),
+            owner_pid=os.getpid(),
+            owner_started=psutil.Process().create_time(),
+            **extra,
+        )
         self.home.mkdir(parents=True, exist_ok=True)
         with self.journal.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(entry) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
+
+    def _retained(self, entry: dict[str, Any], reason: str) -> str:
+        result = f"Kept: {reason}. Original bytes retained at {entry['guard']}"
+        self._append(entry, "retained", result=result)
+        self.notices = [n for n in self.notices if n.get("id") != entry["id"]]
+        self.notices.append(
+            dict(
+                id=entry["id"],
+                job_id=entry.get("job_id"),
+                path=entry["path"],
+                guard=entry["guard"],
+                result=result,
+            )
+        )
+        return result
+
+    def _unlink_guard(self, guard: Path) -> None:
+        files = self.files or WindowsFiles()
+        if hasattr(files, "unlink_guard"):
+            files.unlink_guard(guard)
+        else:
+            guard.unlink()
 
     def _finish(
         self, entry: dict[str, Any], reason: str = "the Recycle Bin did not take the file"
@@ -219,115 +385,186 @@ class VideoDeletion:
         files = self.files or WindowsFiles()
         expected = {key: entry[key] for key in ("size", "first_sha256", "last_sha256")}
         if guard.exists() and fingerprint(guard) != expected:
-            raise OSError("guard verification failed; the guard was retained")
-        if not path.exists():
-            if not guard.exists():
-                if entry.get("recycled") and entry["phase"] == "confirmed":
+            return self._retained(entry, "guard verification failed")
+        bin_path = Path(entry["bin_path"]) if entry.get("bin_path") else None
+        if not guard.exists():
+            if entry["phase"] == "confirmed" and bin_path and bin_path.exists():
+                info = bin_path.stat()
+                if (info.st_dev, info.st_ino) == (
+                    entry.get("guard_dev"),
+                    entry.get("guard_ino"),
+                ) and fingerprint(bin_path) == expected:
                     self._append(entry, "resolved", result="Moved to the Recycle Bin")
                     return "Moved to the Recycle Bin"
-                raise OSError("the original and guard are both unavailable")
-            if entry.get("recycled"):
-                self._append(entry, "confirmed")
-                files.attributes(guard, entry["attributes"])
-                guard.unlink()
-                result = "Moved to the Recycle Bin"
-            else:
-                files.restore(guard, path)
-                files.attributes(path, entry["attributes"])
-                if fingerprint(path) != expected:
-                    raise OSError("restored file verification failed")
-                result = "Kept: the Recycle Bin did not take the file"
-        else:
-            if guard.exists():
-                if not os.path.samefile(path, guard):
-                    raise OSError("the original path changed; the guard was retained")
-                files.attributes(guard, entry["attributes"])
-                guard.unlink()
+            if path.exists() and fingerprint(path) == expected:
+                result = f"Kept: {reason}"
+                self._append(entry, "resolved", result=result)
+                return result
+            return self._retained(entry, "the original and guard could not be verified")
+        if not path.exists() and bin_path and same_file(bin_path, guard):
+            self._append(entry, "confirmed")
+            self._unlink_guard(guard)
+            result = "Moved to the Recycle Bin"
+        elif not path.exists():
+            if bin_path:
+                reason = "the Recycle Bin item was not this file"
+            files.restore(guard, path)
             if fingerprint(path) != expected:
-                raise OSError("the kept file verification failed")
-            files.attributes(path, entry["attributes"])
+                return self._retained(entry, "restored file verification failed")
             result = f"Kept: {reason}"
+        elif same_file(path, guard):
+            self._unlink_guard(guard)
+            result = f"Kept: {reason}"
+        else:
+            return self._retained(entry, "the original path changed")
         self._append(entry, "resolved", result=result)
+        self.notices = [n for n in self.notices if n.get("id") != entry["id"]]
         return result
 
-    def recover(self) -> list[dict[str, Any]]:
-        with self.lock:
-            if not self.journal.exists():
-                return []
-            latest = {}
+    def _recover_locked(self) -> list[dict[str, Any]]:
+        latest: dict[str, dict[str, Any]] = {}
+        if self.journal.exists():
             for line in self.journal.read_text(encoding="utf-8").splitlines():
                 try:
                     value = json.loads(line)
                     latest[value["id"]] = value
                 except (ValueError, KeyError):
-                    continue  # A torn append cannot authorize deleting an orphan guard.
-            results = []
-            for entry in latest.values():
-                if entry["phase"] == "resolved":
                     continue
-                path, guard = Path(entry["path"]), Path(entry["guard"])
-                if guard.parent != path.parent or not guard.name.startswith(
-                    f".{path.name}.ve-guard-"
-                ):
-                    results.append(dict(path=str(path), result="Kept: invalid guard journal"))
-                    continue
+        results = []
+        for entry in latest.values():
+            if entry["phase"] == "resolved":
+                continue
+            path, guard = Path(entry["path"]), Path(entry["guard"])
+            if owner_alive(entry):
+                result = f"Kept: deletion owner is alive. Original bytes retained at {guard}"
+            elif guard.parent != path.parent or not guard.name.startswith(
+                f".{path.name}.ve-guard-"
+            ):
+                result = f"Kept: invalid guard journal. Inspect {guard}"
+            else:
                 try:
                     result = self._finish(entry, "an interrupted deletion was recovered")
-                except OSError as error:
-                    result = f"Kept: {error}"
-                results.append(dict(path=str(path), result=result))
-            return results
+                except Exception as error:
+                    result = self._retained(entry, str(error) or "recovery could not complete")
+            results.append(
+                dict(
+                    id=entry["id"],
+                    job_id=entry.get("job_id"),
+                    path=str(path),
+                    guard=str(guard),
+                    result=result,
+                )
+            )
+        self.notices = [
+            r for r in results if r["result"].startswith("Kept:") and Path(r["guard"]).exists()
+        ]
+        return results
+
+    def recover(self) -> list[dict[str, Any]]:
+        with self.lock:
+            try:
+                with deletion_lock(self.home):
+                    return self._recover_locked()
+            except BlockingIOError:
+                return []
 
     def delete(self, path: Path, job: dict[str, Any], jobs: list[dict[str, Any]]) -> str:
         with self.lock:
-            entry = None
             try:
-                allowed = {
-                    os.path.normcase(os.path.abspath(job["input"]["path"])),
-                    os.path.normcase(os.path.abspath(job["output"])),
-                }
-                if os.path.normcase(os.path.abspath(path)) not in allowed:
-                    raise OSError("the path is not recorded by this job")
-                if not path.exists() and not path.is_symlink():
-                    return "File not found"
-                if not stat.S_ISREG(path.lstat().st_mode) or path.is_symlink():
-                    raise OSError("the path is not a regular file")
-                for other in jobs:
-                    if other["state"] not in {"done", "failed", "cancelled"} and any(
-                        os.path.normcase(os.path.abspath(p))
-                        == os.path.normcase(os.path.abspath(path))
-                        for p in (other["input"]["path"], other["output"])
-                    ):
-                        raise OSError("an unfinished job uses this file")
-                files = self.files or WindowsFiles()
-                attrs = files.preflight(path)
-                guard = path.with_name(f".{path.name}.ve-guard-{uuid.uuid4().hex}")
-                entry = dict(
-                    id=uuid.uuid4().hex,
-                    path=str(path.absolute()),
-                    guard=str(guard.absolute()),
-                    attributes=attrs,
-                    **fingerprint(path),
+                with deletion_lock(self.home):
+                    self._recover_locked()
+                    return self._delete_locked(path, job, jobs)
+            except BlockingIOError:
+                return "Kept: another video deletion is in progress"
+
+    def _delete_locked(self, path: Path, job: dict[str, Any], jobs: list[dict[str, Any]]) -> str:
+        from videoenhancer.jobs.store import input_identity
+
+        entry = None
+        try:
+            allowed = {
+                os.path.normcase(os.path.abspath(job["input"]["path"])),
+                os.path.normcase(os.path.abspath(job["output"])),
+            }
+            if os.path.normcase(os.path.abspath(path)) not in allowed:
+                raise OSError("the path is not recorded by this job")
+            if not path.exists() and not path.is_symlink():
+                return "File not found"
+            if not stat.S_ISREG(path.lstat().st_mode) or path.is_symlink():
+                raise OSError("the path is not a regular file")
+            is_original = os.path.normcase(os.path.abspath(path)) == os.path.normcase(
+                os.path.abspath(job["input"]["path"])
+            )
+            expected = job["input"] if is_original else job.get("output_identity")
+            actual = input_identity(path)
+            if expected:
+                match = all(
+                    actual.get(k) == expected.get(k) for k in ("size", "mtime_ns", "edge_hash")
                 )
-                self._append(entry, "planned")
-                os.link(path, guard)
-                files.attributes(guard, attrs | 2)
-                if not os.path.samefile(path, guard) or fingerprint(guard) != {
-                    k: entry[k] for k in ("size", "first_sha256", "last_sha256")
-                }:
-                    raise OSError("the original changed during preflight")
-                self._append(entry, "guarded")
-                reason = files.recycle(
-                    path, lambda recycled: self._append(entry, "shell", recycled=recycled)
+            else:
+                finished = datetime.fromisoformat(job.get("finished_at", "")).timestamp()
+                match = (
+                    actual["size"] == job.get("output_bytes")
+                    and actual["mtime_ns"] / 1e9 <= finished + 60
                 )
-                return self._finish(entry, reason or "the shell left the file in place")
-            except OSError as error:
-                if entry:
-                    try:
-                        return self._finish(entry, str(error))
-                    except OSError as recovery_error:
-                        return f"Kept: {recovery_error}"
-                return f"Kept: {error}"
+            if not match:
+                return "Kept: the file changed after this job used it"
+            for other in jobs:
+                if other["state"] not in {"done", "failed", "cancelled"} and any(
+                    same_file(Path(p), path) for p in (other["input"]["path"], other["output"])
+                ):
+                    raise OSError("an unfinished job uses this file")
+            files = self.files or WindowsFiles()
+            attrs = files.preflight(path)
+            refusal = files.bin_refusal(path) if hasattr(files, "bin_refusal") else ""
+            if refusal:
+                return f"Kept: {refusal}"
+            guard = path.with_name(f".{path.name}.ve-guard-{uuid.uuid4().hex}")
+            entry = dict(
+                id=uuid.uuid4().hex,
+                job_id=job["id"],
+                path=str(path.absolute()),
+                guard=str(guard.absolute()),
+                attributes=attrs,
+                owner_pid=os.getpid(),
+                owner_started=psutil.Process().create_time(),
+                **fingerprint(path),
+            )
+            self._append(entry, "planned")
+            os.link(path, guard)
+            info = guard.stat()
+            self._append(entry, "guarded", guard_dev=info.st_dev, guard_ino=info.st_ino)
+            # Recheck immediately before the shell; the bin identity closes the remaining race.
+            if not same_file(path, guard) or input_identity(path) != actual:
+                raise OSError("the original changed during preflight")
+            reason = files.recycle(
+                path,
+                lambda recycled, bin_path=None: self._append(
+                    entry, "shell", recycled=recycled, bin_path=bin_path
+                ),
+            )
+            return self._finish(
+                entry, reason or "the Recycle Bin did not confirm the original file"
+            )
+        except Exception as error:
+            if entry:
+                try:
+                    return self._finish(entry, str(error) or "the shell could not complete")
+                except Exception as recovery_error:
+                    return self._retained(
+                        entry, str(recovery_error) or "recovery could not complete"
+                    )
+            return f"Kept: {str(error) or 'the file could not be safely inspected'}"
+
+
+_deletions: dict[str, VideoDeletion] = {}
+_registry_lock = threading.Lock()
+
+
+def get_deletion(home: Path) -> VideoDeletion:
+    key = os.path.normcase(str(home.resolve()))
+    with _registry_lock:
+        return _deletions.setdefault(key, VideoDeletion(home))
 
 
 def verify_output(job: dict[str, Any]) -> None:
@@ -335,9 +572,12 @@ def verify_output(job: dict[str, Any]) -> None:
 
     from videoenhancer import proc
     from videoenhancer.config import executable
+    from videoenhancer.media.mux import _audio_duration_matches
+    from videoenhancer.media.probe import probe
     from videoenhancer.media.timing import output_rate
 
     output = Path(job["output"])
+    result = probe(output, count_packets=True)
     proc.run(
         [
             executable("ffmpeg"),
@@ -358,39 +598,28 @@ def verify_output(job: dict[str, Any]) -> None:
         check=True,
         capture_output=True,
     )
-    result = json.loads(
-        proc.run(
-            [
-                executable("ffprobe"),
-                "-v",
-                "error",
-                "-count_frames",
-                "-show_entries",
-                "stream=codec_type,nb_read_frames,duration:format=duration",
-                "-of",
-                "json",
-                str(output),
-            ],
-            check=True,
-            capture_output=True,
-        ).stdout
-    )
-    streams = result["streams"]
-    video = next(s for s in streams if s["codec_type"] == "video")
     rate = output_rate(job["settings"], job["media"])
     source_rate = Fraction(job["media"]["cfr_fps"])
-    expected = int(job["media"]["frame_count"]) * rate / source_rate
-    if int(video.get("nb_read_frames", 0)) != expected:
+    source_frames = len(job.get("cfr_map", [])) or int(job["media"]["frame_count"])
+    expected = source_frames * rate / source_rate
+    if result.frame_count != expected:
         raise ValueError("output frame count does not match")
-    duration = float(video.get("duration", result["format"]["duration"]))
-    if abs(duration - float(expected / rate)) > float(1 / rate) + 1e-6:
+    if abs(result.duration - float(expected / rate)) > float(1 / rate) + 1e-6:
         raise ValueError("output duration does not match within one frame")
-    if job["media"].get("audio_streams") and not any(s["codec_type"] == "audio" for s in streams):
-        raise ValueError("output audio is missing")
+    original_audio = job["media"].get("audio_streams", [])
+    if len(original_audio) != len(result.audio_streams):
+        raise ValueError("output audio stream count does not match the source")
+    for original, actual in zip(original_audio, result.audio_streams, strict=True):
+        if abs(original["start_offset"] - actual["start_offset"]) > 0.020:
+            raise ValueError("output audio timing does not match the source")
+        if not _audio_duration_matches(original, actual):
+            raise ValueError("output audio duration does not match the source")
 
 
 def finish_original_deletions(store: Any) -> None:
-    """Retry shared originals only after every dependent unfinished job has ended."""
+    """Decode off the queue thread, then merge only deletion fields into current history."""
+    deletion = get_deletion(store.home)
+    deletion.recover()
     for job in store.list_jobs():
         if (
             job["state"] != "done"
@@ -402,22 +631,67 @@ def finish_original_deletions(store: Any) -> None:
         shared = any(
             other["id"] != job["id"]
             and other["state"] not in {"done", "failed", "cancelled"}
-            and os.path.normcase(os.path.abspath(other["input"]["path"]))
-            == os.path.normcase(os.path.abspath(source))
+            and same_file(Path(other["input"]["path"]), source)
             for other in store.list_jobs()
         )
-        job["original_delete_pending"] = shared
-        if shared:
-            job["original_delete_result"] = "Original kept: another unfinished video uses it"
-        else:
+        result = "Original kept: another unfinished video uses it"
+        if not shared:
             try:
                 verify_output(job)
-                result = VideoDeletion(store.home).delete(source, job, store.list_jobs())
-                job["original_delete_result"] = (
+                latest = store.load_existing(job["id"])
+                if latest is None:
+                    continue
+                if latest["state"] != "done" or not latest["settings"].get("delete_original_after"):
+                    continue
+                result = deletion.delete(source, latest, store.list_jobs())
+                result = (
                     result
                     if result == "Moved to the Recycle Bin"
                     else "Original kept: " + result.removeprefix("Kept: ")
                 )
+            except FileNotFoundError:
+                if not (store.job_dir(job["id"]) / "manifest.json").exists():
+                    continue
+                result = "Original kept: a required video file is missing"
             except Exception as error:
-                job["original_delete_result"] = f"Original kept: {error}"
-        store.save(job)
+                result = f"Original kept: {str(error) or 'output verification did not complete'}"
+        store.patch_existing(
+            job["id"], dict(original_delete_pending=shared, original_delete_result=result)
+        )
+
+
+_tasks: dict[str, threading.Thread] = {}
+_tasks_lock = threading.Lock()
+_tasks_generation: dict[str, int] = {}
+
+
+def schedule_original_deletions(store: Any) -> None:
+    key = os.path.normcase(str(store.home.resolve()))
+    with _tasks_lock:
+        if key in _tasks and _tasks[key].is_alive():
+            return
+        from videoenhancer.service.events import generation
+
+        current = generation(store.home)
+        if _tasks_generation.get(key) == current:
+            return
+        _tasks_generation[key] = current
+        if not any(
+            job["state"] == "done"
+            and job["settings"].get("delete_original_after")
+            and (not job.get("original_delete_result") or job.get("original_delete_pending"))
+            for job in store.queue_jobs()
+        ):
+            return
+        thread = threading.Thread(
+            target=finish_original_deletions, args=(store,), name="video-deletion", daemon=True
+        )
+        _tasks[key] = thread
+        thread.start()
+
+
+def wait_original_deletions(home: Path, timeout: float | None = None) -> None:
+    with _tasks_lock:
+        thread = _tasks.get(os.path.normcase(str(home.resolve())))
+    if thread:
+        thread.join(timeout)

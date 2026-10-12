@@ -112,7 +112,7 @@ test("packaged design board inventory with isolated synthetic API data", async (
           if (["menu", "confirmCancel", "confirmRemove", "log", "actionError"].includes(board.variant)) { await page.getByRole("button", { name: board.variant === "confirmRemove" ? "Actions for video-1.mp4" : "Actions for video-0.mp4", exact: true }).click(); if (board.variant === "confirmCancel") await click("Cancel"); if (board.variant === "confirmRemove") await click("Remove from queue"); if (board.variant === "log") await click("Show log"); if (board.variant === "actionError") { fixture.routes['queue/synthetic-0/pause'] = { statusCode: 400, error: "Synthetic action failed." }; await page.locator(".row-menu").getByRole("button", { name: "Pause", exact: true }).click(); } }
           if (board.variant === "drop") await page.locator('.app').evaluate(element => { const dataTransfer = new DataTransfer(); dataTransfer.items.add(new File(['synthetic'], 'synthetic.mp4')); element.dispatchEvent(new DragEvent('dragenter', { bubbles: true, dataTransfer })); });
           if (board.variant === "zoom") await page.keyboard.press("Control+=");
-          if (board.variant === "preview") { fixture.queue.jobs[0].preview_ready = true; await expect(page.getByRole("button", { name: "Preview result" })).toBeEnabled(); await click("Preview result"); }
+          if (board.variant === "preview") { fixture.queue.jobs[0].preview_ready = true; fixture.snapshot(); await expect(page.getByRole("button", { name: "Preview result" })).toBeEnabled(); await click("Preview result"); }
           if (board.variant === "tray") { await page.waitForTimeout(3200); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()); await expect(page.getByRole("heading", { name: "VideoEnhancer keeps working in the tray" })).toBeVisible(); }
           if (board.variant === "reconnecting") { fixture.control.events = false; fixture.disconnect(); await expect(page.locator(".connection.card").filter({ hasText: "Reconnecting" })).toBeVisible(); }
           if (board.variant === "unreachable") { fixture.control.events = false; fixture.routes.models = { statusCode: 503, error: "Synthetic engine is unreachable." }; await page.evaluate(() => window.dispatchEvent(new Event("focus"))); await expect(page.getByRole('heading', { name: "Can’t reach the engine" })).toBeVisible(); }
@@ -134,6 +134,7 @@ test("packaged design board inventory with isolated synthetic API data", async (
     fixture.control.events = true;
     fixture.models[0].weights_verified = false;
     fixture.queue.operations = [{ id: "download", kind: "download", state: "running", phase: "12 MB of 40 MB", percent: 30, request: { model_id: modelIds[0] } }];
+    fixture.snapshot();
     await app.evaluate(async ({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.show(); await window.loadURL("app://videoenhancer/"); });
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
     await click("Models");

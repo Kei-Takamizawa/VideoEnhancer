@@ -238,7 +238,7 @@ def prime_cached(value: dict[str, Any], folder: Path) -> dict[str, Any] | None:
     return None
 
 
-def whole_file_estimate(index: dict[str, Any], settings: dict[str, Any]) -> float:
+def whole_file_estimate(index: dict[str, Any], settings: dict[str, Any]) -> float | None:
     from videoenhancer.estimate import estimate_job
     from videoenhancer.jobs.store import load_machine_profile
 
@@ -249,7 +249,7 @@ def whole_file_estimate(index: dict[str, Any], settings: dict[str, Any]) -> floa
             identities[task] = registry.snapshot(model_id, task, download=False)
         except ValueError:
             pass
-    return estimate_job(
+    estimate = estimate_job(
         {
             "media": index["media"],
             "settings": settings,
@@ -258,7 +258,8 @@ def whole_file_estimate(index: dict[str, Any], settings: dict[str, Any]) -> floa
                 get_home(), backend=settings["backend"], models=identities
             ),
         }
-    ).seconds
+    )
+    return None if estimate.unknown_models else estimate.seconds
 
 
 def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:

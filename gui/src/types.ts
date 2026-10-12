@@ -31,6 +31,8 @@ export type Estimate = {
   low: number;
   high: number;
   calibrated: boolean;
+  unknown_models?: string[];
+  profile_source?: string;
   finish?: string | null;
 };
 export type Job = {
@@ -67,6 +69,7 @@ export type Job = {
   preview_ready?: boolean;
   original_delete_result?: string;
   video_deletions?: Record<string, string>;
+  deletion_notices?: { id: string; guard: string; result: string }[];
   cancel_cleanup?: boolean;
 };
 export type Operation = {
@@ -93,16 +96,20 @@ export type Operation = {
       name?: string;
       preview: string;
       fps: number;
-      projected_whole_file_seconds: number;
+      projected_whole_file_seconds: number | null;
     }[];
   };
 };
+export type Progress = { id: string; percent: number; work_left: number; finish_time: string; fps?: number; phase: string; step: string };
 export type Queue = {
+  history_revision?: string;
   jobs: Job[];
   completion: string | null;
   operations: Operation[];
 };
 export type Health = {
+  speed_profile?: { source: string; driver_note?: string | null; calibration_minutes: number; profile_path?: string };
+  deletion_notices?: { id: string; job_id?: string; path: string; guard: string; result: string }[];
   paused_all?: boolean;
   waiting_count?: number;
   version: string;

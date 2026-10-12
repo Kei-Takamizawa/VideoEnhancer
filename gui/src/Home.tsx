@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration, filename, when } from "./api";
 import type { Health, Job, Plan, Queue } from "./types";
@@ -344,6 +344,7 @@ export function HomePage({
           </div>
         </div>
       )}
+      {health?.deletion_notices?.filter(notice => !queue.jobs.some(job => job.id === notice.job_id)).map(notice => <div className="alert" role="status" key={notice.id}><p>{notice.result}</p><p>{notice.guard}</p><button onClick={() => window.desktop.reveal(notice.guard)}>Show in folder</button></div>)}
       <div className="home-columns">
         <div>
           {current ? (
@@ -385,12 +386,12 @@ export function HomePage({
                   <strong>
                     {current.state === "queued"
                       ? `Starts ${when(current.starts)}`
-                      : `Finishes ${when(current.eta)}`}
+                      : current.estimate.unknown_models?.length ? "Speed unknown" : `Finishes ${when(current.eta)}`}
                   </strong>
                   <span>
                     Work left
                     <br />
-                    {duration(current.estimate.seconds)}
+                    {current.estimate.unknown_models?.length ? "Speed unknown" : duration(current.estimate.seconds)}
                   </span>
                 </div>
                 {!!current.overrun_seconds && (
@@ -494,6 +495,8 @@ export function HomePage({
                         "Preparing…"
                       ) : job.state === "paused" ? (
                         "Waits until you resume it"
+                      ) : job.estimate.unknown_models?.length ? (
+                        "Speed unknown"
                       ) : (
                         <>
                           Starts {when(job.starts)}
@@ -583,25 +586,27 @@ export function HistoryPage({
     observer.observe(viewport.current);
     return () => observer.disconnect();
   }, []);
-  const terminal = queue.jobs
+  const terminal = useMemo(() => queue.jobs
     .filter((j) => ["done", "failed", "cancelled"].includes(j.state))
     .sort((a, b) =>
       (b.finished_at || b.eta || "").localeCompare(
         a.finished_at || a.eta || "",
       ),
-    );
+    ), [queue.history_revision || queue.jobs]);
   const matches = (job: Job, name: string) =>
     name === "All" ||
     (name === "Needs attention"
       ? job.state === "failed"
       : job.settings.preset === name.toLowerCase());
-  const visible = terminal.filter(
+  const visible = useMemo(() => terminal.filter(
     (j) =>
       matches(j, filter) &&
       filename(j.input).toLowerCase().includes(search.toLowerCase()),
-  );
+  ), [terminal, filter, search]);
   const visibleIds = visible.map((j) => j.id).join(",");
-  const groups = new Map<string, Job[]>();
+  const calendarDay = new Date().toDateString();
+  const groups = useMemo(() => {
+    const groups = new Map<string, Job[]>();
   const now = new Date(), yesterday = new Date(now);
   const monthYear = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" });
   yesterday.setDate(yesterday.getDate() - 1);
@@ -616,6 +621,8 @@ export function HistoryPage({
     if (group) group.push(job);
     else groups.set(label, [job]);
   }
+    return groups;
+  }, [visible, calendarDay]);
   const rows: { label?: string; jobs: Job[]; top: number; height: number }[] = [];
   let height = 0;
   for (const [label, jobs] of groups) {

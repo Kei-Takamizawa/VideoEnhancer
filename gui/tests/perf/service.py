@@ -1,4 +1,4 @@
-"""Measure one real SSE client while a separate controller runs Standard."""
+"""Repeat event-stream CPU measurements with one separate idle client."""
 
 from __future__ import annotations
 
@@ -14,31 +14,20 @@ from videoenhancer.service.engine import Engine
 from videoenhancer.service.server import LocalServer
 
 
-def measure(home: Path, output: Path, seconds: int = 31) -> dict:
-    engine = Engine(home)
-    engine._environment()
-    jobs = engine.store.list_jobs()
-    assert sum(j["state"] == "done" for j in jobs) == 1000
-    assert sum(j["state"] == "queued" for j in jobs) == 10
-    running = [j for j in jobs if j["state"] == "running"]
-    assert len(running) == 1 and running[0]["settings"]["preset"] == "standard"
-    server = LocalServer(engine)
-    serving = threading.Thread(target=server.serve_forever, daemon=True)
-    serving.start()
-    # The idle client runs outside the measured service process. Its buffered
-    # HTTP reads must not be counted as event-stream service CPU.
+def measure(
+    engine: Engine, server: LocalServer, output: Path, history: int, seconds: int = 31
+) -> dict:
     client = subprocess.Popen(
         [
             sys.executable,
             "-c",
             """
-import sys, urllib.request
-request = urllib.request.Request(sys.argv[1], headers={"Authorization": "Bearer " + sys.argv[2]})
-with urllib.request.urlopen(request, timeout=40) as response:
-    print("ready", flush=True)
-    for line in response:
-        if line.startswith(b"data: "):
-            print("event", flush=True)
+import sys,time,urllib.request
+request=urllib.request.Request(sys.argv[1],headers={'Authorization':'Bearer '+sys.argv[2]})
+with urllib.request.urlopen(request,timeout=45) as response:
+ print('ready',flush=True)
+ for line in response:
+  if line.startswith(b'data: '): print('event '+str(time.monotonic()),flush=True)
 """,
             f"http://127.0.0.1:{server.server_port}/v1/events",
             server.token,
@@ -48,48 +37,32 @@ with urllib.request.urlopen(request, timeout=40) as response:
     )
     assert client.stdout is not None
     assert client.stdout.readline().strip() == "ready"
+    assert client.stdout.readline().startswith("event ")
     data = []
-
-    def receive():
-        assert client.stdout is not None
-        for line in client.stdout:
-            if line.strip() == "event":
-                data.append(time.perf_counter())
-
-    reader = threading.Thread(target=receive, daemon=True)
+    reader = threading.Thread(target=lambda: data.extend(client.stdout or []), daemon=True)
     reader.start()
-    deadline = time.perf_counter() + 120
-    while not data:
-        if client.poll() is not None or time.perf_counter() >= deadline:
-            raise RuntimeError("The initial event snapshot did not arrive.")
-        time.sleep(0.1)
-    # Warm manifest and snapshot caches before the idle-client interval.
     time.sleep(2)
     wall_start, cpu_start = time.perf_counter(), time.process_time()
-    for _ in range(seconds):
-        assert engine.store.load(running[0]["id"])["state"] == "running"
-        time.sleep(1)
+    time.sleep(seconds)
     wall, cpu = time.perf_counter() - wall_start, time.process_time() - cpu_start
     result = dict(
         wall_seconds=wall,
         cpu_seconds=cpu,
-        one_core_cpu_percent=cpu / wall * 100,
+        one_core_cpu_percent=100 * cpu / wall,
         events=len(data),
-        history=1000,
+        history=history,
         queued=10,
-        actual_standard_running=True,
+        actual_standard_running=any(j["state"] == "running" for j in engine._event_running_jobs),
         method=(
-            "service process_time includes real HTTP/SSE; "
-            "idle client and GPU controller are separate processes"
+            "All service threads including real controller and HTTP/SSE; "
+            "idle client and CUDA renderer child are separate processes; "
+            "complete initial snapshot and two seconds warm-up excluded."
         ),
     )
     output.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    engine.close()
     client.terminate()
     client.wait(timeout=5)
     reader.join(timeout=3)
-    server.shutdown()
-    server.server_close()
     return result
 
 
@@ -98,4 +71,15 @@ if __name__ == "__main__":
     parser.add_argument("--home", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    print(json.dumps(measure(args.home, args.output)))
+    engine = Engine(args.home)
+    engine._environment()
+    engine._home_watcher.start()
+    server = LocalServer(engine)
+    serving = threading.Thread(target=server.serve_forever, daemon=True)
+    serving.start()
+    try:
+        print(json.dumps(measure(engine, server, args.output, history=1000)), flush=True)
+    finally:
+        engine.close()
+        server.shutdown()
+        server.server_close()

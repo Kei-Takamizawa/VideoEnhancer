@@ -294,9 +294,9 @@ def test_sse_snapshot_exception_sends_error_then_keeps_stream(tmp_path):
         if len(calls) == 1:
             raise RuntimeError("injected snapshot failure")
         engine.stop.set()
-        return {"queue": {"jobs": []}, "health": {}, "plan": {}}
+        return json.dumps({"queue": {"jobs": []}, "health": {}, "plan": {}})
 
-    engine.event_snapshot = snapshot
+    engine.event_message = snapshot
     handler = object.__new__(Handler)
     handler.server = SimpleNamespace(engine=engine)
     handler.wfile = output

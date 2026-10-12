@@ -80,15 +80,38 @@ Choose a folder for insufficient space, remove HDR inputs, and read the Smart
 App Control instructions if Windows blocks FFmpeg. A smaller chosen size is
 a nonblocking note; Use Keep preserves the source dimensions.
 
-Estimates remain approximate. The first uncalibrated 30-second P1d-2 measurements
-missed the 15% gate for C1, SPAN and Fast. See `.ai/LAST_REPORT.md` for exact
-results and any calibrated reruns. No performance claim applies to other GPUs.
+Estimates remain approximate. Settings identifies the measured or built-in
+profile. A driver update retains the newest measurement for the same GPU and
+shows the measured/current driver note. With no profile, the uncalibrated range
+remains. Speed unknown means the chosen model has no reference: run manual
+speed calibration, or add the job with its time left unknown. Calibration's
+button shows an approximate duration and offers Cancel while running. See
+`.ai/LAST_REPORT.md` for measured accuracy and calibration wall times; these
+measurements do not establish performance on other GPUs.
 
 History removal preserves videos. Delete video files is a separate action.
 Files on network/removable/FAT/exFAT drives, reparse points and files in use
 are kept. Close the player and retry. If recycling is not confirmed, the
 hard-link guard restores the original. Keep `deletions.jsonl` and any `.ve-guard-`
 file until recovery is resolved; do not remove guards manually.
+
+Kept: the file changed after this job used it means its recorded identity no
+longer matches. Recycling off or a file exceeding the readable drive limit
+also keeps the file. Unresolved recovery notices show the exact guard path in
+History, or Home when no job matches, with Show in folder. A running deletion
+owns a cross-process lock; recovery skips its live owner and retries later.
+Read-only attributes remain on a successfully recycled file. Restore the exact
+file through Windows Recycle Bin if you need it again.
+
+One HDR file does not invalidate estimates for other selected files. Remove
+PQ/HLG inputs before adding; API/CLI additions enforce the same warning rules.
+Progress can count down between child reports using the last measured speed;
+it is an estimate, not an additional completed-frame measurement. Terminal file
+presence updates when History opens and in the background every 60 seconds.
+Brief Windows sharing violations on preview progress files are retried at the
+next poll. If an operation fails, the service stops its remaining child tree
+before releasing ownership, so a failed preview cannot silently keep using the
+GPU alongside the next operation.
 
 Automatic original deletion is off by default. `Original kept: reason` explains
 failed output checks or another unfinished job using the same original.

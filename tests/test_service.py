@@ -116,7 +116,10 @@ def test_cpu_queue_sse_controls_and_completed_output(api, video_factory):
         while time.monotonic() < deadline:
             line = events.readline()
             if line.startswith(b"data: "):
-                rows = json.loads(line[6:])["queue"]["jobs"]
+                packet = json.loads(line[6:])
+                if "queue" not in packet:
+                    continue
+                rows = packet["queue"]["jobs"]
                 if all(j["state"] == "done" for j in rows):
                     finished = True
                     assert all(j["progress_percent"] == 100 for j in rows)

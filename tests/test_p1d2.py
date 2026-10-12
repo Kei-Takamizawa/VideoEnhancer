@@ -56,6 +56,7 @@ def test_history_cache_ignores_access_time_but_refreshes_changed_size(tmp_path):
     engine.queue()
     assert engine._history_rows[job["id"]][1] is cached
     source.write_bytes(b"changed synthetic bytes")
+    engine.refresh_terminal_files()
     row = engine.queue()["jobs"][0]
     assert row["original_bytes"] == len(b"changed synthetic bytes")
     assert engine._history_rows[job["id"]][1] is not cached

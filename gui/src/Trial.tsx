@@ -779,7 +779,7 @@ export function TrialDialog({
                 <p>{model?.catalog?.description || model?.catalog?.summary}</p>
                 <p role="status">{item ? "Ready" : operation?.state === "waiting" ? operation.phase : operation?.state === "failed" ? "Problem" : operation?.state === "running" ? `Making preview ${Math.round(operation.percent || 0)}%` : "Waiting"}</p>
                 <p>
-                  {item
+                  {item?.projected_whole_file_seconds === null ? `Speed unknown for this video · ${item.fps.toFixed(2)} fps` : item
                     ? `About ${Math.floor(item.projected_whole_file_seconds / 3600)} h ${Math.round((item.projected_whole_file_seconds % 3600) / 60)} m for this video · ${item.fps.toFixed(2)} fps`
                     : "Measuring speed…"}
                 </p>

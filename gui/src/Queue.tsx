@@ -98,12 +98,12 @@ export function AddDialog({
               </p>
               <p>
                 {totals[mode]
-                  ? `${duration(totals[mode].seconds)} of work`
+                  ? totals[mode].unknown_models?.length ? "Speed unknown" : `${duration(totals[mode].seconds)} of work`
                   : "Preparing…"}
               </p>
               <p className="mode-finish">
                 {totals[mode]
-                  ? `Done ${when(totals[mode].finish)}`
+                  ? totals[mode].unknown_models?.length ? "Run speed calibration." : `Done ${when(totals[mode].finish)}`
                   : ""}
               </p>
             </button>
@@ -296,11 +296,11 @@ export function AddDialog({
                             {preset === "standard" ? "Standard" : "Fast"}
                           </strong>
                           <p>
-                            {duration(e.seconds)} of work ({duration(e.low)}–
-                            {duration(e.high)})
+                            {e.unknown_models?.length ? "Speed unknown" : `${duration(e.seconds)} of work (${duration(e.low)}–${duration(e.high)})`}
                           </p>
-                          <p>Finish: {when(e.finish)}</p>
-                          {!e.calibrated && (
+                          <p>Finish: {e.unknown_models?.length ? "Speed unknown" : when(e.finish)}</p>
+                          {e.unknown_models?.map(model => <p className="warning-text" key={model}>Speed unknown for {model}. Run speed calibration.</p>)}
+                          {!e.calibrated && !e.unknown_models?.length && (
                             <span className="badge warning">uncalibrated</span>
                           )}
                         </div>

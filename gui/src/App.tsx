@@ -9,6 +9,7 @@ import type {
   Operation,
   Plan,
   Queue,
+  Progress,
   Schedule,
   Settings,
 } from "./types";
@@ -199,6 +200,30 @@ export default function App() {
   useEffect(() => {
     const abort = new AbortController();
     let alive = true;
+    let lastProgressPaint = -Infinity;
+    let progressTimer: ReturnType<typeof setTimeout> | undefined;
+    let pendingProgress: Progress[] = [];
+    const flushProgress = () => {
+      if (!alive) return;
+      lastProgressPaint = performance.now();
+      progressTimer = undefined;
+      const packet = pendingProgress;
+      pendingProgress = [];
+      setQueue(previous => ({ ...previous, jobs: previous.jobs.map(job => {
+        const update = packet.find(value => value.id === job.id);
+        if (!update || job.state !== "running") return job;
+        const low = job.estimate.seconds > 0 ? job.estimate.low / job.estimate.seconds : 0.75;
+        const high = job.estimate.seconds > 0 ? job.estimate.high / job.estimate.seconds : 1.25;
+        return { ...job, progress_percent: update.percent, eta: update.finish_time, fps: update.fps, phase: update.phase, step: update.step, estimate: { ...job.estimate, seconds: update.work_left, low: update.work_left * low, high: update.work_left * high } };
+      }) }));
+    };
+    const receiveProgress = (packet: Progress[]) => {
+      pendingProgress = packet;
+      if (progressTimer !== undefined) return;
+      const wait = Math.max(0, 1000 - (performance.now() - lastProgressPaint));
+      if (wait === 0) flushProgress();
+      else progressTimer = setTimeout(flushProgress, wait);
+    };
     window.desktop
       .connection()
       .then(async (connection) => {
@@ -212,13 +237,22 @@ export default function App() {
           connection,
           abort.signal,
           (raw) => {
+            if ("progress" in (raw as Record<string, unknown>)) {
+              setLastUpdate(Date.now());
+              receiveProgress((raw as { progress: Progress[] }).progress);
+              return;
+            }
             const snapshot = raw as {
               queue: Queue;
               health: Health;
               plan: Plan;
             };
             setLastUpdate(Date.now());
-            setQueue(snapshot.queue);
+            setQueue(previous => ({ ...snapshot.queue, jobs: snapshot.queue.jobs.map(job => {
+              const old = previous.jobs.find(record => record.id === job.id);
+              return job.state === "running" && old?.state === "running" ? { ...job, progress_percent: old.progress_percent, estimate: old.estimate, eta: old.eta, fps: old.fps } : job;
+            }) }));
+            receiveProgress(snapshot.queue.jobs.filter(job => job.state === "running").map(job => ({ id: job.id, percent: job.progress_percent, work_left: job.estimate.seconds, finish_time: job.eta || "", fps: job.fps, phase: job.phase, step: job.step })));
             setHealth(snapshot.health);
             if (scenario === "expected") setPlan(snapshot.plan);
             else
@@ -241,6 +275,7 @@ export default function App() {
       });
     return () => {
       alive = false;
+      if (progressTimer !== undefined) clearTimeout(progressTimer);
       abort.abort();
     };
     // Reconnection has an explicit lifetime; preference reads are not stream dependencies.
@@ -269,6 +304,15 @@ export default function App() {
       window.removeEventListener("focus", restore);
     };
   }, []);
+  useEffect(() => {
+    if (page === "History" && api) void api.call<Queue>("queue?refresh_files=true").then(setQueue).catch(error => setActionError(error.message));
+  }, [page, api]);
+  const compareJob = async (job: Job) => {
+    try {
+      const record = await api!.call<{ input: { path: string }; settings: Settings; media: Media }>(`queue/${job.id}/json`);
+      setTrial({ file: record.input.path, settings: record.settings, media: record.media, job_id: job.id });
+    } catch (error) { setActionError((error as Error).message); }
+  };
   const retry = () => setGeneration((v) => v + 1);
   const operate = async (route: string, data?: unknown) => {
     try {
@@ -432,14 +476,7 @@ export default function App() {
             preview={(job) => void showPreview(job)}
             add={(paths) => void add(paths)}
             action={action}
-            trial={(job) =>
-              setTrial({
-                file: job.input,
-                settings: job.settings,
-                media: job.media,
-                job_id: job.id,
-              })
-            }
+            trial={(job) => void compareJob(job)}
           />
         )}
         {page === "History" && (
@@ -448,14 +485,7 @@ export default function App() {
             queue={queue}
             api={api}
             action={action}
-            trial={(job) =>
-              setTrial({
-                file: job.input,
-                settings: job.settings,
-                media: job.media,
-                job_id: job.id,
-              })
-            }
+            trial={(job) => void compareJob(job)}
           />
         )}
         {page === "Schedule" && api && schedule && (

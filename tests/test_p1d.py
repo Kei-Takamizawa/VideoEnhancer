@@ -133,9 +133,7 @@ def test_schedule_preview_builds_only_expected_unless_range_requested(tmp_path, 
     engine.close()
 
 
-def test_event_clients_share_plan_and_progress_only_rebuilds_every_five_seconds(
-    tmp_path, monkeypatch
-):
+def test_event_clients_share_plan_without_timer_only_rebuilds(tmp_path, monkeypatch):
     from test_controller import _job
 
     engine = Engine(tmp_path / "home")
@@ -157,13 +155,16 @@ def test_event_clients_share_plan_and_progress_only_rebuilds_every_five_seconds(
     assert len(builds) == 1
     tick[0] = 5.0
     engine.event_snapshot()
-    assert len(builds) == 2
+    assert len(builds) == 1
+    tick[0] = 60.0
+    engine.event_snapshot()
+    assert len(builds) == 1
     engine.store.set_state(job["id"], "paused")
     engine.event_snapshot()
-    assert len(builds) == 3
+    assert len(builds) == 2
     engine.dispatch("PUT", ["schedule"], {"enabled": False})
     engine.event_snapshot()
-    assert len(builds) == 4
+    assert len(builds) == 3
     engine.close()
 
 

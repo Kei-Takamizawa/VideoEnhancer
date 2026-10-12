@@ -245,6 +245,7 @@ class Handler(BaseHTTPRequestHandler):
     def _events(self) -> None:
         self._headers(200, "text/event-stream")
         previous = ""
+        previous_progress = ""
         heartbeat = time.monotonic()
         while not self.server.engine.stop.is_set():
             try:
@@ -252,6 +253,10 @@ class Handler(BaseHTTPRequestHandler):
                 if raw != previous:
                     self.wfile.write(f"event: update\ndata: {raw}\n\n".encode())
                     previous = raw
+                progress = self.server.engine.progress_message()
+                if progress and progress != previous_progress:
+                    self.wfile.write(f"event: progress\ndata: {progress}\n\n".encode())
+                    previous_progress = progress
                 if time.monotonic() - heartbeat >= 10:
                     self.wfile.write(b": heartbeat\n\n")
                     heartbeat = time.monotonic()

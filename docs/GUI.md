@@ -175,5 +175,27 @@ segment diagnostics. Interrupted previews become retryable after restart.
 If no event or heartbeat arrives for thirty seconds, the client retains the
 last snapshot and reconnects after 1, 2, 5 and 10 seconds. Restore/focus refreshes
 service discovery. Windows launches use pythonw and hidden subprocess settings.
-P1d caches structural queue plans for event publication; progress-only changes
-refresh the plan no more than once every five seconds.
+Structural queue plans change with their revisions. A separate small progress
+stream counts down between processing reports; the desktop limits progress-text
+changes to once per second. History grouping is reused across progress updates.
+
+Settings identifies the active speed profile. An RTX 4060 Ti can use the built-in
+reference profile without running calibration. A profile measured with another
+driver remains usable, with both driver versions shown. Run speed calibration
+stays manual, shows an approximate duration, and offers Cancel while running.
+Models without a reference show Speed unknown in Add; adding remains allowed.
+PQ/HLG warnings apply to each file separately. The service enforces the same
+blocking rules as the dialog, including additions from the CLI.
+
+Unresolved deletion recovery appears on the matching History detail or Home.
+The notice includes the full retained guard path and Show in folder. Original
+and output presence refresh when History opens and in a 60-second background
+pass. Do not manually remove retained guards.
+
+The performance generator `tests/perf/prepare_service.py` accepts `--root`,
+`--model-home`, `--history-template` and optional `--renderer`. Use fresh external
+directories and a genuinely finished synthetic Standard manifest. It measures
+three service CPU samples with 1,000 diagnostic-rich terminal rows, ten queued
+jobs and one real CUDA Standard job; 5,000 rows are an ungated scaling sample.
+`playwright.perf.config.ts` runs ten renderer repeats. Real progress checks use
+`VE_REAL_ENGINE_HOME` and `VE_GUI_EVIDENCE` with an isolated running GPU fixture.

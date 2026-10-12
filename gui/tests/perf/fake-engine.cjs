@@ -10,7 +10,7 @@ async function fakeEngine(home) {
   const schedule = { schema_version: 1, enabled: true, timezone: "America/Los_Angeles", weekly: [{ days: ["mon", "tue", "wed", "thu", "fri"], start: "09:00", end: "18:00" }], exceptions: [] };
   const plan = { timezone: schedule.timezone, days: [], timeline: [], jobs: [], completion: new Date(Date.now() + 3600000).toISOString() };
   const job = index => ({ id: `synthetic-${index}`, state: index === 0 ? "running" : index < 11 ? "queued" : "done", input: `C:\\synthetic\\video-${index}.mp4`, output: `C:\\synthetic\\video-${index}-output.mp4`, settings, media: { display_width: 720, display_height: 1280, cfr_fps: "30", duration: 30, frame_count: 900 }, estimate: { seconds: 500, low: 375, high: 625, calibrated: false }, eta: plan.completion, progress_percent: 20, phase: "processing", step: "Processing", step_percent: 20, segment: 1, completed_segments: index < 11 ? 0 : 3, segments: 3, log: "C:\\synthetic\\job.jsonl", original_state: "present", output_state: "present", original_bytes: 1000000, output_bytes: 2000000, output_folder: "C:\\synthetic", took_seconds: 400, finished_at: new Date(Date.now() - index * 1000).toISOString() });
-  const queue = { jobs: Array.from({ length: 1011 }, (_, index) => job(index)), operations: [], completion: plan.completion };
+  const queue = { history_revision: "synthetic-history-v1", jobs: Array.from({ length: 1011 }, (_, index) => job(index)), operations: [], completion: plan.completion };
   const health = { version: "fixture", engine_state: "Working", waiting_count: 10, paused_all: false, gpu: "Synthetic RTX 4060 Ti", driver: "fixture", vram_bytes: 8589934592, home, av1_supported: true, av1_min_width: 130, av1_min_height: 66, smart_app_control: { blocked: false } };
   const token = crypto.randomBytes(32).toString("hex");
   const clients = new Set();
@@ -50,7 +50,8 @@ async function fakeEngine(home) {
         previewSequence++;
         setTimeout(() => res.end(JSON.stringify({ plan: { ...plan, jobs: [{ id: "synthetic-0", completion: new Date(Date.now() + previewSequence * 60000).toISOString() }] }, next_window: null })), 15); return;
       }
-      const value = route === "health" ? health : route === "queue" ? queue : route === "settings" ? settings : route === "schedule" ? schedule : route === "plan" ? plan : route === "models" ? models : route.includes("/thumbnail") ? null : {};
+      let value = route === "health" ? health : route === "queue" ? queue : route === "settings" ? settings : route === "schedule" ? schedule : route === "plan" ? plan : route === "models" ? models : route.includes("/thumbnail") ? null : {};
+      if (/^queue\/[^/]+\/json$/.test(route) && !routes[route]) { const record = queue.jobs.find(job => job.id === route.split("/")[1]); value = record ? { ...record, input: { path: record.input } } : {}; }
       if (route.includes("/thumbnail")) { res.writeHead(404); }
       res.end(JSON.stringify(value));
     });
@@ -60,10 +61,12 @@ async function fakeEngine(home) {
   fs.writeFileSync(path.join(home, "settings.json"), JSON.stringify(settings));
   const timer = setInterval(() => {
     if (queue.jobs[0]?.state === "running") queue.jobs[0].progress_percent = (queue.jobs[0].progress_percent + 1) % 90;
-    const message = `event: update\ndata: ${JSON.stringify({ queue, health, plan })}\n\n`;
+    const running = queue.jobs.filter(job => job.state === "running").map(job => ({ id: job.id, percent: job.progress_percent, work_left: job.estimate.seconds, finish_time: job.eta, fps: job.fps, phase: job.phase, step: job.step }));
+    const message = `event: progress\ndata: ${JSON.stringify({ progress: running })}\n\n`;
     if (control.events) for (const client of clients) client.write(message);
   }, 1000);
   return { queue, health, plan, settings, schedule, models, routes, control,
+    snapshot: () => { if (control.events) for (const client of clients) client.write(`event: update\ndata: ${JSON.stringify({ queue, health, plan })}\n\n`); },
     disconnect: () => { for (const client of clients) client.end(); },
     error: message => { for (const client of clients) client.write(`event: error\ndata: ${message}\n\n`); },
     close: async () => { clearInterval(timer); for (const client of clients) client.end(); await new Promise(resolve => server.close(resolve)); } };

@@ -204,6 +204,10 @@ def assemble(
             retry_permission(os.rename, temporary, output)
         else:
             retry_permission(os.link, temporary, output)
+        from videoenhancer.jobs.store import input_identity
+
+        manifest["output_identity"] = input_identity(output)
+        manifest["output_bytes"] = manifest["output_identity"]["size"]
         return output
     finally:
         temporary.unlink(missing_ok=True)
