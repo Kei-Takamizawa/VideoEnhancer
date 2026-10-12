@@ -22,7 +22,7 @@
 | NTFS acceptance | PASS | Native recycle/restore, read-only, actual replacement B race, forced-permanent fake. Four cases, zero remaining guards; original/restored SHA-256 `2be8374271de213e71a7661f42ba36842e1c44772e32c29f8f9bf00e1a6939fb`. `deletion-real/results.json`. |
 | Automatic GPU success/failure | PASS | automatic-retry/auto-delete/results.json: real Fast output passes independent decode/frame/duration/audio checks. Success recycles/restores exact item; forced verification failure keeps original. Both SHA-256 values e36555e29cf375f98a552e807a1ff005ba60df289b260cb242256544dfeba76a before/after. |
 
-Latest changed-screen test including Compare: 1 PASS / 6.7 s (.tmp/p1d3-compare-owner-visible.log). All 12 changed-state captures are listed in G1.
+Latest changed-screen test including Compare: 1 PASS / 6.7 s (.tmp/p1d3-compare-owner-visible.log). The final 12 full-window changed-state captures plus two gear-button crops are listed in G1.
 
 Related integration: 82 PASS / 3 SKIP / 1 deselected (29.59 s); final full CPU coverage described in G. Real size/off cases use fakes rather than altering Windows settings.
 
@@ -64,10 +64,10 @@ First failed C1 attempt is retained in estimates/results.json: estimate 370.4831
 | Desktop throttle/memoisation | PASS (fake) | Text updates <=1 Hz and >=900 ms; stable History grouping on history_revision. Ten-repeat results below. |
 | Real Fast/Standard progress | PASS (dedicated fixtures) | Standard uses 1,000 diagnostic-rich terminal rows/ten queued; each 30-second observation from real CUDA controller/SSE/renderer. Raw event/paint times retained in progress-fast and progress-standard. See extra 5,000-row FAIL below. |
 
-| Job | Event gaps | Gap range s | Gaps in 0.9ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“2.1 s | Paint Hz | Minimum paint gap ms | Status |
+| Job | Event gaps | Gap range s | Gaps in 0.9ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“2.1 s | Paint Hz | Minimum paint gap ms | Status |
 | --- | ---: | --- | ---: | ---: | ---: | --- |
-| Real fast | 29 | 1.000600ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“1.015300 | 100.0% | 0.833111 | 1000.800 | PASS |
-| Real standard | 28 | 1.001400ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“1.573200 | 100.0% | 0.466458 | 1005.400 | PASS |
+| Real fast | 29 | 1.000600ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“1.015300 | 100.0% | 0.833111 | 1000.800 | PASS |
+| Real standard | 28 | 1.001400ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“1.573200 | 100.0% | 0.466458 | 1005.400 | PASS |
 
 ## Part A
 
@@ -79,7 +79,7 @@ First failed C1 attempt is retained in estimates/results.json: estimate 370.4831
 
 ## Part P
 
-Renderer method: fresh Electron launch per repeat, 1,000 terminal fixture records, cold History first visit separated from warm second visits. Linear interpolated quantiles. Every gated renderer run is listed, not selected by outcome. Raw per-event/per-key data remains external. Both complete ten-repeat runs PASS the specified budgets.
+Renderer method: fresh Electron launch per repeat, 1,000 terminal fixture records, cold History first visit separated from warm second visits. Linear interpolated quantiles. Every gated renderer run is listed, not selected by outcome. Raw per-event/per-key data remains external. All three complete ten-repeat runs PASS the specified budgets.
 
 ### renderer-perf (10 repeats)
 
@@ -135,6 +135,30 @@ Per-repeat input/interaction summaries (all saved observations retained; gates s
 
 The keystroke summary was added after the second measurement module loaded; the table derives the median/p90 from saved raw observations without claiming another measurement. Its earlier all-key maximum <=50 ms assertion was stricter and passed.
 
+### renderer-perf-gear (10 repeats, owner gear follow-up)
+
+| Metric | Every sample (repeat order) | Median | p90 |
+| --- | --- | ---: | ---: |
+| warm_History_ms | 45.800, 63.400, 46.400, 47.300, 47.300, 47.400, 47.400, 47.800, 47.600, 47.200 | 47.350 | 49.360 |
+| warm_Schedule_ms | 27.100, 29.100, 29.200, 30.500, 30.500, 30.800, 30.700, 30.200, 31.000, 31.200 | 30.500 | 31.020 |
+| warm_Models_ms | 31.100, 30.100, 30.000, 30.500, 30.500, 29.000, 29.400, 29.800, 30.000, 30.200 | 30.050 | 30.560 |
+| warm_Settings_ms | 30.900, 30.300, 30.500, 30.200, 30.700, 30.400, 30.500, 30.700, 30.200, 30.200 | 30.450 | 30.720 |
+| warm_Home_ms | 46.900, 45.900, 46.900, 46.200, 30.800, 30.500, 30.500, 30.800, 31.000, 31.100 | 31.050 | 46.900 |
+| cold_history_open_ms | 147.900, 111.900, 102.200, 95.800, 153.300, 153.200, 99.300, 158.800, 94.000, 154.900 | 129.900 | 155.290 |
+| preview_after_key_ms | 464.000, 454.500, 437.400, 446.500, 447.500, 441.100, 448.800, 442.400, 452.900, 441.400 | 447.000 | 455.450 |
+| idle_renderer_one_core_percent | 0.507, 0.466, 0.447, 0.419, 0.426, 0.432, 0.429, 0.427, 0.420, 0.430 | 0.429 | 0.470 |
+| progress_updates_per_second | 1.000, 0.966, 0.966, 0.966, 0.967, 0.966, 0.966, 0.967, 0.966, 0.966 | 0.966 | 0.970 |
+| minimum_progress_gap_ms | 1000.000, 1000.900, 1000.600, 999.500, 999.800, 999.500, 1000.000, 999.400, 1000.000, 999.800 | 999.900 | 1000.630 |
+| keystroke_paint_max_ms | 32.300, 32.000, 31.200, 30.000, 31.200, 34.100, 32.300, 29.800, 32.400, 30.300 | 31.600 | 32.570 |
+
+Global input delay max 1.700 ms; interaction p98 172.960 ms. Maximum: {"repeat": 8, "duration": 184, "event": "pointerdown", "target": "History"}. All revised budgets PASS.
+
+| Per-repeat metric | All 10 samples | Median | p90 |
+| --- | --- | ---: | ---: |
+| input_delay_max_ms | 1.500, 1.200, 1.500, 1.600, 1.100, 1.300, 1.700, 1.200, 1.300, 1.200 | 1.300 | 1.610 |
+| interaction_p98_ms | 129.600, 135.040, 96.960, 91.520, 135.040, 129.600, 96.960, 140.480, 96.960, 135.040 | 129.600 | 135.584 |
+| interaction_max_ms | 168.000, 176.000, 120.000, 112.000, 176.000, 168.000, 120.000, 184.000, 120.000, 176.000 | 168.000 | 176.800 |
+
 ### Service CPU, every attempt
 
 | Attempt | Three one-core CPU samples % | Median % | p90 % | Status |
@@ -166,8 +190,8 @@ Every cold run is retained. Initial SCUNet failed on progress sharing; initial R
 | Pyright | PASS | Windows and Linux targets, 0 errors / warnings. |
 | Full CPU | PASS | 331 PASS / 3 SKIP / 30 deselected, 352.02 s, .tmp/p1d3-cpu-final2.log. Later aggregate fix: related 13 PASS. Final CI reruns the full suite. |
 | D2 CPU | PASS | Included in full suite; explicit tests/test_degraded.py: 1 PASS, 1.80 s. |
-| GUI lint/typecheck/unit | PASS | 37 unit tests, 5.79 s. |
-| GUI build/package | PASS | .tmp/p1d3-package-owner.log; package-owner/VideoEnhancer-win32-x64/VideoEnhancer.exe. |
+| GUI lint/typecheck/unit | PASS | 37 unit tests, 5.64 s. |
+| GUI build/package | PASS | .tmp/p1d3-package-gear.log; package-gear/VideoEnhancer-win32-x64/VideoEnhancer.exe. |
 | Final-package e2e/clipping | PASS | 4 PASS, 1.4 min; actual CPU service/Add/completion/SSE/window lifecycle, frame viewer and clipping, Schedule tooltip, changed screens and package isolation. |
 | GPU markers | PASS | 30 PASS / 336 deselected, 166.16 s; gpu-suite/pytest.log. Existing strict equivalence checks passed. |
 | Windows + Ubuntu CI | PASS (implementation source) | 1595b83c714d05b47a57e48dc48f13ef4000f313: push and pull_request each have Windows/Ubuntu success, 4/4 jobs. Exact final-head evidence is referenced below. |
@@ -177,20 +201,22 @@ The first broad opt-in package e2e unintentionally repeated the already accepted
 
 ### G1 changed-screen evidence
 
-Only newly changed state captures are claimed (the latest Home fixture also shows an unknown-speed Up next row): isolated synthetic API visual fixtures; real HDR behavior is separately proven through the actual API. Package used: `C:/Users/pro/Documents/VideoEnhancer-P1d-3/package-owner/VideoEnhancer-win32-x64/VideoEnhancer.exe`.
+Only newly changed state captures are claimed (the latest Home fixture also shows an unknown-speed Up next row): isolated synthetic API visual fixtures; real HDR behavior is separately proven through the actual API. Package used: `C:/Users/pro/Documents/VideoEnhancer-P1d-3/package-gear/VideoEnhancer-win32-x64/VideoEnhancer.exe`.
 
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Home-progress-retained-guard-1280x800.png`
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Home-progress-retained-guard-1100x700.png`
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Settings-builtin-1280x800.png`
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Settings-builtin-1100x700.png`
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Settings-driver-note-cancel-1280x800.png`
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Settings-driver-note-cancel-1100x700.png`
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/History-retained-guard-1280x800.png`
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/History-retained-guard-1100x700.png`
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Add-HDR-and-unknown-speed-1280x800.png`
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Add-HDR-and-unknown-speed-1100x700.png`
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Compare-unknown-whole-video-speed-1280x800.png`
-- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-owner-package/Compare-unknown-whole-video-speed-1100x700.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Home-progress-retained-guard-1280x800.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Home-progress-retained-guard-1100x700.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Settings-builtin-1280x800.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Settings-gear-1280x800.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Settings-builtin-1100x700.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Settings-gear-1100x700.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Settings-driver-note-cancel-1280x800.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Settings-driver-note-cancel-1100x700.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/History-retained-guard-1280x800.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/History-retained-guard-1100x700.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Add-HDR-and-unknown-speed-1280x800.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Add-HDR-and-unknown-speed-1100x700.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Compare-unknown-whole-video-speed-1280x800.png`
+- `C:/Users/pro/Documents/VideoEnhancer-P1d-3/gui-gear/Compare-unknown-whole-video-speed-1100x700.png`
 
 Images reviewed for visibility at both sizes; Settings profile/note/Cancel, Add HDR/aggregate Speed unknown, Home unknown Up next and Compare unknown whole-video speed are visible. Compare fixture uses actual synthetic decoded paired footage and an isolated API unknown projection, not real restoration quality. Owner design approval is NOT RUN.
 
@@ -205,12 +231,12 @@ Images reviewed for visibility at both sizes; Settings profile/note/Cancel, Add 
 
 1. Unknown-speed scheduling: labels and numeric time suppression are implemented, but partition/admission still require a finite placeholder. Default: retain the existing conservative scheduler value and output pipeline, expose unknown_models, suppress displayed numeric times. Please define admission policy if an unmeasured model must alter scheduling.
 2. All-installed calibration scope: measured every installed model in the isolated four-model test home, not all archived aliases on this PC. Default: do not activate or calibrate archived/unqualified weights.
-3. 5,000-record startup/live progress: the ungated scaling CPU passes as recorded, but cold projection and later renderer progress have a material limitation. Default: preserve output math and report every failure; do not change architecture to hide it.
+3. 5,000-record startup/live progress: the ungated scaling CPU passes as recorded, but cold projection and later renderer progress have a material limitation. Default: preserve output math and report every failure; do not change architecture to hide it. Possible design responses include building structural snapshots in the background or specifying an explicit supported History size; neither is adopted in this cycle.
 
 ## Errors, warnings and deliberately unrun scope
 
 - First C1 built-in finalization failure and first scaling-client failure are retained above.
-- Real Standard renderer initial launch queried progress before queue arrival: FAIL before any timing sample. Harness now waits for .now-percent. The next 5,000-record Standard sample recorded six gaps, 0% in 0.9ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ2.1 s (3.126ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ4.290 s), paint rate 0.233308 Hz, minimum 2645.6 ms: FAIL. All evidence retained in standard-progress-retry/real-progress.json. Dedicated Fast and 1,000-history Standard checks subsequently PASS as listed; the 5,000-row additional condition remains unresolved.
+- Real Standard renderer initial launch queried progress before queue arrival: FAIL before any timing sample. Harness now waits for .now-percent. The next 5,000-record Standard sample recorded six gaps, 0% in 0.9ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ2.1 s (3.126ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ4.290 s), paint rate 0.233308 Hz, minimum 2645.6 ms: FAIL. All evidence retained in standard-progress-retry/real-progress.json. Dedicated Fast and 1,000-history Standard checks subsequently PASS as listed; the 5,000-row additional condition remains unresolved.
 - One broad edit accidentally removed estimate implementation; static checks exposed it, and the body was restored before API validation.
 - Initial full CPU attempt: 2 FAIL / 327 PASS / 3 SKIP / 30 deselected. Fixed empty auto-delete background scans contending under a no-sleep mock, and updated an SSE exception injection to the new event_message boundary. Full rerun PASS above.
 - Cold SCUNet first attempt FAIL at 22.828581 s: transient PermissionError reading progress.json. Fixed advisory-file retry on next poll, plus child-tree cleanup on any operation failure (the old finally forgot a live child). RIFE then took 114.984709 s with the leftover SCUNet process competing: FAIL/contaminated, retained. Both are rerun independently after the fix. Related regression: 48 PASS / 35.04 s. New cleanup regressions separately 19 PASS / 8.41 s.
@@ -239,6 +265,7 @@ Service: run gui/tests/perf/prepare_service.py with fresh --root, --model-home, 
 ## Changed files
 
 - `.ai/LAST_REPORT.md`
+- `.ai/CURRENT_TASK.md`
 - `docs/API.md`
 - `docs/GUI.md`
 - `docs/TROUBLESHOOTING.md`
@@ -280,11 +307,18 @@ Service: run gui/tests/perf/prepare_service.py with fresh --root, --model-home, 
 - `tests/test_reliability.py`
 - `tests/test_service.py`
 
+## Owner follow-up: Settings gear
+
+- Owner instruction saved in CURRENT_TASK.md and committed in 0166aa4.
+- Settings icon replaced with an eight-tooth vector gear and center hole; existing Settings action/accessibility name retained.
+- Gear package build, lint and typecheck PASS; 37 unit tests PASS (5.64 s), packaged e2e 4 PASS (1.4 min), ten-repeat renderer PASS (5.4 min). Logs: .tmp/p1d3-package-gear.log, p1d3-unit-gear.log, p1d3-e2e-gear.log and p1d3-renderer-gear.log. Actual Settings button crops confirm the gear at both requested window sizes.
+- Final owner package: C:/Users/pro/Documents/VideoEnhancer-P1d-3/package-gear/VideoEnhancer-win32-x64/VideoEnhancer.exe.
+
 ## Git and CI completion
 
 - Task instructions committed in 02b128a; implementation in 1595b83c714d05b47a57e48dc48f13ef4000f313 (41 changed files). Branch pushed and origin head verified by ls-remote. PR #5 remains draft and mergeable; no merge performed.
 - Implementation CI: [push run](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38190449013) and [pull_request run](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38190452148): completed/success, Windows and Ubuntu in each, four successful jobs. Checked UTC 2026-10-12T01:15:43.462028+00:00. Structured evidence: ci-1595b83c.json; full log .tmp/p1d3-ci-source-complete.log.
-- Final evidence/report update adds the Compare unknown-speed screenshot fixture, completes every per-repeat input/interaction summary, and records verified CI. Processing/UI implementation is identical to the validated source commit.
+- Final evidence/report update adds the Compare unknown-speed screenshot fixture, completes every per-repeat input/interaction summary, and records verified CI. Processing implementation is identical to the validated source commit. The subsequent owner follow-up changes only the Settings navigation SVG to an eight-tooth gear in the existing 22-pixel outline style.
 - Exact-head CI evidence for the final commit containing this report is recorded externally at `C:/Users/pro/Documents/VideoEnhancer-P1d-3/final-ci.json`: head_sha, checked_utc, both runs and all four job conclusions. This avoids trying to embed a commit's own hash inside a file that contributes to that hash. Match head_sha with git rev-parse HEAD.
-- Final package: `C:/Users/pro/Documents/VideoEnhancer-P1d-3/package-owner/VideoEnhancer-win32-x64/VideoEnhancer.exe`. It uses this external Python engine; preserve the configured engine/FFmpeg/model paths. Owner runs P1d_owner_check.md next.
+- Final package: `C:/Users/pro/Documents/VideoEnhancer-P1d-3/package-gear/VideoEnhancer-win32-x64/VideoEnhancer.exe`. It uses this external Python engine; preserve the configured engine/FFmpeg/model paths. Owner runs P1d_owner_check.md next.
 - Completion status stays PARTIAL because the additional 5,000-record real cadence failure is unresolved; optional X is NOT RUN. No subsequent implementation cycle is started.

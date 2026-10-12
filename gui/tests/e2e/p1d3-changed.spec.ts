@@ -45,6 +45,11 @@ test("P1d-3 changed screens in the packaged desktop", async () => {
       const file = path.join(evidence, `${name}-${width}x${height}.png`);
       const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
       writeFileSync(file, Buffer.from(png, "base64")); captures.push(file);
+      if (name === "Settings-builtin") {
+        const icon = path.join(evidence, `Settings-gear-${width}x${height}.png`);
+        await page.getByRole("button", { name: "Settings", exact: true }).screenshot({ path: icon });
+        captures.push(icon);
+      }
     }
   };
   const open = async (name: string) => page.getByRole("button", { name, exact: true }).click();
