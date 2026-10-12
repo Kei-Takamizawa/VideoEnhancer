@@ -299,3 +299,7 @@ The P1d-2 scheme stays: preflight, journal, hard-link guard, shell recycle, conf
 - Exact reproduction steps.
 
 Never report a test as passed if it did not run.
+
+## Owner follow-up (2026-10-12, Japan time)
+
+Continue the work. Do not forget to change the Settings icon to a gear.
