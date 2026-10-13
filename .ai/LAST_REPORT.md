@@ -208,8 +208,8 @@ active-only live-FPS correction; a second full gate is NOT RUN.
 | G3 timing | PASS final repeat | Ten fresh cold launches, all original renderer budget assertions and three themes; full data and prior failures retained below. |
 | G4 native B1/4K/long | PARTIAL | Native recycling and 4K PASS; E live finish gate FAIL. |
 | G5 GPU/D2 | PASS | All GPU tests 30 PASS, 349 deselected, 165.26 s. Independent D2 strict decode equality 12 PASS, 14 deselected, 100.63 s. Output-producing pipeline was not changed after these runs. |
-| G6 local checks | PASS | ruff, format, pyright; full CPU 347 PASS, 3 SKIP, 30 deselected (439.39 s) before the last small preflight additions; final affected preflight subset 38 PASS. GUI lint/typecheck, 38 unit PASS, build, package, e2e and packaged smoke. Final-head CI executes the full CPU suite on CI. |
-| G6 final-head CI | NOT RUN at this source snapshot | The report will be replaced with verified run IDs and outcomes after pushing this source snapshot. |
+| G6 local checks | PASS | ruff, format, pyright; full CPU 347 PASS, 3 SKIP, 30 deselected (439.39 s) before the last small preflight additions; final affected preflight subset 38 PASS. GUI lint/typecheck, 38 unit PASS, build, package, e2e and packaged smoke. Final implementation CI executed the full CPU suite on both operating systems. |
+| G6 CI | PASS on final implementation commit b89e278 | Windows/Ubuntu push and PR checks: 4/4 green. Runs 38358814562 and 38358819486. Exact report-only final-head verification is retained externally in final-head-ci.json. |
 
 GPU evidence: gpu-suite/pytest.log; D2 and local logs in logs/. Final package:
 C:\Users\pro\Documents\VideoEnhancer-P1e\package-owner\VideoEnhancer-win32-x64\VideoEnhancer.exe
@@ -420,3 +420,24 @@ signing/self-contained runtime distribution, a full corrected 10-minute gate rep
 ## Final package smoke and last regressions
 
 Final package + changed-screen sequence: four P1e regressions PASS, packaged discovery check FAIL at its former 5 s poll limit. Discovery waiting now matches the 40 s startup bound; separate rerun PASS (2.6 s). The failed trace is retained at final-package-and-regressions, and the passing trace/log at packaged-smoke-final-2 / logs/p1e-packaged-smoke-final-2.log. Final local GUI units: 38 PASS. Final targeted preflight: 38 PASS.
+
+## Verified implementation CI and final Git record
+
+Implementation commit: b89e27843b6f24827ed56d3b3a1b33a7499b00c4.
+All four matrix checks passed: push and PR, Windows and Ubuntu.
+- Push: https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38358814562
+- PR: https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38358819486
+- Windows CPU: 352 PASS, 4 SKIP, 30 deselected, one cudaGetDeviceCount warning
+  on the CPU runner. GUI units 38 PASS; Electron e2e 6 PASS, 7 opt-in SKIP.
+- Ubuntu CPU: 351 PASS, 5 SKIP, 30 deselected. GUI units 38 PASS.
+- Both ran ruff, format, pyright, GUI lint/typecheck/build successfully.
+
+This report was updated after those completed implementation CI runs. The next
+commit changes only this report. To avoid an endless report-update/CI loop, its
+exact HEAD, push/PR IDs and four final conclusions are verified separately and
+saved after completion at C:/Users/pro/Documents/VideoEnhancer-P1e/final-head-ci.json.
+The final response is issued only after that final-head verification is complete.
+Public PR remains draft; main is unchanged. The overall cycle remains PARTIAL
+because E's full live-at-half gate failed and its full corrected repeat is NOT RUN.
+The source snapshot task and all implementation changes have been committed and
+pushed. Final remote-HEAD equality and clean status are part of the external proof.
