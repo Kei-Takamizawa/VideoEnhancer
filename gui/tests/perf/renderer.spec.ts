@@ -39,6 +39,16 @@ test("P1d-3 renderer median budgets across ten independent cold launches", async
     const screens: Record<string, number> = {};
     for (const name of ["History", "Schedule", "Models", "Settings", "Home"]) screens[name] = await visit(name);
     numbers.screen_switch_ms = screens;
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const themePaint: Record<string, number> = {};
+    for (const theme of ["light", "dark", "system"]) {
+      await page.evaluate(() => { document.querySelector('select')!.closest('section')!.querySelectorAll('select').forEach(select => { if ([...select.options].some(option => option.value === 'system')) select.addEventListener('change', () => performance.mark('theme-selection'), { once: true }); }); });
+      await page.getByLabel("Theme").selectOption(theme);
+      themePaint[theme] = await page.evaluate(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); return performance.now() - performance.getEntriesByName('theme-selection').at(-1)!.startTime; });
+      expect(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe(theme);
+    }
+    numbers.theme_paint_ms = themePaint;
+
     await page.getByRole("button", { name: "History", exact: true }).click();
     numbers.history_dom_cards = await page.locator(".history-card").count();
     await page.getByRole("button", { name: "Schedule", exact: true }).click();
@@ -85,12 +95,14 @@ test("P1d-3 renderer median budgets across ten independent cold launches", async
   for (const name of ["History", "Schedule", "Models", "Settings", "Home"]) add(`warm_${name}_ms`, samples.map(sample => (sample.screen_switch_ms as Record<string, number>)[name]));
   for (const key of ["cold_history_open_ms", "preview_after_key_ms", "idle_renderer_one_core_percent", "progress_updates_per_second", "minimum_progress_gap_ms"]) add(key, samples.map(sample => Number(sample[key])));
   add("keystroke_paint_max_ms", samples.map(sample => Math.max(...sample.keystroke_paint_ms as number[])));
+  for (const theme of ["light", "dark", "system"]) add(`theme_${theme}_ms`, samples.map(sample => (sample.theme_paint_ms as Record<string, number>)[theme]));
   const timings = samples.flatMap(sample => sample.event_timings as { processing: number; duration: number; interaction: number; event: string; target: string }[]);
   const interactions = samples.flatMap((sample, repeat) => { const grouped = new Map<number, { repeat: number; duration: number; event: string; target: string }>(); for (const timing of sample.event_timings as typeof timings) { if (!timing.interaction) continue; const previous = grouped.get(timing.interaction); if (!previous || previous.duration < timing.duration) grouped.set(timing.interaction, { repeat: repeat + 1, duration: timing.duration, event: timing.event, target: timing.target }); } return [...grouped.values()]; });
   const interactionP98 = quantile(interactions.map(value => value.duration), .98);
   const maximumInteraction = interactions.toSorted((a, b) => b.duration - a.duration)[0];
   writeFileSync(path.join(evidence, "renderer-perf.json"), JSON.stringify({ samples, summary, interaction_p98_ms: interactionP98, maximum_interaction: maximumInteraction, input_delay_max_ms: Math.max(...timings.map(value => value.processing)), method: "Linear-interpolated quantiles; each repeat starts a fresh renderer; interactionId deduplicates DOM events within each repeat." }, null, 2));
   for (const name of ["History", "Schedule", "Models", "Settings", "Home"]) expect(summary[`warm_${name}_ms`].median).toBeLessThanOrEqual(100);
+  for (const theme of ["light", "dark", "system"]) expect(summary[`theme_${theme}_ms`].median).toBeLessThanOrEqual(50);
   expect(summary.cold_history_open_ms.median).toBeLessThanOrEqual(300);
   expect(Math.max(...timings.map(value => value.processing))).toBeLessThanOrEqual(50);
   expect(interactionP98).toBeLessThanOrEqual(200);

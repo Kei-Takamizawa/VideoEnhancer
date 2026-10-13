@@ -275,7 +275,7 @@ def test_progress_packets_change_without_rebuilding_history(tmp_path, monkeypatc
     assert after["work_left"] < before["work_left"]
     assert after["percent"] > before["percent"]
     assert engine.event_message() == first
-    assert len(builds) == 1
+    assert len(builds) == 3  # Structural plan once; two live finish-time forecasts.
     engine.close()
 
 

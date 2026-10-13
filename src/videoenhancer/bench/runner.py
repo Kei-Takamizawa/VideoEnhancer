@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -983,6 +984,7 @@ def run_bench(
     calibrate: bool = False,
     models: str | list[str] | None = None,
     output_dir: str | Path | None = None,
+    progress: Callable[[str, float], None] | None = None,
 ) -> dict[str, Any]:
     """Run local benchmarks and return the report as a JSON-compatible dict.
 
@@ -991,6 +993,20 @@ def run_bench(
     unless a trusted expected hash and a loader adapter are available.
     """
     began = time.perf_counter()
+    stage_started = began
+    stage_name = "Setup"
+    stage_seconds: dict[str, float] = {}
+
+    def publish(phase: str, percent: float) -> None:
+        nonlocal stage_started, stage_name
+        base_phase = phase.split(":", 1)[0]
+        if base_phase != stage_name:
+            now = time.perf_counter()
+            stage_seconds[stage_name] = now - stage_started
+            stage_started, stage_name = now, base_phase
+        if progress:
+            progress(phase, percent)
+
     try:
         import torch
     except ImportError:
@@ -1011,6 +1027,7 @@ def run_bench(
         torch.cuda.reset_peak_memory_stats()
     target = Path(output_dir) if output_dir else Path.cwd()
     target.mkdir(parents=True, exist_ok=True)
+    publish("Decode and encode", 0)
     with tempfile.TemporaryDirectory(prefix="ve-bench-") as temporary:
         ffmpeg = _ffmpeg()
         try:
@@ -1029,11 +1046,13 @@ def run_bench(
     if torch is not None and gpu["available"]:
         io_results["encode"] = _bench_nvenc(torch)
     device = "cuda" if gpu["available"] else "cpu"
+    publish("Tensor stages", 15)
     stages = (
         _bench_tensor_stages(torch, device)
         if torch is not None
         else {"unavailable": {"status": "skipped", "reason": "PyTorch is not installed."}}
     )
+    publish("End-to-end pipeline", 30)
     if torch is not None and gpu["available"] and has_pynvc:
         with tempfile.TemporaryDirectory(prefix="ve-bench-e2e-") as e2e_dir:
             end_to_end = _bench_pipeline_end_to_end(torch, Path(e2e_dir))
@@ -1172,14 +1191,17 @@ def run_bench(
     if calibrate:
         from videoenhancer.bench.calibration import calibrate_models
 
-        report["profile"]["models"] = calibrate_models(backend=device)
+        publish("Installed models", 40)
+        report["profile"]["models"] = calibrate_models(backend=device, progress=publish)
         from videoenhancer.bench.reference import calibrate_references
 
+        publish("Reference pipelines", 65)
         report["profile"]["reference_pipelines"] = calibrate_references(
-            target / "references", gpu["name"] or "", device
+            target / "references", gpu["name"] or "", device, progress=publish
         )
         from videoenhancer.bench.finalization import calibrate_finalization
 
+        publish("Finalization", 90)
         report["profile"]["finalization"] = calibrate_finalization(target)
     # Keep all estimator component keys present. Null timings stay visibly uncalibrated.
     for component in ("decode", "color", "resize", "blend2x", "encode"):
@@ -1192,7 +1214,9 @@ def run_bench(
             "analysis_seconds_excluded": end_to_end["analysis_seconds"],
         }
     if calibrate:
+        publish("Complete", 100)
         report["profile"]["calibration_wall_seconds"] = time.perf_counter() - began
+        report["profile"]["calibration_stages_seconds"] = stage_seconds
     json_path, markdown_path = target / "bench_report.json", target / "bench_report.md"
     json_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     _write_markdown(report, markdown_path)
@@ -1205,4 +1229,6 @@ def run_bench(
         temporary_profile = profile_path.with_suffix(".tmp")
         temporary_profile.write_text(json.dumps(report["profile"], indent=2), encoding="utf-8")
         os.replace(temporary_profile, profile_path)
+    if progress:
+        progress("Complete", 100)
     return report

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import statistics
 import time
+from collections.abc import Callable
 from fractions import Fraction
 from typing import Any
 
@@ -20,16 +21,18 @@ def calibrate_models(
     restore_size: tuple[int, int] = (720, 1280),
     interpolate_size: tuple[int, int] = (1080, 1920),
     repeats: int = 3,
+    progress: Callable[[str, float], None] | None = None,
 ) -> dict[str, Any]:
     """Time complete stage calls, including their parameter transfers, after warmup."""
     if repeats < 1:
         raise ValueError("Calibration repeats must be positive.")
     registry = registry or ModelRegistry()
     results: dict[str, Any] = {}
-    for installed in registry.list_models():
-        if not installed["weights_verified"]:
-            continue
+    installed_models = [model for model in registry.list_models() if model["weights_verified"]]
+    for index, installed in enumerate(installed_models):
         model_id, task = installed["id"], installed["task"]
+        if progress:
+            progress(f"Installed models: {model_id}", 40 + 25 * index / len(installed_models))
         entry: dict[str, Any] = {"task": task, "backend": backend, "status": "failed"}
         results[model_id] = entry
         stage = batch = frames = None

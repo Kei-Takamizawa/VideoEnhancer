@@ -157,7 +157,9 @@ def probe(
         matrix = "bt601" if height <= 576 else "bt709"
     if matrix in {"smpte170m", "bt470bg"}:
         matrix = "bt601"
-    if matrix not in {"bt601", "bt709"}:
+    if matrix not in {"bt601", "bt709"} and not (
+        allow_hdr and transfer in {"smpte2084", "arib-std-b67"} and matrix == "bt2020nc"
+    ):
         raise ValueError(f"Unsupported SDR color matrix {matrix}. Convert to BT.709 first.")
     sar = rational(video.get("sample_aspect_ratio", "1:1"), Fraction(1)) or Fraction(1)
     if sar <= 0:

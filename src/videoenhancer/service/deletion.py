@@ -502,10 +502,20 @@ class VideoDeletion:
                     actual.get(k) == expected.get(k) for k in ("size", "mtime_ns", "edge_hash")
                 )
             else:
+                from fractions import Fraction
+
+                from videoenhancer.media.probe import probe
+                from videoenhancer.media.timing import output_rate
+
+                started = datetime.fromisoformat(job.get("started_at", "")).timestamp()
                 finished = datetime.fromisoformat(job.get("finished_at", "")).timestamp()
+                rate = output_rate(job["settings"], job["media"])
+                source_frames = len(job.get("cfr_map", [])) or int(job["media"]["frame_count"])
+                planned = float(source_frames / Fraction(job["media"]["cfr_fps"]))
                 match = (
-                    actual["size"] == job.get("output_bytes")
-                    and actual["mtime_ns"] / 1e9 <= finished + 60
+                    started <= actual["mtime_ns"] / 1e9 <= finished + 60
+                    and abs(probe(path, read_timeline=False).duration - planned)
+                    <= float(1 / rate) + 1e-6
                 )
             if not match:
                 return "Kept: the file changed after this job used it"

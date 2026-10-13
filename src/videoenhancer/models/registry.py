@@ -8,6 +8,8 @@ import math
 import re
 import shutil
 import tempfile
+import threading
+import time
 import zipfile
 from collections.abc import Callable
 from fractions import Fraction
@@ -23,6 +25,8 @@ RIFE = "rife-4.25"
 BUILTINS = {path.stem for path in (Path(__file__).parent / "manifests").glob("*.json")}
 AdapterFactory = Callable[[dict[str, Any], Path, dict[str, Any], Fraction, set[int]], Stage]
 ADAPTERS: dict[str, tuple[str, AdapterFactory]] = {}
+_hash_cache: dict[Path, tuple[tuple[int, int], str]] = {}
+_hash_lock = threading.Lock()
 
 
 def register_adapter(name: str, task: str, factory: AdapterFactory) -> None:
@@ -34,9 +38,35 @@ def register_adapter(name: str, task: str, factory: AdapterFactory) -> None:
     ADAPTERS[name] = (task, factory)
 
 
-def sha256(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+def sha256(path: Path, progress: Callable[[str, float], None] | None = None) -> str:
+    with _hash_lock:
+        info = path.stat()
+        key = (info.st_size, info.st_mtime_ns)
+        cached = _hash_cache.get(path)
+        if cached and cached[0] == key:
+            return cached[1]
+        with path.open("rb") as stream:
+            if progress:
+                hasher = hashlib.sha256()
+                received, published = 0, 0.0
+                while chunk := stream.read(1024 * 1024):
+                    hasher.update(chunk)
+                    received += len(chunk)
+                    now = time.monotonic()
+                    if now - published >= 0.2 or received == info.st_size:
+                        percent = received / max(1, info.st_size) * 100
+                        progress(
+                            f"Verifying {received:,} / {info.st_size:,} bytes ({percent:.0f}%)",
+                            min(99, 90 + percent * 0.09),
+                        )
+                        published = now
+                digest = hasher.hexdigest()
+            else:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        if path.stat().st_mtime_ns != info.st_mtime_ns:
+            raise ValueError("Model weights changed during verification.")
+        _hash_cache[path] = (key, digest)
+        return digest
 
 
 def _id(value: Any) -> str:
@@ -275,7 +305,14 @@ class ModelRegistry:
                 value["catalog"] = shipped["catalog"]
         return value
 
-    def weights(self, model: dict[str, Any], *, download: bool = False) -> Path:
+    def weights(
+        self,
+        model: dict[str, Any],
+        *,
+        download: bool = False,
+        progress: Callable[[str, float], None] | None = None,
+        force_verify: bool = False,
+    ) -> Path:
         path = self.folder(model["id"]) / model["weights"]["filename"]
         if path.is_symlink():
             raise ValueError("Model weights cannot be a symbolic link.")
@@ -323,10 +360,22 @@ class ModelRegistry:
             elif "url" in model["weights"]:
                 from videoenhancer.bench.basicvsr import _verified_download
 
-                _verified_download(path, model["weights"]["url"], expected)
+                if progress:
+                    _verified_download(
+                        path,
+                        model["weights"]["url"],
+                        expected,
+                        progress,
+                        model["weights"].get("bytes", 0),
+                    )
+                else:
+                    _verified_download(path, model["weights"]["url"], expected)
         if not path.is_file():
             raise ValueError(f"Model {model['id']} weights missing: {path.name}")
-        if sha256(path) != expected:
+        if force_verify:
+            with _hash_lock:
+                _hash_cache.pop(path, None)
+        if sha256(path, progress) != expected:
             raise ValueError(f"Model {model['id']} weights SHA-256 mismatch; refusing to load.")
         blend = model["weights"].get("blend")
         if blend:

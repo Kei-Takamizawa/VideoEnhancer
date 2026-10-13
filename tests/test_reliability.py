@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from test_controller import FakeClock, _job
+from test_controller import FakeClock, _job, fixture_assemble
 
 from videoenhancer import proc
 from videoenhancer.estimate.model import job_progress
@@ -206,9 +206,7 @@ def test_bad_job_does_not_block_next(tmp_path, monkeypatch, failure):
 
         monkeypatch.setattr(controller.os, "replace", replace)
         monkeypatch.setattr("videoenhancer.files.time.sleep", lambda _: None)
-    monkeypatch.setattr(
-        "videoenhancer.media.mux.assemble", lambda job, *_a, **_kw: Path(job["output"])
-    )
+    monkeypatch.setattr("videoenhancer.media.mux.assemble", fixture_assemble)
 
     class Executor:
         def run(self, job, _segment, output, *_a, **_kw):

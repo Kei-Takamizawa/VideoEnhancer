@@ -15,11 +15,14 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from videoenhancer.estimate.local import recent_correction
 from videoenhancer.files import retry_permission
+from videoenhancer.media.probe import probe
 
 from .segments import plan_segments
 
 SCHEMA_VERSION = 1
+ANALYSIS_FIELDS = ("cfr_map", "source_pts", "keyframes", "scene_cuts", "motion_scores")
 JOB_STATES = {"preparing", "queued", "running", "paused", "cancelled", "failed", "done"}
 QUARANTINE_MESSAGE = (
     "Needs attention: this video's work files are locked by another program. "
@@ -118,17 +121,20 @@ def estimated_output_size(input_size: int, media: dict[str, Any], settings: dict
         int(media.get("display_height", media.get("height", 1))),
     )
     target = settings.get("short_side", "keep")
-    scale = max(1.0, (int(target) / short) if target != "keep" and short > 0 else 1.0)
+    scale = (int(target) / short) if target != "keep" and short > 0 else 1.0
     fps_factor = 2.0 if settings.get("fps") == "2x" else 1.0
     # 0.7 limits huge overestimates for highly compressed inputs; retain
     # headroom for upscale, interpolation and audio.
-    return max(input_size, int(input_size * max(1.0, scale * scale * fps_factor * 0.7)))
+    codec_factor = {"h264": 1.0, "hevc": 0.7, "av1": 0.6}.get(str(settings.get("codec")), 1.0)
+    return max(1, int(input_size * scale * scale * fps_factor * codec_factor))
 
 
 def require_disk_space(
     path: Path,
     estimated_bytes: int,
     disk_free: Callable[[Path], int] | int | None = None,
+    *,
+    copies: int = 2,
 ) -> None:
     probe_path = path
     while not probe_path.exists() and probe_path != probe_path.parent:
@@ -138,12 +144,36 @@ def require_disk_space(
         if callable(disk_free)
         else (disk_free if disk_free is not None else shutil.disk_usage(probe_path).free)
     )
-    required = int(estimated_bytes * 2.2)
+    required = int(estimated_bytes * copies * 1.1)
     if free < required:
         raise OSError(
             f"Insufficient disk space at {probe_path}: {free / 1e9:.2f} GB free, "
             f"about {required / 1e9:.2f} GB required. Free space or choose another output location."
         )
+
+
+def working_space_locations(home: Path, output_folder: Path) -> list[tuple[Path, int]]:
+    """Segments and joined video live at home; the final temporary lives at output."""
+
+    def existing(path: Path) -> Path:
+        while not path.exists() and path != path.parent:
+            path = path.parent
+        return path
+
+    home_root, output_root = existing(home), existing(output_folder)
+    if home_root.stat().st_dev == output_root.stat().st_dev:
+        return [(output_root, 3)]
+    return [(output_root, 1), (home_root, 2)]
+
+
+def require_working_space(
+    home: Path,
+    output_folder: Path,
+    estimated_bytes: int,
+    disk_free: Callable[[Path], int] | int | None = None,
+) -> None:
+    for location, copies in working_space_locations(home, output_folder):
+        require_disk_space(location, estimated_bytes, disk_free, copies=copies)
 
 
 def _require_unreserved_output(
@@ -250,7 +280,9 @@ def load_machine_profile(
                     if profile["source"] == "measured" and str(profile.get("driver")) != str(driver)
                     else None
                 )
-                return profile
+                from videoenhancer.estimate.local import apply_local
+
+                return apply_local(_home(home), profile)
         except (OSError, ValueError, TypeError):
             continue
     return None
@@ -268,17 +300,19 @@ class JobStore:
             raise ValueError("Invalid job ID")
         return self.jobs_dir / job_id
 
-    def load(self, job_id: str) -> dict[str, Any]:
+    def load(self, job_id: str, *, include_analysis: bool = True) -> dict[str, Any]:
         directory = self.job_dir(job_id)
         if not (directory / "quarantine.json").exists():
             try:
                 with self._lock(directory):
-                    return self._load_unlocked(directory / "manifest.json")
+                    return self._load_unlocked(
+                        directory / "manifest.json", include_analysis=include_analysis
+                    )
             except JobQuarantinedError:
                 pass
         # The manifest is replaced atomically; reading the last durable version
         # requires no lock and does not modify the locked work files.
-        job = self._load_unlocked(directory / "manifest.json")
+        job = self._load_unlocked(directory / "manifest.json", include_analysis=include_analysis)
         job.update(state="failed", error=QUARANTINE_MESSAGE, quarantined=True)
         return job
 
@@ -306,11 +340,17 @@ class JobStore:
             return
 
     @staticmethod
-    def _load_unlocked(path: Path) -> dict[str, Any]:
+    def _load_unlocked(path: Path, *, include_analysis: bool = True) -> dict[str, Any]:
         with path.open("r", encoding="utf-8") as source:
             manifest = json.load(source)
         if manifest.get("schema_version") != SCHEMA_VERSION:
             raise ValueError(f"Unsupported manifest schema in {path}; upgrade VideoEnhancer")
+        if manifest.get("analysis_file"):
+            if manifest["analysis_file"] != "analysis.json":
+                raise ValueError("Invalid analysis sidecar.")
+            if include_analysis:
+                with (path.parent / "analysis.json").open(encoding="utf-8") as stream:
+                    manifest.update(json.load(stream))
         return manifest
 
     def save(self, manifest: dict[str, Any]) -> None:
@@ -325,7 +365,7 @@ class JobStore:
             target = directory / "manifest.json"
             preparation_finished = False
             if target.exists():
-                current = self._load_unlocked(target)
+                current = self._load_unlocked(target, include_analysis=False)
                 for key in ("cancel_cleanup", "remove_on_cancel"):
                     if key in current and key not in manifest:
                         manifest[key] = current[key]
@@ -391,10 +431,19 @@ class JobStore:
                     ).total_seconds(),
                 )
         target = directory / "manifest.json"
+        stored = dict(manifest)
+        analysis = {key: stored.pop(key) for key in ANALYSIS_FIELDS if key in stored}
+        if analysis:
+            from videoenhancer.service.settings import write_json
+
+            sidecar = directory / "analysis.json"
+            if not sidecar.exists():
+                write_json(sidecar, analysis)
+            stored["analysis_file"] = "analysis.json"
         temporary = directory / f"manifest.{uuid.uuid4().hex}.tmp"
         try:
             with temporary.open("w", encoding="utf-8", newline="\n") as stream:
-                json.dump(manifest, stream, indent=2, ensure_ascii=False)
+                json.dump(stored, stream, indent=2, ensure_ascii=False)
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
@@ -429,7 +478,7 @@ class JobStore:
                     content = {
                         k: v
                         for k, v in job.items()
-                        if k not in {"progress", "updated_at", "timing"}
+                        if k not in {"progress", "updated_at", "timing", *ANALYSIS_FIELDS}
                     }
                     revision = hashlib.sha256(
                         json.dumps(content, sort_keys=True).encode()
@@ -478,7 +527,7 @@ class JobStore:
                 self._queue_cache[job["id"]] = (key, row)
                 cached = self._queue_cache[job["id"]]
             rows.append(cached[1])
-        return rows
+        return sorted(rows, key=lambda row: (row.get("position", 10**9), row["created_at"]))
 
     def event_state(self) -> tuple[list[tuple[str, str]], list[dict[str, Any]]]:
         """Copy only immutable revisions and small health fields for idle SSE work."""
@@ -685,8 +734,11 @@ def add_job(
     identity = input_identity(source)
     # Check before the potentially long analysis pass, then again with the
     # measured media geometry before storing the job.
-    require_disk_space(destination.parent, identity["size"], disk_free)
-    require_disk_space(store.home, identity["size"], disk_free)
+    require_disk_space(destination.parent, 1, disk_free)
+    require_disk_space(store.home, 1, disk_free)
+    preview_media = probe(source, read_timeline=False).to_dict()
+    preview_bytes = estimated_output_size(identity["size"], preview_media, chosen)
+    require_working_space(store.home, destination.parent, preview_bytes, disk_free)
     if any("Smart App Control" in str(job.get("error", "")) for job in store.list_jobs()):
         raise ValueError("Windows Smart App Control is blocking the video component.")
     from videoenhancer.media.analyze import analyze
@@ -710,8 +762,7 @@ def add_job(
     if warning:
         raise ValueError(warning)
     output_bytes = estimated_output_size(identity["size"], media, chosen)
-    require_disk_space(destination.parent, output_bytes, disk_free)
-    require_disk_space(store.home, output_bytes, disk_free)
+    require_working_space(store.home, destination.parent, output_bytes, disk_free)
     from videoenhancer.models.registry import record_models
 
     models = record_models(chosen, store.home, media)
@@ -752,7 +803,7 @@ def add_job(
         "position": len(store.list_jobs()) + 1,
         "created_at": now,
         "updated_at": now,
-        "correction_factor": 1.0,
+        "correction_factor": recent_correction(store, chosen["preset"], profile),
         "control_generation": 0,
         "machine_profile": profile,
         "timing": {"observations": [], "wasted_seconds": 0.0},

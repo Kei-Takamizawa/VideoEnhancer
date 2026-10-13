@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,12 @@ from videoenhancer.models.registry import C1, RIFE, ModelRegistry, record_models
 from videoenhancer.pipeline.runner import process_segment
 
 
-def calibrate_references(folder: Path, gpu: str, backend: str) -> dict[str, Any]:
+def calibrate_references(
+    folder: Path,
+    gpu: str,
+    backend: str,
+    progress: Callable[[str, float], None] | None = None,
+) -> dict[str, Any]:
     folder.mkdir(parents=True, exist_ok=True)
     source = folder / "reference.mp4"
     proc.run(
@@ -42,12 +48,25 @@ def calibrate_references(folder: Path, gpu: str, backend: str) -> dict[str, Any]
     analysis = analyze(source, backend=backend)
     registry = ModelRegistry()
     results: dict[str, Any] = {}
-    for model in registry.list_models():
+    installed = registry.list_models()
+    total = sum(
+        3 if model.get("architecture") == "drunet" else 1
+        for model in installed
+        if model["weights_verified"] and model["task"] in {"restore", "interpolate", "size"}
+    )
+    completed = 0
+    for model in installed:
         if not model["weights_verified"] or model["task"] not in {"restore", "interpolate", "size"}:
             continue
         for strength in (
             ("light", "medium", "strong") if model.get("architecture") == "drunet" else ("medium",)
         ):
+            if progress:
+                progress(
+                    f"Reference pipelines: {model['id']} ({strength})",
+                    65 + 25 * completed / max(1, total),
+                )
+            completed += 1
             mode = "fast" if model["task"] == "interpolate" else "standard"
             key = {"restore": "restore_model", "interpolate": "interp_model", "size": "size_model"}[
                 model["task"]

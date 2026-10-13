@@ -20,7 +20,18 @@ def main() -> None:
     if kind in {"verify", "download"}:
         registry = ModelRegistry()
         model = registry.manifest(value["model_id"])
-        path = registry.weights(model, download=kind == "download")
+
+        def weights_progress(phase: str, percent: float) -> None:
+            write_json(
+                Path(request["folder"]) / "progress.json", dict(phase=phase, percent=percent)
+            )
+
+        path = registry.weights(
+            model,
+            download=kind == "download",
+            progress=weights_progress,
+            force_verify=kind == "verify",
+        )
         result = {
             "weights_verified": True,
             "bytes": path.stat().st_size,
@@ -58,7 +69,13 @@ def main() -> None:
     else:
         from videoenhancer.bench.runner import run_bench
 
-        result = run_bench(True, None, Path(request["folder"]))
+        def calibration_progress(phase: str, percent: float) -> None:
+            snapshot = dict(phase=phase, percent=percent)
+            write_json(Path(request["folder"]) / "progress.json", snapshot)
+            with (Path(request["folder"]) / "progress.jsonl").open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(snapshot) + "\n")
+
+        result = run_bench(True, None, Path(request["folder"]), progress=calibration_progress)
     write_json(Path(request["folder"]) / "result.json", result)
 
 

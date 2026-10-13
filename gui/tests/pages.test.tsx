@@ -164,7 +164,7 @@ describe("Models", () => {
     const operate = vi.fn();
     render(<ModelsPage api={api} models={[model]} refresh={vi.fn()} operate={operate} operations={[{ id: "download", kind: "download", state: "running", phase: "12 MB of 40 MB", percent: 30, request: { model_id: model.id } }]} />);
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
-    expect(screen.getByText("Downloading 30%")).toBeTruthy();
+    expect(screen.getByText(/30%/)).toBeTruthy();
     expect(screen.getByRole("progressbar", { name: "Downloading Fixture model" }).getAttribute("value")).toBe("30");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(operate).toHaveBeenCalledWith("operations/download/cancel");
@@ -179,7 +179,7 @@ describe("Models", () => {
     render(
       <ModelsPage
         api={{ ...api, call } as Api}
-        models={[{ ...model, builtin: false }]}
+        models={[{ ...model, builtin: false, weights_verified: true }]}
         refresh={refresh}
         operate={vi.fn()}
         operations={[]}
@@ -189,10 +189,7 @@ describe("Models", () => {
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain("SHA-256"),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Actions for Fixture model" }),
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Uninstall" }));
     expect(call).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Remove model" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
@@ -201,7 +198,7 @@ describe("Models", () => {
 });
 it("shows finalization and moves queued videos with Alt arrows", () => {
   const action = vi.fn();
-  const pending = { ...job, id: "next", state: "queued", input: "C:\\next.mp4", segment: 0 };
+  const pending = { ...job, id: "next", position: 2, state: "queued", input: "C:\\next.mp4", segment: 0 };
   render(<HomePage queue={{ jobs: [job, pending, { ...pending, id: "third", input: "C:\\third.mp4" }], operations: [], completion: null }} reconnecting={false} add={vi.fn()} action={action} trial={vi.fn()} preview={vi.fn()} pauseAll={vi.fn()} navigate={vi.fn()} />);
   expect(screen.getByText("Finishing: checking the file")).toBeTruthy();
   const row = screen.getByRole("heading", { name: "next.mp4" }).closest("article")!;

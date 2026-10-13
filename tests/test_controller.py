@@ -32,6 +32,12 @@ class FakeClock:
             self.on_sleep()
 
 
+def fixture_assemble(manifest: dict, *_args: Any, **_kwargs: Any) -> Path:
+    output = Path(manifest["output"])
+    output.write_bytes(b"synthetic assembled output")
+    return output
+
+
 def _job(store: JobStore, tmp_path: Path) -> dict[str, Any]:
     source = tmp_path / "input.mp4"
     source.write_bytes(b"example")
@@ -293,6 +299,8 @@ def test_worker_retries_oom_with_one_frame_batch(tmp_path: Path, monkeypatch: An
     result = store.load("unit-job")
     assert result["state"] == "done"
     assert result["segments"][0]["state"] == "done"
+    assert result["output_identity"] == input_identity(Path(result["output"]))
+    assert result["output_bytes"] == Path(result["output"]).stat().st_size
     assert json.loads(schedule_path.read_text(encoding="utf-8"))["override_until"] is None
 
 

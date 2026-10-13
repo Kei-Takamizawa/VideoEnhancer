@@ -97,6 +97,7 @@ def process_segment(
     written = 0
     peak_rss = 0
     decode_seconds = 0.0
+    decoder_open_seconds = 0.0
     encode_seconds = 0.0
     handoff_check_seconds = 0.0
     reference_check_seconds = 0.0
@@ -159,9 +160,10 @@ def process_segment(
             stopped.set()
 
     def decode() -> None:
-        nonlocal decode_seconds, reference_check_seconds
+        nonlocal decode_seconds, reference_check_seconds, decoder_open_seconds
         decode_started = time.perf_counter()
         decoder = IndexedDecoder(manifest["input"]["path"], media, backend, manifest)
+        decoder_open_seconds += time.perf_counter() - decode_started
         try:
             indices = manifest["cfr_map"][source_start:source_end]
             iterator = decoder.frames(indices, check)
@@ -769,6 +771,7 @@ def process_segment(
         "fps_without_model_loading": (end - start) / render_seconds,
         "peak_torch_allocated_bytes": torch.cuda.max_memory_allocated() if backend == "cuda" else 0,
         "decode_seconds": decode_seconds,
+        "decoder_open_seconds": decoder_open_seconds,
         "stage_seconds": stage_seconds,
         "clip_joints": [
             clip.owned_start for clip in restore_windows if start < clip.owned_start < end

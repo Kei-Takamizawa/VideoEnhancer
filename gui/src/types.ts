@@ -8,6 +8,7 @@ export type Settings = {
   theme: string;
   zoom?: number;
   tray_explained?: boolean;
+  tour_completed?: boolean;
   delete_original_after?: boolean;
   log_folder: string;
   advanced: Record<string, number>;
@@ -36,6 +37,8 @@ export type Estimate = {
   finish?: string | null;
 };
 export type Job = {
+  position?: number;
+  part_seconds?: number;
   id: string;
   state: string;
   input: string;
@@ -73,6 +76,8 @@ export type Job = {
   cancel_cleanup?: boolean;
 };
 export type Operation = {
+  created_at?: string;
+  remaining_seconds?: number;
   id: string;
   kind: string;
   state: string;
@@ -158,6 +163,7 @@ export type Plan = {
   jobs: { job_id: string; completion: string | null }[];
 };
 export type Model = {
+  uninstall_reason?: string;
   publisher_url?: string;
   id: string;
   display_name: string;
@@ -206,6 +212,7 @@ export interface Desktop {
   copy(text: string): Promise<void>;
   filePath(file: File): string;
   zoom(percent: number): Promise<number>;
+  theme?(theme: string): Promise<void>;
   onZoom(callback: (percent: number) => void): () => void;
 }
 declare global {

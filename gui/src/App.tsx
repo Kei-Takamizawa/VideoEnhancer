@@ -1,3 +1,8 @@
+import { VideoFilesDialog } from "./VideoFilesDialog";
+import { Tour } from "./Tour";
+import { UndoToast } from "./UndoToast";
+import { HistoryRemoval } from "./HistoryRemoval";
+import { ActionButton } from "./ActionButton";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { client, events, filename } from "./api";
 import type { Api } from "./api";
@@ -30,8 +35,8 @@ export function ConnectionBanner({
 }) {
   return error ? (
     <div className="error connection" role="alert">
-      <h2>Can’t reach the engine</h2><p>{error}</p> <button onClick={retry}>Retry</button>
-      <button onClick={() => window.desktop.copy(error)}>Copy details</button><p>Your last known data remains visible.</p>
+      <h2>Can’t reach the engine</h2><p>{error}</p> <ActionButton onClick={retry}>Retry</ActionButton>
+      <ActionButton onClick={() => window.desktop.copy(error)}>Copy details</ActionButton><p>Your last known data remains visible.</p>
     </div>
   ) : null;
 }
@@ -57,7 +62,7 @@ export function ControlWarning({
       >
         Read troubleshooting instructions
       </a>{" "}
-      <button onClick={retry}>Retry</button>
+      <ActionButton onClick={retry}>Retry</ActionButton>
     </div>
   ) : null;
 }
@@ -65,6 +70,8 @@ export default function App() {
   useDialogFocus();
   const [page, setPage] = useState("Home");
   const [dropCount, setDropCount] = useState(0);
+  const [dropNotice, setDropNotice] = useState("");
+  useEffect(() => { if (!dropNotice) return; const timer = setTimeout(() => setDropNotice(""), 3000); return () => clearTimeout(timer); }, [dropNotice]);
   const [api, setApi] = useState<Api>();
   const [error, setError] = useState("");
   const [reconnecting, setReconnecting] = useState(false);
@@ -97,6 +104,9 @@ export default function App() {
   const [plan, setPlan] = useState<Plan>();
   const scenario = "expected";
   const [settings, setSettings] = useState<Settings>();
+  const [tour, setTour] = useState(false);
+  const tourChecked = useRef(false);
+  useEffect(() => { if (settings && !tourChecked.current) { tourChecked.current = true; if (settings.tour_completed === false) setTour(true); } }, [settings]);
   const seenPending = useRef(new Set<string>());
   const markSeen = useCallback(
     (ids: string[]) => {
@@ -150,11 +160,9 @@ export default function App() {
   const [trayExplanation, setTrayExplanation] = useState(false);
   useEffect(() => window.desktop.onTrayExplanation(() => setTrayExplanation(true)), []);
   const [historyUndo, setHistoryUndo] = useState<string[]>();
-  useEffect(() => {
-    if (!historyUndo) return;
-    const timer = setTimeout(() => setHistoryUndo(undefined), 10000);
-    return () => clearTimeout(timer);
-  }, [historyUndo]);
+  const [historyRemoval, setHistoryRemoval] = useState<Job[]>();
+  const [historyFiles, setHistoryFiles] = useState<Job[]>();
+  const [filesMoved, setFilesMoved] = useState(false);
   const [log, setLog] = useState<string>();
   const [resultPreview, setResultPreview] = useState<string>();
   const resultOperation = queue.operations.find(
@@ -333,13 +341,15 @@ export default function App() {
       else if (name === "play") await window.desktop.play(job.output);
       else if (name === "log")
           setLog(`${job.log}\n\n${(await api!.call<{ text: string }>(`queue/${job.id}/log`)).text}`);
-      else if (name === "remove") {
+      else if (name === "remove" || name === "clear-history") {
         const ids = (data as { ids?: string[] } | undefined)?.ids || [job.id];
-        await api!.call("history/remove", "POST", { ids });
-        setQueue(old => ({ ...old, jobs: old.jobs.filter(record => !ids.includes(record.id)) }));
-        setHistoryUndo(ids);
+        const result = await api!.call<{ ids: string[]; files: { moved: number; not_found: number; kept: number }; kept: { reason: string }[] }>(name === "remove" ? "history/remove" : "history/clear", "POST", { ids, ...(data as object || {}) });
+        setQueue(old => ({ ...old, jobs: old.jobs.filter(record => !result.ids.includes(record.id)) }));
+        setHistoryUndo(result.ids.length ? result.ids : undefined);
+        setFilesMoved(result.files.moved > 0);
+        if (result.files.moved || result.files.not_found || result.files.kept) setActionError(`${result.files.moved} moved, ${result.files.not_found} not found, ${result.files.kept} kept. ${result.kept.map(item => item.reason).join(" ")}`);
+        return;
       }
-      else if (name === "clear-history") { await api!.call("history/clear", "POST", {}); setQueue(old => ({ ...old, jobs: old.jobs.filter(record => !["done", "failed", "cancelled"].includes(record.state)) })); }
       else await api!.call(`queue/${job.id}/${name}`, "POST", data || {});
       setActionError("");
     } catch (e) {
@@ -348,6 +358,8 @@ export default function App() {
   };
   const action = (job: Job, name: string, data?: unknown) => {
     if (name === "cancel" || name === "remove-unstarted") setConfirm({ job, name });
+    else if (name === "delete-files") { const ids = (data as { ids?: string[] } | undefined)?.ids || [job.id]; setHistoryFiles(queue.jobs.filter(record => ids.includes(record.id))); }
+    else if (name === "remove") { const ids = (data as { ids?: string[] } | undefined)?.ids || [job.id]; setHistoryRemoval(queue.jobs.filter(record => ids.includes(record.id))); }
     else void perform(job, name, data);
   };
   const add = async (paths?: string[]) => {
@@ -377,6 +389,10 @@ export default function App() {
         setDropCount(0);
         if (e.dataTransfer.files.length) {
           e.preventDefault();
+          if (document.querySelector('[role="dialog"][aria-modal="true"]')) {
+            setDropNotice("Close the dialog first to add videos.");
+            return;
+          }
           void add(
             Array.from(e.dataTransfer.files).map((file) =>
               window.desktop.filePath(file),
@@ -385,19 +401,17 @@ export default function App() {
         }
       }}
     >
+      {dropNotice && <div className="zoom-toast" role="status">{dropNotice}</div>}
       {!!dropCount && (
         <div className="drop-overlay">Drop to add {dropCount} {dropCount === 1 ? "video" : "videos"}</div>
       )}
       <div className="title-bar"><span className="title-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 6 6 6-6 6m7-12 6 6-6 6" fill="none" stroke="currentColor" strokeWidth="3" /></svg></span>VideoEnhancer</div>
-      {historyUndo && <div className="zoom-toast" role="status">
-        Removed from history
-        <button onClick={async () => {
-          try {
-            await api!.call("history/undo", "POST", { ids: historyUndo });
-            setHistoryUndo(undefined);
-          } catch (error) { setActionError((error as Error).message); }
-        }}>Undo</button>
-      </div>}
+      {tour && <Tour navigate={setPage} close={() => { setTour(false); void api!.call("settings", "PUT", { tour_completed: true }).then(() => setSettings(old => old ? { ...old, tour_completed: true } : old)).catch(error => setActionError(error.message)); }} />}
+      {historyUndo && <UndoToast key={historyUndo.join(",")} moved={filesMoved} expire={() => setHistoryUndo(undefined)}
+        pause={paused => { void api!.call("history/pause-undo", "POST", { ids: historyUndo, paused }).catch(error => setActionError(error.message)); }}
+        undo={() => { void api!.call("history/undo", "POST", { ids: historyUndo }).then(() => setHistoryUndo(undefined)).catch(error => setActionError(error.message)); }} />}
+      {historyFiles && api && <VideoFilesDialog jobs={historyFiles} api={api} close={() => setHistoryFiles(undefined)} />}
+      {historyRemoval && <HistoryRemoval jobs={historyRemoval} action={(job, name, data) => { void perform(job, name, data); }} close={() => setHistoryRemoval(undefined)} />}
       {zoomToast !== undefined && <div className="zoom-toast" role="status">
         <strong>{zoomToast}%</strong><span>Ctrl+0 resets to 100%</span>
       </div>}
@@ -409,7 +423,7 @@ export default function App() {
         </div>
         <nav aria-label="Main navigation">
           {["Home", "History", "Schedule", "Models"].map((name) => (
-            <button
+            <ActionButton
               key={name}
               aria-current={page === name ? "page" : undefined}
               aria-label={name}
@@ -424,10 +438,10 @@ export default function App() {
                     j.state === "failed" &&
                     !settings?.seen_failures?.includes(j.id),
                 ) && <span className="warning-dot" />}
-            </button>
+            </ActionButton>
           ))}
         </nav>
-        <button
+        <ActionButton
           className="settings-nav"
           aria-label="Settings"
           aria-current={page === "Settings" ? "page" : undefined}
@@ -435,7 +449,7 @@ export default function App() {
         >
           <Icon name="Settings" />
           <span className="dock-tooltip" role="tooltip">Settings</span>
-        </button>
+        </ActionButton>
       </aside>
       <main>
         {reconnecting && <div className="connection card" role="status">Reconnecting… <span>Last update {new Date(lastUpdate).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })}</span></div>}
@@ -443,19 +457,19 @@ export default function App() {
         {health?.last_error && (
           <div className="error" role="alert">
             Problem · {problemWhen(health.last_error.time)} · {health.last_error.message}
-            <button
+            <ActionButton
               onClick={() =>
                 window.desktop.copy(JSON.stringify(health.last_error, null, 2))
               }
             >
               Copy details
-            </button>
+            </ActionButton>
           </div>
         )}
         {actionError && (
           <div role="alert" className="error">
             {actionError}
-            <button onClick={() => setActionError("")}>Dismiss</button>
+            <ActionButton onClick={() => setActionError("")}>Dismiss</ActionButton>
           </div>
         )}
         {page === "Home" && (
@@ -516,7 +530,7 @@ export default function App() {
           />
         )}
         {page === "Settings" && api && settings && (
-          <SettingsPage
+          <SettingsPage tour={() => setTour(true)} appearance={theme => setSettings(old => old ? { ...old, theme } : old)}
             api={api}
             value={settings}
             health={health}
@@ -577,20 +591,20 @@ export default function App() {
         />
       )}
       {resultPreview && api && (
-        <div className="modal-shade">
+        <div className="modal-shade compare-full-window">
           <div
-            className="dialog wide"
+            className="dialog trial-dialog"
             role="dialog"
             aria-modal="true"
             aria-label="Preview result"
           >
             <h2>Preview result</h2>
             <p>This uses the completed result and leaves processing running.</p>
-            {resultOperation && <OperationStatus operation={resultOperation} />}
+            {resultOperation && resultOperation.state !== "done" && <OperationStatus operation={resultOperation} />}
             {resultOperation?.state === "done" && (
               <Compare api={api} operation={resultOperation} />
             )}
-            <button
+            <ActionButton
               onClick={async () => {
                 try {
                   await api.call(
@@ -605,7 +619,7 @@ export default function App() {
               }}
             >
               Close
-            </button>
+            </ActionButton>
           </div>
         </div>
       )}
@@ -613,9 +627,9 @@ export default function App() {
         <h2>VideoEnhancer keeps working in the tray</h2>
         <p>Closing the window doesn't stop it. It stays in the tray next to the clock and works during your hours. To stop it completely, choose Quit there.</p>
         <p>Right-click the icon in the tray to open VideoEnhancer, pause processing, or quit.</p>
-        <div className="dialog-actions"><button className="primary" onClick={async () => {
+        <div className="dialog-actions"><ActionButton className="primary" onClick={async () => {
           try { await window.desktop.hide(); setTrayExplanation(false); } catch (error) { setActionError((error as Error).message); }
-        }}>Got it</button></div>
+        }}>Got it</ActionButton></div>
       </div></div>}
       {confirm && (
         <div className="modal-shade">
@@ -632,8 +646,8 @@ export default function App() {
                   : "The work so far will be lost. This video cannot be resumed. The original stays as it is."}
             </p>
             <div className="dialog-actions">
-              <button onClick={() => setConfirm(undefined)}>{confirm.name === "remove-unstarted" ? "Keep it" : "Keep working"}</button>
-              <button
+              <ActionButton onClick={() => setConfirm(undefined)}>{confirm.name === "remove-unstarted" ? "Keep it" : "Keep working"}</ActionButton>
+              <ActionButton
                 className="danger"
                 onClick={() => {
                   void perform(confirm.job, confirm.name === "remove-unstarted" ? "cancel" : confirm.name);
@@ -641,7 +655,7 @@ export default function App() {
                 }}
               >
                 {confirm.name === "remove-unstarted" ? "Remove from queue" : "Cancel video"}
-              </button>
+              </ActionButton>
             </div>
           </div>
         </div>
@@ -652,8 +666,8 @@ export default function App() {
             <h2>Job log</h2>
             <pre>{log}</pre>
             <div className="dialog-actions">
-              <button onClick={() => window.desktop.copy(log)}>Copy log</button>
-              <button onClick={() => setLog(undefined)}>Close</button>
+              <ActionButton onClick={() => window.desktop.copy(log)}>Copy log</ActionButton>
+              <ActionButton onClick={() => setLog(undefined)}>Close</ActionButton>
             </div>
           </div>
         </div>

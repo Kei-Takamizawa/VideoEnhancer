@@ -122,3 +122,46 @@ Recycle Bin before comparing again.
 
 Persistent cancellation cleanup failures reappear in History with their reason.
 Clear history reports partial failure, preserving records it could not remove.
+
+## P1e owner-check fixes
+
+Close an open dialog before dropping another video. Add reports problems on the
+individual file row: remove an HDR file without discarding other SDR choices.
+A correctly tagged BT.2020 PQ/HLG video remains unsupported for processing.
+"Checking..." can remain on a large file while packet metadata is read; closing
+Add cancels the client's request. A low-space message names required and free GB
+on the output volume. Downscaling is included in the byte estimate, which remains
+an estimate rather than a guaranteed final codec size.
+
+For an old finished output without recorded identity, deletion requires both its
+job-time modification window and matching planned duration. A changed or
+unverifiable output is kept. No refusal is bypassed by permanent deletion.
+When removing History with file options, retained-file reasons keep those records
+visible. Undo restores History records; files remain in the Recycle Bin.
+
+If History cannot play a codec, use Open in your player. Loading a long file into
+the popup currently requires an authenticated authenticated blob; close the popup
+to release it. The full file is retrieved before playback; incremental
+large-file streaming is not claimed by this implementation.
+
+A paused job keeps finished parts and restarts the current part. Its card shows
+the estimated work repeated. Schedule hours can be edited with the switch off;
+the dimmed hours remain saved until you turn it on.
+
+A model's disabled Uninstall action explains whether it is the default or used
+by unfinished work. Full details and supported strength controls are in its
+popup. An install failure retains a short card reason and its diagnostic details.
+
+Long-video forecasts include analysis and measured startup costs, locally learned
+finalization correction with a safety margin, operating-hours gaps and recent
+same-mode timing correction. Initial forecasts are kept in new manifests; old
+initial forecasts can only be reconstructed and must be labelled as such.
+Corrupted local timing observations are ignored without changing video output.
+
+## Disk-space and codec warnings
+
+Changing HEVC/AV1 or the output folder refreshes the size and space checks without
+requesting another processing-time estimate. Output size is an estimate, not a
+guaranteed byte count. The preflight allows room for retained segments, their
+joined copy and the final temporary file, including a 10% reserve. If output and
+engine home are on different volumes, each volume is checked separately.

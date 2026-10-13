@@ -356,3 +356,8 @@ There is no onboarding today.
 - Exact reproduction steps.
 
 Never report a test as passed if it did not run.
+
+## Owner follow-up
+
+Continue P1e. Do not overuse greater-than or chevron icons. Give buttons icons appropriate to their actions. Keep the Settings gear.
+The Home Add videos button must show its plus only as an icon; remove the literal plus from the label.

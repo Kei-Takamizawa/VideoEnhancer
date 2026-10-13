@@ -16,7 +16,7 @@ import time
 import types
 import urllib.request
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -43,7 +43,13 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _verified_download(path: Path, url: str, expected: str) -> Path:
+def _verified_download(
+    path: Path,
+    url: str,
+    expected: str,
+    progress: Callable[[str, float], None] | None = None,
+    expected_bytes: int = 0,
+) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_file() and _sha256(path) == expected:
         return path
@@ -51,8 +57,15 @@ def _verified_download(path: Path, url: str, expected: str) -> Path:
     temporary = path.with_suffix(path.suffix + ".download")
     try:
         with urllib.request.urlopen(url, timeout=60) as response, temporary.open("wb") as sink:
+            total = expected_bytes or int(response.headers.get("Content-Length", 0))
+            received = 0
             while chunk := response.read(1024 * 1024):
                 sink.write(chunk)
+                received += len(chunk)
+                if progress and total:
+                    progress("Downloading weights", min(90, received / total * 90))
+        if progress:
+            progress("Verifying SHA-256", 90)
         observed = _sha256(temporary)
         if observed != expected:
             raise ValueError(f"SHA-256 mismatch for {path.name}: {observed}")

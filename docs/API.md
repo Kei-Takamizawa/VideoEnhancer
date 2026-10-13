@@ -330,3 +330,50 @@ Shell dialogs are suppressed behind the guard; unconfirmed deletion restores
 the original name or retains its full guard path. Unresolved `deletion_notices`
 appear on the matching History row or in health for Home. Automatic deletion
 runs off the queue worker and merges only its own fields into an existing job.
+
+## P1e additions
+
+`POST estimate` accepts the existing file list and settings. A failed file has
+`error`, empty `presets` and empty `warnings`; other rows still return estimates.
+The Add client does not impose a fixed timeout on this request. HDR10/PQ and HLG
+with BT.2020 matrices return per-file HDR warnings instead of SDR matrix errors.
+
+`POST estimate/space` accepts `files` and `settings`, including `output_folder`.
+It returns `{files: {path: {warnings, output}}}` using chosen geometry, fps and
+codec, without recomputing processing times or a schedule plan.
+
+`POST history/remove` and `POST history/clear` accept optional `output` and
+`original` booleans (both default false). Requested files pass the existing
+identity and Recycle Bin guards before record hiding. A kept file keeps its
+record. Responses contain `ids`, `undo_seconds`, `files` counts (`moved`,
+`not_found`, `kept`) and retained-record reasons. Clear now shares soft hiding
+and Undo. `POST history/pause-undo` accepts `ids` and a `paused` boolean to pause
+or resume the remaining undo window. `POST history/undo` restores records only.
+
+`GET queue/{id}/video` serves the recorded output, or the original when no output
+exists, for terminal History jobs. The normal token, Host and Origin checks
+apply; there are no bearer tokens in media URLs. The renderer fetches an
+authenticated blob for the native player and releases it when the popup closes.
+
+`GET models` includes `uninstall_reason` for defaults and unfinished-job use.
+Weight hashes are cached by size and modification time; explicit verification
+bypasses that cache. Operations expose `remaining_seconds`, a stage name and a
+determinate percentage, including calibration and weight transfer/verification.
+
+Settings add the validated boolean `tour_completed`. New homes choose AV1 after
+successful hardware qualification; existing stored codec choices are preserved.
+Desktop IPC adds a validated `theme` choice for immediate native appearance.
+
+Completed manifests preserve `output_identity` and `output_bytes`. Legacy output
+identity fallback requires a modification time in [started_at, finished_at +
+60 seconds] and planned duration within one output frame. Large timestamp arrays
+are stored in the fixed `analysis.json` sidecar; normal JobStore loads hydrate
+them. New jobs record `initial_estimate_seconds` and `initial_finish_at`.
+
+Disk preflight accounts for segments and the joined video in the engine home,
+and the final temporary in the output folder, with the existing 10% reserve.
+On one volume that is 3.3x estimated output bytes; separate volumes require
+2.2x at home and 1.1x at output. The estimate remains a geometry/fps/codec size
+heuristic. `estimate/space` also refreshes codec geometry warnings without timing
+the pipeline. Live inference FPS applies only to the active part; pending parts
+retain their corrected end-to-end prediction.

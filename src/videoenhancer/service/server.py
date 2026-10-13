@@ -179,6 +179,23 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 3
                 and parts[0] == "queue"
+                and parts[2] == "video"
+                and self.command == "GET"
+            ):
+                job = self.server.engine.store.load(parts[1])
+                if job["state"] not in {"done", "failed", "cancelled"}:
+                    raise ValueError("Only History videos can be played here.")
+                path = Path(job["output"])
+                if not path.is_file():
+                    path = Path(job["input"]["path"])
+                self._headers(200, "video/mp4", path.stat().st_size)
+                with path.open("rb") as stream:
+                    while chunk := stream.read(1024 * 1024):
+                        self.wfile.write(chunk)
+                return
+            if (
+                len(parts) == 3
+                and parts[0] == "queue"
                 and parts[2] == "thumbnail"
                 and self.command == "GET"
             ):

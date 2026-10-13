@@ -1,8 +1,10 @@
+import { ActionButton } from "./ActionButton";
+import { Check, Download, Layers } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createFile } from "mp4box";
 import type { Sample } from "mp4box";
 import type { Api } from "./api";
-import { filename } from "./api";
+import { duration, filename } from "./api";
 import type { Media, Model, Operation, Settings } from "./types";
 import { OperationStatus } from "./Pages";
 
@@ -159,6 +161,11 @@ export function Compare({
   operation: Operation;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const viewport = useRef<HTMLDivElement>(null);
+  const [full, setFull] = useState(false);
+  const [solo, setSolo] = useState<number | null>(null);
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const gesture = useRef<{ distance: number; x: number; y: number } | null>(null);
   const readers = useRef<FrameReader[]>([]);
   const clock = useRef({ frame: 0, playing: false, anchor: 0, anchorFrame: 0 });
   const [count, setCount] = useState(0);
@@ -189,8 +196,24 @@ export function Compare({
         ...operation.result.items.map((item) => item.name || item.id),
       ]
     : ["Original", "Enhanced"];
-  const drawing = useRef({ split, side, left, right, loop, labels, resultOnly });
-  drawing.current = { split, side, left, right, loop, labels, resultOnly };
+  const drawing = useRef({ split, side, left, right, loop, labels, resultOnly, solo });
+  drawing.current = { split, side, left, right, loop, labels, resultOnly, solo };
+  const interaction = useRef({ zoom, side, solo }); interaction.current = { zoom, side, solo };
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault(); event.stopPropagation();
+      if (event.ctrlKey) {
+        const box = element.getBoundingClientRect(), x = event.clientX - box.left - box.width / 2, y = event.clientY - box.top - box.height / 2;
+        const old = interaction.current.zoom, next = Math.max(100, Math.min(800, old * Math.exp(-event.deltaY * .01))), ratio = next / old;
+        setPan(p => ({ x: x - (x - p.x) * ratio, y: y - (y - p.y) * ratio })); interaction.current.zoom = next; setZoom(next);
+      } else if (interaction.current.zoom > 100) setPan(p => ({ x: p.x - event.deltaX, y: p.y - event.deltaY }));
+      else if (!interaction.current.side) setSplit(old => Math.max(0, Math.min(100, old + event.deltaX / element.clientWidth * 100)));
+    };
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => element.removeEventListener("wheel", wheel);
+  }, []);
   const pathKey = paths.join("|");
   useEffect(() => {
     let alive = true;
@@ -252,17 +275,24 @@ export function Compare({
             const width = a.displayWidth,
               height = a.displayHeight;
             const mode = drawing.current;
-            const columns = mode.side && !mode.resultOnly
-              ? width > height
-                ? Math.min(2, pair.length)
-                : pair.length
-              : 1;
+            const shown = mode.solo === null ? pair : [pair[mode.solo]!];
+            const box = viewport.current?.getBoundingClientRect();
+            let columns = 1, best = 0;
+            if (mode.side && !mode.resultOnly && mode.solo === null) {
+              for (let candidate = 1; candidate <= shown.length; candidate++) {
+                const rows = Math.ceil(shown.length / candidate);
+                const scale = Math.min((box?.width || 1200) / (candidate * width), (box?.height || 600) / (rows * height));
+                if (scale > best) { best = scale; columns = candidate; }
+              }
+            }
             element.width = width * columns;
-            element.height =
-              height * (mode.side && !mode.resultOnly ? Math.ceil(pair.length / columns) : 1);
+            element.height = height * (mode.side && !mode.resultOnly ? Math.ceil(shown.length / columns) : 1);
+            element.dataset.columns = String(columns);
+            element.dataset.rows = String(element.height / height);
             const ctx = element.getContext("2d")!;
             ctx.drawImage(a, 0, 0, width, height);
-            if (mode.resultOnly) ctx.drawImage(b, 0, 0, width, height);
+            if (mode.solo !== null) ctx.drawImage(pair[mode.solo]!, 0, 0, width, height);
+            else if (mode.resultOnly) ctx.drawImage(b, 0, 0, width, height);
             else if (mode.side)
               pair.forEach((picture, i) =>
                 ctx.drawImage(
@@ -281,7 +311,7 @@ export function Compare({
               ctx.drawImage(b, 0, 0, width, height);
               ctx.restore();
             }
-            if (mode.side && !mode.resultOnly) {
+            if (mode.side && !mode.resultOnly && mode.solo === null) {
               ctx.font = "24px Segoe UI";
               pair.forEach((_, i) => {
                 const x = (i % columns) * width,
@@ -334,9 +364,11 @@ export function Compare({
   };
   return (
     <div
-      className="compare"
+      className={`compare ${full ? "is-full-window" : ""}`}
       tabIndex={0}
       onKeyDown={(e) => {
+        if (e.key.toLowerCase() === "f" && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement)) { e.preventDefault(); setFull(old => !old); }
+        if (e.key === "Escape" && (full || solo !== null)) { e.preventDefault(); e.stopPropagation(); setFull(false); setSolo(null); }
         if (e.code === "Space" && !(e.target instanceof HTMLInputElement)) {
           e.preventDefault();
           e.currentTarget
@@ -361,11 +393,25 @@ export function Compare({
         ))}
       </div>
       <div
-        className="canvas-viewport"
+        className="canvas-viewport" ref={viewport}
+        onDoubleClick={event => { const element = canvas.current!; const box = element.getBoundingClientRect(); const columns = Number(element.dataset.columns || 1), rows = Number(element.dataset.rows || 1); const index = Math.floor((event.clientY - box.top) / box.height * rows) * columns + Math.floor((event.clientX - box.left) / box.width * columns); setSolo(old => old === null ? Math.max(0, Math.min(labels.length - 1, index)) : null); setZoom(100); setPan({ x: 0, y: 0 }); }}
+        onPointerUp={event => { pointers.current.delete(event.pointerId); gesture.current = null; }}
+        onPointerCancel={event => { pointers.current.delete(event.pointerId); gesture.current = null; }}
         onPointerDown={(e) => {
-          if (zoom > 100) e.currentTarget.setPointerCapture(e.pointerId);
+          pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
+          if (e.pointerType === "touch") {
+            pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            const points = [...pointers.current.values()];
+            if (points.length === 2) {
+              const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y), x = (points[0].x + points[1].x) / 2, y = (points[0].y + points[1].y) / 2;
+              const previous = gesture.current;
+              if (previous) { setZoom(old => Math.max(100, Math.min(800, old * distance / Math.max(1, previous.distance)))); setPan(p => ({ x: p.x + x - previous.x, y: p.y + y - previous.y })); }
+              gesture.current = { distance, x, y }; return;
+            }
+          }
           if (zoom > 100 && e.buttons === 1)
             setPan((p) => ({ x: p.x + e.movementX, y: p.y + e.movementY }));
         }}
@@ -378,7 +424,7 @@ export function Compare({
             imageRendering: zoom > 100 ? "pixelated" : "auto",
           }}
         />
-        {!side && !resultOnly && <button className="swipe-handle" role="slider" aria-label="Swipe handle" aria-valuemin={0} aria-valuemax={100} aria-valuenow={split} style={{ left: `${split}%` }} onPointerDown={event => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (event.buttons !== 1) return; event.stopPropagation(); const box = event.currentTarget.parentElement!.getBoundingClientRect(); setSplit(Math.max(0, Math.min(100, (event.clientX - box.left) / box.width * 100))); }} onKeyDown={event => { if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); setSplit(old => Math.max(0, Math.min(100, old + (event.key === "ArrowRight" ? 1 : -1)))); } }}>↔</button>}
+        {!side && !resultOnly && <ActionButton className="swipe-handle" role="slider" aria-label="Swipe handle" aria-valuemin={0} aria-valuemax={100} aria-valuenow={split} style={{ left: `${split}%` }} onPointerDown={event => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (event.buttons !== 1) return; event.stopPropagation(); const box = event.currentTarget.parentElement!.getBoundingClientRect(); setSplit(Math.max(0, Math.min(100, (event.clientX - box.left) / box.width * 100))); }} onKeyDown={event => { if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); setSplit(old => Math.max(0, Math.min(100, old + (event.key === "ArrowRight" ? 1 : -1)))); } }}>↔</ActionButton>}
       </div>
       {!side && !resultOnly && (
         <label>
@@ -403,7 +449,9 @@ export function Compare({
         />
       </label>
       <div className="toolbar">
-        <button
+        <ActionButton onClick={() => setFull(old => !old)}>Full window</ActionButton>
+        {solo !== null && <ActionButton onClick={() => setSolo(null)}>All panes</ActionButton>}
+        <ActionButton
           className="preview-play"
           disabled={!count}
           onClick={() => {
@@ -418,14 +466,14 @@ export function Compare({
           }}
         >
           {playing ? "Pause preview" : "Play preview"}
-        </button>
-        <button disabled={!count} onClick={() => seek(frame - 1)}>
+        </ActionButton>
+        <ActionButton disabled={!count} onClick={() => seek(frame - 1)}>
           Previous frame
-        </button>
-        <button disabled={!count} onClick={() => seek(frame + 1)}>
+        </ActionButton>
+        <ActionButton disabled={!count} onClick={() => seek(frame + 1)}>
           Next frame
-        </button>
-        <span>
+        </ActionButton>
+        <span className="preview-counter">
           Frame {frame + 1}/{count} ·{" "}
           {((operation.result?.start_seconds || 0) + frame / fps).toFixed(1)} /{" "}
           {((operation.result?.start_seconds || 0) + count / fps).toFixed(1)} s
@@ -435,6 +483,8 @@ export function Compare({
             type="checkbox"
             checked={side}
             onChange={(e) => {
+              interaction.current.side = e.target.checked;
+              interaction.current.zoom = e.target.checked ? 100 : 200;
               setSide(e.target.checked);
               setZoom(e.target.checked ? 100 : 200);
               setPan({ x: 0, y: 0 });
@@ -475,7 +525,11 @@ export function Compare({
             ))}
           </>
         )}
-        <div role="group" aria-label="Zoom" className="zoom-segments">{[100,200,300,400].map(level => <button key={level} aria-pressed={zoom === level} onClick={() => { setZoom(level); setPan({ x: 0, y: 0 }); }}>{level}%</button>)}</div>
+        <div role="group" aria-label="Zoom" className="zoom-segments">
+          <ActionButton aria-label="Zoom out" title="Zoom out" disabled={zoom <= 100} onClick={() => { const next = Math.max(100, zoom / 1.25); interaction.current.zoom = next; setZoom(next); }} />
+          <ActionButton aria-label="Reset zoom" title="Reset zoom to 100%" className="zoom-reset" onClick={() => { interaction.current.zoom = 100; setZoom(100); setPan({ x: 0, y: 0 }); }}>{Math.round(zoom)}%</ActionButton>
+          <ActionButton aria-label="Zoom in" title="Zoom in" disabled={zoom >= 800} onClick={() => { const next = Math.min(800, zoom * 1.25); interaction.current.zoom = next; setZoom(next); }} />
+        </div>
       </div>
       <p className="muted">
         Arrow keys step one frame. Drag the zoomed picture to pan.
@@ -614,15 +668,16 @@ export function TrialDialog({
       >
         <div className="page-heading">
           <h2 id="trial-title">Compare models — {filename(value.file)}</h2>
-          <button
+          <ActionButton
             onClick={async () => {
               close();
             }}
           >
             Back
-          </button>
+          </ActionButton>
         </div>
-        {value.settings.preset === "fast" && <div className="card fast-panel"><h3>Fast does not clean up.</h3><button disabled={started || !switchStandard} onClick={async () => { try { await switchStandard?.(); setCategory("cleanup"); setSelected(["basicvsrpp-ntire21-decompress"]); } catch (error) { setError((error as Error).message); } }}>Switch to Standard</button><button onClick={() => { setCategory("motion"); setSelected([value.settings.interp_model || "rife-4.25"]); }}>Compare smoother motion instead</button></div>}
+        {value.settings.preset === "fast" && <div className="card fast-panel"><h3>Fast does not clean up.</h3><ActionButton disabled={started || !switchStandard} onClick={async () => { try { await switchStandard?.(); setCategory("cleanup"); setSelected(["basicvsrpp-ntire21-decompress"]); } catch (error) { setError((error as Error).message); } }}>Switch to Standard</ActionButton><ActionButton onClick={() => { setCategory("motion"); setSelected([value.settings.interp_model || "rife-4.25"]); }}>Compare smoother motion instead</ActionButton></div>}
+        <details className="compare-controls" open={!operation?.result?.original}><summary>Models and preview range</summary>
         <div className="thumbnails range-track" onKeyDown={event => { if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); setStart(old => Math.max(0, Math.min(total-length, old + (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 5 : 1)))); } }} tabIndex={0} aria-label="Preview range">
           <span className="range-box" aria-hidden="true" style={{ left: `${total ? start / total * 100 : 0}%`, width: `${total ? Math.min(length, total) / total * 100 : 100}%` }} />
           {thumbnails.map((src, i) => (
@@ -686,8 +741,9 @@ export function TrialDialog({
           </label>
           <span className="badge">Original</span>
           {candidates.map((m) => (
-            <button
+            <ActionButton
               key={m.id}
+              icon={m.weights_verified ? selected.includes(m.id) ? Check : Layers : Download}
               title={m.catalog?.title || m.display_name}
               aria-pressed={selected.includes(m.id)}
               onClick={() =>
@@ -700,14 +756,9 @@ export function TrialDialog({
                   : setConsent(m)
               }
             >
-              {m.weights_verified
-                ? selected.includes(m.id)
-                  ? "✓ "
-                  : ""
-                : "+ "}
               {m.catalog?.title || m.display_name}
               {m.weights_verified ? "" : " · installs model weights"}
-            </button>
+            </ActionButton>
           ))}
         </div>
         <div className="toolbar">
@@ -724,7 +775,7 @@ export function TrialDialog({
               ))}
             </select>
           </label>
-          {operation?.state === "failed" && <button
+          {operation?.state === "failed" && <ActionButton
             className="primary"
             disabled={
               !total ||
@@ -750,12 +801,13 @@ export function TrialDialog({
             }}
           >
             Try again
-          </button>}
+          </ActionButton>}
         </div>
         <p className="muted">
           A busy engine starts this after its current step, including outside
           your hours.
         </p>
+        </details>
         {operation && operation.state !== "done" && (
           <OperationStatus
             operation={operation}
@@ -769,7 +821,7 @@ export function TrialDialog({
         {operation?.result?.original && (
           <Compare api={api} operation={operation} />
         )}
-        <div className="model-grid">
+        <details className="compare-choice"><summary>Use a model</summary><div className="model-grid">
           {selected.map((id) => {
             const model = models.find((m) => m.id === id);
             const item = operation?.result?.items?.find((m) => m.id === id);
@@ -780,10 +832,10 @@ export function TrialDialog({
                 <p role="status">{item ? "Ready" : operation?.state === "waiting" ? operation.phase : operation?.state === "failed" ? "Problem" : operation?.state === "running" ? `Making preview ${Math.round(operation.percent || 0)}%` : "Waiting"}</p>
                 <p>
                   {item?.projected_whole_file_seconds === null ? `Speed unknown for this video · ${item.fps.toFixed(2)} fps` : item
-                    ? `About ${Math.floor(item.projected_whole_file_seconds / 3600)} h ${Math.round((item.projected_whole_file_seconds % 3600) / 60)} m for this video · ${item.fps.toFixed(2)} fps`
+                    ? `About ${duration(item.projected_whole_file_seconds)} for this video · ${item.fps.toFixed(2)} fps`
                     : "Measuring speed…"}
                 </p>
-                <button
+                <ActionButton
                   disabled={started || !useModel || !item || chosen === id}
                   title={
                     started
@@ -800,8 +852,8 @@ export function TrialDialog({
                   }}
                 >
                   {chosen === id ? "Chosen" : "Use this"}
-                </button>
-                <button
+                </ActionButton>
+                <ActionButton
                   onClick={async () => {
                     try {
                       await api.call("settings", "PUT", { [key]: id });
@@ -811,11 +863,11 @@ export function TrialDialog({
                   }}
                 >
                   Make it my default
-                </button>
+                </ActionButton>
               </article>
             );
           })}
-        </div>
+        </div></details>
         {consent && (
           <div className="modal-shade">
             <div className="dialog" role="dialog" aria-modal="true">
@@ -824,8 +876,8 @@ export function TrialDialog({
               <p className="break">Source: {consent.weights.url}</p>
               {consent.publisher_url && <a href={consent.publisher_url} target="_blank" rel="noreferrer">Model publisher’s page</a>}
               <label className="check"><input type="checkbox" checked={accepted} onChange={event => setAccepted(event.target.checked)} />I accept this licence</label>
-              <button onClick={() => setConsent(undefined)}>Cancel</button>
-              <button
+              <ActionButton onClick={() => setConsent(undefined)}>Cancel</ActionButton>
+              <ActionButton
                 disabled={!accepted}
                 onClick={async () => {
                   try {
@@ -841,7 +893,7 @@ export function TrialDialog({
                 }}
               >
                 Accept licence and download
-              </button>
+              </ActionButton>
             </div>
           </div>
         )}

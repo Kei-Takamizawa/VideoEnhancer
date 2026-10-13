@@ -161,6 +161,12 @@ def test_add_job_reserves_output_of_unfinished_job(tmp_path: Path, monkeypatch: 
         }
 
     monkeypatch.setattr(media_analyze, "analyze", fake_analyze)
+    monkeypatch.setattr(
+        "videoenhancer.jobs.store.probe",
+        lambda *_args, **_kwargs: type(
+            "Probe", (), {"to_dict": lambda self: fake_analyze(None, "cpu")["media"]}
+        )(),
+    )
     options = {"preset": "passthrough", "short_side": "keep", "fps": "off", "backend": "cpu"}
     first = add_job(source, settings=options, output=output, home=tmp_path / "home")
     with pytest.raises(FileExistsError, match="reserved by unfinished job"):
@@ -170,7 +176,7 @@ def test_add_job_reserves_output_of_unfinished_job(tmp_path: Path, monkeypatch: 
             output=output,
             home=tmp_path / "home",
         )
-    assert analyses == ["cpu"]
+    assert analyses == ["cpu", "cpu"]
     assert len(JobStore(tmp_path / "home").list_jobs()) == 1
     assert JobStore(tmp_path / "home").load(first["id"])["output"] == str(output)
 

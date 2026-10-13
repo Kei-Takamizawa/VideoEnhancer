@@ -85,7 +85,7 @@ test("packaged design board inventory with isolated synthetic API data", async (
         else await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
         if (board.component === "AddVideos") {
           if (board.variant === "warnings") warnings = ["Output too small for cleanup", "Output too small for AV1", "Insufficient space", "HDR is not supported", "Windows Smart App Control is blocking"];
-          await click("+ Add videos");
+          await click("Add videos");
           if (["options", "optionsNoAv1"].includes(board.variant)) await page.getByText("More options", { exact: true }).click();
           if (["busy", "partial"].includes(board.variant)) { delayed = board.variant === "busy"; partial = board.variant === "partial"; await expect(page.getByRole("button", { name: "Add to queue" })).toBeEnabled(); await click("Add to queue"); if (partial) await expect(page.getByRole("alert")).toBeVisible(); }
         } else if (board.component === "History") {

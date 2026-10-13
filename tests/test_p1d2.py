@@ -102,9 +102,14 @@ def test_clear_reports_partial_failure_and_restores_visibility(tmp_path, monkeyp
     job = _job(engine.store, tmp_path)
     engine.store.set_state(job["id"], "done")
     monkeypatch.setattr(engine, "remove", lambda _: (_ for _ in ()).throw(OSError("locked")))
-    with pytest.raises(ValueError, match="not removed.*locked"):
-        engine.history_action("clear", {})
+    captured = []
+    monkeypatch.setattr(engine, "_schedule_history_removal", lambda value: captured.append(value))
+    response = engine.history_action("clear", {})
+    assert response["undo_seconds"] == 10
+    assert not engine.queue()["jobs"]
+    engine.history_action("undo", {"ids": response["ids"]})
     assert engine.queue()["jobs"][0]["id"] == job["id"]
+    assert captured
     engine.close()
 
 

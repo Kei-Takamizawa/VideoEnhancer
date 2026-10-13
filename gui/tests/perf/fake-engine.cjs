@@ -6,10 +6,10 @@ const crypto = require("node:crypto");
 
 async function fakeEngine(home) {
   fs.mkdirSync(home, { recursive: true });
-  const settings = { preset: "standard", codec: "hevc", short_side: 1080, fps: "2x", output_folder: "", start_with_windows: false, theme: "dark", zoom: 100, tray_explained: true, delete_original_after: false, log_folder: "", advanced: {} };
+  const settings = { preset: "standard", codec: "hevc", short_side: 1080, fps: "2x", output_folder: "", start_with_windows: false, theme: "dark", zoom: 100, tray_explained: true, tour_completed: true, delete_original_after: false, log_folder: "", advanced: {} };
   const schedule = { schema_version: 1, enabled: true, timezone: "America/Los_Angeles", weekly: [{ days: ["mon", "tue", "wed", "thu", "fri"], start: "09:00", end: "18:00" }], exceptions: [] };
   const plan = { timezone: schedule.timezone, days: [], timeline: [], jobs: [], completion: new Date(Date.now() + 3600000).toISOString() };
-  const job = index => ({ id: `synthetic-${index}`, state: index === 0 ? "running" : index < 11 ? "queued" : "done", input: `C:\\synthetic\\video-${index}.mp4`, output: `C:\\synthetic\\video-${index}-output.mp4`, settings, media: { display_width: 720, display_height: 1280, cfr_fps: "30", duration: 30, frame_count: 900 }, estimate: { seconds: 500, low: 375, high: 625, calibrated: false }, eta: plan.completion, progress_percent: 20, phase: "processing", step: "Processing", step_percent: 20, segment: 1, completed_segments: index < 11 ? 0 : 3, segments: 3, log: "C:\\synthetic\\job.jsonl", original_state: "present", output_state: "present", original_bytes: 1000000, output_bytes: 2000000, output_folder: "C:\\synthetic", took_seconds: 400, finished_at: new Date(Date.now() - index * 1000).toISOString() });
+  const job = index => ({ id: `synthetic-${index}`, position: index + 1, state: index === 0 ? "running" : index < 11 ? "queued" : "done", input: `C:\\synthetic\\video-${index}.mp4`, output: `C:\\synthetic\\video-${index}-output.mp4`, settings, media: { display_width: 720, display_height: 1280, cfr_fps: "30", duration: 30, frame_count: 900 }, estimate: { seconds: 500, low: 375, high: 625, calibrated: false }, eta: plan.completion, progress_percent: 20, phase: "processing", step: "Processing", step_percent: 20, segment: 1, completed_segments: index < 11 ? 0 : 3, segments: 3, log: "C:\\synthetic\\job.jsonl", original_state: "present", output_state: "present", original_bytes: 1000000, output_bytes: 2000000, output_folder: "C:\\synthetic", took_seconds: 400, finished_at: new Date(Date.now() - index * 1000).toISOString() });
   const queue = { history_revision: "synthetic-history-v1", jobs: Array.from({ length: 1011 }, (_, index) => job(index)), operations: [], completion: plan.completion };
   const health = { version: "fixture", engine_state: "Working", waiting_count: 10, paused_all: false, gpu: "Synthetic RTX 4060 Ti", driver: "fixture", vram_bytes: 8589934592, home, av1_supported: true, av1_min_width: 130, av1_min_height: 66, smart_app_control: { blocked: false } };
   const token = crypto.randomBytes(32).toString("hex");
@@ -46,6 +46,7 @@ async function fakeEngine(home) {
         return;
       }
       res.setHeader("Content-Type", "application/json");
+      if (route === "estimate/space") { res.end(JSON.stringify({ files: Object.fromEntries((data.files || []).map(file => [file, { output: `${file}.output.mp4`, warnings: [] }])) })); return; }
       if (route === "schedule/preview") {
         previewSequence++;
         setTimeout(() => res.end(JSON.stringify({ plan: { ...plan, jobs: [{ id: "synthetic-0", completion: new Date(Date.now() + previewSequence * 60000).toISOString() }] }, next_window: null })), 15); return;

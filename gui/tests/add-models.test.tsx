@@ -158,19 +158,15 @@ it("changes only the new-job default and exposes exact model details", async () 
       .getByRole("button", { name: "Faces · coming later" })
       .hasAttribute("disabled"),
   ).toBe(true);
-  expect(screen.getByText("Not measured here")).toBeTruthy();
+  expect(screen.queryByText("Not measured here")).toBeNull();
   fireEvent.click(
-    screen.getByRole("button", { name: "Actions for Gentle fixture" }),
+    screen.getByRole("button", { name: "Details for Gentle fixture" }),
   );
-  fireEvent.click(screen.getByRole("menuitem", { name: "Make it my default" }));
+  fireEvent.click(screen.getByRole("button", { name: "Make it my default" }));
   await waitFor(() => expect(refresh).toHaveBeenCalled());
   expect(call).toHaveBeenCalledWith("settings", "PUT", {
     restore_model: "cleanup",
   });
-  fireEvent.click(
-    screen.getByRole("button", { name: "Actions for Gentle fixture" }),
-  );
-  fireEvent.click(screen.getByRole("menuitem", { name: "Details" }));
   expect(screen.getByText(/SHA-256: aaaaaaaaaaaa/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Copy" }));
   expect(window.desktop.copy).toHaveBeenCalledWith(model.weights.sha256);
@@ -189,6 +185,7 @@ it("keeps DRUNet on one card and persists its three strength choices", async () 
     />,
   );
   expect(screen.getAllByText("Gentle fixture")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Details for Gentle fixture" }));
   const selector = screen.getByLabelText("Strength");
   expect(selector.querySelectorAll("option")).toHaveLength(3);
   fireEvent.change(selector, { target: { value: "strong" } });
@@ -231,6 +228,24 @@ it("Add distinguishes a chosen model with unknown speed from an uncalibrated GPU
   const standard = screen.getByRole("button", { name: /^Standard Cleans/ });
   expect(standard.textContent).toContain("Speed unknown");
   expect(standard.textContent).not.toContain("of work");
+});
+
+it("switching AV1 to HEVC clears the size warning without another time estimate", async () => {
+  const file = "C:\\synthetic\\small.mp4";
+  const estimate = { seconds: 100, low: 75, high: 125, calibrated: false };
+  const warning = "Output too small for AV1. Choose HEVC or a larger size.";
+  const call = vi.fn(async (route: string, _method?: string, value?: { settings: Settings }) => {
+    const warnings = value?.settings.codec === "av1" ? [warning] : [];
+    const row = { warnings, output: "C:\\synthetic\\output.mp4", media: { display_width: 96, display_height: 64, duration: 1, frame_count: 30, cfr_fps: "30" }, presets: { standard: estimate, fast: estimate } };
+    return { files: { [file]: row }, presets: route === "estimate" ? { standard: estimate, fast: estimate } : {} };
+  });
+  render(<AddDialog api={{ call } as unknown as Api} files={[file]} defaults={{ ...settings, codec: "av1" }} models={[]} close={vi.fn()} saved={vi.fn()} trial={vi.fn()} />);
+  await screen.findByText(warning);
+  const count = call.mock.calls.filter(([route]) => route === "estimate").length;
+  fireEvent.click(screen.getByRole("button", { name: "Use HEVC" }));
+  await waitFor(() => expect(screen.queryByText(warning)).toBeNull());
+  expect(call.mock.calls.filter(([route]) => route === "estimate")).toHaveLength(count);
+  expect((screen.getByRole("button", { name: "Add to queue" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
 it("Settings shows the measured-driver note, calibration duration and Cancel", async () => {

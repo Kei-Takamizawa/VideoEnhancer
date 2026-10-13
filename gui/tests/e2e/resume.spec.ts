@@ -40,7 +40,7 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
         filePaths: [file],
       });
     }, process.env.VE_GUI_OWNER_CLIP!);
-    await page.getByRole("button", { name: "+ Add videos" }).click();
+    await page.getByRole("button", { name: "Add videos" }).click();
     await page.getByText("More options", { exact: true }).click();
     await page
       .getByRole("textbox", { name: /Output folder/ })

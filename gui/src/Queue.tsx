@@ -1,3 +1,4 @@
+import { ActionButton } from "./ActionButton";
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration, filename, folder, when } from "./api";
@@ -8,6 +9,7 @@ type Preview = {
   presets: Record<string, Estimate>;
   warnings: string[];
   output: string;
+  error?: string;
 };
 export function AddDialog({
   api,
@@ -43,15 +45,26 @@ export function AddDialog({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const [refresh, setRefresh] = useState(0);
+  const timeKey = JSON.stringify([items, settings.preset, settings.short_side, settings.fps,
+    settings.restore_model, settings.interp_model, settings.size_model, settings.restore_strength, settings.size_strength]);
+  useEffect(() => {
+    const timer = setInterval(() => setRefresh(old => old + 1), 30000);
+    const focus = () => setRefresh(old => old + 1);
+    window.addEventListener("focus", focus);
+    return () => { clearInterval(timer); window.removeEventListener("focus", focus); };
+  }, []);
   useEffect(() => {
     let current = true;
     setLoading(true);
-    setPreviews({});
     const request = new AbortController();
     const timer = setTimeout(async () => {
       if (!items.length) { setLoading(false); return; }
       try {
-        const result = await api.call<{ files: Record<string, Preview>; presets: Record<string, Estimate> }>("estimate", "POST", { files: items, settings, output_folder: settings.output_folder }, request.signal);
+        const chosen = settingsRef.current;
+        const result = await api.call<{ files: Record<string, Preview>; presets: Record<string, Estimate> }>("estimate", "POST", { files: items, settings: chosen, output_folder: chosen.output_folder }, request.signal);
         if (current) { setPreviews(result.files); setTotals(result.presets); setError(""); }
       } catch (error) { if (current) setError((error as Error).message); }
       finally { if (current) setLoading(false); }
@@ -61,7 +74,20 @@ export function AddDialog({
       request.abort();
       clearTimeout(timer);
     };
-  }, [api, items, settings]);
+  }, [api, items, timeKey, refresh]);
+  useEffect(() => {
+    const request = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const result = await api.call<{ files: Record<string, { warnings: string[]; output: string }> }>("estimate/space", "POST", { files: items, settings: settingsRef.current }, request.signal);
+        setPreviews(old => Object.fromEntries(Object.entries(old).map(([file, preview]) => [file,
+          result.files[file] ? { ...preview, output: result.files[file].output, warnings: [...new Set([...preview.warnings.filter(w => !w.includes("Insufficient") && !w.includes("Output too small")), ...result.files[file].warnings])] } : preview])));
+      } catch (error) { if (!request.signal.aborted) setError((error as Error).message); }
+    }, 200);
+    return () => { clearTimeout(timer); request.abort(); };
+  }, [api, items, settings.output_folder, settings.codec, settings.short_side, settings.fps]);
+  const addable = items.filter(file => previews[file] && !previews[file].error && !previews[file].warnings.some(w =>
+    ["HDR", "Smart App Control", "Insufficient", "Output too small"].some(reason => w.includes(reason))));
   const field = (key: keyof Settings, value: string | number | boolean) =>
     setSettings((old) => ({ ...old, [key]: value }));
   return (
@@ -85,7 +111,7 @@ export function AddDialog({
         </h2>
         <div className="mode-cards">
           {["standard", "fast"].map((mode) => (
-            <button
+            <ActionButton
               key={mode}
               aria-pressed={settings.preset === mode}
               onClick={() => field("preset", mode)}
@@ -106,7 +132,7 @@ export function AddDialog({
                   ? totals[mode].unknown_models?.length ? "Run speed calibration." : `Done ${when(totals[mode].finish)}`
                   : ""}
               </p>
-            </button>
+            </ActionButton>
           ))}
         </div>
         <details>
@@ -201,14 +227,14 @@ export function AddDialog({
                   value={settings.output_folder}
                   onChange={(e) => field("output_folder", e.target.value)}
                 />
-                <button
+                <ActionButton
                   onClick={async () => {
                     const selected = await window.desktop.files("folder");
                     if (selected[0]) field("output_folder", selected[0]);
                   }}
                 >
                   Browse…
-                </button>
+                </ActionButton>
               </div>
             </label>
           </div>
@@ -280,12 +306,13 @@ export function AddDialog({
         <label className="check"><input type="checkbox" checked={!!settings.delete_original_after} onChange={event => field("delete_original_after", event.target.checked)} />Delete the original when it is done</label>
         {!models.some(model => model.task === "size" && model.weights_verified) && <p className="muted">More choices come later.</p>}
         <div className="estimate-list">
-          {loading && <p role="status">Preparing…</p>}
           {items.map((file) => (
             <div className="estimate-file" key={file}>
               <strong>{filename(file)}</strong>
-              <button disabled={busy} onClick={() => setItems(old => old.filter(item => item !== file))}>Remove it</button>
-              {previews[file] && (
+              <ActionButton disabled={busy} onClick={() => setItems(old => old.filter(item => item !== file))}>Remove it</ActionButton>
+              {loading && !previews[file] && <p role="status">Checking…</p>}
+              {previews[file]?.error && <p className="error" role="alert">{previews[file].error}</p>}
+              {previews[file] && !previews[file].error && (
                 <>
                   <div className="preset-estimates">
                     {["standard", "fast"].map((preset) => {
@@ -310,11 +337,11 @@ export function AddDialog({
                   {previews[file].warnings.map((w) => (
                     <div className="warning-text" key={w}>
                       {w}
-                      {w.includes("Insufficient") && <button onClick={async () => { const folder = (await window.desktop.files("folder"))[0]; if (folder) field("output_folder", folder); }}>Choose a folder…</button>}
-                      {w.includes("too small for cleanup") && <button onClick={() => field("short_side", 1080)}>Use 1080</button>}
-                      {w.includes("too small for AV1") && <button onClick={() => field("codec", "hevc")}>Use HEVC</button>}
-                      {w.includes("smaller than the source") && <button onClick={() => field("short_side", "keep")}>Use Keep</button>}
-                      {w.includes("HDR") && <button onClick={() => setItems(old => old.filter(item => item !== file))}>Remove it</button>}
+                      {w.includes("Insufficient") && <ActionButton onClick={async () => { const folder = (await window.desktop.files("folder"))[0]; if (folder) field("output_folder", folder); }}>Choose a folder…</ActionButton>}
+                      {w.includes("too small for cleanup") && <ActionButton onClick={() => field("short_side", 1080)}>Use 1080</ActionButton>}
+                      {w.includes("too small for AV1") && <ActionButton onClick={() => field("codec", "hevc")}>Use HEVC</ActionButton>}
+                      {w.includes("smaller than the source") && <ActionButton onClick={() => field("short_side", "keep")}>Use Keep</ActionButton>}
+                      {w.includes("HDR") && <ActionButton onClick={() => setItems(old => old.filter(item => item !== file))}>Remove it</ActionButton>}
                       {w.includes("Smart App Control") && <a href="https://github.com/Kei-Takamizawa/VideoEnhancer/blob/main/docs/TROUBLESHOOTING.md" target="_blank" rel="noreferrer">Read instructions</a>}
                     </div>
                   ))}
@@ -329,38 +356,29 @@ export function AddDialog({
           </p>
         )}
         <div className="dialog-actions">
-          <button disabled={busy} onClick={close}>
+          <ActionButton disabled={busy} onClick={close}>
             Close
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             disabled={busy || !previews[items[0]]}
             onClick={() =>
               trial(items[0], settings, previews[items[0]]?.media, field)
             }
           >
             Try models first
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             className="primary add-submit"
             disabled={
               busy ||
-              !items.length ||
-              !!error ||
-              items.some((f) =>
-                previews[f]?.warnings.some(
-                  (w) =>
-                    w.includes("HDR") ||
-                    w.includes("Smart App Control") ||
-                    w.includes("Insufficient") ||
-                    w.includes("Output too small"),
-                ),
-              )
+              !addable.length ||
+              !!error
             }
             onClick={async () => {
               setBusy(true);
               setError("");
               try {
-                for (const file of items) {
+                for (const file of addable) {
                   if (added.current.has(file)) continue;
                   await api.call("queue", "POST", {
                     file,
@@ -382,7 +400,7 @@ export function AddDialog({
             }}
           >
             {busy ? "Analyzing and adding…" : "Add to queue"}
-          </button>
+          </ActionButton>
         </div>
       </div>
     </div>

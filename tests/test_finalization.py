@@ -46,7 +46,7 @@ def test_finalization_in_remaining_plan_and_next_job_correction(tmp_path):
         machine_profile=profile,
         segments=[dict(start=0, end=30, state="done")],
     )
-    assert estimate_job(job).seconds == 60
+    assert estimate_job(job).seconds == 69
     assert job_progress(job)["progress_percent"] < 100
     available = Schedule.from_dict(
         dict(enabled=True, weekly=[dict(days=["mon", "tue"], start="08:00", end="09:00")]),
@@ -56,10 +56,10 @@ def test_finalization_in_remaining_plan_and_next_job_correction(tmp_path):
     plan = build_plan([job], available, now, 2)
     assert plan["timeline"][0]["phase"] == "finalizing"
     assert plan["timeline"][0]["start"] == "2026-10-06T08:00:00+00:00"
-    assert plan["jobs"][0]["completion"] == "2026-10-06T08:01:00+00:00"
+    assert plan["jobs"][0]["completion"] == "2026-10-06T08:01:09+00:00"
     observe_finalization(job, 60, 120, tmp_path)
     updated = json.loads(profile_path.read_text())
-    assert predict_finalization(job, updated) == pytest.approx(78)
+    assert predict_finalization(job, updated) == pytest.approx(89.7)
     assert job["timing"]["finalization_observation"] == dict(predicted=60, actual=120)
 
 

@@ -275,6 +275,9 @@ def _child_run(
         heart.start()
         from videoenhancer.pipeline.runner import process_segment
 
+        child_startup_seconds = time.perf_counter() - manifest.get(
+            "_child_spawn_monotonic", time.perf_counter()
+        )
         stats = process_segment(
             manifest,
             segment,
@@ -283,6 +286,7 @@ def _child_run(
             batch_size=batch_size,
             progress=progress,
         )
+        stats["child_startup_seconds"] = child_startup_seconds
         send(SegmentResult("done", stats=stats))
     except InterruptedError:
         send(SegmentResult("aborted"))
@@ -361,7 +365,7 @@ class ProcessExecutor:
         process = context.Process(
             target=_child_run,
             args=(
-                manifest,
+                {**manifest, "_child_spawn_monotonic": time.perf_counter()},
                 segment,
                 str(output),
                 batch_size,
@@ -431,7 +435,7 @@ class ProcessExecutor:
                             self.progress(manifest, live)
                         if "id" in manifest and now - last_manifest >= 10:
                             store = JobStore(output.parent.parent.parent)
-                            latest = store.load(manifest["id"])
+                            latest = store.load(manifest["id"], include_analysis=False)
                             latest["progress"] = live
                             store.save(latest)
                             last_manifest = now
@@ -847,8 +851,9 @@ def run_queue(
                             break
                 job_id = manifest["id"]
                 try:
-                    if overrun and selection_interval is not None:
+                    if selection_interval is not None:
                         manifest["admitted_window_end"] = selection_interval.end.isoformat()
+                        manifest["allow_window_overrun"] = overrun
                         store.save(manifest)
                     job_dir = store.job_dir(job_id)
                     job_logger = get_logger(store.home, job_id=job_id)
@@ -938,6 +943,9 @@ def run_queue(
                                     validation_started=start_validation,
                                 )
                             end_step()
+                            from videoenhancer.jobs.store import input_identity
+
+                            output_identity = input_identity(Path(result_path))
                             if assembly_abort():
                                 raise InterruptedError("Finalization was interrupted.")
                             if stop or store.load(job_id)["state"] not in {"queued", "running"}:
@@ -973,9 +981,18 @@ def run_queue(
                             observe_finalization(manifest, prediction, observed, store.home)
                             manifest["state"] = "done"
                             manifest["result"] = str(result_path)
+                            manifest["output_identity"] = output_identity
+                            manifest["output_bytes"] = output_identity["size"]
                             store.save(manifest)
+                            from videoenhancer.estimate.local import record_completed
                             from videoenhancer.service.deletion import schedule_original_deletions
 
+                            try:
+                                record_completed(manifest, store.home)
+                            except OSError as error:
+                                job_logger.warning(
+                                    "Local timing observation could not be saved: %s", error
+                                )
                             schedule_original_deletions(store)
                             if not manifest["settings"].get("keep_segments"):
                                 for path in job_dir.glob("seg_*.mp4"):

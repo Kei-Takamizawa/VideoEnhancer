@@ -14,7 +14,9 @@ export function client(connection: Connection): Api {
       body: data === undefined ? undefined : JSON.stringify(data),
       signal: AbortSignal.any([
         ...(signal ? [signal] : []),
-        AbortSignal.timeout(method === "POST" && route === "queue" ? 1200000 : 30000),
+        ...(method === "POST" && route === "estimate" ? [] : [
+          AbortSignal.timeout(method === "POST" && route === "queue" ? 1200000 : 30000),
+        ]),
       ]),
     });
     if (!response.ok)
@@ -103,10 +105,12 @@ export function folder(value: string) {
   return value.replace(/[\\/][^\\/]*$/, "");
 }
 export function duration(seconds: number) {
-  const minutes = Math.ceil(Math.max(0, seconds) / 60);
+  const total = Math.ceil(Math.max(0, seconds));
+  const minutes = Math.floor(total / 60);
+  const tail = String(total % 60).padStart(2, "0");
   return minutes >= 60
-    ? `${Math.floor(minutes / 60)} h ${minutes % 60} m`
-    : `${minutes} m`;
+    ? `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}:${tail}`
+    : `${minutes}:${tail}`;
 }
 export function when(value?: string | null) {
   return value

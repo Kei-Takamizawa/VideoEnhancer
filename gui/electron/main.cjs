@@ -399,6 +399,10 @@ else {
       );
       handle("connection", ensureService);
       handle("zoom", setZoom);
+      handle("theme", (theme) => {
+        if (!["light", "dark", "system"].includes(theme)) throw new Error("Invalid theme.");
+        applyAppearance(theme);
+      });
       handle("hide", async () => {
         await request("settings", "PUT", { tray_explained: true });
         trayExplained = true;

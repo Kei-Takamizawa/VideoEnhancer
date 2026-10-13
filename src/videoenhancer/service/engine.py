@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -20,6 +20,7 @@ from typing import Any
 from videoenhancer import __version__, proc
 from videoenhancer.cli import _jobs_plan, _save_schedule, _schedule_payload
 from videoenhancer.estimate import estimate_job
+from videoenhancer.estimate.local import recent_correction
 from videoenhancer.estimate.model import job_progress
 from videoenhancer.jobs.store import (
     JobStore,
@@ -28,6 +29,7 @@ from videoenhancer.jobs.store import (
     estimated_output_size,
     input_identity,
     load_machine_profile,
+    working_space_locations,
 )
 from videoenhancer.logging import get_logger
 from videoenhancer.media.decode import choose_backend
@@ -219,7 +221,17 @@ class Engine:
                 {
                     **{
                         k: job[k]
-                        for k in ("id", "state", "settings", "media", "segments", "machine_profile")
+                        for k in (
+                            "id",
+                            "state",
+                            "settings",
+                            "media",
+                            "segments",
+                            "machine_profile",
+                            "admitted_window_end",
+                            "allow_window_overrun",
+                            "estimated_output_bytes",
+                        )
                         if k in job
                     },
                     "progress": measured,
@@ -246,6 +258,11 @@ class Engine:
                     )
                 )
                 reason = self.environment.get("av1_unavailable_reason")
+                if not (self.home / "settings.json").exists():
+                    save_settings(
+                        self.home,
+                        {"codec": "av1" if self.environment.get("av1_supported") else "hevc"},
+                    )
                 if reason:
                     get_logger(self.home).warning("AV1 probe: %s", reason)
             else:
@@ -534,6 +551,14 @@ class Engine:
                         else completion.get(j["id"], {}).get("completion")
                     ),
                     "position": j.get("position"),
+                    "part_seconds": next(
+                        (
+                            segment.get("predicted_seconds", 0)
+                            for segment in j["segments"]
+                            if segment["state"] != "done"
+                        ),
+                        0,
+                    ),
                     "overrun_seconds": max(
                         (
                             step.get("overrun_seconds", 0)
@@ -758,9 +783,9 @@ class Engine:
             now = time.monotonic()
             if now - self._progress_built < 1 and self._progress_wire:
                 return self._progress_wire
-            from videoenhancer.estimate.model import predict_finalization
 
             packets = []
+            live_jobs = {}
             for row in self._event_running_jobs:
                 received, job = self._progress_received.get(row["id"], (now, row))
                 if row.get("progress", {}).get("phase") == "finalizing":
@@ -777,28 +802,47 @@ class Engine:
                         active["end"] - active["start"], frames_done + rate * elapsed
                     )
                 work = {**job, "progress": live}
+                if rate > 0:
+                    work["machine_profile"] = {
+                        **(job.get("machine_profile") or {}),
+                        "live_seconds_per_frame": 1 / rate,
+                    }
+                live_jobs[row["id"]] = work
                 status = job_progress(work)
-                remaining_frames = sum(
-                    segment["end"] - segment["start"]
-                    for segment in job["segments"]
-                    if segment["state"] != "done"
-                ) - float(live.get("frames_done", 0))
-                remaining = (
-                    max(0, remaining_frames / rate + predict_finalization(work))
-                    if rate > 0
-                    else max(0, estimate_job(work).seconds - elapsed)
-                )
+                remaining = max(0, estimate_job(work).seconds - (elapsed if rate <= 0 else 0))
                 packets.append(
                     dict(
                         id=row["id"],
                         percent=status["progress_percent"],
                         work_left=remaining,
-                        finish_time=(datetime.now(UTC) + timedelta(seconds=remaining)).isoformat(),
+                        finish_time="",
                         fps=rate or None,
                         phase=status["phase"],
                         step=status["step"],
                     )
                 )
+            if packets:
+                planning_jobs = [
+                    live_jobs.get(job["id"], job)
+                    for job in self._event_jobs
+                    if job["state"] not in {"done", "failed", "cancelled"}
+                ]
+                plan = _jobs_plan(planning_jobs, self.home, 120)
+                finishes = {job["job_id"]: job["completion"] for job in plan["jobs"]}
+                for packet in packets:
+                    packet["finish_time"] = finishes.get(packet["id"]) or ""
+                for job in planning_jobs:
+                    if job["id"] not in live_jobs and job["state"] == "queued":
+                        packets.append(
+                            dict(
+                                id=job["id"],
+                                percent=0,
+                                work_left=estimate_job(job).seconds,
+                                finish_time=finishes.get(job["id"]) or "",
+                                phase="queued",
+                                step="Waiting",
+                            )
+                        )
             self._progress_built = now
             self._progress_wire = (
                 json.dumps({"progress": packets}, allow_nan=False) if packets else ""
@@ -907,17 +951,26 @@ class Engine:
             previews: dict[str, Any] = {}
             for index, file in enumerate(files):
                 item = {key: data for key, data in value.items() if key != "files"}
-                previews[file] = self.estimate(
-                    {**item, "file": file, "virtual_id": f"preview-{index}"}, virtuals
-                )
+                try:
+                    previews[file] = self.estimate(
+                        {**item, "file": file, "virtual_id": f"preview-{index}"}, virtuals
+                    )
+                except Exception as error:
+                    previews[file] = {"error": str(error), "warnings": [], "presets": {}}
             presets = {}
             queued = self.store.list_jobs()
             for preset, jobs in virtuals.items():
                 plan = _jobs_plan(queued + jobs, self.home, 120)
                 finish = {job["job_id"]: job["completion"] for job in plan["jobs"]}
                 for index, file in enumerate(files):
+                    if "error" in previews[file]:
+                        continue
                     previews[file]["presets"][preset]["finish"] = finish.get(f"preview-{index}")
-                estimates = [preview["presets"][preset] for preview in previews.values()]
+                estimates = [
+                    preview["presets"][preset]
+                    for preview in previews.values()
+                    if "error" not in preview
+                ]
                 presets[preset] = {
                     key: sum(estimate[key] for estimate in estimates)
                     for key in ("seconds", "low", "high")
@@ -939,11 +992,13 @@ class Engine:
         settings = self.chosen(value.get("settings", {}))
         output = self.output(source, value)
         size = source.stat().st_size
-        needed = int(estimated_output_size(size, media, settings) * 2.2)
+        output_bytes = estimated_output_size(size, media, settings)
         ancestor = output.parent
         while not ancestor.exists():
             ancestor = ancestor.parent
-        free = shutil.disk_usage(ancestor).free
+        locations = working_space_locations(self.home, output.parent)
+        needed = int(output_bytes * locations[0][1] * 1.1)
+        free = shutil.disk_usage(locations[0][0]).free
         warnings = []
         geometry = self.geometry_warning(media, settings)
         if geometry:
@@ -956,8 +1011,14 @@ class Engine:
                 "The chosen size is smaller than the source. "
                 "Use Keep if you do not want to shrink it."
             )
-        if free < needed:
-            warnings.append(f"Insufficient space: {free:,} bytes free; {needed:,} bytes required.")
+        for location, copies in locations:
+            required = int(output_bytes * copies * 1.1)
+            available = shutil.disk_usage(location).free
+            if available < required:
+                warnings.append(
+                    f"Insufficient space: Needs {required / 1e9:.2f} GB, "
+                    f"{available / 1e9:.2f} GB free on {location.anchor or location}."
+                )
         if str(media.get("color_transfer", "")) in {"smpte2084", "arib-std-b67"}:
             warnings.append("HDR is not supported. Choose an SDR video.")
         if self.health()["smart_app_control"]["blocked"]:
@@ -991,6 +1052,7 @@ class Engine:
                     media, [], predicted_seconds_per_frame=per_frame, target_seconds=180
                 ),
                 "machine_profile": profile,
+                "correction_factor": recent_correction(self.store, chosen["preset"], profile),
             }
             estimate = estimate_job(virtual).to_dict()
             if virtual_jobs is not None:
@@ -1044,6 +1106,12 @@ class Engine:
             updated_at=now,
             estimated_output_bytes=0,
             correction_factor=1,
+            initial_estimate_seconds=check["presets"].get(
+                settings["preset"], check["presets"]["fast"]
+            )["seconds"],
+            initial_finish_at=check["presets"].get(settings["preset"], check["presets"]["fast"])[
+                "finish"
+            ],
             control_generation=0,
         )
         with self.lock:
@@ -1069,6 +1137,14 @@ class Engine:
                     home=self.home,
                     job_id=job_id,
                     target_segment_seconds=float(value.get("segment_seconds", 180)),
+                )
+                self.store.patch_existing(
+                    job_id,
+                    {
+                        "initial_estimate_seconds": job["initial_estimate_seconds"],
+                        "initial_finish_at": job["initial_finish_at"],
+                        "created_at": job["created_at"],
+                    },
                 )
             except Exception as error:
                 self._error(job_id, error)
@@ -1144,6 +1220,8 @@ class Engine:
     def history_action(self, action: str, value: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
             failures: list[str] = []
+            kept: list[dict[str, str]] = []
+            counts = {"moved": 0, "not_found": 0, "kept": 0}
             ids = value.get("ids")
             if action == "clear":
                 ids = [
@@ -1157,31 +1235,65 @@ class Engine:
             if any(job["state"] not in {"done", "failed", "cancelled"} for job in jobs):
                 raise ValueError("Only finished, failed or cancelled records can be removed.")
             now = time.time()
-            if action == "undo" and any(
+            if action in {"undo", "pause-undo"} and any(
                 not job.get("history_hidden_until") or job["history_hidden_until"] <= now
                 for job in jobs
             ):
                 raise ValueError("Undo is no longer available.")
             for job in jobs:
-                if action == "clear":
-                    try:
-                        self.remove(job["id"])
-                    except Exception as error:
-                        job["history_hidden_until"] = 0
-                        self.store.save(job)
-                        failures.append(f"{job['id']}: {error}")
+                if action == "pause-undo":
+                    if value.get("paused") is True:
+                        job["history_undo_remaining"] = max(
+                            0, job.get("history_hidden_until", 0) - now
+                        )
+                        job["history_hidden_until"] = now + 315360000
+                    elif value.get("paused") is False:
+                        job["history_hidden_until"] = now + job.pop("history_undo_remaining", 0)
+                        self._schedule_history_removal(job)
+                    else:
+                        raise ValueError("Undo pause must be on or off.")
+                    self.store.save(job)
                 elif action == "undo":
                     job["history_hidden_until"] = 0
                     self.store.save(job)
                 else:
+                    refused = False
+                    for key in ("output", "original"):
+                        if not isinstance(value.get(key, False), bool):
+                            raise ValueError("File removal choices must be on or off.")
+                        if value.get(key):
+                            path = Path(job["output"] if key == "output" else job["input"]["path"])
+                            result = self.deletion.delete(path, job, self.store.list_jobs())
+                            job.setdefault("video_deletions", {})[key] = result
+                            category = (
+                                "moved"
+                                if result == "Moved to the Recycle Bin"
+                                else "not_found"
+                                if result == "File not found"
+                                else "kept"
+                            )
+                            counts[category] += 1
+                            if category == "kept":
+                                refused = True
+                                kept.append({"id": job["id"], "reason": result})
+                            self.refresh_terminal_files([str(path)])
+                    if refused:
+                        self.store.save(job)
+                        continue
                     job["history_hidden_until"] = now + 10
                     self.store.save(job)
                     self._schedule_history_removal(job)
             if failures:
                 raise ValueError("History entries not removed: " + "; ".join(failures))
             return {
-                "ids": [job["id"] for job in jobs],
-                "undo_seconds": 10 if action == "remove" else 0,
+                "ids": [
+                    job["id"]
+                    for job in jobs
+                    if action in {"undo", "pause-undo"} or job.get("history_hidden_until")
+                ],
+                "undo_seconds": 10 if action in {"remove", "clear"} else 0,
+                "files": counts,
+                "kept": kept,
             }
 
     def _schedule_history_removal(self, job: dict[str, Any]) -> None:
@@ -1218,6 +1330,7 @@ class Engine:
                 continue
             if path.name in {
                 "manifest.json",
+                "analysis.json",
                 "control.json",
                 "manifest.lock",
                 "logs",
@@ -1310,7 +1423,8 @@ class Engine:
             "state": "waiting",
             "request": value,
             "job_id": value.get("job_id"),
-            "phase": f"Waiting for the current segment (about {waiting:.0f} seconds remaining)",
+            "phase": "Waiting for the current part",
+            "remaining_seconds": waiting,
             "created_at": datetime.now().astimezone().isoformat(),
         }
         if kind == "compare":
@@ -1483,6 +1597,30 @@ class Engine:
         )
 
         history_started = time.monotonic()
+        if op["kind"] == "calibrate":
+            predicted = float(self.health()["speed_profile"].get("calibration_minutes", 10)) * 60
+        op["expected_seconds"] = max(1, predicted or 60)
+        calibration_stages = [
+            "Decode and encode",
+            "Tensor stages",
+            "End-to-end pipeline",
+            "Installed models",
+            "Reference pipelines",
+            "Finalization",
+        ]
+        previous_stages = (
+            (load_machine_profile(self.home) or {}).get("calibration_stages_seconds", {})
+            if op["kind"] == "calibrate"
+            else {}
+        )
+        stage_expected = {
+            name: float(previous_stages.get(name, op["expected_seconds"] * weight))
+            for name, weight in zip(
+                calibration_stages, (0.15, 0.15, 0.10, 0.25, 0.25, 0.10), strict=True
+            )
+        }
+        current_stage = ""
+        stage_started = history_started
         history_sampled = -2.0
         if op["kind"] == "trial":
             op["percent_history"] = []
@@ -1531,6 +1669,28 @@ class Engine:
                             # Atomic publication can briefly hide/lock this advisory file.
                             # Retry on the next poll and still honor cancellation below.
                             pass
+                    elapsed = time.monotonic() - history_started
+                    fraction = float(op.get("percent", 0)) / 100
+                    if not fraction:
+                        op["percent"] = min(95, elapsed / op["expected_seconds"] * 100)
+                    op["remaining_seconds"] = max(
+                        0,
+                        (elapsed / fraction * (1 - fraction))
+                        if fraction > 0.01 and op["kind"] != "calibrate"
+                        else op["expected_seconds"] - elapsed,
+                    )
+                    if op["kind"] == "calibrate":
+                        stage = str(op.get("phase", "")).split(":", 1)[0]
+                        if stage != current_stage:
+                            current_stage, stage_started = stage, time.monotonic()
+                        if stage in calibration_stages:
+                            stage_index = calibration_stages.index(stage)
+                            op["remaining_seconds"] = max(
+                                0, stage_expected[stage] - (time.monotonic() - stage_started)
+                            ) + sum(
+                                stage_expected[name]
+                                for name in calibration_stages[stage_index + 1 :]
+                            )
                     keep_progress()
                     if abort():
                         _kill_process_tree(process.pid)
@@ -1667,12 +1827,36 @@ class Engine:
             if route == "schedule":
                 return Schedule.from_file(self.home / "schedule.json").to_dict()
             if route == "settings":
+                if (
+                    not (self.home / "settings.json").exists()
+                    and self._health_thread.ident is not None
+                ):
+                    self._health_thread.join(timeout=10)
                 return read_settings(self.home)
             if route == "models":
                 registry = ModelRegistry(self.home)
+                from videoenhancer.models.registry import C1, RIFE
+
+                prefs = read_settings(self.home)
+                defaults = {
+                    prefs.get("restore_model") or C1,
+                    prefs.get("interp_model") or RIFE,
+                    prefs.get("size_model"),
+                }
+                used = {
+                    model
+                    for job in self.store.queue_jobs()
+                    if job["state"] not in {"done", "failed", "cancelled"}
+                    for model in selected_models(job["settings"]).values()
+                }
                 return [
                     {
                         **m,
+                        "uninstall_reason": "Choose another default before uninstalling this model."
+                        if m["id"] in defaults
+                        else "An unfinished video uses this model."
+                        if m["id"] in used
+                        else "",
                         "size_bytes": (registry.folder(m["id"]) / m["weights"]["filename"])
                         .stat()
                         .st_size
@@ -1756,6 +1940,37 @@ class Engine:
             return suggested_range(source, analysis)
         if route == "estimate" and method == "POST":
             return self.estimate(value)
+        if route == "estimate/space" and method == "POST":
+            settings = self.chosen(value.get("settings", {}))
+            files = value.get("files", [])
+            if not isinstance(files, list) or len(files) > 100:
+                raise ValueError("Choose up to 100 videos.")
+            result = {}
+            for file in files:
+                try:
+                    source = Path(file).resolve(strict=True)
+                    media = probe(source, read_timeline=False, allow_hdr=True).to_dict()
+                    output = self.output(source, {"output_folder": settings.get("output_folder")})
+                    ancestor = output.parent
+                    while not ancestor.exists():
+                        ancestor = ancestor.parent
+                    warnings = []
+                    geometry = self.geometry_warning(media, settings)
+                    if geometry:
+                        warnings.append(geometry)
+                    output_bytes = estimated_output_size(source.stat().st_size, media, settings)
+                    for location, copies in working_space_locations(self.home, output.parent):
+                        needed = int(output_bytes * copies * 1.1)
+                        free = shutil.disk_usage(location).free
+                        if free < needed:
+                            warnings.append(
+                                f"Insufficient space: Needs {needed / 1e9:.2f} GB, "
+                                f"{free / 1e9:.2f} GB free on {location.anchor or location}."
+                            )
+                    result[file] = {"warnings": warnings, "output": str(output)}
+                except (OSError, ValueError):
+                    continue  # The time estimate reports per-file failures.
+            return {"files": result}
         if route == "queue" and method == "POST":
             return self.add(value)
         if route == "history/delete-files" and method == "POST":
@@ -1783,7 +1998,7 @@ class Engine:
         if (
             len(parts) == 2
             and parts[0] == "history"
-            and parts[1] in {"remove", "undo", "clear"}
+            and parts[1] in {"remove", "undo", "clear", "pause-undo"}
             and method == "POST"
         ):
             return self.history_action(parts[1], value)

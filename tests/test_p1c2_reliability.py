@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from test_controller import FakeClock, _job
+from test_controller import FakeClock, _job, fixture_assemble
 from test_reliability import _two_jobs
 
 from videoenhancer import proc
@@ -130,9 +130,7 @@ def test_real_manifest_lock_quarantines_only_one_job_and_retry_recovers(tmp_path
     calls = []
     monkeypatch.setattr(controller, "validate_done_segments", lambda *_: False)
     monkeypatch.setattr(controller, "segment_file_valid", lambda *_: True)
-    monkeypatch.setattr(
-        "videoenhancer.media.mux.assemble", lambda job, *_a, **_kw: Path(job["output"])
-    )
+    monkeypatch.setattr("videoenhancer.media.mux.assemble", fixture_assemble)
 
     class Executor:
         def run(self, job, _segment, output, *_a, **_kw):

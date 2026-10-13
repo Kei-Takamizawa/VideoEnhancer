@@ -102,7 +102,8 @@ class IndexedDecoder:
                 use_device_memory=True,
                 output_color_type=nvc.OutputColorType.NATIVE,
                 decoder_cache_size=1,
-                need_scanned_stream_metadata=True,
+                # Exact timestamps/counts were collected once during analysis.
+                need_scanned_stream_metadata=False,
             )
 
     def _convert(self, frame: torch.Tensor) -> torch.Tensor:

@@ -66,7 +66,7 @@ test("P1d-3 changed screens in the packaged desktop", async () => {
     await reload(); await open("History"); await page.locator('.history-name').first().click(); await expect(page.getByText(notice.result)).toBeVisible(); await capture("History-retained-guard");
     await open("Close"); await open("Home");
     await app.evaluate(({ dialog }, files) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: files }); }, [source, normal]);
-    await open("+ Add videos"); await expect(page.getByText("HDR is not supported")).toBeVisible(); await expect(page.getByText("Speed unknown for fixture-without-reference. Run speed calibration.")).toBeVisible(); await capture("Add-HDR-and-unknown-speed");
+    await open("Add videos"); await expect(page.getByText("HDR is not supported")).toBeVisible(); await expect(page.getByText("Speed unknown for fixture-without-reference. Run speed calibration.")).toBeVisible(); await capture("Add-HDR-and-unknown-speed");
     await open("Close");
     await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, normal);
     await open("Models"); await open("Compare on my video");

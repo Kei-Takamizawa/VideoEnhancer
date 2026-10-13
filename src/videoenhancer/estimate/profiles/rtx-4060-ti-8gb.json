@@ -283,5 +283,6 @@
     "analysis_seconds_excluded": 0.3258140999969328
   },
   "source": "builtin",
-  "provenance": "P1d-2 independent 150-frame 720x1280 synthetic reference calibration; no acceptance-job correction"
+  "provenance": "P1d-2 independent 150-frame 720x1280 synthetic reference calibration; no acceptance-job correction",
+  "analysis_seconds_per_frame": 0.0010458961222223782
 }

@@ -1,10 +1,9 @@
 # Desktop development app
 
-## P1d-2 implementation status
+## P1e owner-check update
 
-This development build implements the supplied P1d design gaps. The extracted
-components in `design/p1d/components` are the visual source of truth. This build
-has not passed the full P1d acceptance checklist; see `.ai/LAST_REPORT.md`.
+The P1e update follows the owner-check instructions while retaining the cafe
+palette and dock. See `.ai/LAST_REPORT.md` for measured acceptance results.
 
 The five-screen floating dock supports Ctrl+1 through Ctrl+5. The Windows title
 bar supports native window controls. Settings offers System, Dark and Light
@@ -14,8 +13,9 @@ Home separates global pause from a job's individual pause. Cancel removes an
 unstarted job; a job with completed segments stays in History as Cancelled.
 Cancellation discards intermediate work and preserves recorded source/output
 videos. History uses grouped virtual rows, file search, selection, removal and
-a ten-second Undo. Clear history requires confirmation. These actions remove
-history/work data. Video details offers a separate guarded Recycle Bin action.
+a ten-second Undo. Clear history requires confirmation. Remove and Clear share a ten-second Undo. Their optional file choices are off
+by default; a refused file keeps its record visible. Undo restores records only.
+Video details also offers a separate guarded Recycle Bin action.
 Settings > After processing and Add offer automatic original deletion, off by
 default, after output verification and completion of other dependent jobs.
 
@@ -201,3 +201,41 @@ three service CPU samples with 1,000 diagnostic-rich terminal rows, ten queued
 jobs and one real CUDA Standard job; 5,000 rows are an ungated scaling sample.
 `playwright.perf.config.ts` runs ten renderer repeats. Real progress checks use
 `VE_REAL_ENGINE_HOME` and `VE_GUI_EVIDENCE` with an isolated running GPU fixture.
+
+## Owner-check changes
+
+- Global pause preserves queue order. A paused card explains that completed parts
+  are kept and the current part restarts, with its predicted time.
+- Add shows errors and HDR warnings on individual rows. Valid files remain
+  addable. The time request has no fixed client timeout and can be cancelled by
+  closing the dialog. Folder and codec changes re-check disk space separately;
+  the original-deletion switch sends no time request. Finish times refresh every
+  30 seconds and on focus, retaining existing values during the refresh.
+- Theme choices apply immediately in the renderer and Windows title bar; saving
+  runs in the background. Remaining-time values use M:SS or H:MM:SS.
+- Action buttons use locally bundled Lucide outline icons. Dock icons, including
+  the Settings gear, retain their original shapes.
+  Icons describe their actions: History, video preview, hours, logs and verification
+  use distinct symbols. Arrows are reserved for directional navigation. Add videos
+  shows a plus icon without a second plus in its label.
+- History uses uncropped, justified thumbnails and a toolbar Select mode. Its
+  detail popup has an in-app player and an external-player fallback. The Undo
+  tint shrinks for ten seconds and pauses on hover or keyboard focus. Reduced
+  motion uses one-second steps.
+- Model cards keep their summary and main Install/Uninstall action. Open the
+  card for details, defaults, supported strength choices and verification.
+  Default models and models used by unfinished videos cannot be uninstalled.
+- Compare fits the largest tiles into the available space. Ctrl+wheel pinches
+  from 1x to 8x around the pointer; scroll pans while zoomed, or moves the swipe
+  divider at 1x. Zoom buttons remain available. Double-click isolates a pane;
+  Full window or F hides controls; Esc returns. Counters have fixed widths.
+- Schedule hours remain editable when its large switch is off. Saved hours stay
+  visible and dimmed; plan bands remain separate.
+- A five-step tour appears on first start. Skip closes it; Settings can replay it.
+- Jobs store their first estimate and finish time. Long-video timestamp arrays
+  live in a write-once analysis sidecar. Local timing observations supplement
+  the built-in profile; live finish times use the operating-hours planner.
+
+The unsigned package still uses the external engine checkout. Only guarded
+Recycle Bin operations may remove a recorded user video. URL imports, remote
+browser control and face/hair restoration remain outside this cycle.

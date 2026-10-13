@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("desktop", {
   copy: (text) => ipcRenderer.invoke("copy", text),
   filePath: (file) => webUtils.getPathForFile(file),
   zoom: (percent) => ipcRenderer.invoke("zoom", percent),
+  theme: (theme) => ipcRenderer.invoke("theme", theme),
   onZoom: (callback) => {
     const listener = (_event, percent) => callback(percent);
     ipcRenderer.on("zoom-changed", listener);

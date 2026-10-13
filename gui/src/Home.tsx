@@ -1,3 +1,6 @@
+import { Check, GripVertical } from "lucide-react";
+import { HistoryRemoval } from "./HistoryRemoval";
+import { ActionButton } from "./ActionButton";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration, filename, when } from "./api";
@@ -67,6 +70,7 @@ export function Thumbnail({
       void api
         .blob(`queue/${job.id}/thumbnail`)
         .then((blob) => {
+          if (!blob.type.startsWith("image/")) return;
           if (alive) {
             object = URL.createObjectURL(blob);
             setUrl(object);
@@ -114,47 +118,47 @@ export function JobMenu({
   }, [open]);
   return (
     <div className="job-menu" ref={menu}>
-      <button
+      <ActionButton
         aria-label={`Actions for ${filename(job.input)}`}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
         ⋯
-      </button>
+      </ActionButton>
       {open && (
         <div className="row-menu">
           {!["done", "failed", "cancelled"].includes(job.state) && (
             <>
-              <button onClick={() => action(job, "move", { position: 1 })}>
+              <ActionButton onClick={() => action(job, "move", { position: 1 })}>
                 Move to top
-              </button>
-              <button
+              </ActionButton>
+              <ActionButton
                 disabled={position < 2}
                 onClick={() => action(job, "move", { position: position - 1 })}
               >
                 Move up
-              </button>
-              <button
+              </ActionButton>
+              <ActionButton
                 onClick={() => action(job, "move", { position: position + 1 })}
               >
                 Move down
-              </button>
-              <button
+              </ActionButton>
+              <ActionButton
                 onClick={() =>
                   action(job, job.state === "paused" ? "resume" : "pause")
                 }
               >
                 {job.state === "paused" ? "Resume" : "Pause"}
-              </button>
-              <button onClick={() => action(job, "cancel")}>Cancel</button>
+              </ActionButton>
+              <ActionButton onClick={() => action(job, "cancel")}>Cancel</ActionButton>
               {!job.started_at &&
                 job.segment === 0 &&
                 job.state !== "running" && (
                   <>
-                    <button disabled={job.state === "preparing"} onClick={() => action(job, "remove-unstarted")}>
+                    <ActionButton disabled={job.state === "preparing"} onClick={() => action(job, "remove-unstarted")}>
                       Remove from queue
-                    </button>
-                    <button
+                    </ActionButton>
+                    <ActionButton
                       disabled={job.state === "preparing"}
                       title={
                         job.state === "preparing"
@@ -164,10 +168,10 @@ export function JobMenu({
                       onClick={() => setChangingMode(!changingMode)}
                     >
                       Change mode
-                    </button>
+                    </ActionButton>
                     {changingMode &&
                       ["standard", "fast"].map((preset) => (
-                        <button
+                        <ActionButton
                           key={preset}
                           aria-pressed={job.settings.preset === preset}
                           onClick={() => {
@@ -177,13 +181,13 @@ export function JobMenu({
                           }}
                         >
                           {preset === "standard" ? "Standard" : "Fast"}
-                        </button>
+                        </ActionButton>
                       ))}
                   </>
                 )}
             </>
           )}
-          <button
+          <ActionButton
             disabled={job.original_state === "missing" || job.original_state === "recycled"}
             title={job.original_state === "missing" || job.original_state === "recycled" ? "Compare again needs the original video." : undefined}
             onClick={() => {
@@ -194,16 +198,16 @@ export function JobMenu({
             {["done", "failed", "cancelled"].includes(job.state)
               ? "Compare again"
               : "Try models on this video"}
-          </button>
-          <button onClick={() => action(job, "folder")}>
+          </ActionButton>
+          <ActionButton onClick={() => action(job, "folder")}>
             Open output folder
-          </button>
-          <button onClick={() => action(job, "log")}>Show log</button>
-          <button onClick={() => action(job, "copy")}>Copy details</button>
+          </ActionButton>
+          <ActionButton onClick={() => action(job, "log")}>Show log</ActionButton>
+          <ActionButton onClick={() => action(job, "copy")}>Copy details</ActionButton>
           {["done", "failed", "cancelled"].includes(job.state) && (
-            <button onClick={() => action(job, "remove")}>
+            <ActionButton onClick={() => action(job, "remove")}>
               Remove from history
-            </button>
+            </ActionButton>
           )}
         </div>
       )}
@@ -244,7 +248,7 @@ export function HomePage({
   );
   const current =
     active.find((j) => j.state === "running") ||
-    active.find((j) => j.state === "queued") ||
+    active.find((j) => ["queued", "paused"].includes(j.state)) ||
     active[0];
   const next = active.filter((j) => j !== current);
   const failures = queue.jobs.filter(
@@ -280,7 +284,7 @@ export function HomePage({
       <div className="page-heading">
         <div>
           <h1>Home</h1>
-          <button
+          <ActionButton
             className="status-chip"
             onClick={() => {
               if (health?.last_error) setProblem(true);
@@ -291,25 +295,25 @@ export function HomePage({
               className={health?.last_error ? "warning-dot" : "status-dot"}
             />
             {chip}
-          </button>
+          </ActionButton>
         </div>
         <div className="actions">
-          <button onClick={pauseAll}>
+          <ActionButton onClick={pauseAll} disabled={!health?.paused_all && !active.some(job => job.state === "running" || (job.state === "queued" && health?.engine_state !== "Waiting for your hours"))} title="Pause jobs running or ready to run now">
             {health?.paused_all ? "Resume all" : "Pause all"}
-          </button>
-          <button className="primary" onClick={() => add()}>
-            + Add videos
-          </button>
+          </ActionButton>
+          <ActionButton className="primary" onClick={() => add()}>
+            Add videos
+          </ActionButton>
         </div>
       </div>
       {!!failures.length && (
         <div className="attention" role="status">
           {failures.length}{" "}
           {failures.length === 1 ? "video needs" : "videos need"} attention ·{" "}
-          <button onClick={() => navigate("History")}>Open History</button>
-          <button onClick={() => seen?.(failures.map((j) => j.id))}>
+          <ActionButton onClick={() => navigate("History")}>Open History</ActionButton>
+          <ActionButton onClick={() => seen?.(failures.map((j) => j.id))}>
             Dismiss
-          </button>
+          </ActionButton>
         </div>
       )}
       {problem && health?.last_error && (
@@ -330,7 +334,7 @@ export function HomePage({
                 "App"}
             </p>
             <div className="actions">
-              <button
+              <ActionButton
                 onClick={() =>
                   window.desktop.copy(
                     JSON.stringify(health.last_error, null, 2),
@@ -338,13 +342,13 @@ export function HomePage({
                 }
               >
                 Copy details
-              </button>
-              <button onClick={() => setProblem(false)}>Close</button>
+              </ActionButton>
+              <ActionButton onClick={() => setProblem(false)}>Close</ActionButton>
             </div>
           </div>
         </div>
       )}
-      {health?.deletion_notices?.filter(notice => !queue.jobs.some(job => job.id === notice.job_id)).map(notice => <div className="alert" role="status" key={notice.id}><p>{notice.result}</p><p>{notice.guard}</p><button onClick={() => window.desktop.reveal(notice.guard)}>Show in folder</button></div>)}
+      {health?.deletion_notices?.filter(notice => !queue.jobs.some(job => job.id === notice.job_id)).map(notice => <div className="alert" role="status" key={notice.id}><p>{notice.result}</p><p>{notice.guard}</p><ActionButton onClick={() => window.desktop.reveal(notice.guard)}>Show in folder</ActionButton></div>)}
       <div className="home-columns">
         <div>
           {current ? (
@@ -352,7 +356,7 @@ export function HomePage({
               <Thumbnail job={current} api={api} />
               <div className="now-details">
                 <p className="muted">
-                  {current.state === "running"
+                  {health?.paused_all || current.state === "paused" ? "Paused" : current.state === "running"
                     ? "Now processing"
                     : current.state === "preparing"
                       ? "Preparing…"
@@ -383,6 +387,7 @@ export function HomePage({
                   </p>
                 )}
                 <div className="finish-row">
+                  {(health?.paused_all || current.state === "paused") && <p>Paused. Finished parts are kept; the current part restarts (about {duration(current.part_seconds || 0)} of work).</p>}
                   <strong>
                     {current.state === "queued"
                       ? `Starts ${when(current.starts)}`
@@ -401,7 +406,7 @@ export function HomePage({
                   </p>
                 )}
                 <div className="actions">
-                  <button
+                  <ActionButton
                     title="Pause this video. The next one starts instead."
                     onClick={() =>
                       action(
@@ -411,18 +416,18 @@ export function HomePage({
                     }
                   >
                     {current.state === "paused" ? "Resume" : "Pause"}
-                  </button>
-                  <button
+                  </ActionButton>
+                  <ActionButton
                     disabled={!current.preview_ready}
                     onClick={() => preview(current)}
                   >
                     Preview result
-                  </button>
+                  </ActionButton>
                   <JobMenu
                     job={current}
                     action={action}
                     trial={trial}
-                    position={queue.jobs.indexOf(current) + 1}
+                    position={current.position || 1}
                   />
                 </div>
               </div>
@@ -431,9 +436,9 @@ export function HomePage({
             <div className="empty">
               <h2>Nothing in the queue.</h2>
               <p>Add a video to see when it will be ready.</p>
-              <button className="primary" onClick={() => add()}>
-                Add videos
-              </button>
+              <ActionButton onClick={() => add()}>
+                Add your first video
+              </ActionButton>
             </div>
           )}
           {!!next.length && (
@@ -461,7 +466,7 @@ export function HomePage({
                       );
                       if (moved)
                         action(moved, "move", {
-                          position: queue.jobs.indexOf(job) + 1,
+                          position: job.position || 1,
                         });
                     }}
                     onKeyDown={(e) => {
@@ -471,15 +476,15 @@ export function HomePage({
                       ) {
                         e.preventDefault();
                         const n =
-                          queue.jobs.indexOf(job) +
-                          (e.key === "ArrowUp" ? 0 : 2);
+                          (job.position || 1) +
+                          (e.key === "ArrowUp" ? -1 : 1);
                         if (n >= 1 && n <= queue.jobs.length)
                           action(job, "move", { position: n });
                       }
                     }}
                     tabIndex={0}
                   >
-                    <span aria-hidden="true">⋮⋮</span>
+                    <GripVertical size={16} aria-hidden="true" />
                     <Thumbnail job={job} api={api} small />
                     <div className="next-name">
                       <h2>{filename(job.input)}</h2>
@@ -509,22 +514,22 @@ export function HomePage({
                       job={job}
                       action={action}
                       trial={trial}
-                      position={queue.jobs.indexOf(job) + 1}
+                      position={job.position || 1}
                     />
                   </article>
                 ))}
               </div>
             </>
           )}
-          <button className="drop-zone" onClick={() => add()}>
+          <ActionButton className="drop-zone" onClick={() => add()}>
             + Drop videos anywhere in this window, or click to add
-          </button>
+          </ActionButton>
         </div>
         <div className="home-sidebar">
           <article className="card">
             <div className="section-heading">
               <h2>Your hours this week</h2>
-              <button onClick={() => navigate("Schedule")}>Edit hours</button>
+              <ActionButton onClick={() => navigate("Schedule")}>Edit hours</ActionButton>
             </div>
             {plan?.days.slice(0, 5).map((day) => (
               <div className="week-row" key={day.date}>
@@ -549,13 +554,13 @@ export function HomePage({
           <article className="card">
             <div className="section-heading">
               <h2>Recently finished</h2>
-              <button onClick={() => navigate("History")}>All history</button>
+              <ActionButton onClick={() => navigate("History")}>All history</ActionButton>
             </div>
             {recent.map((job) => (
               <div className="recent-row" key={job.id}>
                 <Thumbnail job={job} api={api} small />
                 <span>{filename(job.input)}</span>
-                <button onClick={() => action(job, "play")}>Open</button>
+                <ActionButton onClick={() => action(job, "play")}>Open</ActionButton>
               </div>
             ))}
           </article>
@@ -575,6 +580,8 @@ export function HistoryPage({
   const [search, setSearch] = useState(""),
     [filter, setFilter] = useState("All");
   const [selected, setSelected] = useState<string[]>([]);
+  const [selectMode, setSelectMode] = useState(false);
+  const [galleryWidth, setGalleryWidth] = useState(1000);
   const [clear, setClear] = useState(false);
   const [detail, setDetail] = useState<string>();
   const viewport = useRef<HTMLDivElement>(null);
@@ -582,7 +589,7 @@ export function HistoryPage({
   const [columns, setColumns] = useState(3);
   useEffect(() => {
     if (!viewport.current || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(entries => setColumns(Math.max(1, Math.floor((entries[0].contentRect.width + 16) / 256))));
+    const observer = new ResizeObserver(entries => { setGalleryWidth(entries[0].contentRect.width); setColumns(Math.max(1, Math.floor((entries[0].contentRect.width + 16) / 256))); });
     observer.observe(viewport.current);
     return () => observer.disconnect();
   }, []);
@@ -627,9 +634,19 @@ export function HistoryPage({
   let height = 0;
   for (const [label, jobs] of groups) {
     rows.push({ label, jobs: [], top: height, height: 32 }); height += 32;
-    for (let index = 0; index < jobs.length; index += columns) {
-      rows.push({ jobs: jobs.slice(index, index + columns), top: height, height: 300 }); height += 300;
+    let pending: Job[] = [], aspectSum = 0;
+    const flush = () => {
+      if (!pending.length) return;
+      const rowHeight = Math.min(200, (galleryWidth - (pending.length - 1) * 12) / aspectSum);
+      rows.push({ jobs: pending, top: height, height: rowHeight + 12 });
+      height += rowHeight + 12; pending = []; aspectSum = 0;
+    };
+    for (const job of jobs) {
+      const aspect = job.media.display_width / Math.max(1, job.media.display_height);
+      pending.push(job); aspectSum += aspect;
+      if (aspectSum * 200 + (pending.length - 1) * 12 >= galleryWidth) flush();
     }
+    flush();
   }
   const windowRows = rows.filter(row => row.top + row.height >= scroll - 300 && row.top < scroll + (viewport.current?.clientHeight || 450) + 300);
   useEffect(() => {
@@ -657,7 +674,7 @@ export function HistoryPage({
     <section aria-label="History">
       <div className="page-heading">
         <h1>History</h1>
-        <button disabled={!terminal.length} onClick={() => setClear(true)}>Clear history…</button>
+        <ActionButton disabled={!terminal.length} onClick={() => setClear(true)}>Clear history…</ActionButton>
         <input
           aria-label="Search by file name"
           placeholder="Search by file name"
@@ -665,96 +682,51 @@ export function HistoryPage({
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
-      {!!selected.length && <div className="toolbar">
+      {!selectMode && <ActionButton onClick={() => setSelectMode(true)}>Select</ActionButton>}
+      {selectMode && <div className="toolbar">
         <span>{selected.length} selected</span>
-        <button onClick={() => setSelected(visible.map(job => job.id))}>Select all</button>
-        <button onClick={() => { action(terminal.find(job => job.id === selected[0])!, "remove", { ids: selected }); setSelected([]); }}>Remove from history</button>
-        <button onClick={() => setSelected([])}>Done</button>
+        <ActionButton onClick={() => setSelected(visible.map(job => job.id))}>Select all</ActionButton>
+        <ActionButton disabled={!selected.length} onClick={() => action(terminal.find(job => job.id === selected[0])!, "remove", { ids: selected })}>Remove from history</ActionButton>
+        <ActionButton disabled={!selected.length} onClick={() => action(terminal.find(job => job.id === selected[0])!, "delete-files", { ids: selected })}>Delete video files…</ActionButton>
+        <ActionButton onClick={() => { setSelected([]); setSelectMode(false); }}>Cancel</ActionButton>
       </div>}
       <div className="filters">
         {["All", "Standard", "Fast", "Needs attention"].map((name) => (
-          <button
+          <ActionButton
             key={name}
             aria-pressed={filter === name}
             onClick={() => setFilter(name)}
           >
             {name} ({terminal.filter((j) => matches(j, name)).length})
-          </button>
+          </ActionButton>
         ))}
       </div>
       <div className="history-viewport" ref={viewport} onScroll={event => setScroll(event.currentTarget.scrollTop)}>
         {!visible.length && <p className="empty">{terminal.length ? "No videos match your search." : "No history yet."}</p>}
         <div style={{ height, position: "relative" }}>
-        {windowRows.map(row => row.label ? <h2 key={row.top} className="history-group" style={{ top: row.top }}>{row.label}</h2> : <div key={row.top} className="history-grid virtual-row" style={{ top: row.top, gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{row.jobs.map((job) => (
+        {windowRows.map(row => row.label ? <h2 key={row.top} className="history-group" style={{ top: row.top }}>{row.label}</h2> : <div key={row.top} className="history-grid virtual-row" style={{ top: row.top, height: row.height - 12, display: "flex", gap: 12 }}>{row.jobs.map((job) => (
             <article
               className="card history-card"
               key={job.id}
               data-job-id={job.id}
               data-failed={job.state === "failed"}
             >
-              <label className="check history-select"><input type="checkbox" aria-label={`Select ${filename(job.input)}`} checked={selected.includes(job.id)} onChange={event => setSelected(old => event.target.checked ? [...old, job.id] : old.filter(id => id !== job.id))} /></label>
-              <Thumbnail job={job} api={api} small />
-              <h2 title={filename(job.input)}><button className="history-name" onClick={() => setDetail(job.id)}>{filename(job.input)}</button></h2>
-              <p>{historyWhen(job.finished_at || job.eta)}</p>
-              <p>
-                {job.settings.preset === "standard" ? "Standard" : "Fast"}
-                {job.took_seconds !== undefined
-                  ? ` · took ${duration(job.took_seconds)}`
-                  : ""}
-                {job.output_bytes !== undefined
-                  ? ` · ${(job.output_bytes / 1_000_000).toFixed(0)} MB`
-                  : ""}
-              </p>
-              <p
-                className={
-                  job.state === "done"
-                    ? "success"
-                    : job.state === "failed"
-                      ? "warning-text"
-                      : "muted"
-                }
-              >
-                {job.state === "done"
-                  ? "Finished"
-                  : job.state === "failed"
-                    ? job.error?.startsWith("Needs attention:")
-                      ? job.error
-                      : `Needs attention: ${job.error || "processing could not finish"}`
-                    : job.cancel_cleanup ? "Cancelling…" : "Cancelled"}
-              </p>
-              {(job.output_state === "missing" || job.output_state === "recycled") && <p className="muted">Output: {job.output_state === "recycled" ? "Moved to the Recycle Bin" : "File not found"}</p>}
-              {(job.original_state === "missing" || job.original_state === "recycled") && <p className="muted">Original: {job.original_state === "recycled" ? "Moved to the Recycle Bin" : "File not found"}</p>}
-              {job.original_delete_result?.startsWith("Original kept:") && <p title={job.original_delete_result}>{job.original_delete_result}</p>}
-              <div className="actions">
-                {job.state === "done" ? (
-                  <>
-                    <button onClick={() => action(job, "play")}>Play</button>
-                    <button onClick={() => action(job, "folder")}>
-                      Show in folder
-                    </button>
-                  </>
-                ) : job.state === "failed" ? (
-                  <>
-                    <button onClick={() => action(job, "retry")}>Retry</button>
-                    <button onClick={() => action(job, "copy")}>
-                      Copy details
-                    </button>
-                  </>
-                ) : null}
-                <JobMenu job={job} action={action} trial={trial} />
-              </div>
+              <button className="history-image" aria-label={selectMode ? `Select ${filename(job.input)}` : filename(job.input)}
+                style={{ width: (row.height - 12) * job.media.display_width / Math.max(1, job.media.display_height), height: row.height - 12 }}
+                onClick={() => selectMode ? setSelected(old => old.includes(job.id) ? old.filter(id => id !== job.id) : [...old, job.id]) : setDetail(job.id)}>
+                <Thumbnail job={job} api={api} small />
+                {selectMode && <span className="history-select" aria-hidden="true">{selected.includes(job.id) && <Check size={16} strokeWidth={1.8} />}</span>}
+                <span className="history-scrim"><span className="history-filename" title={filename(job.input)}>{filename(job.input)}</span><span className="badge">{job.state === "done" ? "Done" : job.state === "failed" ? "Failed" : "Cancelled"}</span></span>
+              </button>
             </article>
           ))}</div>)}
         </div>
       </div>
-      {clear && <div className="modal-shade"><div className="dialog" role="dialog" aria-modal="true">
-        <h2>Clear history?</h2><p>Remove all finished, failed and cancelled records. Your video files stay as they are. This cannot be undone.</p>
-        <div className="dialog-actions"><button onClick={() => setClear(false)}>Keep history</button><button className="danger" onClick={() => { action(terminal[0], "clear-history"); setClear(false); }}>Clear history</button></div>
-      </div></div>}
+      {clear && <HistoryRemoval jobs={terminal} clear action={action} close={() => setClear(false)} />}
       {detail && queue.jobs.find(job => job.id === detail) && <HistoryDetail job={queue.jobs.find(job => job.id === detail)!} api={api} action={action} compare={trial} close={() => setDetail(undefined)} />}
       <p className="muted">
         Finished and failed jobs move here automatically. Removing an item from
-        History never deletes the video file.
+        History keeps files unless you explicitly choose to move them to the Recycle Bin.
       </p>
     </section>
   );

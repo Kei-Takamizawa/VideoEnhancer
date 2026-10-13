@@ -215,6 +215,8 @@ def predict_segment(
         raise ValueError("Frame count must be nonnegative and correction must be positive.")
     if frames == 0:
         return 0.0
+    if (profile or {}).get("live_seconds_per_frame"):
+        return frames * float((profile or {})["live_seconds_per_frame"])
     delta, _ = model_delta(settings, profile)
     from videoenhancer.models.registry import C1, RIFE
 
@@ -293,7 +295,19 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
     correction = float(manifest.get("correction_factor", 1.0))
     media, settings = manifest.get("media", {}), manifest.get("settings", {})
     seconds = sum(
-        predict_segment(media, settings, int(s["end"]) - int(s["start"]), profile, correction)
+        predict_segment(
+            media,
+            settings,
+            int(s["end"]) - int(s["start"]),
+            profile
+            if s.get("state") == "running"
+            else {
+                key: value
+                for key, value in (profile or {}).items()
+                if key != "live_seconds_per_frame"
+            },
+            correction,
+        )
         * remaining_fraction(manifest, s)
         for s in manifest.get("segments", [])
         if s.get("state", "pending") != "done"
@@ -302,6 +316,10 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
         phase = manifest.get("progress", {})
         fraction = min(1.0, max(0.0, float(phase.get("finalization_fraction", 0))))
         seconds += predict_finalization(manifest, profile) * (1 - fraction)
+    if manifest.get("state") in {"queued", "preparing"} and not manifest.get("analysis_seconds"):
+        seconds += float((profile or {}).get("analysis_seconds_per_frame", 0)) * int(
+            media.get("frame_count", 0)
+        )
     ratios = _ratios(manifest)
     uncertainty = 0.25
     if len(ratios) >= 2:
@@ -390,10 +408,14 @@ def predict_finalization(manifest: dict[str, Any], profile: dict[str, Any] | Non
     if not math.isfinite(correction) or correction <= 0:
         raise ValueError("Finalization correction must be finite and positive.")
     return (
-        float(coefficients["a"])
-        + float(coefficients["b"]) * size
-        + float(coefficients["c"]) * frames
-    ) * correction
+        (
+            float(coefficients["a"])
+            + float(coefficients["b"]) * size
+            + float(coefficients["c"]) * frames
+        )
+        * correction
+        * 1.15
+    )
 
 
 def remaining_fraction(manifest: dict[str, Any], segment: dict[str, Any]) -> float:

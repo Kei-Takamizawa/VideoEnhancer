@@ -1,5 +1,8 @@
+import { Check } from "lucide-react";
+import { ActionButton } from "./ActionButton";
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "./api";
+import { duration } from "./api";
 import type { Health, Model, Operation, Settings } from "./types";
 
 export function timelineHour(value: string, date: string, timezone: string) {
@@ -27,6 +30,16 @@ export function OperationStatus({
   operation: Operation;
   cancel?(): void;
 }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (operation.state !== "waiting") return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [operation.state]);
+  const expected = operation.remaining_seconds || 1;
+  const elapsed = operation.created_at ? Math.max(0, (now - new Date(operation.created_at).getTime()) / 1000) : 0;
+  const remaining = operation.state === "waiting" ? Math.max(0, expected - elapsed) : operation.remaining_seconds;
+  const percent = operation.state === "waiting" ? Math.min(95, elapsed / expected * 100) : operation.percent;
   return (
     <div
       className={operation.state === "failed" ? "error" : "operation"}
@@ -37,17 +50,17 @@ export function OperationStatus({
         {operation.state}
       </strong>
       <p>{operation.error || operation.phase}</p>
-      {operation.percent !== undefined && operation.state === "running" && (
+      {remaining !== undefined && ["waiting", "running"].includes(operation.state) && <p className="time-left">{duration(remaining)} left</p>}
+      {percent !== undefined && ["waiting", "running"].includes(operation.state) && (
         <progress
           aria-label="Operation progress"
           max="100"
-          value={operation.percent}
+          value={percent}
         />
       )}
       {["waiting", "running"].includes(operation.state) && (
         <>
-          <progress aria-label={`${operation.kind} in progress`} />
-          {cancel && <button onClick={cancel}>Cancel</button>}
+          {cancel && <ActionButton onClick={cancel}>Cancel</ActionButton>}
         </>
       )}
       {operation.result?.weights_verified && (
@@ -86,7 +99,6 @@ export function ModelsPage({
   const [removal, setRemoval] = useState<Model>();
   const [error, setError] = useState("");
   const [category, setCategory] = useState("cleanup");
-  const [menu, setMenu] = useState<string>();
   const [details, setDetails] = useState<Model>();
   const group = (model: Model) =>
     model.catalog?.category ||
@@ -98,7 +110,7 @@ export function ModelsPage({
           <h1>Models</h1>
           <p>Choose verified models and review their licences.</p>
         </div>
-        <button
+        <ActionButton
           onClick={async () => {
             try {
               const folder = (await window.desktop.files("folder"))[0];
@@ -113,10 +125,10 @@ export function ModelsPage({
           }}
         >
           Add my own model…
-        </button>
-        <button disabled={!compare} onClick={compare}>
+        </ActionButton>
+        <ActionButton disabled={!compare} onClick={compare}>
           Compare on my video
-        </button>
+        </ActionButton>
       </div>
       <p>
         <a
@@ -138,20 +150,19 @@ export function ModelsPage({
           ["motion", "Smoother motion"],
           ["size", "Bigger picture"],
         ].map(([key, label]) => (
-          <button
+          <ActionButton
             key={key}
             aria-pressed={category === key}
             onClick={() => {
               setCategory(key);
-              setMenu(undefined);
             }}
           >
             {label} ·{" "}
             {(key === "size" ? 1 : 0) +
               models.filter((m) => group(m) === key).length}
-          </button>
+          </ActionButton>
         ))}
-        <button disabled>Faces · coming later</button>
+        <ActionButton disabled>Faces · coming later</ActionButton>
       </div>
       <div className="model-grid">
         {category === "size" && (
@@ -177,16 +188,16 @@ export function ModelsPage({
               </div>
             </dl>
             <p>No download</p>
-            <button disabled>Installed</button>
+            <ActionButton disabled>Installed</ActionButton>
             {settings?.size_model && (
-              <button
+              <ActionButton
                 onClick={async () => {
                   await api.call("settings", "PUT", { size_model: "" });
                   refresh();
                 }}
               >
                 Make it my default
-              </button>
+              </ActionButton>
             )}
           </article>
         )}
@@ -207,20 +218,6 @@ export function ModelsPage({
                 : m.task === "size"
                   ? ""
                   : "rife-4.25");
-            const reference = c?.reference_speed;
-            const speed =
-              m.architecture === "drunet"
-                ? reference?.variants?.[settings?.restore_strength || "medium"] || reference
-                : reference;
-            const label = speed
-              ? speed.fps >= 30
-                ? "Fast"
-                : speed.fps >= 10
-                  ? "Medium"
-                  : speed.fps >= 2
-                    ? "Slow"
-                    : "Very slow"
-              : "Not measured here";
             const operation = [...operations]
               .reverse()
               .find(
@@ -231,142 +228,17 @@ export function ModelsPage({
               );
             const downloading = operation?.kind === "download" && ["running", "waiting"].includes(operation.state);
             return (
-              <article className="card model-card" key={m.id}>
-                <div className="model-title">
-                  <h2>{c?.title || m.display_name}</h2>
-                  <button
-                    aria-label={`Actions for ${c?.title || m.display_name}`}
-                    aria-expanded={menu === m.id}
-                    onClick={() => setMenu(menu === m.id ? undefined : m.id)}
-                  >
-                    ⋯
-                  </button>
+              <article className="card model-card" key={m.id} role="button" tabIndex={0} aria-label={`Details for ${c?.title || m.display_name}`}
+                onClick={() => setDetails(m)} onKeyDown={event => { if (event.target === event.currentTarget && ["Enter", " "].includes(event.key)) { event.preventDefault(); setDetails(m); } }}>
+                <h2>{c?.title || m.display_name}</h2>
+                <p className="muted">{c?.summary || c?.description || "A model you added. Review its details before use."}</p>
+                {m.weights_verified && !downloading && <span className="installed-check"><Check size={14} aria-hidden="true" /> Installed</span>}
+                <div onClick={event => event.stopPropagation()}>
+                  {downloading ? <div className="download-progress"><span>{Math.floor(operation.percent || 0)}% · {operation.remaining_seconds !== undefined ? `${duration(operation.remaining_seconds)} left` : operation.phase}</span><progress aria-label={`Downloading ${c?.title || m.display_name}`} max={100} value={operation.percent || 0} /><ActionButton onClick={() => operate(`operations/${operation.id}/cancel`)}>Cancel</ActionButton></div>
+                  : m.weights_verified ? <ActionButton className="danger" disabled={!!m.uninstall_reason || defaultId === m.id} title={m.uninstall_reason || (defaultId === m.id ? "Choose another default before uninstalling this model." : "Uninstall this model")} onClick={() => { setRemoval(m); setError(""); }}>Uninstall</ActionButton>
+                  : <ActionButton className="primary" onClick={() => setConsent(m)}>Install</ActionButton>}
                 </div>
-                <p className="muted">
-                  {m.display_name} · {m.architecture}
-                </p>
-                {defaultId === m.id && <span className="badge">Default</span>}
-                <p>
-                  {c?.summary || c?.description ||
-                    "A model you added. Review its details before use."}
-                </p>
-                {m.architecture === "drunet" && (
-                  <label>
-                    Strength
-                    <select
-                      value={settings?.restore_strength || "medium"}
-                      onChange={async (e) => {
-                        await api.call("settings", "PUT", {
-                          restore_strength: e.target.value,
-                        });
-                        refresh();
-                      }}
-                    >
-                      <option value="light">Light</option>
-                      <option value="medium">Medium</option>
-                      <option value="strong">Strong</option>
-                    </select>
-                  </label>
-                )}
-                <dl className="model-facts">
-                  <div>
-                    <dt>Speed</dt>
-                    <dd
-                      title={
-                        speed
-                          ? `About ${(30 / speed.fps).toFixed(1)} h per hour of 30 fps video · ${reference?.gpu}`
-                          : "No qualifying measurement on this computer yet"
-                      }
-                    >
-                      {label}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Changes the look</dt>
-                    <dd>
-                      {c?.look_change.replaceAll("_", " ") || "Not specified"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Licence</dt>
-                    <dd>{c?.licence_plain || m.licence}</dd>
-                  </div>
-                </dl>
-                <p>
-                  {m.size_bytes
-                    ? `${(m.size_bytes / 1e6).toFixed(1)} MB`
-                    : "Not downloaded"}{" "}
-                  ·{" "}
-                  {m.weights_verified
-                    ? "SHA-256 verified"
-                    : "Weights not verified"}
-                </p>
-                {downloading ? (
-                  <div className="download-progress">
-                    <span>{operation.percent === undefined ? "Downloading…" : `Downloading ${Math.floor(operation.percent)}%`}</span>
-                    <span className="muted">{operation.phase}</span>
-                    <progress aria-label={`Downloading ${c?.title || m.display_name}`} max={100} value={operation.percent} />
-                    <button onClick={() => operate(`operations/${operation.id}/cancel`)}>Cancel</button>
-                  </div>
-                ) : m.weights_verified ? (
-                  <button disabled>Installed</button>
-                ) : m.builtin ? (
-                  <button className="primary" onClick={() => setConsent(m)}>
-                    Install
-                  </button>
-                ) : (
-                  <button onClick={() => operate(`models/${m.id}/verify`)}>
-                    Verify again
-                  </button>
-                )}
-                {operation && !downloading && <OperationStatus operation={operation} cancel={operation.state === "running" || operation.state === "waiting" ? () => operate(`operations/${operation.id}/cancel`) : undefined} />}
-                {menu === m.id && (
-                  <div className="model-menu" role="menu">
-                    <button
-                      role="menuitem"
-                      disabled={!m.weights_verified}
-                      onClick={async () => {
-                        try {
-                          await api.call("settings", "PUT", { [key]: m.id });
-                          refresh();
-                          setMenu(undefined);
-                        } catch (e) {
-                          setError((e as Error).message);
-                        }
-                      }}
-                    >
-                      Make it my default
-                    </button>
-                    <button
-                      role="menuitem"
-                      onClick={() => {
-                        operate(`models/${m.id}/verify`);
-                        setMenu(undefined);
-                      }}
-                    >
-                      Verify again
-                    </button>
-                    <button
-                      role="menuitem"
-                      onClick={() => {
-                        setDetails(m);
-                        setMenu(undefined);
-                      }}
-                    >
-                      Details
-                    </button>
-                    <button
-                      role="menuitem"
-                      onClick={() => {
-                        setRemoval(m);
-                        setError("");
-                        setMenu(undefined);
-                      }}
-                    >
-                      Remove…
-                    </button>
-                  </div>
-                )}
+                {operation?.state === "failed" && <p className="error">{operation.error || "Install failed. Open details for the full log."}</p>}
               </article>
             );
           })}
@@ -386,7 +258,7 @@ export function ModelsPage({
             <p className="break">
               Source: {details.weights.url ? new URL(details.weights.url).hostname : "Added from a local folder"}
             </p>
-            <p>SHA-256: {details.weights.sha256.slice(0, 12)}… <button onClick={() => window.desktop.copy(details.weights.sha256)}>Copy</button></p>
+            <p>SHA-256: {details.weights.sha256.slice(0, 12)}… <ActionButton onClick={() => window.desktop.copy(details.weights.sha256)}>Copy</ActionButton></p>
             <p>
               {details.catalog?.reference_speed
                 ? `${details.catalog.reference_speed.fps.toFixed(2)} fps · sampled process peak ${details.catalog.reference_speed.peak_memory_gb.toFixed(2)} GB · ${details.catalog.reference_speed.gpu} · ${details.catalog.reference_speed.mode || "standard"} · tile ${details.catalog.reference_speed.tile_size || "none"}, overlap ${details.catalog.reference_speed.tile_overlap || 0}`
@@ -399,7 +271,11 @@ export function ModelsPage({
               {details.catalog?.invents_detail || "Not specified"} · Flicker:{" "}
               {details.catalog?.flicker || "Not specified"}
             </p>
-            <button onClick={() => setDetails(undefined)}>Close</button>
+            {details.architecture === "drunet" && <label>Strength<select value={settings?.restore_strength || "medium"} onChange={async event => { await api.call("settings", "PUT", { restore_strength: event.target.value }); refresh(); }}><option value="light">Light</option><option value="medium">Medium</option><option value="strong">Strong</option></select></label>}
+            <div className="actions"><ActionButton disabled={!details.weights_verified} onClick={async () => { const key = details.task === "restore" ? "restore_model" : details.task === "size" ? "size_model" : "interp_model"; await api.call("settings", "PUT", { [key]: details.id }); refresh(); }}>Make it my default</ActionButton>
+            <ActionButton onClick={() => operate(`models/${details.id}/verify`)}>Verify again</ActionButton></div>
+            {operations.filter(operation => operation.request?.model_id === details.id && operation.state === "failed").map(operation => <OperationStatus key={operation.id} operation={operation} />)}
+            <ActionButton onClick={() => setDetails(undefined)}>Close</ActionButton>
           </div>
         </div>
       )}
@@ -427,8 +303,8 @@ export function ModelsPage({
             </p>
             <div className="dialog-actions">
               <label className="check"><input type="checkbox" checked={accepted} onChange={event => setAccepted(event.target.checked)} />I accept this licence</label>
-              <button onClick={() => setConsent(undefined)}>Cancel</button>
-              <button
+              <ActionButton onClick={() => setConsent(undefined)}>Cancel</ActionButton>
+              <ActionButton
                 className="primary"
                 disabled={!accepted}
                 onClick={() => {
@@ -440,7 +316,7 @@ export function ModelsPage({
                 }}
               >
                 Accept licence and download
-              </button>
+              </ActionButton>
             </div>
           </div>
         </div>
@@ -448,7 +324,7 @@ export function ModelsPage({
       {removal && (
         <div className="modal-shade">
           <div className="dialog" role="dialog" aria-modal="true">
-            <h2>{error ? "This model is needed" : `Remove ${removal.catalog?.title || removal.display_name}?`}</h2>
+            <h2>{error ? "This model is needed" : `Uninstall ${removal.catalog?.title || removal.display_name}?`}</h2>
             {error && <p role="alert">{error}</p>}
             <p>
               This removes the model weights from this computer. Videos already
@@ -456,8 +332,8 @@ export function ModelsPage({
               removed.
             </p>
             <div className="dialog-actions">
-              <button onClick={() => setRemoval(undefined)}>Keep model</button>
-              <button
+              <ActionButton onClick={() => setRemoval(undefined)}>Keep model</ActionButton>
+              <ActionButton
                 className="danger"
                 onClick={async () => {
                   try {
@@ -470,7 +346,7 @@ export function ModelsPage({
                 }}
               >
                 Remove model
-              </button>
+              </ActionButton>
             </div>
           </div>
         </div>
@@ -486,6 +362,8 @@ export function SettingsPage({
   saved,
   calibrate,
   operation,
+  tour,
+  appearance,
 }: {
   api: Api;
   value: Settings;
@@ -493,6 +371,8 @@ export function SettingsPage({
   saved(): void;
   calibrate(): void;
   operation?: Operation;
+  tour?(): void;
+  appearance?(theme: string): void;
 }) {
   const [draft, setDraft] = useState(value);
   const [error, setError] = useState("");
@@ -511,6 +391,7 @@ export function SettingsPage({
         const editable = { ...draft };
         delete editable.seen_failures;
         delete editable.tray_explained;
+        delete editable.tour_completed;
         await api.call("settings", "PUT", editable);
         if (currentDraft.current === draft) {
           dirty.current = false;
@@ -523,18 +404,25 @@ export function SettingsPage({
     return () => clearTimeout(timer);
   }, [api, draft]);
   const change = (key: keyof Settings, value: string | boolean | number) => {
+    if (key === "theme") {
+      const theme = String(value);
+      appearance?.(theme);
+      document.documentElement.dataset.theme = theme === "system"
+        ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : theme;
+      void window.desktop.theme?.(theme);
+    }
     dirty.current = true;
     setDraft(old => ({ ...old, [key]: value }));
   };
   return (
     <section className="settings-page">
-      <div className="page-heading"><h1>Settings</h1><span role="status">{message}</span></div>
+      <div className="page-heading"><h1>Settings</h1><ActionButton onClick={tour}>Show the tour again</ActionButton><span role="status">{message}</span></div>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="settings-columns">
         <div>
           <article className="card">
             <h2>Defaults for new videos</h2>
-            <label>Save to<div className="input-button"><input aria-label="Default output folder" value={draft.output_folder} placeholder="Next to the original, in enhanced" onChange={event => change("output_folder", event.target.value)} /><button onClick={async () => { const folder = (await window.desktop.files("folder"))[0]; if (folder) change("output_folder", folder); }}>Choose…</button></div></label>
+            <label>Save to<div className="input-button"><input aria-label="Default output folder" value={draft.output_folder} placeholder="Next to the original, in enhanced" onChange={event => change("output_folder", event.target.value)} /><ActionButton onClick={async () => { const folder = (await window.desktop.files("folder"))[0]; if (folder) change("output_folder", folder); }}>Choose…</ActionButton></div></label>
             <div className="form-grid">
               <label>Default mode<select value={draft.preset} onChange={event => change("preset", event.target.value)}><option value="standard">Standard</option><option value="fast">Fast</option></select></label>
               <label>Default size<select value={draft.short_side} onChange={event => change("short_side", event.target.value === "keep" ? "keep" : Number(event.target.value))}><option value="keep">Keep</option>{[1080,1440,2160].map(size => <option key={size} value={size}>{size}p</option>)}</select></label>
@@ -554,7 +442,7 @@ export function SettingsPage({
             </div><p className="muted">Above 100%, small windows can scroll.</p>
             <label className="check"><input type="checkbox" checked={draft.start_with_windows} onChange={event => change("start_with_windows", event.target.checked)} />Start with Windows (hidden in tray)</label>
           </article>
-          <article className="card"><h2>Diagnostics</h2><label>Log folder<div className="input-button"><input value={draft.log_folder} placeholder={health?.home || "Engine home"} onChange={event => change("log_folder", event.target.value)} /><button onClick={() => window.desktop.openFolder(draft.log_folder || health?.home || "").catch(error => setError(error.message))}>Open</button></div></label><div className="toolbar"><button onClick={calibrate} disabled={operation?.state === "running" || operation?.state === "waiting"}>Run speed calibration{health?.speed_profile?.calibration_minutes ? ` (about ${health.speed_profile.calibration_minutes} min)` : ""}</button><button onClick={() => window.desktop.copy(JSON.stringify({ health, settings: draft }, null, 2)).then(() => setMessage("Diagnostics copied."))}>Copy diagnostics</button></div>{health?.speed_profile && <p>{health.speed_profile.source === "builtin" ? "Using the built-in speed profile." : health.speed_profile.source === "measured" ? "Using this PC’s measured speed profile." : "No speed profile for this GPU. Estimates are uncalibrated."}</p>}{health?.speed_profile?.driver_note && <p>{health.speed_profile.driver_note}</p>}{operation && <OperationStatus operation={operation} cancel={["running", "waiting"].includes(operation.state) ? () => api.call(`operations/${operation.id}/cancel`, "POST").catch(error => setError(error.message)) : undefined} />}</article>
+          <article className="card"><h2>Diagnostics</h2><label>Log folder<div className="input-button"><input value={draft.log_folder} placeholder={health?.home || "Engine home"} onChange={event => change("log_folder", event.target.value)} /><ActionButton onClick={() => window.desktop.openFolder(draft.log_folder || health?.home || "").catch(error => setError(error.message))}>Open</ActionButton></div></label><div className="toolbar"><ActionButton onClick={calibrate} disabled={operation?.state === "running" || operation?.state === "waiting"}>Run speed calibration{health?.speed_profile?.calibration_minutes ? ` (about ${health.speed_profile.calibration_minutes} min)` : ""}</ActionButton><ActionButton onClick={() => window.desktop.copy(JSON.stringify({ health, settings: draft }, null, 2)).then(() => setMessage("Diagnostics copied."))}>Copy diagnostics</ActionButton></div>{health?.speed_profile && <p>{health.speed_profile.source === "builtin" ? "Using the built-in speed profile." : health.speed_profile.source === "measured" ? "Using this PC’s measured speed profile." : "No speed profile for this GPU. Estimates are uncalibrated."}</p>}{health?.speed_profile?.driver_note && <p>{health.speed_profile.driver_note}</p>}{operation && <OperationStatus operation={operation} cancel={["running", "waiting"].includes(operation.state) ? () => api.call(`operations/${operation.id}/cancel`, "POST").catch(error => setError(error.message)) : undefined} />}</article>
           <article className="card"><h2>About</h2><p>VideoEnhancer {health?.version || "0.1.0"} · Windows 11 · MIT licence</p><p>{health?.gpu || "Detecting GPU…"} · Driver {health?.driver || "unknown"}{health?.vram_bytes ? ` · ${(health.vram_bytes / 1e9).toFixed(1)} GB VRAM` : ""}</p><p className="muted">Your videos stay on this computer. No telemetry or automatic updates. Models have their own licences.</p></article>
         </div>
       </div>

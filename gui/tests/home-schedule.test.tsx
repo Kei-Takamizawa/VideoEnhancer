@@ -153,7 +153,7 @@ describe("Home and History", () => {
     );
     expect(seen).toHaveBeenCalledWith([failed.id]);
     fireEvent.click(
-      screen.getByRole("button", { name: "Actions for locked.mp4" }),
+      screen.getByRole("button", { name: "locked.mp4" }),
     );
     expect(screen.getByRole("button", { name: "Compare again" })).toBeTruthy();
   });
@@ -215,9 +215,11 @@ describe("Home and History", () => {
     const action = vi.fn();
     render(<HistoryPage queue={queue} action={action} trial={vi.fn()} />);
     expect(screen.queryByText("synthetic.mp4")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "locked.mp4" }));
     expect(screen.getByText(failed.error!)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(action).toHaveBeenCalledWith(failed, "retry");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     fireEvent.change(
       screen.getByRole("textbox", { name: "Search by file name" }),
       { target: { value: "missing" } },
@@ -254,7 +256,7 @@ describe("Schedule week", () => {
     const call = vi.fn(async () => ({ plan }));
     render(<ScheduleView api={{ call } as unknown as Api} value={{ ...schedule, enabled: false }} plan={plan} jobs={[]} applied={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Every night 22:00–08:00" }));
-    expect((screen.getByRole("checkbox", { name: "Only work during my hours" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("switch", { name: "Work only during these hours" }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "All day" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("schedule", "PUT", expect.objectContaining({ weekly: [expect.objectContaining({ start: "00:00", end: "00:00" })] })), { timeout: 2000 });
     expect(screen.queryByRole("button", { name: "Custom…" })).toBeNull();

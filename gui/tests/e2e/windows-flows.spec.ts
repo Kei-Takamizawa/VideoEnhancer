@@ -134,7 +134,7 @@ test("owner Windows: packaged GPU flows create no extra visible console windows"
           filePaths: [file],
         });
       }, input);
-      await page.getByRole("button", { name: "+ Add videos" }).click();
+      await page.getByRole("button", { name: "Add videos" }).click();
       await page.getByRole("button", { name: new RegExp(`^${mode}`) }).click();
       await page.getByRole("button", { name: "Add to queue" }).click();
       await expect

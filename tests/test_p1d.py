@@ -87,7 +87,7 @@ def test_history_undo_expiry_and_clear_keep_video_files(tmp_path, monkeypatch):
 
     class Timer:
         def __init__(self, seconds, callback):
-            assert seconds == 10
+            assert seconds == pytest.approx(10)
             callbacks.append(callback)
 
         def start(self):
@@ -111,7 +111,11 @@ def test_history_undo_expiry_and_clear_keep_video_files(tmp_path, monkeypatch):
     assert not engine.store.list_jobs()
     _job(engine.store, tmp_path)
     engine.store.set_state(job["id"], "failed")
-    engine.dispatch("POST", ["history", "clear"], {})
+    result = engine.dispatch("POST", ["history", "clear"], {})
+    assert result["undo_seconds"] == 10
+    assert not engine.queue()["jobs"]
+    tick[0] += 10
+    callbacks[-1]()
     assert not engine.store.list_jobs()
     engine.close()
 
@@ -451,7 +455,7 @@ def test_service_trial_percent_history_has_progress_and_terminal_sample(tmp_path
                 raise subprocess.TimeoutExpired("fixture", timeout)
 
     monkeypatch.setattr("videoenhancer.service.engine.proc.Popen", lambda *_a, **_k: Process())
-    ticks = iter([0, 0, 0, 3, 3, 4])
+    ticks = iter([0, 0, 0, 3, 3, 4, 4, 4])
     monkeypatch.setattr("videoenhancer.service.engine.time.monotonic", lambda: next(ticks))
     engine._run_operation(op)
     assert [sample["percent"] for sample in op["percent_history"]] == [0, 40, 100]
