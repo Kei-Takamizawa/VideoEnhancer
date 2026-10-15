@@ -138,7 +138,7 @@ Final run completed all 8 parts: part sum 1218.317415 s, finalization 1.813458 s
 | D2 CUDA | PASS: 3 hard crashes, all 10800 ten-bit frame hashes identical, no temporary files, 146.937 s |
 | Final GPU retry | PASS: 35/35, 1747.71 s, explicit file log and JUnit XML, no skips |
 | Prior GPU container recovery | 66 completed cases with output and no entry in completed pytest failure cache; combined coverage 101 GPU cases, not a captured single-run 101-PASS terminal summary |
-| Corrected-source Windows/Ubuntu CI | PASS: 4/4 push/PR matrix jobs on d1d54ad; report-only head verified separately |
+| Corrected-source Windows/Ubuntu CI | PASS: 4/4 push/PR matrix jobs on d1d54ad; final report/test-only head verified separately |
 
 Earlier test runs are not silently replaced by passes:
 
@@ -352,4 +352,8 @@ Corrected the optional dependency to runtime `import_module`, preserving lazy mo
 
 Push matrix results: Windows CPU 420 PASS/4 SKIP/101 GPU deselected, 948.70 s; Ubuntu CPU 419 PASS/5 SKIP/101 GPU deselected, 402.80 s; GUI units 42 PASS on both; Windows Electron 6 PASS/7 opt-in SKIP, 1.9 min. Ruff, format, Pyright, lint, typecheck and build all PASS. Windows CPU emitted one CUDA-device-count warning on its no-GPU runner; setup actions emitted Node deprecation warnings and the GUI retained the documented chunk-size warning. These are warnings, not GPU evidence.
 
-This final CI-result update changes only this report. Its report-only head will also run the same four checks; final-head status and exact SHA are verified in the final delivery and saved outside Git under the evidence root, avoiding a self-referential report commit. The worktree was clean after the source push; origin/main remains efb45e307d65a9a6e0af4b37f95dd786acdd32c6, already an ancestor. No merge was needed. No further implementation or optimization cycle was started.
+The subsequent report-only head `dc025804daa81c3ba855fe9566fec75e4685a029` exposed a test timing assumption: Ubuntu push CI had 418 PASS/1 FAIL/5 SKIP, with `test_cpu_queue_sse_controls_and_completed_output` expecting the first cached SSE snapshot to contain newly added jobs. The Ubuntu PR job passed. Failed job log: https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38746899152/job/116462795637 .
+
+Publication intentionally refreshes asynchronously about every 0.5 seconds, so the first snapshot may precede a completed mutation. The integration test now waits up to 5 seconds for an update containing both jobs, and requires exactly two rows before accepting all-done (avoiding vacuous truth on an empty queue). No service/runtime behavior changed. Related service/P1e2 tests: 29 PASS, 49.01 s; the affected HTTP/SSE integration then passed five fresh-home repetitions (16.10/15.04/16.02/15.02/15.13 s). Ruff/format/Pyright PASS. This is a correction of a test assumption, not a retry that hides the failed run.
+
+The final commit contains only this report and that integration-test correction relative to the previously checked source. Its four final-head checks and exact SHA are verified in the final delivery and saved outside Git under the evidence root, avoiding a self-referential report commit. The worktree was clean after the source push; origin/main remains efb45e307d65a9a6e0af4b37f95dd786acdd32c6, already an ancestor. No merge was needed. No further implementation or optimization cycle was started.

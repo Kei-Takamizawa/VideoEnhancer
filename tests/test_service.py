@@ -109,6 +109,14 @@ def test_cpu_queue_sse_controls_and_completed_output(api, video_factory):
     with request("events") as events:
         assert events.readline() == b"event: update\n"
         payload = json.loads(events.readline().decode().removeprefix("data: "))
+        # SSE can first return the previous snapshot while publication catches up.
+        deadline = time.monotonic() + 5
+        while len(payload["queue"]["jobs"]) != 2 and time.monotonic() < deadline:
+            line = events.readline()
+            if line.startswith(b"data: "):
+                update = json.loads(line[6:])
+                if "queue" in update:
+                    payload = update
         assert len(payload["queue"]["jobs"]) == 2
         engine.worker.start()
         deadline = time.monotonic() + 30
@@ -120,7 +128,7 @@ def test_cpu_queue_sse_controls_and_completed_output(api, video_factory):
                 if "queue" not in packet:
                     continue
                 rows = packet["queue"]["jobs"]
-                if all(j["state"] == "done" for j in rows):
+                if len(rows) == 2 and all(j["state"] == "done" for j in rows):
                     finished = True
                     assert all(j["progress_percent"] == 100 for j in rows)
                     break
