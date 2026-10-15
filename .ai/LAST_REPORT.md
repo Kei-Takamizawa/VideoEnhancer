@@ -138,7 +138,7 @@ Final run completed all 8 parts: part sum 1218.317415 s, finalization 1.813458 s
 | D2 CUDA | PASS: 3 hard crashes, all 10800 ten-bit frame hashes identical, no temporary files, 146.937 s |
 | Final GPU retry | PASS: 35/35, 1747.71 s, explicit file log and JUnit XML, no skips |
 | Prior GPU container recovery | 66 completed cases with output and no entry in completed pytest failure cache; combined coverage 101 GPU cases, not a captured single-run 101-PASS terminal summary |
-| Final-head Windows/Ubuntu CI | Added after push below |
+| Corrected-source Windows/Ubuntu CI | PASS: 4/4 push/PR matrix jobs on d1d54ad; report-only head verified separately |
 
 Earlier test runs are not silently replaced by passes:
 
@@ -348,4 +348,8 @@ Evidence: `D:\VideoEnhancer-P1e-2\speed-1\results.json`, `D:\VideoEnhancer-P1e-2
 
 Implementation commit `d51a2a6dc21e7635d48874b6c5825f606417b417` was pushed and its remote SHA verified. Initial push/PR CI failed on all four Windows/Ubuntu jobs at Pyright: the CPU environment does not install optional `gdown`, and the new Drive helper imported it directly. Logs: https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38742996096 and https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38743003081 .
 
-Corrected the optional dependency to runtime `import_module`, preserving lazy model-download behavior without adding a mandatory dependency. Ruff/format/Pyright passed; related CPU tests passed 54/54 (2 GPU deselected), 58.78 s. This import-only correction does not change inference/encoding. The preceding 421-test full CPU run and GPU measurements remain scoped to the implementation before this import correction; fresh CI on the corrected source is required below. PR remains draft; no merge. Corrected-source CI is pending.
+Corrected the optional dependency to runtime `import_module`, preserving lazy model-download behavior without adding a mandatory dependency. Ruff/format/Pyright passed; related CPU tests passed 54/54 (2 GPU deselected), 58.78 s. This import-only correction does not change inference/encoding. The preceding 421-test full CPU run and GPU measurements remain scoped to the implementation before this import correction; fresh CI on the corrected source is required below. PR remains draft; no merge. Corrected source `d1d54ad373de3af9ce640538221cb47d2f83f817`: PASS 4/4 jobs (push and pull_request x Windows and Ubuntu). Push run: https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38743617701 . PR run: https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38743625955 .
+
+Push matrix results: Windows CPU 420 PASS/4 SKIP/101 GPU deselected, 948.70 s; Ubuntu CPU 419 PASS/5 SKIP/101 GPU deselected, 402.80 s; GUI units 42 PASS on both; Windows Electron 6 PASS/7 opt-in SKIP, 1.9 min. Ruff, format, Pyright, lint, typecheck and build all PASS. Windows CPU emitted one CUDA-device-count warning on its no-GPU runner; setup actions emitted Node deprecation warnings and the GUI retained the documented chunk-size warning. These are warnings, not GPU evidence.
+
+This final CI-result update changes only this report. Its report-only head will also run the same four checks; final-head status and exact SHA are verified in the final delivery and saved outside Git under the evidence root, avoiding a self-referential report commit. The worktree was clean after the source push; origin/main remains efb45e307d65a9a6e0af4b37f95dd786acdd32c6, already an ancestor. No merge was needed. No further implementation or optimization cycle was started.
