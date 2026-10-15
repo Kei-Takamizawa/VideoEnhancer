@@ -209,8 +209,9 @@ def test_saved_schedule_used_by_controller_with_fake_clock(api, monkeypatch, vid
     assert observed and observed[0].hour == 9
 
 
-def test_model_download_requires_consent(api):
+def test_model_download_requires_consent(api, monkeypatch):
     engine, _, request = api
+    monkeypatch.setattr(engine, "_download_network", lambda op: None)
     with request("models") as response:
         model = json.load(response)[0]
     with pytest.raises(urllib.error.HTTPError) as error:
@@ -219,6 +220,6 @@ def test_model_download_requires_consent(api):
     with request(
         f"models/{model['id']}/download", "POST", {"agree": True, "licence": model["licence"]}
     ) as response:
-        assert json.load(response)["state"] == "waiting"
+        assert json.load(response)["state"] == "running"
     consent = json.loads((engine.home / "consent" / f"{model['id']}.json").read_text())
     assert consent["licence"] == model["licence"] and consent["url"]

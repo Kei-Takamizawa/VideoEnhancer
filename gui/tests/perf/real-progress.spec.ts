@@ -18,9 +18,13 @@ test("real CUDA engine progress reaches the renderer at the specified cadence", 
       const paints: number[] = [], events: number[] = [];
       const node = document.querySelector(".now-percent");
       if (!node) throw new Error("The real running job has no progress display.");
-      let previous = node.textContent;
-      const observer = new MutationObserver(() => { if (node.textContent !== previous) { previous = node.textContent; paints.push(performance.now()); } });
+      const bar = document.querySelector(".now-card progress") as HTMLProgressElement | null;
+      if (!bar) throw new Error("The running job has no progress bar.");
+      const displayed = () => `${node.textContent}:${bar.value}`;
+      let previous = displayed();
+      const observer = new MutationObserver(() => { if (displayed() !== previous) { previous = displayed(); paints.push(performance.now()); } });
       observer.observe(node, { characterData: true, childList: true, subtree: true });
+      observer.observe(bar, { attributes: true, attributeFilter: ["value"] });
       const abort = new AbortController();
       const began = performance.now();
       const timer = setTimeout(() => abort.abort(), 30000);

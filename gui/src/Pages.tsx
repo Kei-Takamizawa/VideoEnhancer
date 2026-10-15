@@ -1,3 +1,4 @@
+import { Notice } from "./Notice";
 import { Check } from "lucide-react";
 import { ActionButton } from "./ActionButton";
 import { useEffect, useRef, useState } from "react";
@@ -30,27 +31,20 @@ export function OperationStatus({
   operation: Operation;
   cancel?(): void;
 }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (operation.state !== "waiting") return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [operation.state]);
-  const expected = operation.remaining_seconds || 1;
-  const elapsed = operation.created_at ? Math.max(0, (now - new Date(operation.created_at).getTime()) / 1000) : 0;
-  const remaining = operation.state === "waiting" ? Math.max(0, expected - elapsed) : operation.remaining_seconds;
-  const percent = operation.state === "waiting" ? Math.min(95, elapsed / expected * 100) : operation.percent;
+  const remaining = operation.remaining_seconds;
+  const percent = operation.percent;
   return (
-    <div
-      className={operation.state === "failed" ? "error" : "operation"}
-      role="status"
-    >
+    <Notice role={operation.state === "failed" ? "alert" : "status"} dismissible={operation.state === "failed"} className={operation.state === "failed" ? "error" : "operation"} identity={operation.id + operation.state + operation.error}>
       <strong>
         {operation.kind.charAt(0).toUpperCase() + operation.kind.slice(1)}:{" "}
         {operation.state}
       </strong>
       <p>{operation.error || operation.phase}</p>
-      {remaining !== undefined && ["waiting", "running"].includes(operation.state) && <p className="time-left">{duration(remaining)} left</p>}
+      {operation.kind === "history-removal" && <>
+        <p>{operation.completed_files || 0} of {operation.total_files || 0} files checked</p>
+        {operation.current_file && <p>{operation.current_file.kind}: {operation.current_file.outcome}</p>}
+      </>}
+      {remaining != null && ["waiting", "running"].includes(operation.state) && <p className="time-left">{duration(remaining)} left</p>}
       {percent !== undefined && ["waiting", "running"].includes(operation.state) && (
         <progress
           aria-label="Operation progress"
@@ -70,7 +64,7 @@ export function OperationStatus({
           <code>{operation.result.sha256}</code>
         </p>
       )}
-    </div>
+    </Notice>
   );
 }
 
@@ -100,6 +94,7 @@ export function ModelsPage({
   const [error, setError] = useState("");
   const [category, setCategory] = useState("cleanup");
   const [details, setDetails] = useState<Model>();
+  const [resizeDetails, setResizeDetails] = useState(false);
   const group = (model: Model) =>
     model.catalog?.category ||
     (model.task === "restore" ? "cleanup" : "motion");
@@ -126,9 +121,6 @@ export function ModelsPage({
         >
           Add my own model…
         </ActionButton>
-        <ActionButton disabled={!compare} onClick={compare}>
-          Compare on my video
-        </ActionButton>
       </div>
       <p>
         <a
@@ -140,9 +132,7 @@ export function ModelsPage({
         </a>
       </p>
       {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
+        <Notice identity={error} dismiss={() => setError("")}>{error}</Notice>
       )}
       <div className="filter-pills" aria-label="Model category">
         {[
@@ -163,7 +153,17 @@ export function ModelsPage({
           </ActionButton>
         ))}
         <ActionButton disabled>Faces · coming later</ActionButton>
+        <ActionButton className="model-compare" disabled={!compare} onClick={compare}>
+          Compare on my video
+        </ActionButton>
+
       </div>
+      {resizeDetails && <div className="modal"><div className="dialog" role="dialog" aria-modal="true" aria-label="Standard resize details">
+        <h2>Standard resize</h2><p>Makes the picture bigger without AI. Never changes the look.</p>
+        <p>Changes the look: Very little · Licence: No model weights · No download</p>
+        <ActionButton onClick={async () => { await api.call("settings", "PUT", { size_model: "" }); refresh(); }}>Make it my default</ActionButton>
+        <ActionButton onClick={() => setResizeDetails(false)}>Close</ActionButton>
+      </div></div>}
       <div className="model-grid">
         {category === "size" && (
           <article className="card model-card">
@@ -171,34 +171,9 @@ export function ModelsPage({
               Standard resize{" "}
               {!settings?.size_model && <span className="badge">Default</span>}
             </h2>
-            <p className="muted">Non-learned resize</p>
             <p>Makes the picture bigger without AI. Never changes the look.</p>
-            <dl className="model-facts">
-              <div>
-                <dt>Speed</dt>
-                <dd>Not measured here</dd>
-              </div>
-              <div>
-                <dt>Changes the look</dt>
-                <dd>Very little</dd>
-              </div>
-              <div>
-                <dt>Licence</dt>
-                <dd>No model weights</dd>
-              </div>
-            </dl>
-            <p>No download</p>
-            <ActionButton disabled>Installed</ActionButton>
-            {settings?.size_model && (
-              <ActionButton
-                onClick={async () => {
-                  await api.call("settings", "PUT", { size_model: "" });
-                  refresh();
-                }}
-              >
-                Make it my default
-              </ActionButton>
-            )}
+            <span className="badge">Built in</span>
+            <ActionButton onClick={() => setResizeDetails(true)}>Details</ActionButton>
           </article>
         )}
         {models
@@ -234,11 +209,13 @@ export function ModelsPage({
                 <p className="muted">{c?.summary || c?.description || "A model you added. Review its details before use."}</p>
                 {m.weights_verified && !downloading && <span className="installed-check"><Check size={14} aria-hidden="true" /> Installed</span>}
                 <div onClick={event => event.stopPropagation()}>
-                  {downloading ? <div className="download-progress"><span>{Math.floor(operation.percent || 0)}% · {operation.remaining_seconds !== undefined ? `${duration(operation.remaining_seconds)} left` : operation.phase}</span><progress aria-label={`Downloading ${c?.title || m.display_name}`} max={100} value={operation.percent || 0} /><ActionButton onClick={() => operate(`operations/${operation.id}/cancel`)}>Cancel</ActionButton></div>
+                  {downloading ? <div className="download-progress"><ActionButton className="install-progress" disabled style={{ background: `linear-gradient(to right, var(--install-fill) ${operation.percent || 0}%, var(--install-empty) ${operation.percent || 0}%)` }} aria-label={`Installing ${c?.title || m.display_name}`}>
+                    {operation.phase} {Math.floor(operation.percent || 0)}% · {operation.remaining_seconds != null ? `${duration(operation.remaining_seconds)} left` : "Starting…"}
+                  </ActionButton><progress className="sr-only" aria-label={`Downloading ${c?.title || m.display_name}`} max={100} value={operation.percent || 0} /><ActionButton onClick={() => operate(`operations/${operation.id}/cancel`)}>Cancel</ActionButton></div>
                   : m.weights_verified ? <ActionButton className="danger" disabled={!!m.uninstall_reason || defaultId === m.id} title={m.uninstall_reason || (defaultId === m.id ? "Choose another default before uninstalling this model." : "Uninstall this model")} onClick={() => { setRemoval(m); setError(""); }}>Uninstall</ActionButton>
                   : <ActionButton className="primary" onClick={() => setConsent(m)}>Install</ActionButton>}
                 </div>
-                {operation?.state === "failed" && <p className="error">{operation.error || "Install failed. Open details for the full log."}</p>}
+                {operation?.state === "failed" && <Notice identity={(operation.created_at || operation.id) + operation.error}>{operation.error || "Install failed. Open details for the full log."}</Notice>}
               </article>
             );
           })}
@@ -325,7 +302,7 @@ export function ModelsPage({
         <div className="modal-shade">
           <div className="dialog" role="dialog" aria-modal="true">
             <h2>{error ? "This model is needed" : `Uninstall ${removal.catalog?.title || removal.display_name}?`}</h2>
-            {error && <p role="alert">{error}</p>}
+            {error && <Notice identity={error} dismiss={() => setError("")}>{error}</Notice>}
             <p>
               This removes the model weights from this computer. Videos already
               finished remain unchanged. Models used in the queue cannot be
@@ -416,8 +393,8 @@ export function SettingsPage({
   };
   return (
     <section className="settings-page">
-      <div className="page-heading"><h1>Settings</h1><ActionButton onClick={tour}>Show the tour again</ActionButton><span role="status">{message}</span></div>
-      {error && <p className="error" role="alert">{error}</p>}
+      <div className="page-heading"><h1>Settings</h1><ActionButton onClick={tour} className="tutorial">Tutorial</ActionButton><span role="status">{message}</span></div>
+      {error && <Notice identity={error} dismiss={() => setError("")}>{error}</Notice>}
       <div className="settings-columns">
         <div>
           <article className="card">
@@ -442,8 +419,10 @@ export function SettingsPage({
             </div><p className="muted">Above 100%, small windows can scroll.</p>
             <label className="check"><input type="checkbox" checked={draft.start_with_windows} onChange={event => change("start_with_windows", event.target.checked)} />Start with Windows (hidden in tray)</label>
           </article>
-          <article className="card"><h2>Diagnostics</h2><label>Log folder<div className="input-button"><input value={draft.log_folder} placeholder={health?.home || "Engine home"} onChange={event => change("log_folder", event.target.value)} /><ActionButton onClick={() => window.desktop.openFolder(draft.log_folder || health?.home || "").catch(error => setError(error.message))}>Open</ActionButton></div></label><div className="toolbar"><ActionButton onClick={calibrate} disabled={operation?.state === "running" || operation?.state === "waiting"}>Run speed calibration{health?.speed_profile?.calibration_minutes ? ` (about ${health.speed_profile.calibration_minutes} min)` : ""}</ActionButton><ActionButton onClick={() => window.desktop.copy(JSON.stringify({ health, settings: draft }, null, 2)).then(() => setMessage("Diagnostics copied."))}>Copy diagnostics</ActionButton></div>{health?.speed_profile && <p>{health.speed_profile.source === "builtin" ? "Using the built-in speed profile." : health.speed_profile.source === "measured" ? "Using this PC’s measured speed profile." : "No speed profile for this GPU. Estimates are uncalibrated."}</p>}{health?.speed_profile?.driver_note && <p>{health.speed_profile.driver_note}</p>}{operation && <OperationStatus operation={operation} cancel={["running", "waiting"].includes(operation.state) ? () => api.call(`operations/${operation.id}/cancel`, "POST").catch(error => setError(error.message)) : undefined} />}</article>
-          <article className="card"><h2>About</h2><p>VideoEnhancer {health?.version || "0.1.0"} · Windows 11 · MIT licence</p><p>{health?.gpu || "Detecting GPU…"} · Driver {health?.driver || "unknown"}{health?.vram_bytes ? ` · ${(health.vram_bytes / 1e9).toFixed(1)} GB VRAM` : ""}</p><p className="muted">Your videos stay on this computer. No telemetry or automatic updates. Models have their own licences.</p></article>
+          <article className="card"><h2>Diagnostics</h2><label>Log folder<div className="input-button"><input value={draft.log_folder} placeholder={health?.home || "Engine home"} onChange={event => change("log_folder", event.target.value)} /><ActionButton aria-label="Open log folder" onClick={() => window.desktop.openFolder(draft.log_folder || health?.home || "").catch(error => setError(error.message))}>Open</ActionButton></div></label><div className="toolbar"><ActionButton onClick={calibrate} disabled={operation?.state === "running" || operation?.state === "waiting"}>Run speed calibration{health?.speed_profile?.calibration_minutes ? ` (about ${health.speed_profile.calibration_minutes} min)` : ""}</ActionButton><ActionButton onClick={() => window.desktop.copy(JSON.stringify({ health, settings: draft }, null, 2)).then(() => setMessage("Diagnostics copied."))}>Copy diagnostics</ActionButton></div>{health?.speed_profile && <p>{health.speed_profile.source === "builtin" ? "Using the built-in speed profile." : health.speed_profile.source === "measured" ? "Using this PC’s measured speed profile." : "No speed profile for this GPU. Estimates are uncalibrated."}</p>}{health?.speed_profile?.driver_note && <p>{health.speed_profile.driver_note}</p>}{operation && <OperationStatus operation={operation} cancel={["running", "waiting"].includes(operation.state) ? () => api.call(`operations/${operation.id}/cancel`, "POST").catch(error => setError(error.message)) : undefined} />}</article>
+          <article className="card"><h2>About</h2><p>VideoEnhancer {health?.version || "0.1.0"} · Windows 11 · MIT licence</p><p>{health?.gpu || "Detecting GPU…"} · Driver {health?.driver || "unknown"}{health?.vram_bytes ? ` · ${(health.vram_bytes / 1e9).toFixed(1)} GB VRAM` : ""}</p>
+            {health?.software_decoders && <p>FFmpeg software decoding: VP9 {health.software_decoders.vp9 ? "available" : "unavailable"}, AV1 {health.software_decoders.av1 ? "available" : "unavailable"}</p>}
+            <p className="muted">Your videos stay on this computer. No telemetry or automatic updates. Models have their own licences.</p></article>
         </div>
       </div>
     </section>

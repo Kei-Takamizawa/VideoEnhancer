@@ -1013,11 +1013,17 @@ nav .warning-dot {
   margin: 20px 0;
 }
 .mode-cards button {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-content: start;
+  column-gap: 8px;
   padding: 20px;
   text-align: left;
   border: 2px solid var(--border);
   border-radius: 18px;
 }
+.mode-cards button > strong, .mode-cards button > p { grid-column: 2; }
+.mode-cards button > .action-icon { grid-column: 1; grid-row: 1; align-self: center; }
 .mode-cards [aria-pressed="true"] {
   border-color: var(--accent);
 }
@@ -1303,8 +1309,8 @@ button .action-icon { flex: 0 0 16px; }
 .compare-full-window .canvas-viewport { height: auto; flex: 1; min-height: 100px; display: flex; align-items: center; justify-content: center; touch-action: none; overflow: hidden; }
 .compare-full-window .canvas-viewport canvas { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
 .preview-counter { font-variant-numeric: tabular-nums; display: inline-block; width: 39ch; flex: 0 0 39ch; white-space: nowrap; }
-.compare.is-full-window { position: fixed; inset: 0; padding: 0; z-index: 100; background: var(--bg); }
-.compare.is-full-window > :not(.canvas-viewport) { display: none; }
+.compare.is-full-window { position: fixed; inset: 32px 0 0; padding: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; }
+.compare.is-full-window > :not(.canvas-viewport):not(.compare-labels) { display: none; }
 
 .tour-layer { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.25); }
 .tour-highlight { position: fixed; border: 3px solid var(--accent); border-radius: 12px; pointer-events: none; }
@@ -1312,7 +1318,8 @@ button .action-icon { flex: 0 0 16px; }
 
 .compare-controls, .compare-choice { margin: 0; flex: 0 0 auto; }
 .compare-controls summary, .compare-choice summary { padding: 2px 0; }
-.compare-full-window .compare-labels, .compare-full-window .compare > p { display: none; }
+.compare-full-window .compare > p { display: none; }
+.compare-full-window .compare-labels { display: flex; flex: 0 0 auto; padding: 2px 8px; line-height: 16px; }
 .compare-full-window .compare > label { display: flex; flex-direction: row; align-items: center; gap: 10px; margin: 2px 0; height: 24px; flex: 0 0 auto; }
 .compare-full-window .compare > label input { flex: 1; }
 .compare-full-window .compare > .toolbar { flex: 0 0 auto; gap: 6px; font-size: 12px; }
@@ -1324,7 +1331,7 @@ button .action-icon { flex: 0 0 16px; }
 @media (max-width: 900px) { .engine-actions > main > section > .model-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .compare-full-window .trial-dialog > h2 { margin: 0; font-size: 16px; line-height: 24px; }
-.compare-full-window .trial-dialog > p { margin: 4px 0; font-size: 12px; line-height: 16px; }
+.compare-full-window .trial-dialog > p { margin: 2px 0; font-size: 12px; line-height: 16px; }
 .now-percent { min-width: 5ch; font-variant-numeric: tabular-nums; }
 
 .schedule-toggle { display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 600; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; }
@@ -1350,3 +1357,14 @@ button .action-icon { flex: 0 0 16px; }
 
 .preview-play { width: 148px; flex: 0 0 148px; }
 .schedule-toggle input { min-height: 28px; }
+
+:root { --install-fill: #c3dcff; --install-empty: #f2f5fa; }
+.install-progress:disabled { color: #142239; opacity: 1; cursor: progress; transition: none; }
+body { user-select: none; }
+input, textarea, pre, .log-output { user-select: text; }
+@media (prefers-reduced-motion: reduce) { .install-progress { animation: none; transition: none; } }
+
+.model-compare, .tutorial { margin-left: auto; }
+
+.dismissible { position: relative; padding-right: 38px; }
+.dismiss-notice { position: absolute; right: 6px; top: 6px; padding: 4px; background: transparent; color: inherit; }

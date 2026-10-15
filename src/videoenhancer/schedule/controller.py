@@ -236,12 +236,20 @@ def _child_run(
     abort_event: Any,
     sender: Any,
 ) -> None:
+    child_entered = time.perf_counter()
+    if os.name == "nt":
+        import psutil
+
+        psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
     log_path = Path(output).parent / "logs" / f"seg_{int(segment.get('index', 0)):05d}.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_stream = log_path.open("a", encoding="utf-8", buffering=1)
     sys.stdout = sys.stderr = log_stream
     os.dup2(log_stream.fileno(), 1)
     os.dup2(log_stream.fileno(), 2)
+    import faulthandler
+
+    faulthandler.enable(file=log_stream, all_threads=True)
     heartbeat_stop = threading.Event()
     state = SegmentProgress()
     send_lock = threading.Lock()
@@ -251,18 +259,40 @@ def _child_run(
             sender.send(value)
 
     def heartbeat() -> None:
+        import traceback
+
+        last_frames = -1.0
+        changed = time.monotonic()
+        last_dump = changed
         while not heartbeat_stop.wait(2):
             try:
                 send(SegmentProgress(state.frames_done, state.step, state.memory))
             except (OSError, EOFError):
                 return
+            now = time.monotonic()
+            if state.frames_done != last_frames:
+                last_frames, changed = state.frames_done, now
+            if now - changed >= 60 and now - last_dump >= 60:
+                # Capture Python-owned frames with the GIL, rather than walking
+                # active interpreter frames from faulthandler's timer thread.
+                print(f"No frame advance for {now - changed:.1f}s; step={state.step}", flush=True)
+                for ident, frame in sys._current_frames().items():
+                    print(f"Thread {ident}:", flush=True)
+                    log_stream.write("".join(traceback.format_stack(frame)))
+                log_stream.flush()
+                last_dump = now
 
     def progress(value: dict[str, Any]) -> None:
         if "memory" in value:
             state.memory = value["memory"]
         else:
-            state.frames_done = value["frames_done"]
-            state.step = value["step"]
+            state.frames_done = value.get("frames_done", state.frames_done)
+            if value.get("step") != state.step and "step" in value:
+                print(
+                    f"Stage: {value['step']} at {time.time():.3f}; frames={state.frames_done}",
+                    flush=True,
+                )
+            state.step = value.get("step", state.step)
 
     heart = threading.Thread(target=heartbeat, name="ve-progress", daemon=True)
     try:
@@ -278,6 +308,7 @@ def _child_run(
         child_startup_seconds = time.perf_counter() - manifest.get(
             "_child_spawn_monotonic", time.perf_counter()
         )
+        child_call_started = time.perf_counter()
         stats = process_segment(
             manifest,
             segment,
@@ -287,6 +318,8 @@ def _child_run(
             progress=progress,
         )
         stats["child_startup_seconds"] = child_startup_seconds
+        stats["child_entry_seconds"] = child_call_started - child_entered
+        stats["child_runtime_seconds"] = time.perf_counter() - child_entered
         send(SegmentResult("done", stats=stats))
     except InterruptedError:
         send(SegmentResult("aborted"))
@@ -356,6 +389,7 @@ class ProcessExecutor:
         *,
         batch_size: int,
     ) -> SegmentResult:
+        parent_started = time.perf_counter()
         context = self.context or multiprocessing.get_context("spawn")
         if os.name == "nt" and Path(sys.executable).name.lower() == "pythonw.exe":
             context.set_executable(sys.executable)
@@ -383,7 +417,30 @@ class ProcessExecutor:
         abort_started = 0.0
         forced = False
         received_result: Any = None
+        last_progress = SegmentProgress()
         pipe_open = True
+
+        def measured_result(result: SegmentResult) -> SegmentResult:
+            if result.status == "done" and result.stats is not None:
+                stats = result.stats
+                stats["parent_ipc_seconds"] = max(
+                    0, time.perf_counter() - parent_started - stats.get("child_runtime_seconds", 0)
+                )
+                terms = {
+                    name: max(0, float(stats.get(name, 0)))
+                    for name in (
+                        "parent_ipc_seconds",
+                        "child_entry_seconds",
+                        "decoder_open_seconds",
+                        "model_loading_seconds",
+                        "weight_verification_seconds",
+                        "cuda_initialization_seconds",
+                        "first_memory_sample_seconds",
+                    )
+                }
+                stats["startup_terms_seconds"] = terms
+                stats["per_part_startup_seconds"] = sum(terms.values())
+            return result
 
         def now_seconds() -> float:
             return self.clock.now().timestamp()
@@ -420,6 +477,7 @@ class ProcessExecutor:
                         pipe_open = False
                         break
                     if isinstance(message, SegmentProgress):
+                        last_progress = message
                         watchdog.progress(message.frames_done, now)
                         elapsed = max(0.001, now - started)
                         live = dict(
@@ -447,13 +505,24 @@ class ProcessExecutor:
                     last_log_trim = now
                 stalled = watchdog.reason(now)
                 if stalled:
+                    get_logger(output.parent.parent.parent).warning(
+                        "Segment watchdog detail: reason=%s pid=%s step=%s "
+                        "frames=%s/%s elapsed=%.3f memory=%s",
+                        stalled,
+                        process.pid,
+                        last_progress.step,
+                        last_progress.frames_done,
+                        watchdog.frames,
+                        now - started,
+                        last_progress.memory,
+                    )
                     if process.pid is not None:
                         _kill_process_tree(process.pid)
                     if process.is_alive():
                         process.terminate()
                     process.join(timeout=1)
                     if stalled == "exit grace" and isinstance(received_result, SegmentResult):
-                        return received_result
+                        return measured_result(received_result)
                     return SegmentResult("failed", error=f"Watchdog: {stalled}", stalled=True)
                 if abort() and not aborted:
                     aborted = True
@@ -469,11 +538,11 @@ class ProcessExecutor:
             if aborted:
                 return SegmentResult("aborted")
             if isinstance(received_result, SegmentResult):
-                return received_result
+                return measured_result(received_result)
             if pipe_open and receiver.poll():
                 result = receiver.recv()
                 if isinstance(result, SegmentResult):
-                    return result
+                    return measured_result(result)
             return SegmentResult(
                 "failed", error=f"Worker exited with code {process.exitcode}; retry the segment"
             )
@@ -825,6 +894,17 @@ def run_queue(
                 if job_ids is not None:
                     jobs = [job for job in jobs if job["id"] in job_ids]
                 runnable = [job for job in jobs if job["state"] in {"queued", "running"}]
+                for job in runnable:
+                    if job.get("analysis_missing"):
+                        try:
+                            store.ensure_analysis(job)
+                        except Exception as error:
+                            job.update(
+                                state="failed",
+                                error=f"Couldn't analyse the original again: {error}",
+                            )
+                            store.save(job)
+                runnable = [job for job in runnable if job["state"] in {"queued", "running"}]
                 if not runnable:
                     if any(job["state"] == "paused" for job in jobs):
                         timed_wait(
@@ -942,6 +1022,9 @@ def run_queue(
                                     abort=assembly_abort,
                                     validation_started=start_validation,
                                 )
+                            finalization_steps = dict(
+                                manifest.get("timing", {}).get("finalization_steps", {})
+                            )
                             end_step()
                             from videoenhancer.jobs.store import input_identity
 
@@ -952,6 +1035,10 @@ def run_queue(
                                 continue
                             begin_step("aggregating")
                             manifest = store.load(job_id)
+                            manifest.setdefault("timing", {})["finalization_steps"] = (
+                                finalization_steps
+                            )
+                            aggregation_began = time.perf_counter()
                             if manifest["settings"].get("preset") in {"fast", "standard"}:
                                 from videoenhancer.pipeline.inline_quality import aggregate_quality
 
@@ -970,6 +1057,9 @@ def run_queue(
                                     ),
                                     "counting": "Owned indices per segment; final is post-repair.",
                                 }
+                            finalization_steps["quality_aggregation_seconds"] = (
+                                time.perf_counter() - aggregation_began
+                            )
                             store.save(manifest)
                             end_step()
                             if assembly_abort():
@@ -989,7 +1079,7 @@ def run_queue(
 
                             try:
                                 record_completed(manifest, store.home)
-                            except OSError as error:
+                            except Exception as error:
                                 job_logger.warning(
                                     "Local timing observation could not be saved: %s", error
                                 )
@@ -1198,6 +1288,7 @@ def run_queue(
                             segment["state"] = "done"
                             segment["actual_seconds"] = elapsed
                             segment["stats"] = result.stats or {}
+                            segment["stats"]["output_bytes"] = final_path.stat().st_size
                             memory_samples = segment["stats"].get("memory_samples", [])
                             if memory_samples:
                                 job_logger.info(

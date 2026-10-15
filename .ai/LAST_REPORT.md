@@ -1,443 +1,349 @@
-# VE-P1e - Owner fixes, clearer controls and long-video estimates
+# VE-P1e-2 implementation and verification report
 
-Status: PARTIAL
-Date: 2026-10-13 (Asia/Tokyo)
-Branch: p1d-ui-v2. Draft PR: https://github.com/Kei-Takamizawa/VideoEnhancer/pull/5
-Start: 2e8eb50. Task instructions recorded in 32ae6a3. origin/main was unchanged
-at efb45e3 and already an ancestor; no merge or main push was performed.
+Status: PARTIAL. The final 2160 initial-estimate gate failed; successful processing is reported separately. This report does not establish the cause of the owner's original stall.
 
-The requested UI and engine fixes are implemented. The prescribed full 10-minute
-GPU job completed, but its 50% live finish forecast failed the +/-5% gate.
-The subsequent correction is regression-tested; another full 10-minute gated
-run after that correction is NOT RUN. This report does not declare P1e accepted.
+Branch: `p1d-ui-v2`. Starting implementation: `ad6b1f7`; saved instructions: `4ba1ef1`. Draft PR: https://github.com/Kei-Takamizawa/VideoEnhancer/pull/5. No merge or push to main. No new dependencies, telemetry, automatic update or catalog entries.
 
-## Part B
+## Scope and evidence rules
 
-| Item | Status | Implementation and evidence |
+All processing media are synthetic. Every GPU case has an isolated engine home; GPU workloads ran sequentially except the disclosed early overlapping source-4K attempt. Owner logs were copied read-only. The owner's media, queue, settings and Recycle Bin items were not test data. Native shell tests touched and restored only their own files. Videos, weights, packages, screenshots and private logs remain outside Git.
+
+Evidence roots:
+
+- `C:\Users\pro\Documents\VideoEnhancer-P1e-2` (reports, logs, GUI evidence).
+- `D:\VideoEnhancer-P1e-2` (large isolated homes and synthetic outputs).
+
+Hardware/runtime: Windows 11, RTX 4060 Ti 8 GB, driver 617.42, Python 3.12.14, Torch 2.14.1+cu130, PyNvVideoCodec 2.2.3, FFmpeg 9.0.2. CPU CI is fixture integration, not GPU quality evidence. All GB below are decimal unless stated otherwise. Torch allocation/reservation, per-process PDH dedicated/shared memory and device-wide NVML samples are distinct measurements. Sampled maxima are not guaranteed high-water marks, cannot be summed across PIDs/times and do not prove physical VRAM capacity was exceeded.
+
+## Part status
+
+| Part | Status | Implementation and evidence |
 | --- | --- | --- |
-| B1 completion and deletion | DONE | controller.py:948 persists output identity/bytes. Legacy deletion fails closed on identity/time/duration. Real NTFS new and legacy jobs: original and output recycled through History, restored SHA-256 identical in both cases. b1-native-results.json. |
-| B2 modal drop and stale result | DONE | App.tsx ignores a drop during an aria-modal dialog and shows a short notice. Detail result state dies on close. P1e e2e. |
-| B2 HDR and per-file errors | DONE | Correctly tagged bt2020nc PQ/HLG reach per-file HDR warnings; valid files remain addable. Five 4K fixtures below. |
-| B2 space and timeout | DONE | Chosen output geometry/fps/codec determine estimated bytes. Working space accounts for segments, joined copy and output temporary, with the existing 10% reserve: same volume 3.3x; separate volumes home 2.2x/output 1.1x. Estimate requests have no fixed client timeout and cancel on dialog disposal. Source bytes remain a heuristic, not a guaranteed output size. preflight-final: 38 PASS. |
-| B2 new-home AV1 | DONE | Qualified new home chooses AV1; existing HEVC preference stays HEVC. Three isolated mocked qualification cases PASS. |
-| B3 pause ordering | DONE | Store projections and plans sort by position. Paused current work remains on the main card; text explains full current-part restart using its prediction. Global pause respects ready/running state. P1e e2e and CPU contracts. |
-| B4 hours | DONE | Visible positioned hours blocks; edited draft bands update immediately. Schedule e2e and screenshots. |
+| E | DONE / PASS | Full job data shared by snapshot/packet planning; cumulative active-part rate and initial blend; named startup terms and median learning; deterministic packet/snapshot regression PASS. All long-gate attempts below. |
+| F | DONE / PASS | Realistic 1/30/120-minute finalization fixtures, nonlinear built-in model, length-class learning, admission reserve, validated joined-file checkpoint and persisted step timing. |
+| R | PARTIAL / estimate gate FAIL | Measured 1080/2160 component and whole-pipeline points, interpolated stages, output-size learning classes, uncalibrated +/-25% above measured maximum. Final fresh-home 30-second gate +21.18%, outside +/-15%. Processing completed. |
+| P | DONE | Authenticated Range media streaming through Electron; renderer never receives the token or a whole-file Blob. Actual 4 GiB player fixture passed. |
+| L | DONE | Purge paused-Undo records on restart without touching files; recover missing analysis for queued jobs and show finished details without it; log all learning exceptions while cleanup continues. |
+| Q | DONE | Real-engine progress cadence and service CPU measurements passed; 5000-record result reported below. |
+| O1 | DONE | Ranked lock order 10/20/30, test inversion checks, cached event publication, no shell/file I/O under service state locks; async per-file journalled removal, replay, live SSE and bounded graceful exit. |
+| O2 | DONE with measured limits | Per-file errors, root/screen/dialog boundaries and real Reload; SDR BT.2020nc preserved, HDR blocked, source size never silently reduced. 4K-source Standard on 8 GB blocked with Fast guidance after measured failures. |
+| O3 | DONE | Core NVDEC presentation-timestamp decoding and indexed seek; full-geometry container tests, native decoded sample equality and packet-based audio timing. |
+| O4 | DONE with qualification limit | Immediate network progress, real transferred bytes, smoothed rate, weighted phases and explicit unknown ETA; unchanged verified weights avoid repeated hashing, changed files reverify. Network gates passed; these were not real GPU qualification timings. |
+| O5 | DONE | Compare labels outside images, no divider handle, horizontal scroll, per-model progress and wait reason; labels remain visible below the title bar in full-window mode. CDP pinch passed. |
+| O6 | DONE | Unified three-choice History removal, Select all, right-side Select, attention-only badges and actual per-file results. |
+| O7 | DONE | Tutorial at right; compact Models tabs/count/actions; dismissible notices; per-file Add options; gear Settings, role-appropriate icons, no literal plus in Add videos/Add hours; Below Normal worker priority. |
+| O8 | PARTIAL historical evidence | Live prediction fixed and rerun in E. Original 50% packets do not exist; reconstructed counterfactuals are not observations. |
+| O9 | PARTIAL experiments | Bounded external prototypes measured below; no experimental optimization shipped. Compile failed; TensorRT unavailable. |
+| G | PARTIAL | Final-source CPU/GPU, GUI, package, native and CI results below. Physical owner-only checks remain NOT RUN. R acceptance remains failed. |
 
-Final 4K run: 4k-3/results.json. Sources are synthetic, 3840x2160 at 30 fps.
+## Owner stall and additional 1440/4K checks
 
-| File | Expected | Actual |
+The original job stopped advancing, hit its watchdog, retried and later errored. A subsequent cancel was separate. Its child logs and working folder are gone, so the root cause is NOT ESTABLISHED. SSE WinError 10053 only establishes a disconnected connection. An nvlddmkm Event 153 GPUID field is not proof of CUDA error 700 or a driver fault.
+
+Confirmed conditions: H.264 MP4, 960x540, 30000/1001 fps, Standard, 1440p output. The synthetic source uses B-frames and AAC. Reproduction 1 failed after 7.548847 seconds at frame 1: new exact timestamp validation exposed DTS-like SimpleDecoder timestamps. Native pixels matched CPU at six sampled indices. Core packet Decode/Flush now yields presentation timestamps, seeks earlier and decodes forward, validates requested PTS, and owns converted CUDA surfaces before native reuse. This corrects an observed implementation issue, not a proven cause of the owner's historical hang.
+
+Reproduction 2 at 1080p passed in 495.8496506 seconds, 3 parts, zero fallback/OOM retries. It was not the exact owner output setting. The subsequent exact-setting and requested 4K checks:
+
+| Output / mode | Input seconds | Total seconds | Parts | Retry/fallback counters | Video/audio validation |
+| --- | ---: | ---: | ---: | --- | --- |
+| 2560x1440 Standard | 60.06 | 644.7429691 | 5/5 | All seven counters 0 | PASS, 3600 frames, 60000/1001 fps, audio delta 0 s |
+| 3840x2160 Standard | 120.12 | 3843.0876062 | 26/26 | All seven counters 0 | PASS, 7200 frames, 60000/1001 fps, audio delta 0 s |
+| 3840x2160 Fast | 120.12 | 1075.7299257 | 7/7 | All seven counters 0 | PASS, 7200 frames, 60000/1001 fps, audio delta 0 s |
+
+Counters: interpolation fallback, internal OOM/NaN/corruption retry, corruption fallback, parent watchdog retry and parent OOM retry. All monitoring completed without errors. Missing failed-child statistics would remain unknown rather than assumed zero.
+
+| Case | Torch reserved peak GB | Torch allocated peak GB | Max per-PID dedicated sample GB | Max per-PID shared sample GB | Device sample max GB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1440 Standard | 6.5305 | 3.3817 | 4.0009 | 0.1338 | 7.2375 |
+| 2160 Standard | 14.5542 | 7.4188 | 7.9127 | 6.4083 | 8.5277 |
+| 2160 Fast | 5.3247 | 4.3260 | 5.7525 | 0.1923 | 6.3184 |
+
+Standard completed with substantial shared-memory pressure; Fast had more headroom and was about 3.57x faster in total time. This is not a quality-equivalence comparison or a guarantee for arbitrary long real videos/concurrent GPU workloads. Evidence: each `D:\VideoEnhancer-P1e-2\{owner-1440-1,standard-2160-1,fast-2160-1}\home\measurement.json`, progress packets, NVML samples and job logs. A Japanese private summary is `C:\Users\pro\Documents\VideoEnhancer-P1e-2\4K-output-check-ja.md`.
+
+## E/F: every gated attempt and independent fit
+
+| Attempt | Result | Expected / actual and limitation |
 | --- | --- | --- |
-| H.264 8-bit SDR BT.709 | Addable | PASS, addable |
-| HEVC 10-bit SDR BT.709 | Addable | PASS, addable |
-| HEVC 10-bit PQ BT.2020/bt2020nc | HDR warning, blocked | PASS |
-| HEVC 10-bit HLG/bt2020nc | HDR warning, blocked | PASS |
-| Unspecified colour | Documented SDR fallback | PASS, addable |
+| gate-10min-1 | Setup FAIL; GPU NOT RUN | Invalid synthetic schedule minute 76. |
+| gate-10min-2 | FAIL | Part 6/44 watchdog twice; wall 1822.031 s, completed-part sum 894.27958 s, analysis 18.86194 s. Last device sample 8.1984 GB; not a proven peak/cause. |
+| gate-10min-3 | Setup FAIL; GPU NOT RUN | Midnight assertion in evidence helper. |
+| gate-10min-4 | FAIL | Part 9 native 0xC0000005 during our timed faulthandler dump; WER python312.dll/PyCode_Addr2Line. Diagnostic fault suspected, not proven CUDA/RIFE failure. Removed timed native dumps, retained fatal handling and GIL-protected heartbeat diagnostics. CPU stress: five normal exits, NOT REPRODUCED. |
+| gate-10min-5 | PASS before Core decoder change | 44 parts; initial 7875.2096209 s, parts 7900.474365 s, analysis 20.6653866 s, finalization 12.98598 s. Active work including analysis 7934.1257316 s, initial error -0.743%. Wall 8985.453 s with 15-minute second-half gap. |
+| gate-10min-6 | Final-source result below | Fresh isolated home, final Core decoder and persisted finalization steps. |
 
-The final 10-minute 4K estimate took 0.572771 s (18,000 frames, 600 s).
-Earlier corrected run: 0.706554 s. The first run used an incorrectly tagged
-H.264 fixture and failed that fixture's intended classification; retained in
-4k/results.json. These low-bitrate synthetic files do not prove throughput on
-an arbitrary high-bitrate owner file. No owner media was opened.
+Gate 5 first finish forecast error -148.379864 s. Live errors: 25% +554.34824 s/+7.998576%; 50% +2.81601 s/+0.057279% (PASS +/-5%); 75% +164.645327 s/+8.438491%. Finalization predicted 12.2235667282 s vs actual 12.98598 s, -5.871049% (PASS +/-25%). Its old private evaluation excludes analysis and gives -0.483% initial error; that is a different denominator. Its per-step fields were lost on reload; persistence was then fixed and tested.
 
-## Part Q
+Independent finalization fit used real Standard planner part counts, repeated synthetic reference output, AAC and cloned real quality partials. These are finalization fixtures, not 120-minute neural inference runs, and the gate clip was not a fit point.
 
-| Item | Status | Evidence |
-| --- | --- | --- |
-| Q1 immediate theme | DONE with protocol limit | DOM appearance applies immediately, native theme/WCO through validated IPC; persistence runs in background. Ten repeats below. Theme timing starts at select change, ends at two animation frames, and asserts nativeTheme.themeSource. Physical mouse-click timing NOT RUN. |
-| Q1 cached verification | DONE | SHA-256 cache keyed by size/mtime_ns; explicit verify bypasses cache. File mutation invalidation contract PASS. |
-| Q2 independent Add requests | DONE | Timing key excludes codec/folder/delete-original. Separate space check refreshes codec geometry warnings; deduplicated per-file warnings. Refresh 30 s/focus keeps existing values. E2e delete-original contract and codec switch unit regression PASS. |
-| Q3 durations | DONE | Shared M:SS/H:MM:SS formatter; tabular live numeric fields. |
-| Q4 progress | DONE | Byte transfer/hash callbacks, frames for previews; no extra indeterminate bar. Calibration emits six named stages and per-model/reference fractions, retains measured stage seconds, uses previous stage times or the installed-profile total as a fallback. Real isolated minimal C1/RIFE calibration PASS, 134.836681 s. All six stages captured in progress.jsonl. |
-| Q5 pause all | DONE | Enabled for running/ready work or Resume all while globally paused; waiting-hours-only state disabled. |
+| Length | Parts | Output GB | Measured finalization s |
+| --- | ---: | ---: | ---: |
+| 1 minute | 5 | 0.241988 | 1.192158 |
+| 30 minutes | 125 | 7.2666 | 32.5413765 |
+| 120 minutes | 499 | 29.0662 | 324.2433134 |
 
-Calibration evidence: calibration-progress-final/home/profiles and
-calibration-progress-final/home/previews/*/progress.jsonl. Stage seconds:
-decode/encode 19.098353, tensors 5.170037, end-to-end 8.733745,
-installed models 20.292261, references 78.902074, finalization 2.580371.
-These are measured on the minimal installed fixture, not every catalog model.
+Built-in nonlinear points include 15% margin; local correction is length-class specific. Admission reserves `1.5 * prediction + 60 s`. A validated joined-file checkpoint can be reused after abort.
 
-## Part V
+Independent finalization-only replay PASS, no inference rerun, not used for fitting:
 
-| Item | Status | Evidence |
-| --- | --- | --- |
-| Role icons | DONE | ActionButton.tsx uses local Lucide icons; History/video/clock/document/verification shield differ. Generic ChevronRight fallback removed. Arrows remain for directional actions. Explicit model/day selection icons; glyph drag/menu/divider/selection marks replaced. Dock and Settings gear preserved. |
-| Home Add label | DONE | Plus icon followed by Add videos; no literal plus in the label. Latest owner request recorded in CURRENT_TASK.md. |
-| Hierarchy/hit areas | DONE, designer question | Primary 40 px/18 px icon, secondary 36 px, quiet 32 px; filled danger confirmation. Models Install follows the explicit per-card action requirement, which conflicts with at-most-one primary per screen. |
-| Fit | PARTIAL | Actual Electron screenshot inventory at both sizes/themes and dialog bounds; real CPU desktop e2e exercises zoom through 150%. Full every-button text audit in every popup at 150%, physical Windows scaling and accessibility devices NOT RUN. |
+| Step | Seconds |
+| --- | ---: |
+| Checkpoint validation | 0.1044874 |
+| Concat | 3.2027082 |
+| Faststart | 5.4237987 |
+| Audio mux | 0.9252822 |
+| Validation | 0.9067354 |
+| Quality aggregation | 0.0690767 |
+| Measured finalization observation including surrounding overhead | 13.126557 |
 
-New dependency: lucide-react 1.55.0, ISC, pinned in package-lock.json, bundled
-locally. License: https://lucide.dev/license. No icon CDN.
+Faststart dominated this replay. Final gate 6 step values are reported separately below.
 
-## Part H
+## R calibration and both acceptance runs
 
-| Item | Status | Evidence |
-| --- | --- | --- |
-| Thumbnail cards | DONE | Justified virtual rows, entire portrait/landscape frame, soft filename/status scrim; existing date/month groups retained. |
-| Select mode | DONE | Toolbar Select/Select all/count/Remove/Delete files/Cancel; whole card toggle with round marker. |
-| Guarded removal and Clear | DONE | Shared choices default off; kept file keeps its record. Clear uses soft hiding and Undo. Delete-files keeps records. API counts/reasons and e2e fake deletion PASS. |
-| Undo | DONE | Ten-second tint drains right edge toward left, pauses server/client on hover/focus, reduced-motion one-second steps. Undo restores records only. |
-| Detail player | DONE with limit | Authenticated terminal video blob in native video element; external player fallback, Compare/actions. Full file is fetched before native playback. Large owner-file memory behaviour NOT RUN; no private media used. |
+Independent 5-second 720x1280 reference to 2160x3840: Standard 245.377396 s, Torch reserved 14.277 GB/allocated 7.5209 GB, zero OOM/fallback; Fast 48.670573 s, reserved 5.144 GB/allocated 4.2879 GB. Isolated RIFE at 2160: median 1.924308 s per 8 pairs, reserved 7.03385 GB. No unrecorded peak fields are inferred.
 
-## Part M
+Encode geometry completion: three direct NVENC repeats per 1080/2160 geometry, all HEVC/H.264/AV1 measured. HEVC median coefficients: 2.5921191808379733e-9 and 2.5221693753290355e-9 seconds/pixel/frame. Timing includes encoder flush. Re-normalizing pipeline factors preserved all four original reference predictions within 1 microsecond. Calibration color axis now agrees with estimator input+2*output pixels; progress remains monotonic. Profile revision: `p1e2-stage-sizes2`.
 
-| Item | Status | Evidence |
-| --- | --- | --- |
-| Compact cards/popup | DONE | Three-column 1280 px fixture, <=120 px card-height assertion; full details popup, Installed check and Install/Uninstall action. No old card menu. |
-| State feedback | DONE | Determinate download percent/remaining time on card, failure details in operation; current default/unfinished job guard reason on disabled Uninstall. |
-| Supported controls | DONE | DRUNet strength choices preserved; default, verify and license facts in popup. Catalog/default processing choices unchanged. |
+| 30-second portrait Standard gate | Initial s | Actual s | Error | Result |
+| --- | ---: | ---: | ---: | --- |
+| Before final Core decoder | 1481.0422258 | 1334.0419923 | +11.019% | PASS +/-15% |
+| Final Core decoder, fresh home | 1481.0422258 | 1222.1590949 run_queue wall | +21.182441% | FAIL +/-15% |
 
-## Part C
+Final run completed all 8 parts: part sum 1218.317415 s, finalization 1.813458 s; using parts+finalization gives +21.383883%, also FAIL. Acceptance data was not used to refit coefficients. Further calibration policy is a designer question; conservative independent measurements remain in place.
 
-| Item | Status | Evidence |
-| --- | --- | --- |
-| Larger tiles | DONE | Available-space grid, folded model/range controls and use-model controls, full-window mode and solo pane. Measured dimensions below. |
-| Zoom/pan/divider | DONE | Ctrl+wheel pointer-anchored 1x-8x, scroll pan, 1x horizontal divider; visible zoom buttons, F/Esc, double-click solo. Two-pointer logic uses captured gesture values. Synthetic wheel/pan/divider e2e PASS. Physical touchpad/touchscreen NOT RUN. |
-| Steady counters | DONE | Tabular fixed 39ch counters and fixed Play/Pause width. Actual sibling movement 0 px over playback in final e2e. |
+## P, Q, O1-O8 and indexed-decode evidence
 
-At 1280x800: portrait one-model tiles 335.25x596; portrait three-model
-314x558.21875; landscape one-model 628x353.25; landscape three-model
-529.77344x297.99219. At 1100x700: portrait one-model 279x496;
-portrait three-model 269x478.21875; landscape one-model 538x302.625;
-landscape three-model 440.88281x247.99219. Both themes measured.
-Full window hides Compare controls; it does not claim to hide native window chrome.
+- Player: actual Electron with dense 4 GiB free atom before high-offset mdat, not 4 GiB of video essence. Play 320 ms, 90% seek 116.8 ms, renderer private-memory increase 30.875648 MB: PASS (1 s/1 s/200 MB gates). Fullscreen 105 ms/111.3 ms/22.55 MB: PASS. First fullscreen fixture click was occluded and failed; corrected fixture passed. Own media server authenticated shutdown returned 200.
+- Q: real GPU job plus 1000 rich records, service CPU in one-core units median 1.6128896723%, p90 1.9757789909%: PASS <=5%. 5000 records median 3.3265805174%, initial projection 0.0001184 s. Renderer 0.9664959 Hz over 30.0053 s, >=95% cadence target and >=1000 ms paint gaps: PASS. These were before Core; service/renderer cadence code is unchanged by Core.
+- O1: HTTP three-record slow shell fixtures (2 s/file), POST <1 s and live SSE gaps <=2 s: PASS for remove/clear. Native NTFS sequential and bulk recycle/restore SHA-256: PASS; bulk used three shell calls, not a single COM batch. Journal replay preserves each completed outcome. Graceful exit waits up to 20 s; no force-exit of an active shell operation.
+- O2 source-4K: Standard both orientations FAIL around 602.9 s, watchdog twice, sampled Torch reserved about 22 GB/shared about 15 GB, no OOM exception. First attempt overlapped another GPU workload and is not clean attribution evidence. Fast both orientations PASS 94.61/94.87 s, reserved 6.0985 GB, zero fallback/OOM. The explicit specified 8 GB source-4K Standard guard guides users to Fast. This is separate from successful smaller-input 4K output above.
+- O3: 35 CPU container variants and 70 full-geometry GPU Standard/Fast variants; H.264/VP9/AV1, MP4/WebM/MKV, rotation/rates/VFR/audio offset/short/no-audio. Native NV12 samples and indexed seeks match; packet audio deltas within +/-20 ms, waveform tests PASS. GPU tests use real full-HD geometry. Unsupported software encoder availability reports a plain error.
+- Core source-index regressions: 13 PASS 97.97 s; fake Core ownership/PTS contract 2 PASS 1.47 s. Initial absent-basetemp invocation: 13 setup ERRORS, GPU NOT RUN. Final Core 2-hour source cost: 6.931183767 GB, 216000 frames/1440 keyframes; prior metadata analysis 15.1887 s, decoder open 0.1473437 s, last-frame seek/decode 0.1357776 s. Old SimpleDecoder measurements (0.159914 vs 11.698669 s open modes) do not describe final Core.
+- O4: all three local 100 MiB download paths at 2 MiB/s PASS. Max progress gaps 0.515/0.500/0.266 s; first positive 0.562/0.531/0.437 s; monotonic. ETA errors at 10 SECONDS +11.458/+10.938/+11.299%. Private JSON key incorrectly says 10_percent; helper actually samples at 10 s. Predicted GPU allowance 4.4917327 s, not actual GPU qualification. Contrast 11.3853:1 filled/14.5843:1 unfilled both themes. Unchanged verified weights avoid repeated hashes; changed weights and explicit Verify rehash; executable source archives still reverify.
+- O5-O7 actual visual coverage: both sizes/themes, Add per-row failures/settings, screen error/Reload, Models, Schedule, History removal, Settings gear, Compare normal/full labels. Final visual-9 PASS, 92 PNGs at `C:\Users\pro\Documents\VideoEnhancer-P1e-2\gui-evidence\visual-9`. Visual-6 initially failed 476<480 portrait height; spacing corrected. Visual-7 passed automated checks but inspection caught title overlap; reserved title-bar area and added assertion; visual-8/9 passed. No unsupported claim of physical touchpad or Windows scaling checks.
+- O8 historical copied metadata: initial 4605.684584 s, first finish about 8m15s late, parts 3118.499047 s, wall 4076.937614 s. Historical 50% packets unavailable. Uniform-within-part remaining-time counterfactual old 1555.8924/new 1547.13471 s uses final profile; not an observed result or acceptance evidence.
 
-## Part S
+## Verification, failures and intentional omissions
 
-| Item | Status | Evidence |
-| --- | --- | --- |
-| Always-editable hours | DONE | Clear switch, dim saved hours when off, note and Turn on; live edited bands. |
-| Overnight/equal endpoint | DONE | Previous-day carry handles equal endpoints consistently with 24-hour schedule semantics. |
-| GUI validation | DONE | On/off screenshots, numeric editing while off and tooltip bounds at both sizes/zoom. |
+| Check | Result |
+| --- | --- |
+| Final CPU all-8, fresh NTFS home, CUDA hidden | PASS: 421 passed, 3 skipped, 101 GPU deselected, 696.38 s |
+| After measured profile write: bench/estimate/P1e2 | PASS: 40 passed, 30.87 s |
+| Ruff / format / Pyright | PASS: all checks, 124 files formatted, 0 errors/warnings |
+| GUI lint/typecheck/build | PASS; build warns main chunk about 522 KB exceeds 500 KB |
+| GUI unit tests | PASS: 42 tests, 6.34 s |
+| Normal Electron final e2e | PASS: 6 passed, 7 opt-in cases skipped, about 1.3 min |
+| Visual final | PASS: visual-9, 25.5 s, 92 screenshots |
+| Packaged Electron final smoke | PASS: actual executable, external engine discovered without override, sandbox/contextIsolation true, nodeIntegration false, renderer require undefined, app origin, graceful service shutdown |
+| D2 CPU | PASS: 3 hard crashes, all 10800 frame hashes identical, no temporary files, 159.109 s |
+| D2 CUDA | PASS: 3 hard crashes, all 10800 ten-bit frame hashes identical, no temporary files, 146.937 s |
+| Final GPU retry | PASS: 35/35, 1747.71 s, explicit file log and JUnit XML, no skips |
+| Prior GPU container recovery | 66 completed cases with output and no entry in completed pytest failure cache; combined coverage 101 GPU cases, not a captured single-run 101-PASS terminal summary |
+| Final-head Windows/Ubuntu CI | Added after push below |
 
-## Part O
+Earlier test runs are not silently replaced by passes:
 
-| Item | Status | Evidence |
-| --- | --- | --- |
-| First-run tour | DONE | Five one-sentence steps pointing to real controls, Skip/Done and Settings replay. Validated tour_completed flag/default/full-PUT exclusion. Synthetic UI screenshots; test fixtures explicitly skip tour when testing unrelated actions. |
+- CPU all-4: 415 PASS/3 SKIP, 698.53 s, before additional regressions. All-5 on exFAT: 399 PASS/21 FAIL/3 SKIP, 737.94 s; unsupported hardlinks, epoch timestamp operation, cache mtime and a missing CUDA device-properties mock. Repeated on NTFS. All-6: 419 PASS/1 FAIL/3 SKIP, 730.33 s; explicit 8 GiB mock corrected, targeted rerun PASS 1.88 s. All-7: 420 PASS/3 SKIP, 699.25 s. Final all-8 above includes added benchmark case.
+- GPU suite 1 interrupted to repair timestamp regression. Suite 2 ended exit 1 but Windows inherited child stdout was lost: original traceback/summary NOT AVAILABLE. Four landscape60 AV1 fixtures were incomplete (WebM 385/600 and 408/600 frames; MP4 missing moov). The incomplete fixtures and the controlled 83-second run support a fixture-generation timeout diagnosis; original exception text cannot be confirmed. Optional fixture timeout 180 s; controlled generation PASS 600/600 in 83.4346584 s. Application watchdog unchanged. Recovered 66 cases from outputs/cache; all other 31 GPU cases plus the four incomplete cases explicitly reran as 35 PASS with XML. Logs: `logs/gpu-tests-2-recovery.json`, `logs/gpu-tests-3.log`, `D:\VideoEnhancer-P1e-2\gpu-tests-3\home\results.xml`.
+- Earlier GUI e2e failed stale selectors/competing trace directory; corrected serialized run passed. GUI visual failures and correction are listed above.
+- Physical touchpad gestures, actual Windows display scaling, reboot/tray behavior and owner media verification: NOT RUN. CDP gesture/actual Electron evidence is not a substitute for those physical checks. Full optional Settings calibration UI operation: NOT RUN. Long finalization fixtures are not long neural-inference stability tests. No optimization candidate shipped.
 
-## Part E
+## Package and reproduction
 
-| Item | Status | Evidence |
-| --- | --- | --- |
-| Cost measurement | DONE with protocol limits | Synthetic portrait 720x1280 30 fps at 5/30/120 minutes, before and after data below. Before child-only entry time was not instrumented; before parent startup/IPC overhead is a separately labelled measurement. |
-| Growing decoder/manifest costs | DONE | Indexed decoder disables full metadata scan on every part. Write-once analysis.json sidecar; metadata projection avoids per-frame arrays. D2 strict equality and all GPU tests PASS. |
-| Real costs/local learning | DONE | Analysis, measured child/decoder startup, byte/frame finalization model with 15% safety margin, bounded local completed-job observations even for built-in profiles. Interrupted active part forecast includes lost time/full restart. |
-| Live planner and recent correction | DONE, acceptance failed | Hours-aware live plan/Up next, recent same-mode correction, initial fields persisted. Failed measurement exposed instantaneous inference FPS applied to future parts; corrected to active part only, pending parts retain corrected end-to-end prediction. CPU contract PASS. |
-| Owner metadata audit | DONE | Read-only copies of 34 completed manifests/optional job logs; only copies analysed, anonymised results below. No media access or owner-home writes. |
-| RTX 4060 Ti full acceptance | PARTIAL | One prescribed 10-minute Standard C1 job done across a scheduled gap. First two gates PASS, live-at-half gate FAIL. Full rerun after corrective change NOT RUN. |
+Launch: `D:\VideoEnhancer-P1e-2\packages\p1e2-final\VideoEnhancer-win32-x64\VideoEnhancer.exe`.
 
-Before measurement uses 2e8eb50 in the external detached before-code worktree.
-After uses this checkout. Timing values are individual samples, not a claimed
-distribution; cache state and concurrent local verification differed. Finalization
-was measured with a retained synthetic full-length passthrough segment and actual
-assemble/validation, not by fully enhancing each long source.
+Unsigned folder package, rebuilt after final GUI changes. It depends on the external Python engine checkout, not a standalone bundled engine. Engine/home/Python/FFmpeg overrides remain documented. Never point verification at the owner's normal home.
 
-| Minutes | Decoder open before start/middle/end (s) | Decoder open after start/middle/end (s) |
-| --- | --- | --- |
-| 5 | .076458/.062561/.061806 | .069514/.001401/.001386 |
-| 30 | .382208/.465565/.363895 | .003077/.004247/.004267 |
-| 120 | 1.456065/1.497135/1.441063 | .012138/.010798/.015032 |
+Reproduce CPU/static checks with `.venv/Scripts/ruff.exe check .`, `.venv/Scripts/ruff.exe format --check .`, `.venv/Scripts/pyright.exe`, then an isolated NTFS `VE_HOME`, `CUDA_VISIBLE_DEVICES=-1`, and `.venv/Scripts/python.exe -m pytest -m "not gpu" --basetemp=<fresh-home>/tests`. GPU tests need a fresh qualified model fixture via `VE_GPU_TEST_MODEL_HOME`; run `pytest -m gpu` sequentially with explicit stdout/JUnit paths. Native shell cases are opt-in and use only test-created guarded files. GUI scripts: lint, typecheck, test, build, test:e2e and package in `gui`.
 
-| Minutes | Parent startup + IPC before start/middle/end (s) | Child entry after start/middle/end (s) | Model load before / after start/middle/end (s) |
-| --- | --- | --- | --- |
-| 5 | 2.311475/2.256398/2.502507 | 1.418946/1.398018/1.389255 | 1.791820/1.997078/2.656126 / 2.013706/1.710199/1.671810 |
-| 30 | 2.318897/2.157413/2.327722 | 1.400187/1.405732/1.409784 | 1.645813/1.722623/1.663978 / 2.045709/1.783549/1.634740 |
-| 120 | 2.660173/3.151544/2.556972 | 1.474160/1.492450/1.507922 | 1.931972/1.786778/1.607750 / 1.777024/1.912319/2.027552 |
+Additional synthetic owner/4K jobs use CUDA, HEVC, 2x fps, short_side 1440/2160, Standard/Fast and the sources described above. External benchmark/evidence drivers are preserved under the evidence directory, not shipped as public application code. All source changes are recorded in the file list below.
 
-The before/after startup columns have different endpoints; subtracting them is
-not a valid isolated child-startup speedup claim.
+## Questions for the designer and defaults used
 
-| Minutes | Manifest before/after bytes | Before full-load median / after metadata-load median (s) | Before save / after load+save (s) | Analysis before/after (s) | Finalization before/after (s) |
-| --- | --- | --- | --- | --- | --- |
-| 5 | 726663/2081 | .004354/.000476 | .042786/.016479 | 9.413065/9.764158 | .772707/.799305 |
-| 30 | 4498737/2088 | .030276/.000630 | .185249/.048295 | 55.670349/56.535226 | 9.998753/13.348006 |
-| 120 | 18424742/2093 | .128026/.000711 | .712583/.158643 | 227.710138/224.799098 | 77.988126/102.180633 |
+1. Final built-in 2160 initial estimate is conservative by 21.18%, failing +/-15%. Keep independently measured coefficients and report FAIL; do not fit the acceptance clip. Decide further calibration/review.
+2. Optional speed calibration still has the existing small linear finalization calibrator and can replace the improved built-in long-duration curve. No new calibration policy invented. Decide whether/how that flow should use realistic long-duration points.
+3. The original owner's stall cannot be attributed without child logs. No speculative global GPU lease/admission architecture shipped. Keep current limits and the measured safeguards; retain original-cause uncertainty.
+4. O9 isolated gains are single runs; compile failed and TensorRT unavailable. No quality/performance policy chosen and no candidate shipped. Designer can select a follow-up based on evidence.
 
-Arrays remain in the sidecar; full hydration still scales with frame count.
-The after save column includes a preceding full sidecar load and is conservative.
-Finalization output bytes are identical before/after: 272143014, 1632853810,
-6531438078. No finalization speed improvement is claimed.
-Raw files: baseline.json, before-additional/result.json, after-measurements.json,
-after-analysis.json and after-finalization/result.json.
 
-Owner-copy aggregates (actual segment time / reconstructed first estimate):
+## Final-source E/F gate 6
 
-| Length bucket | Mode | Jobs | Median ratio | Analysis total (s) | Wasted total (s) |
-| --- | --- | --- | --- | --- | --- |
-| <1 min | Standard | 22 | .782573 | 20.999589 | 134.544867 |
-| <1 min | Fast | 5 | .529884 | 3.981607 | 0 |
-| <1 min | p0-test | 6 | .723474 | 4.435478 | 0 |
-| 1-10 min | Any | 0 | Not available | Not available | Not available |
-| 10-60 min | Standard | 1 | 1.960963 | 19.988328 | 0 |
-| >60 min | Any | 0 | Not available | Not available | Not available |
+Signed error is prediction minus actual; positive means a late/long prediction. Live percentages use actual remaining wall time, including the scheduled gap. Initial work includes analysis, completed-part times and finalization. Wall time also includes admission waits and control overhead.
 
-The one longer Standard job contains 70 parts, actual segment sum 24789.684734 s,
-median part 352.420951 s, source duration 658.024 s and 2160 short-side output.
-This supports an underprediction on that configuration; one job is not an accuracy
-distribution or proof across lengths. Old first estimates are reconstructed,
-not previously stored exact UI values. Full per-job anonymised segment/observation,
-analysis/waste/wait/finalization comparison: owner-analysis-anonymized.json.
-Scheduler wait events in old and test records are throttled samples, not a complete
-wait-time total. Missing finalization observations are labelled missing, not zero.
+| Measurement | Value | Gate | Result |
+| --- | ---: | --- | --- |
+| Initial work prediction | 7875.209621 s | +/-10% | PASS |
+| Actual active work | 7769.417035 s | Report | PASS |
+| Initial work error | +1.361654% | +/-10% | PASS |
+| First finish error | +55.904472 s / +0.636751% | +/-10% | PASS |
+| Finalization error | -1.015840% | +/-25% | PASS |
 
-Full gate: gate-10min-2/result.json and gates.json. Standard C1, CUDA, 1080p60
-HEVC, RTX 4060 Ti 8 GB, synthetic 600 s source, 42 parts, no calibrated profile
-copied into this isolated home. Test hours had a 15-minute off gap. Actual
-analysis 19.088339 s, segment sum 7603.891040 s, finalization 19.088490 s;
-total processing 7642.067869 s. No aborted/wasted part time.
+44/44 parts; segment sum 7737.482328 s, analysis 19.585694 s, wall 8779.639844 s. All seven retry/fallback counters zero. The gap 2026-10-15T21:15:00+09:00 to 2026-10-15T21:30:00+09:00 occurred at 56.737196% progress and resumed automatically. Final output finished 2026-10-15T13:26:15.890191+00:00.
 
-| Gate | Predicted/actual | Error | Limit | Result |
-| --- | --- | --- | --- | --- |
-| Initial processing | 7436.687301 / 7642.067869 s | -2.687500% | +/-10% | PASS |
-| Initial finish, gaps included | 236.371878 s early; actual add-to-done 8759.963468 s | -2.698320% | +/-10% | PASS |
-| Half-progress live finish | 662.271807 s early; remaining observed elapsed 3832.781000 s | -17.279146% | +/-5% | FAIL |
+| Nominal milestone | Packet percent | Actual remaining s | Finish error s | Error % | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 25% | 24.994444% | 6809.153202 | -24.605038 | -0.361352% | Report only |
+| 50% | 49.988889% | 4869.876785 | -24.232983 | -0.497610% | PASS +/-5% |
+| 75% | 74.983333% | 1949.139831 | -4.144499 | -0.212632% | Report only |
 
-Half was first sampled at 50.00556%. Remaining elapsed includes the polling tail
-(<=2 s); this cannot explain a 662 s miss. Initial finalization itself predicted
-4.225926 s versus 19.088490 s actual. The 90.002202 s sum of throttled wait
-events is not the full scheduled-gap duration. The controller completed without
-changing default pixel output. The failed full gate remains evidence after the
-active-only live-FPS correction; a second full gate is NOT RUN.
+The service wire packet and snapshot are sampled asynchronously; table values use the preserved wire packet, whose percent may be about one heartbeat below the nominal snapshot crossing. Deterministic same-data packet/snapshot tests pass within 1 s; this does not assert every asynchronously sampled forecast is identical.
 
-## Part G and validation
+| Finalization step | Actual seconds |
+| --- | ---: |
+| checkpoint_validation_seconds | 0.2260843 |
+| concat_seconds | 3.4059004 |
+| faststart_seconds | 3.0183264 |
+| mux_seconds | 2.5927270 |
+| validation_seconds | 0.8929823 |
+| quality_aggregation_seconds | 0.0388409 |
 
-| Item | Status | Evidence |
-| --- | --- | --- |
-| G1 screenshots | PASS with stated fit limits | visual-final-3/inventory.json: 80 actual capturePage PNGs +16 dimension records, both themes and sizes; side-by-side/comparison.html contains unchanged P1d-3 before and final P1e after screens. Synthetic UI fixtures, no image editing. |
-| G2 e2e regressions | PASS | Required ten behaviours grouped in four CI tests. Full local e2e: 7 PASS, 6 opt-in SKIP. Final changed-screen run: 5 PASS (includes visual inventory). Final packaged/regression run below. |
-| G3 timing | PASS final repeat | Ten fresh cold launches, all original renderer budget assertions and three themes; full data and prior failures retained below. |
-| G4 native B1/4K/long | PARTIAL | Native recycling and 4K PASS; E live finish gate FAIL. |
-| G5 GPU/D2 | PASS | All GPU tests 30 PASS, 349 deselected, 165.26 s. Independent D2 strict decode equality 12 PASS, 14 deselected, 100.63 s. Output-producing pipeline was not changed after these runs. |
-| G6 local checks | PASS | ruff, format, pyright; full CPU 347 PASS, 3 SKIP, 30 deselected (439.39 s) before the last small preflight additions; final affected preflight subset 38 PASS. GUI lint/typecheck, 38 unit PASS, build, package, e2e and packaged smoke. Final implementation CI executed the full CPU suite on both operating systems. |
-| G6 CI | PASS on final implementation commit b89e278 | Windows/Ubuntu push and PR checks: 4/4 green. Runs 38358814562 and 38358819486. Exact report-only final-head verification is retained externally in final-head-ci.json. |
+Finalization predicted 12.2235667 s; observed 12.3490130 s including surrounding control overhead. Concat was the largest named step, followed by faststart and mux. Step sums are not substituted for the measured observation. Evidence: `D:\VideoEnhancer-P1e-2\gate-10min-6\home\result.json`, `C:\Users\pro\Documents\VideoEnhancer-P1e-2\final-gate-evaluation.json`.
 
-GPU evidence: gpu-suite/pytest.log; D2 and local logs in logs/. Final package:
-C:\Users\pro\Documents\VideoEnhancer-P1e\package-owner\VideoEnhancer-win32-x64\VideoEnhancer.exe
-Unsigned development folder; it requires this external engine checkout and Python.
-Do not distribute the EXE alone. Owner execution with real queue/settings is NOT RUN.
 
-Renderer results, final ten-run batch: renderer-perf-4/renderer-perf.json.
+## O9 measured candidates (pre-Core decoder, external-only prototypes)
 
-| Measurement | Median | p90 |
-| --- | --- | --- |
-| warm_History_ms | 71.500 | 80.460 |
-| warm_Schedule_ms | 29.550 | 30.410 |
-| warm_Models_ms | 30.250 | 30.510 |
-| warm_Settings_ms | 30.600 | 30.710 |
-| warm_Home_ms | 47.100 | 47.510 |
-| cold_history_open_ms | 137.850 | 158.600 |
-| preview_after_key_ms | 448.100 | 450.840 |
-| idle_renderer_one_core_percent | 0.519 | 0.530 |
-| progress_updates_per_second | 1.000 | 1.000 |
-| minimum_progress_gap_ms | 999.850 | 1000.370 |
-| keystroke_paint_max_ms | 31.300 | 32.910 |
-| theme_light_ms | 38.550 | 39.110 |
-| theme_dark_ms | 27.150 | 27.330 |
-| theme_system_ms | 27.800 | 28.110 |
+| Case | Wall s | Input fps | Speedup | Torch reserved GB | Max RGB8 difference | PSNR dB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| busy-standard-5 | 72.554 | 2.0674 | reference | 4.1104 | reference | reference |
+| busy-fast-5 | 15.678 | 9.5677 | reference | 1.5896 | reference | reference |
+| busy-standard-60 | 781.268 | 2.3039 | reference | 4.4585 | reference | reference |
+| baseline | 66.324 | 2.2616 | reference | 3.8839 | reference | reference |
+| keep-c1 | 64.161 | 2.3379 | 1.033720x | 4.6284 | 0 | infinity |
+| fewer-rife-syncs | 66.262 | 2.2637 | 1.000941x | 3.9615 | 0 | infinity |
+| unowned-overlap | 64.159 | 2.3380 | 1.033757x | 4.0999 | 0 | infinity |
+| cudnn-benchmark | 72.980 | 2.0553 | 0.908800x | 5.9286 | 255 | 41.8587 |
+| channels-last | 61.693 | 2.4314 | 1.075071x | 3.5735 | 255 | 42.5968 |
+| priority-normal | 66.305 | 2.2623 | 1.000295x | 4.0014 | 0 | infinity |
+| clip-21 | 60.573 | 2.4763 | 1.094949x | 5.2345 | 255 | 35.8418 |
+| clip-30 | 57.191 | 2.6228 | 1.159709x | 7.1010 | 255 | 35.8742 |
+| torch-compile | failed | | | | | |
+| streams baseline (final Core) | 69.524 | 2.1575 | reference | 3.9909 | reference | reference |
+| separate-cuda-streams (final Core) | 65.957 | 2.2742 | 1.054070x | 4.1649 | 0 | infinity |
+| torch-tensorrt | NOT RUN | | | | | |
 
-Input delay maximum 1.8 ms (<=50). Interaction p98 152 ms (<=200); maximum
-individual interaction 216 ms, so this is not an every-interaction <=200 claim.
-Theme timing uses the select change event and two animation frames, not a physical
-mouse click. Warm screens <=100 ms, cold History <=300, key-to-preview <=500,
-key paint <=50, idle renderer <=2% one-core, positive cadence <=1 Hz; all PASS.
-The cadence assertion permits >=900 ms per interval, as in the original harness;
-the observed minimum is reported in the raw file. Real GPU-to-renderer cadence
-and repeated service CPU/5,000-record measurements this cycle are NOT RUN.
+All comparisons cover all 300 output frames. Single runs, not a statistical throughput claim.
+GPU utilisation is device-wide; mean utilisation is not the same as nonzero-sample busy share.
+The original results contain both metrics and phase-labelled zero-utilisation samples.
+Threaded inclusive stage timers cannot uniquely attribute idle intervals to decode/sync/encode.
+Warm-worker saving bound: 4.3946036 s/part, 528-part 2 h Standard planner =2320.3507 s.
+This is a theoretical reusable-startup bound, not a measured warm-worker implementation.
+Default Compare one-preview bound 4.3946 s; three previews sharing one worker bound8.8331 s.
+First memory sample3.1819377 s is separately measured, not included in that reusable bound.
+Torch compile failed (TritonMissing); TensorRT unavailable, deformable-convolution support not tested.
+Streams experiment completed after the GPU suite using final Core; its speedup uses its own 69.524 s baseline. Other rows predate Core. No candidate ships.
 
-Every gated renderer attempt is retained:
-- renderer-perf-1: failed native-label locator before a complete batch.
-- renderer-perf-2: 10 repeats, FAIL interaction p98 203.36 ms >200; theme medians
-  Light 38.15, Dark 27.05, System 27.55 ms PASS. Invalid JSON-thumbnail blobs were
-  then rejected before creating image URLs.
-- renderer-perf-3: interrupted after 3 reported repeats by Schedule locator failure
-  during overlapping GUI automation; one observed gap 174.7 ms. Not a valid complete
-  ten-run batch and not omitted from evidence.
-- renderer-perf-4: 10 repeats, PASS. GUI automation was serialized; no long GPU or
-  full CPU benchmark ran during this batch. Small targeted contracts did run.
+### O9 utilization and interpretation
 
-## Errors, failed attempts and limitations
+| Workload | Mean device GPU utilization | Nonzero sample share | Share >=50% | Share >=90% |
+| --- | ---: | ---: | ---: | ---: |
+| Standard 5 s | 75.4547% | 100% | 77.1353% | 70.5650% |
+| Fast 5 s | 45.1927% | 100% | 46.354% | 46.354% |
+| Standard 60 s | 90.3584% | 100% | 92.549% | 85.787% |
 
-Raw logs in the external logs/ directory include every p1e-* attempt, not just
-the favourable run. Significant retained failures and their correction:
-- First pytest temp location: 4 PASS, 1 SKIP, 53 errors (permissions); isolated
-  external basetemp run: 57 PASS, 1 SKIP.
-- First full CPU: 10 FAIL, 334 PASS, 3 SKIP, 30 deselected. Mock assemblers did not
-  create output; Clear tests assumed immediate removal; timer mocks and forecast
-  build count were stale; cancel cleanup genuinely deleted the sidecar. Fixtures
-  and contracts updated, cleanup preserved analysis.json. Later full CPU: 346
-  PASS, then 347 PASS; final-head CI executes the final suite.
-- Initial GUI unit suite: 7 FAIL/30 PASS, then 3 FAIL/34 PASS. Old menus/labels
-  updated to the supplied UI contract. Last space-warning change exposed duplicate
-  warnings: 3 FAIL/35 PASS; deduplication fixed this. Final: 38 PASS.
-- P1e e2e attempts: first 4 FAIL (wrong Electron cwd), then 2 PASS/2 FAIL,
-  3 PASS/1 FAIL and 3 PASS/1 FAIL (fixture readiness/divider timing); fifth 4 PASS.
-  Final full run first: 2 FAIL/5 PASS/6 SKIP (stale History selector and real 9 px
-  Play/Pause width movement). Fixed selector and button width; full rerun 7 PASS,
-  6 SKIP. Latest changed-screen run 5 PASS.
-- Visual attempts: initial unsupported dynamic import; portrait-height gates
-  460/458 px failed; after control compaction passed. Inspection caught stretched
-  model cards, and 124 px failed the 120 px gate. Final card layout and inventory
-  PASS. All attempts retained in logs/ and visual-* folders.
-- First after-position benchmark used output outside job_dir, FAILED; corrected
-  isolated job_dir output completed all nine positions. A stray one-byte lock
-  remains at C:\Users\pro\Documents\jobs\synthetic-5\manifest.lock. Automatic
-  approval review rejected its verified-path cleanup with the generic reason
-  "blocked by policy". No bypass or deletion was attempted after rejection.
-- gate-10min first failed before queueing because its schedule was not on 15-minute
-  boundaries. gate-10min-2 completed but failed the half-progress accuracy gate.
-- Newly added contracts initially had stale finalization expectations, a non-15-minute
-  schedule and incomplete mocked AV1 limits. Corrected test assumptions; final
-  affected preflight contracts PASS. No product schedule rule was changed.
-- Initial package command used a wrong npm path and did not run packaging; corrected
-  package runs completed. Final executable path above. Vite warns about a minified
-  chunk >500 kB; this is retained, not suppressed. Npm dependency install reported
-  no vulnerabilities at installation time; this is not a lasting security guarantee.
+Nominal 10 Hz NVML samples are device-wide. Nonzero samples include background GPU activity and cannot establish exclusive neural-inference busy time. Exact exclusive idle attribution by decode/synchronization/encode is NOT MEASURED; inclusive overlapping thread timers cannot provide it. No dominant idle cause is invented.
 
-## Questions for the designer
+Startup terms sum 7.5799984 s: parent/IPC 0.849644, child entry 1.325694, decoder 0.003457, model loading 2.073262, weight verification 0.120757, CUDA initialization 0.025247, first PDH memory sample 3.181938. The proposed reusable bound excludes first PDH sampling and decoder creation. It is not an implemented or measured warm worker. Clip-21 minimum frame PSNR 31.4098 dB; clip-30 31.2323 dB; channels-last 37.4905 dB; cuDNN benchmark 34.6969 dB. Changed-output gains do not establish acceptable quality. Normal-priority improvement is only about 0.03% in one run and is not evidence to change priority. Streams/keep-C1/ownership variants justify possible follow-up measurements, not automatic adoption.
 
-1. E acceptance is not achieved: -17.279146% at half progress. The obvious runtime
-   calculation error has been corrected without changing output. Default chosen:
-   keep the failed gate, mark PARTIAL, do not claim a full corrected-run PASS.
-2. Part V says one primary per screen while Part M explicitly asks Install on each
-   card. Default chosen: retain the explicit per-card Install action; no independent
-   redesign of card navigation or install policy.
-3. History native player fetches the entire authenticated file first. Default chosen:
-   retain the prescribed native player and external fallback; no unapproved streaming
-   architecture or arbitrary file-size cutoff. Long-owner-file memory validation NOT RUN.
-4. Sparse historical long-job evidence, especially 2160 output, cannot establish an
-   accuracy bound across geometry/length. Default chosen: bounded same-mode local
-   correction as requested; no new catalog or independently chosen calibration policy.
-5. Physical touch/Windows scaling/full every-button 150% audit and literal human-click
-   theme measurement are not established by synthetic events. Default chosen: report
-   those limits explicitly; leave owner acceptance to the next checklist.
-
-## Reproduction and logs
-
-Evidence root: C:\Users\pro\Documents\VideoEnhancer-P1e
-All private footage, model copies, package, logs, before-code checkout and screenshots
-are external. Public report contains no owner file names, titles, paths or job IDs.
-
-Run from repository root unless noted. Use a NEW external folder/VE_HOME each time.
-1. .venv/Scripts/ruff.exe check .
-2. .venv/Scripts/ruff.exe format --check .
-3. .venv/Scripts/pyright.exe
-4. .venv/Scripts/python.exe -m pytest -m "not gpu and not soak" -q --basetemp=C:/private/new-cpu
-5. .venv/Scripts/python.exe -m pytest -m gpu -q --basetemp=C:/private/new-gpu
-   with isolated VE_HOME containing verified test-only C1/RIFE and adapter sources.
-6. In gui: npm run lint; npm run typecheck; npm test; npm run build; npm run test:e2e.
-7. Set VE_P1E_VISUAL_EVIDENCE to a NEW external folder, then in gui run
-   node node_modules/@playwright/test/cli.js test tests/e2e/p1e-visual.spec.ts.
-8. Set VE_GUI_EVIDENCE to a NEW external folder, then in gui run
-   node node_modules/@playwright/test/cli.js test tests/perf/renderer.spec.ts --config=playwright.perf.config.ts.
-9. Set VE_GUI_PACKAGE_OUT to a separate external output and run npm run package in gui.
-   Set VE_GUI_PACKAGE_EXE to its EXE and run tests/e2e/packaged.spec.ts.
-10. External reproduce/ retains exact p1e-*.py scripts and logs/ every execution log.
-    Adapt their hardcoded external output paths to NEW folders before rerunning.
-    p1e-before-final.py under PYTHONPATH=before-code/src reproduces old startup and
-    assemble samples; without that override it measures new assemble samples.
-    p1e-analysis-after.py, p1e-4k-final.py, p1e-cal-final.py reproduce their named data.
-    p1e-gate.py reproduces the long isolated job with actual current-time hours and
-    polling, and p1e-gate-summary.py computes accuracy from recorded timestamps.
-    p1e-gpu-gap.py includes real Recycle Bin/restore tests for its own synthetic paths;
-    it must not target owner paths or bin items. The original native restore helper
-    used is retained externally with the reproduction scripts.
-11. Owner audit is already authorised read-only and uses only the saved metadata
-    copies; do not repeat copying or open any recorded video to reproduce the aggregates.
-
-Deferred intentionally: URL import, remote browser control, face/hair restoration,
-automatic rerender/install interactions beyond this cycle, physical owner checklist,
-optional X1/X2, owner queue/settings mutation, owner media processing, installer
-signing/self-contained runtime distribution, a full corrected 10-minute gate repeat.
+Evidence: `D:\VideoEnhancer-P1e-2\speed-1\results.json`, `D:\VideoEnhancer-P1e-2\speed-streams-1\results.json`, `C:\Users\pro\Documents\VideoEnhancer-P1e-2\o9-compact.json`, `o9-utilisation-distribution.json`. O9 experiments were bounded within the authorized 2-hour active-measurement budget; queue waiting and other acceptance jobs are not claimed as O9 experiment time.
 
 ## Changed files
 
-- .ai/CURRENT_TASK.md
-- .ai/LAST_REPORT.md
-- docs/API.md
-- docs/GUI.md
-- docs/TROUBLESHOOTING.md
-- gui/electron/main.cjs
-- gui/electron/preload.cjs
-- gui/package-lock.json
-- gui/package.json
-- gui/src/ActionButton.tsx
-- gui/src/App.tsx
-- gui/src/HistoryDetail.tsx
-- gui/src/HistoryRemoval.tsx
-- gui/src/Home.tsx
-- gui/src/Pages.tsx
-- gui/src/Queue.tsx
-- gui/src/ScheduleView.tsx
-- gui/src/Tour.tsx
-- gui/src/Trial.tsx
-- gui/src/UndoToast.tsx
-- gui/src/VideoFilesDialog.tsx
-- gui/src/api.ts
-- gui/src/style.css
-- gui/src/types.ts
-- gui/tests/add-models.test.tsx
-- gui/tests/e2e/desktop.spec.ts
-- gui/tests/e2e/gpu.spec.ts
-- gui/tests/e2e/p1d3-changed.spec.ts
-- gui/tests/e2e/p1e-visual.spec.ts
-- gui/tests/e2e/p1e.spec.ts
-- gui/tests/e2e/resume.spec.ts
-- gui/tests/e2e/visual-states.spec.ts
-- gui/tests/e2e/windows-flows.spec.ts
-- gui/tests/home-schedule.test.tsx
-- gui/tests/pages.test.tsx
-- gui/tests/perf/fake-engine.cjs
-- gui/tests/perf/renderer.spec.ts
-- src/videoenhancer/bench/basicvsr.py
-- src/videoenhancer/bench/calibration.py
-- src/videoenhancer/bench/reference.py
-- src/videoenhancer/bench/runner.py
-- src/videoenhancer/estimate/local.py
-- src/videoenhancer/estimate/model.py
-- src/videoenhancer/estimate/profiles/rtx-4060-ti-8gb.json
-- src/videoenhancer/jobs/store.py
-- src/videoenhancer/media/decode.py
-- src/videoenhancer/media/probe.py
-- src/videoenhancer/models/registry.py
-- src/videoenhancer/pipeline/runner.py
-- src/videoenhancer/schedule/controller.py
-- src/videoenhancer/schedule/planner.py
-- src/videoenhancer/service/deletion.py
-- src/videoenhancer/service/engine.py
-- src/videoenhancer/service/operation.py
-- src/videoenhancer/service/server.py
-- src/videoenhancer/service/settings.py
-- tests/test_controller.py
-- tests/test_finalization.py
-- tests/test_jobs.py
-- tests/test_p1c2_reliability.py
-- tests/test_p1d.py
-- tests/test_p1d2.py
-- tests/test_p1d3.py
-- tests/test_p1e.py
-- tests/test_reliability.py
+- `.ai/CURRENT_TASK.md`
+- `.ai/LAST_REPORT.md`
+- `docs/API.md`
+- `docs/GUI.md`
+- `docs/TROUBLESHOOTING.md`
+- `gui/electron/main.cjs`
+- `gui/electron/permissions.cjs`
+- `gui/electron/preload.cjs`
+- `gui/src/ActionButton.tsx`
+- `gui/src/App.tsx`
+- `gui/src/ErrorBoundary.tsx`
+- `gui/src/HistoryDetail.tsx`
+- `gui/src/HistoryRemoval.tsx`
+- `gui/src/Home.tsx`
+- `gui/src/Notice.tsx`
+- `gui/src/Pages.tsx`
+- `gui/src/Queue.tsx`
+- `gui/src/ScheduleView.tsx`
+- `gui/src/Tour.tsx`
+- `gui/src/Trial.tsx`
+- `gui/src/VideoFilesDialog.tsx`
+- `gui/src/api.ts`
+- `gui/src/focus.ts`
+- `gui/src/history.ts`
+- `gui/src/main.tsx`
+- `gui/src/style.css`
+- `gui/src/types.ts`
+- `gui/tests/add-models.test.tsx`
+- `gui/tests/e2e/desktop.spec.ts`
+- `gui/tests/e2e/p1e-visual.spec.ts`
+- `gui/tests/e2e/p1e.spec.ts`
+- `gui/tests/error-boundary.test.tsx`
+- `gui/tests/events.test.tsx`
+- `gui/tests/home-schedule.test.tsx`
+- `gui/tests/notice.test.tsx`
+- `gui/tests/perf/prepare_service.py`
+- `gui/tests/perf/real-progress.spec.ts`
+- `gui/tests/permissions.test.tsx`
+- `scripts/verify_resume.py`
+- `src/videoenhancer/bench/basicvsr.py`
+- `src/videoenhancer/bench/calibration.py`
+- `src/videoenhancer/bench/reference.py`
+- `src/videoenhancer/bench/rife.py`
+- `src/videoenhancer/bench/runner.py`
+- `src/videoenhancer/estimate/classes.py`
+- `src/videoenhancer/estimate/live.py`
+- `src/videoenhancer/estimate/local.py`
+- `src/videoenhancer/estimate/model.py`
+- `src/videoenhancer/estimate/profiles/rtx-4060-ti-8gb.json`
+- `src/videoenhancer/jobs/checks.py`
+- `src/videoenhancer/jobs/gpu_memory.py`
+- `src/videoenhancer/jobs/store.py`
+- `src/videoenhancer/media/analyze.py`
+- `src/videoenhancer/media/color.py`
+- `src/videoenhancer/media/decode.py`
+- `src/videoenhancer/media/encode.py`
+- `src/videoenhancer/media/mux.py`
+- `src/videoenhancer/media/probe.py`
+- `src/videoenhancer/models/download.py`
+- `src/videoenhancer/models/manifests/basicvsrpp-denoise.json`
+- `src/videoenhancer/models/manifests/basicvsrpp-ntire21-decompress.json`
+- `src/videoenhancer/models/manifests/basicvsrpp-track1.json`
+- `src/videoenhancer/models/manifests/basicvsrpp-track2.json`
+- `src/videoenhancer/models/manifests/drunet-deblock.json`
+- `src/videoenhancer/models/manifests/fbcnn-color.json`
+- `src/videoenhancer/models/manifests/rife-4.25-lite.json`
+- `src/videoenhancer/models/manifests/rife-4.25.json`
+- `src/videoenhancer/models/manifests/rife-4.26.json`
+- `src/videoenhancer/models/manifests/scunet-real-psnr.json`
+- `src/videoenhancer/models/manifests/span-liveaction-2x.json`
+- `src/videoenhancer/models/registry.py`
+- `src/videoenhancer/models/rife_variants.py`
+- `src/videoenhancer/pipeline/runner.py`
+- `src/videoenhancer/proc.py`
+- `src/videoenhancer/schedule/admission.py`
+- `src/videoenhancer/schedule/controller.py`
+- `src/videoenhancer/service/compare.py`
+- `src/videoenhancer/service/deletion.py`
+- `src/videoenhancer/service/downloads.py`
+- `src/videoenhancer/service/engine.py`
+- `src/videoenhancer/service/locks.py`
+- `src/videoenhancer/service/media.py`
+- `src/videoenhancer/service/operation.py`
+- `src/videoenhancer/service/server.py`
+- `tests/conftest.py`
+- `tests/test_bench.py`
+- `tests/test_controller.py`
+- `tests/test_media.py`
+- `tests/test_p1c4.py`
+- `tests/test_p1d3.py`
+- `tests/test_p1e.py`
+- `tests/test_p1e2.py`
+- `tests/test_p1e2_containers.py`
+- `tests/test_pipeline.py`
+- `tests/test_reliability.py`
+- `tests/test_service.py`
 
-## Final package smoke and last regressions
+## Git and CI
 
-Final package + changed-screen sequence: four P1e regressions PASS, packaged discovery check FAIL at its former 5 s poll limit. Discovery waiting now matches the 40 s startup bound; separate rerun PASS (2.6 s). The failed trace is retained at final-package-and-regressions, and the passing trace/log at packaged-smoke-final-2 / logs/p1e-packaged-smoke-final-2.log. Final local GUI units: 38 PASS. Final targeted preflight: 38 PASS.
-
-## Verified implementation CI and final Git record
-
-Implementation commit: b89e27843b6f24827ed56d3b3a1b33a7499b00c4.
-All four matrix checks passed: push and PR, Windows and Ubuntu.
-- Push: https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38358814562
-- PR: https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38358819486
-- Windows CPU: 352 PASS, 4 SKIP, 30 deselected, one cudaGetDeviceCount warning
-  on the CPU runner. GUI units 38 PASS; Electron e2e 6 PASS, 7 opt-in SKIP.
-- Ubuntu CPU: 351 PASS, 5 SKIP, 30 deselected. GUI units 38 PASS.
-- Both ran ruff, format, pyright, GUI lint/typecheck/build successfully.
-
-This report was updated after those completed implementation CI runs. The next
-commit changes only this report. To avoid an endless report-update/CI loop, its
-exact HEAD, push/PR IDs and four final conclusions are verified separately and
-saved after completion at C:/Users/pro/Documents/VideoEnhancer-P1e/final-head-ci.json.
-The final response is issued only after that final-head verification is complete.
-Public PR remains draft; main is unchanged. The overall cycle remains PARTIAL
-because E's full live-at-half gate failed and its full corrected repeat is NOT RUN.
-The source snapshot task and all implementation changes have been committed and
-pushed. Final remote-HEAD equality and clean status are part of the external proof.
+Implementation commit/push and exact-source Windows/Ubuntu CI are pending at report creation; update this section after the required CI run. PR remains draft; no merge.

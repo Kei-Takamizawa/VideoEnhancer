@@ -359,6 +359,10 @@ def test_api_free_space_and_av1_minimum_are_enforced(api, video_factory, monkeyp
 
 
 def test_cli_add_enforces_detected_av1_minimum(tmp_path, video_factory, monkeypatch):
+    from types import SimpleNamespace
+
+    import torch
+
     from videoenhancer.jobs.store import add_job
     from videoenhancer.media.probe import probe
 
@@ -373,6 +377,9 @@ def test_cli_add_enforces_detected_av1_minimum(tmp_path, video_factory, monkeypa
     monkeypatch.setattr(
         "videoenhancer.service.av1_cache.capabilities",
         lambda *_: dict(av1_supported=True, av1_min_width=130, av1_min_height=66),
+    )
+    monkeypatch.setattr(
+        torch.cuda, "get_device_properties", lambda _: SimpleNamespace(total_memory=8 * 1024**3)
     )
     with pytest.raises(ValueError, match="AV1"):
         add_job(

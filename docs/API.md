@@ -345,15 +345,18 @@ codec, without recomputing processing times or a schedule plan.
 `POST history/remove` and `POST history/clear` accept optional `output` and
 `original` booleans (both default false). Requested files pass the existing
 identity and Recycle Bin guards before record hiding. A kept file keeps its
-record. Responses contain `ids`, `undo_seconds`, `files` counts (`moved`,
+record. File removal returns a background operation immediately; its streamed
+result contains `ids`, `undo_seconds`, `files` counts (`moved`,
 `not_found`, `kept`) and retained-record reasons. Clear now shares soft hiding
 and Undo. `POST history/pause-undo` accepts `ids` and a `paused` boolean to pause
 or resume the remaining undo window. `POST history/undo` restores records only.
 
 `GET queue/{id}/video` serves the recorded output, or the original when no output
 exists, for terminal History jobs. The normal token, Host and Origin checks
-apply; there are no bearer tokens in media URLs. The renderer fetches an
-authenticated blob for the native player and releases it when the popup closes.
+apply; there are no bearer tokens in media URLs. GET and HEAD support one byte
+range, including suffix and open-ended ranges (206), and reject unsatisfiable
+ranges (416). Electron forwards Range and the token through its app media
+protocol; the renderer uses a streaming URL without retrieving the whole file.
 
 `GET models` includes `uninstall_reason` for defaults and unfinished-job use.
 Weight hashes are cached by size and modification time; explicit verification
@@ -377,3 +380,27 @@ On one volume that is 3.3x estimated output bytes; separate volumes require
 heuristic. `estimate/space` also refreshes codec geometry warnings without timing
 the pipeline. Live inference FPS applies only to the active part; pending parts
 retain their corrected end-to-end prediction.
+
+
+## P1e-2 contracts
+
+Both estimate routes accept `file_settings`, a map from input path to settings
+that override the shared defaults. Batch estimates include `selected_seconds`
+and `selected_finish` for the actual mix of modes, with per-file finish times.
+
+History removal accepts `history` (default true), `output` and `original`.
+At least one choice must be enabled. File-only operations preserve History.
+File outcomes are committed individually; operations expose `completed_files`,
+`total_files`, `current_file`, and the hidden record IDs for Undo. A restart
+replays settled outcomes and purges expired or paused removals without restoring
+or permanently deleting videos.
+
+Service locks have ranks: mutation (10), publication (20), state (30).
+Publication/state locks never cover file I/O or shell calls. SSE uses published
+snapshots and independent heartbeats. The watchdog logs a lock held over five
+seconds, including the holding thread's stack.
+
+`POST errors/dismiss` clears the published engine problem while retaining logs.
+Download operations report byte-based transfer and hash phases; only their GPU
+test waits for a running part. `remaining_seconds` may be null until speed data
+is available. Compare results include per-model `model_progress`.

@@ -18,7 +18,7 @@ export function useDialogFocus() {
       if (next) {
         previous = document.activeElement as HTMLElement;
         const items = editable(next);
-        (items.find(item => item.matches('button') && /^(Cancel|Close|Back|Keep|Got it)/.test(item.textContent?.trim() || "")) || items[0])?.focus();
+        (items.find(item => item.matches('button') && /^(Cancel|Close|Back|Keep|Got it)/.test(item.textContent?.trim() || "")) || items[0])?.focus({ preventScroll: true });
       } else if (previous?.isConnected) previous.focus();
       current = next;
     };

@@ -36,6 +36,7 @@ def _thumbnails(path: Path, media: dict[str, Any], backend: str):
             use_device_memory=True,
             output_color_type=nvc.OutputColorType.NATIVE,
             decoder_cache_size=1,
+            need_scanned_stream_metadata=True,
         )
         remaining = int(media["frame_count"])
         while remaining:

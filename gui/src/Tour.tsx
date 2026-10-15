@@ -1,3 +1,4 @@
+import { ErrorBoundary } from "./ErrorBoundary";
 import { useEffect, useState } from "react";
 import { ActionButton } from "./ActionButton";
 
@@ -8,7 +9,7 @@ const steps = [
   { page: "Models", selector: '.model-grid', sentence: "Install verified models here and choose your defaults in their details." },
   { page: "Settings", selector: '.settings-page .page-heading', sentence: "Change appearance, output defaults and speed calibration in Settings." },
 ];
-export function Tour({ navigate, close }: { navigate(page: string): void; close(): void }) {
+function TourContent({ navigate, close }: { navigate(page: string): void; close(): void }) {
   const [step, setStep] = useState(0);
   const [box, setBox] = useState<DOMRect>();
   useEffect(() => {
@@ -22,4 +23,8 @@ export function Tour({ navigate, close }: { navigate(page: string): void; close(
       <div className="actions"><ActionButton onClick={close}>Skip</ActionButton><ActionButton className="primary" onClick={() => step === steps.length - 1 ? close() : setStep(step + 1)}>{step === steps.length - 1 ? "Done" : "Next"}</ActionButton></div>
     </div>
   </div>;
+}
+
+export function Tour(props: Parameters<typeof TourContent>[0]) {
+  return <ErrorBoundary scope="Tutorial"><TourContent {...props} /></ErrorBoundary>;
 }

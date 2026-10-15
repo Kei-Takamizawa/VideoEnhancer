@@ -405,17 +405,16 @@ describe("Schedule week", () => {
   });
 });
 
-it("keeps the original unselected and reports each guarded deletion result", async () => {
-  const call = vi.fn(async () => ({ results: [{ file: "output", result: "Kept: file is open" }] }));
-  render(<HistoryDetail job={{ ...failed, original_state: "recycled", output_state: "missing" }} api={{ call } as unknown as Api} close={vi.fn()} action={vi.fn()} compare={vi.fn()} />);
+it("opens the shared file-removal flow from History details", () => {
+  const action = vi.fn(), close = vi.fn();
+  const job = { ...failed, original_state: "recycled" as const, output_state: "missing" as const };
+  render(<HistoryDetail job={job} close={close} action={action} compare={vi.fn()} />);
   expect((screen.getByRole("button", { name: "Compare again" }) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByText("Moved to the Recycle Bin")).toBeTruthy();
   expect(screen.getByText("File not found")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Delete video files…" }));
-  expect((screen.getByRole("checkbox", { name: "Original video" }) as HTMLInputElement).checked).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "Move to Recycle Bin" }));
-  await waitFor(() => expect(screen.getByText("Output: Kept: file is open")).toBeTruthy());
-  expect(call).toHaveBeenCalledWith("history/delete-files", "POST", { ids: [failed.id], output: true, original: false });
+  expect(action).toHaveBeenCalledWith(job, "delete-files");
+  expect(close).toHaveBeenCalled();
 });
 it("saves an overnight row without changing its end date semantics", async () => {
   const call = vi.fn(async () => ({ plan }));

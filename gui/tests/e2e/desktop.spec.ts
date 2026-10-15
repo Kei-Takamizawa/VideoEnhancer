@@ -20,7 +20,8 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
   mkdirSync(evidence, { recursive: true });
   const run = path.resolve("test-results", `engine-${Date.now()}`);
   mkdirSync(run, { recursive: true });
-  const source = path.join(run, "synthetic.mp4");
+  mkdirSync(path.join(run, "home"), { recursive: true });
+  const source = path.join(run, "home", "synthetic.mp4");
   execFileSync(process.env.VE_FFMPEG || "ffmpeg", [
     "-v",
     "error",
@@ -118,7 +119,7 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
       await route.continue({ postData: JSON.stringify(body) });
     });
     await page.getByRole("button", { name: "Add videos" }).click();
-    await page.getByRole("button", { name: /^Fast/ }).click();
+    await page.locator(".mode-cards").getByRole("button", { name: /^Fast/ }).click();
     await expect(
       page.getByRole("button", { name: "Add to queue" }),
     ).toBeEnabled({ timeout: 30000 });
@@ -131,7 +132,7 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
       path: path.join(evidence, "now-processing-synthetic.png"),
     });
     await page.getByRole("button", { name: "History", exact: true }).click();
-    await expect(page.getByText("Done", { exact: true })).toBeVisible({
+    await expect(page.locator(".history-image").first()).toBeVisible({
       timeout: 40000,
     });
     await page.screenshot({
@@ -262,8 +263,8 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
           await assertPanelFits(page);
           await page.getByRole("button", { name: "Delete video files…" }).click();
           await assertPanelFits(page);
-          await page.getByRole("button", { name: "Keep files" }).click();
-          await page.getByRole("button", { name: "Close", exact: true }).click();
+          await page.getByRole("dialog", { name: "Remove records or video files?" }).getByRole("button", { name: "Cancel", exact: true }).click();
+          await expect(page.getByRole("dialog")).toHaveCount(0);
         }
         await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
       }
@@ -353,7 +354,7 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
       BrowserWindow.getAllWindows()[0].show(),
     );
     await page.getByRole("button", { name: "History", exact: true }).click();
-    await expect(page.getByText("Done", { exact: true })).toBeVisible();
+    await expect(page.locator(".history-image").first()).toBeVisible();
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].setSize(1100, 700),
     );

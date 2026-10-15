@@ -1,6 +1,7 @@
 """Probe stream metadata and exact packet presentation times."""
 
 import json
+import subprocess
 from dataclasses import asdict, dataclass, field
 from fractions import Fraction
 from pathlib import Path
@@ -90,6 +91,66 @@ def packet_timeline(path: str | Path, time_base: Fraction) -> tuple[list[Fractio
     )
 
 
+def audio_packet_spans(path: Path, streams: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    """Measure audible packet spans, including codec skip/discard samples."""
+    rates = {
+        int(s["index"]): int(s.get("sample_rate", 0))
+        for s in streams
+        if s.get("codec_type") == "audio"
+    }
+    starts = {
+        int(s["index"]): float(s.get("start_time", 0))
+        for s in streams
+        if s.get("codec_type") == "audio"
+    }
+    if not rates:
+        return {}
+    command = [
+        executable("ffprobe"),
+        "-v",
+        "error",
+        "-select_streams",
+        "a",
+        "-show_packets",
+        "-show_entries",
+        "packet=stream_index,pts_time,duration_time:packet_side_data=skip_samples,discard_padding",
+        "-of",
+        "compact=p=0:nk=0",
+        str(path),
+    ]
+    spans: dict[int, dict[str, Any]] = {}
+    with proc.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
+        assert process.stdout is not None
+        for line in process.stdout:
+            fields = dict(field.split("=", 1) for field in line.strip().split("|") if "=" in field)
+            if not fields.get("stream_index") or fields.get("pts_time", "N/A") == "N/A":
+                continue
+            index = int(fields["stream_index"])
+            rate = rates[index]
+            start = float(fields["pts_time"])
+            duration = float(fields.get("duration_time", "0").replace("N/A", "0"))
+            skip = int(fields.get("skip_samples", "0"))
+            discard = int(fields.get("discard_padding", "0"))
+            end = start + duration - (discard / rate if rate else 0)
+            start += skip / rate if rate else 0
+            span = spans.setdefault(index, dict(start=start, end=end, initial_padding=skip))
+            span.update(
+                start=min(span["start"], start),
+                end=max(span["end"], end),
+                initial_padding=max(span["initial_padding"], skip),
+            )
+        process.communicate()
+        if process.returncode:
+            raise RuntimeError("Could not measure audio packets: " + proc.stderr_text(process))
+    for index, span in spans.items():
+        # MP4 edit lists can trim a copied AAC priming packet without repeating
+        # its skip-samples side data. Respect the audio stream's presentation start.
+        if starts[index] > span["start"]:
+            span["initial_padding"] += round((starts[index] - span["start"]) * rates[index])
+            span["start"] = starts[index]
+    return spans
+
+
 def probe(
     path: str | Path,
     count_frames: bool = False,
@@ -158,7 +219,11 @@ def probe(
     if matrix in {"smpte170m", "bt470bg"}:
         matrix = "bt601"
     if matrix not in {"bt601", "bt709"} and not (
-        allow_hdr and transfer in {"smpte2084", "arib-std-b67"} and matrix == "bt2020nc"
+        matrix == "bt2020nc"
+        and (
+            transfer in {"bt709", "bt2020-10", "bt2020-12"}
+            or (allow_hdr and transfer in {"smpte2084", "arib-std-b67"})
+        )
     ):
         raise ValueError(f"Unsupported SDR color matrix {matrix}. Convert to BT.709 first.")
     sar = rational(video.get("sample_aspect_ratio", "1:1"), Fraction(1)) or Fraction(1)
@@ -170,16 +235,33 @@ def probe(
     display_w, display_h = (
         (height, square_width) if rotation in {90, 270} else (square_width, height)
     )
+    spans = (
+        audio_packet_spans(source, streams)
+        if read_timeline or count_packets or count_frames
+        else {}
+    )
     audio = [
         {
             "index": int(s["index"]),
             "codec": s.get("codec_name", "unknown"),
             "sample_rate": int(s.get("sample_rate", 0)),
             "channels": int(s.get("channels", 0)),
-            "initial_padding": int(s.get("initial_padding", 0)),
-            "duration": float(s.get("duration", raw.get("format", {}).get("duration", 0))),
-            "start_offset": float(s.get("start_time", 0)) - float(video.get("start_time", 0)),
-            "start_time": float(s.get("start_time", 0)),
+            "initial_padding": spans.get(int(s["index"]), {}).get(
+                "initial_padding", int(s.get("initial_padding", 0))
+            ),
+            "duration": (
+                spans[int(s["index"])]["end"] - spans[int(s["index"])]["start"]
+                if int(s["index"]) in spans
+                else float(s.get("duration", 0))
+            ),
+            "duration_source": "packets" if int(s["index"]) in spans else "stream metadata",
+            "start_offset": spans.get(int(s["index"]), {}).get(
+                "start", float(s.get("start_time", 0))
+            )
+            - float(video.get("start_time", 0)),
+            "start_time": spans.get(int(s["index"]), {}).get(
+                "start", float(s.get("start_time", 0))
+            ),
         }
         for s in streams
         if s.get("codec_type") == "audio"

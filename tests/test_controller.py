@@ -282,6 +282,7 @@ def test_worker_retries_oom_with_one_frame_batch(tmp_path: Path, monkeypatch: An
     def assemble(manifest: dict, _job_dir: Path, abort: Any, *, validation_started: Any) -> Path:
         validation_started()
         assert not abort()
+        manifest.setdefault("timing", {})["finalization_steps"] = {"concat_seconds": 1.25}
         output = Path(manifest["output"])
         output.write_bytes(b"assembled")
         return output
@@ -301,6 +302,8 @@ def test_worker_retries_oom_with_one_frame_batch(tmp_path: Path, monkeypatch: An
     assert result["segments"][0]["state"] == "done"
     assert result["output_identity"] == input_identity(Path(result["output"]))
     assert result["output_bytes"] == Path(result["output"]).stat().st_size
+    assert result["timing"]["finalization_steps"]["concat_seconds"] == 1.25
+    assert result["timing"]["finalization_steps"]["quality_aggregation_seconds"] >= 0
     assert json.loads(schedule_path.read_text(encoding="utf-8"))["override_until"] is None
 
 
@@ -501,4 +504,6 @@ def test_process_executor_drains_result_larger_than_pipe_buffer(tmp_path, monkey
         {}, {}, tmp_path / "unused.mp4", lambda: time.monotonic() > deadline, batch_size=1
     )
     assert result.status == "done"
-    assert result.stats == {"payload": "x" * 100_000}
+    assert result.stats is not None
+    assert result.stats["payload"] == "x" * 100_000
+    assert result.stats["parent_ipc_seconds"] >= 0

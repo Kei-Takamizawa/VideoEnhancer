@@ -25,12 +25,14 @@ describe("event recovery", () => {
     const receive = vi.fn();
     const status = vi.fn();
     const reconnect = vi.fn(async () => ({ base_url: "http://127.0.0.1:5678/v1", token: "new" }));
-    const running = events(connection, abort.signal, receive, status, reconnect);
+    const stalled = vi.fn();
+    const running = events(connection, abort.signal, receive, status, reconnect, stalled);
     await vi.advanceTimersByTimeAsync(0);
     controller!.enqueue(new TextEncoder().encode('event: update\ndata: {"jobs":[]}\n\n'));
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(30000);
     expect(status).toHaveBeenLastCalledWith(true);
+    expect(stalled).toHaveBeenLastCalledWith(true);
     expect(receive).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1000);
     expect(fetch).toHaveBeenCalledTimes(2);

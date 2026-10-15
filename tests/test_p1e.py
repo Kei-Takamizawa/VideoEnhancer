@@ -120,12 +120,12 @@ def test_queue_projection_uses_positions_not_directory_order(tmp_path):
     assert [job["id"] for job in store.queue_jobs()] == ["b", "c", "a"]
 
 
-def test_downscale_space_uses_geometry_fps_and_codec():
+def test_larger_source_keeps_its_geometry_in_space_estimate():
     media = dict(display_width=3840, display_height=2160)
     settings = dict(short_side=1080, fps="off", codec="hevc")
-    assert estimated_output_size(1_000_000, media, settings) == 175_000
-    assert estimated_output_size(1_000_000, media, {**settings, "fps": "2x"}) == 350_000
-    assert estimated_output_size(1_000_000, media, {**settings, "codec": "av1"}) == 150_000
+    assert estimated_output_size(1_000_000, media, settings) == 700_000
+    assert estimated_output_size(1_000_000, media, {**settings, "fps": "2x"}) == 1_400_000
+    assert estimated_output_size(1_000_000, media, {**settings, "codec": "av1"}) == 600_000
 
 
 def test_same_volume_reserves_segments_joined_and_final_temporary(tmp_path):

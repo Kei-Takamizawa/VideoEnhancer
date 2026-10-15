@@ -468,6 +468,18 @@ class VideoDeletion:
             except BlockingIOError:
                 return []
 
+    def completed_outcomes(self) -> list[dict[str, Any]]:
+        """Replay durable shell outcomes into manifests without restoring files."""
+        latest: dict[str, dict[str, Any]] = {}
+        if self.journal.exists():
+            for line in self.journal.read_text(encoding="utf-8").splitlines():
+                try:
+                    entry = json.loads(line)
+                    latest[entry["id"]] = entry
+                except (ValueError, KeyError):
+                    continue
+        return [entry for entry in latest.values() if entry.get("phase") == "resolved"]
+
     def delete(self, path: Path, job: dict[str, Any], jobs: list[dict[str, Any]]) -> str:
         with self.lock:
             try:

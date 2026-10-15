@@ -17,6 +17,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 const { servicePython } = require("./python.cjs");
+const { permissionAllowed } = require("./permissions.cjs");
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -307,10 +308,20 @@ else {
         app.quit();
         return;
       }
-      protocol.handle("app", (request) => {
+      protocol.handle("app", async (request) => {
         const url = new URL(request.url);
         if (url.hostname !== "videoenhancer")
           return new Response("Forbidden", { status: 403 });
+        const media = /^\/media\/([^/]+)$/.exec(url.pathname);
+        if (media) {
+          if (!["GET", "HEAD"].includes(request.method)) return new Response("Forbidden", { status: 403 });
+          if (!connection) await ensureService();
+          const headers = { Authorization: `Bearer ${connection.token}` };
+          const range = request.headers.get("Range");
+          if (range) headers.Range = range;
+          return net.fetch(`${connection.base_url}/queue/${encodeURIComponent(decodeURIComponent(media[1]))}/video`,
+            { method: request.method, headers, signal: request.signal });
+        }
         const root = path.resolve(__dirname, "../dist");
         const target = path.resolve(
           root,
@@ -382,8 +393,10 @@ else {
       });
       window.webContents.on("will-navigate", (event) => event.preventDefault());
       window.webContents.session.setPermissionRequestHandler(
-        (_contents, _permission, callback) => callback(false),
+        (contents, permission, callback, details) => callback(permissionAllowed(window, contents, permission, details.requestingUrl)),
       );
+      window.webContents.session.setPermissionCheckHandler((contents, permission, origin) =>
+        permissionAllowed(window, contents, permission, origin));
       window.webContents.session.webRequest.onHeadersReceived(
         (details, callback) => {
           const dev = process.env.VE_GUI_DEV === "1";
@@ -391,13 +404,37 @@ else {
             responseHeaders: {
               ...details.responseHeaders,
               "Content-Security-Policy": [
-                `default-src 'none'; script-src 'self'; style-src 'self'${dev ? " 'unsafe-inline'" : ""}; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; media-src blob:; font-src 'self'; connect-src http://127.0.0.1:*${dev ? " ws://127.0.0.1:5173" : ""}; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'`,
+                `default-src 'none'; script-src 'self'; style-src 'self'${dev ? " 'unsafe-inline'" : ""}; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self'; connect-src http://127.0.0.1:*${dev ? " ws://127.0.0.1:5173" : ""}; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'`,
               ],
             },
           });
         },
       );
       handle("connection", ensureService);
+      handle("reload", () => { window.webContents.reload(); });
+      handle("restart-engine", async () => {
+        await ensureService();
+        await request("shutdown", "POST", {});
+        const deadline = Date.now() + 20000;
+        while (Date.now() < deadline) {
+          try {
+            const current = JSON.parse(await fs.readFile(path.join(home, "serve.json"), "utf8"));
+            process.kill(current.pid, 0);
+          } catch (error) {
+            if (error.code !== "ENOENT" && error.code !== "ESRCH") throw error;
+            connection = undefined;
+            return ensureService();
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        throw new Error("The engine could not stop safely. File removal may still be running. Try again when it finishes.");
+      });
+      handle("renderer-error", async (details) => {
+        if (typeof details !== "string") throw new Error("Invalid renderer error.");
+        await fs.mkdir(home, { recursive: true });
+        await fs.appendFile(path.join(home, "renderer-errors.log"),
+          `${new Date().toISOString()}\n${details.slice(0, 64000)}\n`, "utf8");
+      });
       handle("zoom", setZoom);
       handle("theme", (theme) => {
         if (!["light", "dark", "system"].includes(theme)) throw new Error("Invalid theme.");

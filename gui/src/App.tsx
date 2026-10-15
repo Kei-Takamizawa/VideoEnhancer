@@ -1,4 +1,5 @@
-import { VideoFilesDialog } from "./VideoFilesDialog";
+import { Notice } from "./Notice";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { Tour } from "./Tour";
 import { UndoToast } from "./UndoToast";
 import { HistoryRemoval } from "./HistoryRemoval";
@@ -34,10 +35,10 @@ export function ConnectionBanner({
   retry(): void;
 }) {
   return error ? (
-    <div className="error connection" role="alert">
+    <Notice className="error connection" identity={error}>
       <h2>Can’t reach the engine</h2><p>{error}</p> <ActionButton onClick={retry}>Retry</ActionButton>
       <ActionButton onClick={() => window.desktop.copy(error)}>Copy details</ActionButton><p>Your last known data remains visible.</p>
-    </div>
+    </Notice>
   ) : null;
 }
 export function ControlWarning({
@@ -48,7 +49,7 @@ export function ControlWarning({
   retry(): void;
 }) {
   return health?.smart_app_control.blocked ? (
-    <div className="error" role="alert">
+    <Notice identity={health.smart_app_control.message || "Windows blocked video processing"}>
       <h2>Windows is blocking a required video component</h2>
       <p>
         Smart App Control prevented the engine from running. Processing cannot
@@ -63,7 +64,7 @@ export function ControlWarning({
         Read troubleshooting instructions
       </a>{" "}
       <ActionButton onClick={retry}>Retry</ActionButton>
-    </div>
+    </Notice>
   ) : null;
 }
 export default function App() {
@@ -75,6 +76,7 @@ export default function App() {
   const [api, setApi] = useState<Api>();
   const [error, setError] = useState("");
   const [reconnecting, setReconnecting] = useState(false);
+  const [engineStalled, setEngineStalled] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [actionError, setActionError] = useState("");
   const [zoomToast, setZoomToast] = useState<number>();
@@ -160,6 +162,27 @@ export default function App() {
   const [trayExplanation, setTrayExplanation] = useState(false);
   useEffect(() => window.desktop.onTrayExplanation(() => setTrayExplanation(true)), []);
   const [historyUndo, setHistoryUndo] = useState<string[]>();
+  const [historyUndoRevision, setHistoryUndoRevision] = useState("");
+  const historyRemovalSeen = useRef(new Map<string, string>());
+  useEffect(() => {
+    for (const op of queue.operations.filter(op => op.kind === "history-removal")) {
+      const signature = JSON.stringify([op.state, op.result?.ids, op.result?.files]);
+      if (historyRemovalSeen.current.get(op.id) === signature) continue;
+      historyRemovalSeen.current.set(op.id, signature);
+      const ids = op.result?.ids || [];
+      const recent = op.state === "running" || Date.now() - Date.parse(op.completed_at || op.created_at || "") < 10000;
+      if (ids.length && recent) {
+        setHistoryUndo(ids);
+        setHistoryUndoRevision(op.completed_at || op.id);
+        setFilesMoved((op.result?.files?.moved || 0) > 0);
+      }
+      if (op.state === "failed") setActionError(op.error || "File removal failed.");
+      else if (op.state === "done" && recent && op.result?.files) {
+        const files = op.result.files;
+        setActionError(`${files.moved} moved, ${files.not_found} not found, ${files.kept} kept. ${(op.result.kept || []).map(item => item.reason).join(" ")}`);
+      }
+    }
+  }, [queue.operations]);
   const [historyRemoval, setHistoryRemoval] = useState<Job[]>();
   const [historyFiles, setHistoryFiles] = useState<Job[]>();
   const [filesMoved, setFilesMoved] = useState(false);
@@ -276,6 +299,7 @@ export default function App() {
             if (alive) setApi(next);
             return restored;
           },
+          setEngineStalled,
         );
       })
       .catch((e) => {
@@ -343,7 +367,11 @@ export default function App() {
           setLog(`${job.log}\n\n${(await api!.call<{ text: string }>(`queue/${job.id}/log`)).text}`);
       else if (name === "remove" || name === "clear-history") {
         const ids = (data as { ids?: string[] } | undefined)?.ids || [job.id];
-        const result = await api!.call<{ ids: string[]; files: { moved: number; not_found: number; kept: number }; kept: { reason: string }[] }>(name === "remove" ? "history/remove" : "history/clear", "POST", { ids, ...(data as object || {}) });
+        const result = await api!.call<Operation | { ids: string[]; files: { moved: number; not_found: number; kept: number }; kept: { reason: string }[] }>(name === "remove" ? "history/remove" : "history/clear", "POST", { ids, ...(data as object || {}) });
+        if ("kind" in result) {
+          setQueue(old => ({ ...old, operations: [...old.operations.filter(op => op.id !== result.id), result] }));
+          return;
+        }
         setQueue(old => ({ ...old, jobs: old.jobs.filter(record => !result.ids.includes(record.id)) }));
         setHistoryUndo(result.ids.length ? result.ids : undefined);
         setFilesMoved(result.files.moved > 0);
@@ -407,10 +435,10 @@ export default function App() {
       )}
       <div className="title-bar"><span className="title-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 6 6 6-6 6m7-12 6 6-6 6" fill="none" stroke="currentColor" strokeWidth="3" /></svg></span>VideoEnhancer</div>
       {tour && <Tour navigate={setPage} close={() => { setTour(false); void api!.call("settings", "PUT", { tour_completed: true }).then(() => setSettings(old => old ? { ...old, tour_completed: true } : old)).catch(error => setActionError(error.message)); }} />}
-      {historyUndo && <UndoToast key={historyUndo.join(",")} moved={filesMoved} expire={() => setHistoryUndo(undefined)}
+      {historyUndo && <UndoToast key={`${historyUndo.join(",")}:${historyUndoRevision}`} moved={filesMoved} expire={() => setHistoryUndo(undefined)}
         pause={paused => { void api!.call("history/pause-undo", "POST", { ids: historyUndo, paused }).catch(error => setActionError(error.message)); }}
         undo={() => { void api!.call("history/undo", "POST", { ids: historyUndo }).then(() => setHistoryUndo(undefined)).catch(error => setActionError(error.message)); }} />}
-      {historyFiles && api && <VideoFilesDialog jobs={historyFiles} api={api} close={() => setHistoryFiles(undefined)} />}
+      {historyFiles && api && <HistoryRemoval jobs={historyFiles} filesOnly action={(job, name, data) => { void perform(job, name, data); }} close={() => setHistoryFiles(undefined)} />}
       {historyRemoval && <HistoryRemoval jobs={historyRemoval} action={(job, name, data) => { void perform(job, name, data); }} close={() => setHistoryRemoval(undefined)} />}
       {zoomToast !== undefined && <div className="zoom-toast" role="status">
         <strong>{zoomToast}%</strong><span>Ctrl+0 resets to 100%</span>
@@ -452,10 +480,20 @@ export default function App() {
         </ActionButton>
       </aside>
       <main>
+        <ErrorBoundary key={page} scope={page}>
         {reconnecting && <div className="connection card" role="status">Reconnecting… <span>Last update {new Date(lastUpdate).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })}</span></div>}
+        {engineStalled && <Notice className="error card" identity={String(lastUpdate)}>
+          <p>The engine stopped responding</p>
+          <ActionButton onClick={async () => {
+            try { await window.desktop.restartEngine?.(); setEngineStalled(false); retry(); }
+            catch (error) { setActionError((error as Error).message); }
+          }}>Restart</ActionButton>
+        </Notice>}
         <ControlWarning health={health} retry={retry} />
+        {queue.operations.filter(op => op.kind === "history-removal" && op.state === "running")
+          .map(op => <OperationStatus key={op.id} operation={op} />)}
         {health?.last_error && (
-          <div className="error" role="alert">
+          <Notice identity={health.last_error.time + health.last_error.message} dismiss={() => { void api?.call("errors/dismiss", "POST").catch(error => setActionError(error.message)); }}>
             Problem · {problemWhen(health.last_error.time)} · {health.last_error.message}
             <ActionButton
               onClick={() =>
@@ -464,13 +502,13 @@ export default function App() {
             >
               Copy details
             </ActionButton>
-          </div>
+          </Notice>
         )}
         {actionError && (
-          <div role="alert" className="error">
+          <Notice identity={actionError} dismiss={() => setActionError("")}>
             {actionError}
-            <ActionButton onClick={() => setActionError("")}>Dismiss</ActionButton>
-          </div>
+
+          </Notice>
         )}
         {page === "Home" && (
           <HomePage
@@ -540,8 +578,10 @@ export default function App() {
           />
         )}
         {(!api || !settings || !health) && !error && <div className="connection card" role="status"><h2>Connecting to the engine…</h2><p>Getting your videos and settings ready.</p></div>}
+        </ErrorBoundary>
       </main>
       {files && api && settings && (
+        <ErrorBoundary key={files.join("|")} scope="Add videos">
         <AddDialog
           api={api}
           files={files}
@@ -555,8 +595,10 @@ export default function App() {
             setTrial({ file, settings: prefs, media, apply })
           }
         />
+        </ErrorBoundary>
       )}
       {trial && api && (
+        <ErrorBoundary key={trial.file} scope="Compare">
         <TrialDialog
           models={models}
           started={
@@ -589,6 +631,7 @@ export default function App() {
           operations={queue.operations}
           close={() => setTrial(undefined)}
         />
+        </ErrorBoundary>
       )}
       {resultPreview && api && (
         <div className="modal-shade compare-full-window">

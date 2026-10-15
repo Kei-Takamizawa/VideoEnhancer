@@ -1,7 +1,7 @@
 """Hash-pinned publisher IFNet variants; never execute code from model folders."""
 
-import importlib
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 from videoenhancer.models.registry import sha256
@@ -19,22 +19,19 @@ VARIANTS = {
 }
 
 
-def prepare_variant(version: str) -> tuple[Path, Path]:
+def prepare_variant(
+    version: str, progress: Callable[[str, float], None] | None = None
+) -> tuple[Path, Path]:
     file_id, expected = VARIANTS[version]
     cache = source_cache(())
     archive = source_path(cache, cache / f"rife-{version}.zip")
     if not archive.exists():
-        gdown = importlib.import_module("gdown")
-        temporary = archive.with_suffix(".download")
-        try:
-            if not gdown.download(id=file_id, output=str(temporary), quiet=True):
-                raise RuntimeError("The publisher did not return the RIFE archive.")
-            if sha256(temporary) != expected:
-                raise ValueError("RIFE publisher archive SHA-256 mismatch.")
-            temporary.replace(archive)
-        finally:
-            temporary.unlink(missing_ok=True)
-    if sha256(archive) != expected:
+        from videoenhancer.models.download import drive_archive
+
+        drive_archive(
+            archive, file_id, expected, {"4.26": 22867954, "4.25-lite": 22765148}[version], progress
+        )
+    if sha256(archive, progress) != expected:
         raise ValueError("Pinned RIFE variant archive changed; refusing to execute it.")
     root = source_path(cache, cache / f"rife-{version}-source")
     with zipfile.ZipFile(archive) as bundle:

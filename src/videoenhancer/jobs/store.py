@@ -121,7 +121,7 @@ def estimated_output_size(input_size: int, media: dict[str, Any], settings: dict
         int(media.get("display_height", media.get("height", 1))),
     )
     target = settings.get("short_side", "keep")
-    scale = (int(target) / short) if target != "keep" and short > 0 else 1.0
+    scale = max(1.0, int(target) / short) if target != "keep" and short > 0 else 1.0
     fps_factor = 2.0 if settings.get("fps") == "2x" else 1.0
     # 0.7 limits huge overestimates for highly compressed inputs; retain
     # headroom for upscale, interpolation and audio.
@@ -349,9 +349,26 @@ class JobStore:
             if manifest["analysis_file"] != "analysis.json":
                 raise ValueError("Invalid analysis sidecar.")
             if include_analysis:
-                with (path.parent / "analysis.json").open(encoding="utf-8") as stream:
-                    manifest.update(json.load(stream))
+                try:
+                    with (path.parent / "analysis.json").open(encoding="utf-8") as stream:
+                        manifest.update(json.load(stream))
+                except FileNotFoundError:
+                    manifest["analysis_missing"] = True
         return manifest
+
+    def ensure_analysis(self, job: dict[str, Any]) -> dict[str, Any]:
+        if not job.get("analysis_missing") or job["state"] not in {"queued", "running"}:
+            return job
+        from videoenhancer.media.analyze import analyze
+
+        source = Path(job["input"]["path"])
+        if input_identity(source) != job["input"]:
+            raise ValueError("The original video changed. Add it again before processing.")
+        analysis = analyze(source, backend=job["settings"]["backend"])
+        job.update({key: analysis.get(key, []) for key in ANALYSIS_FIELDS})
+        job.pop("analysis_missing", None)
+        self.save(job)
+        return self.load(job["id"])
 
     def save(self, manifest: dict[str, Any]) -> None:
         if manifest.get("schema_version") != SCHEMA_VERSION:
@@ -756,6 +773,10 @@ def add_job(
         capabilities = av1_capabilities(
             store.home, str(environment.get("gpu") or ""), str(environment.get("driver") or "")
         )
+    if chosen.get("backend") == "cuda":
+        import torch
+
+        capabilities["vram_bytes"] = torch.cuda.get_device_properties(0).total_memory
     if str(media.get("color_transfer", "")) in {"smpte2084", "arib-std-b67"}:
         raise ValueError("HDR is not supported. Choose an SDR video.")
     warning = geometry_warning(store.home, media, chosen, capabilities)
@@ -803,11 +824,16 @@ def add_job(
         "position": len(store.list_jobs()) + 1,
         "created_at": now,
         "updated_at": now,
-        "correction_factor": recent_correction(store, chosen["preset"], profile),
+        "correction_factor": recent_correction(store, chosen["preset"], profile, media, chosen),
         "control_generation": 0,
         "machine_profile": profile,
         "timing": {"observations": [], "wasted_seconds": 0.0},
         "estimated_output_bytes": output_bytes,
+        "notes": (
+            ["The saved frame-doubling model is ignored because 2x is not active for this video."]
+            if chosen.get("interp_model") and "interpolate" not in models
+            else []
+        ),
     }
     with _manifest_lock(store.jobs_dir):
         _require_unreserved_output(store, destination, job_id)

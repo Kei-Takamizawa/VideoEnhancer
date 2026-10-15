@@ -1,5 +1,5 @@
 import { Check, GripVertical } from "lucide-react";
-import { HistoryRemoval } from "./HistoryRemoval";
+import { historyWarning } from "./history";
 import { ActionButton } from "./ActionButton";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Api } from "./api";
@@ -582,7 +582,6 @@ export function HistoryPage({
   const [selected, setSelected] = useState<string[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [galleryWidth, setGalleryWidth] = useState(1000);
-  const [clear, setClear] = useState(false);
   const [detail, setDetail] = useState<string>();
   const viewport = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState(0);
@@ -674,15 +673,14 @@ export function HistoryPage({
     <section aria-label="History">
       <div className="page-heading">
         <h1>History</h1>
-        <ActionButton disabled={!terminal.length} onClick={() => setClear(true)}>Clear history…</ActionButton>
         <input
           aria-label="Search by file name"
           placeholder="Search by file name"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        {!selectMode && <ActionButton className="small history-select-button" onClick={() => setSelectMode(true)}>Select</ActionButton>}
       </div>
-      {!selectMode && <ActionButton onClick={() => setSelectMode(true)}>Select</ActionButton>}
       {selectMode && <div className="toolbar">
         <span>{selected.length} selected</span>
         <ActionButton onClick={() => setSelected(visible.map(job => job.id))}>Select all</ActionButton>
@@ -716,13 +714,15 @@ export function HistoryPage({
                 onClick={() => selectMode ? setSelected(old => old.includes(job.id) ? old.filter(id => id !== job.id) : [...old, job.id]) : setDetail(job.id)}>
                 <Thumbnail job={job} api={api} small />
                 {selectMode && <span className="history-select" aria-hidden="true">{selected.includes(job.id) && <Check size={16} strokeWidth={1.8} />}</span>}
-                <span className="history-scrim"><span className="history-filename" title={filename(job.input)}>{filename(job.input)}</span><span className="badge">{job.state === "done" ? "Done" : job.state === "failed" ? "Failed" : "Cancelled"}</span></span>
+                <span className="history-scrim"><span className="history-filename" title={filename(job.input)}>{filename(job.input)}</span>
+                  {historyWarning(job) && <span className="badge warning" role="img"
+                    aria-label={historyWarning(job)} title={historyWarning(job)}>⚠</span>}
+                </span>
               </button>
             </article>
           ))}</div>)}
         </div>
       </div>
-      {clear && <HistoryRemoval jobs={terminal} clear action={action} close={() => setClear(false)} />}
       {detail && queue.jobs.find(job => job.id === detail) && <HistoryDetail job={queue.jobs.find(job => job.id === detail)!} api={api} action={action} compare={trial} close={() => setDetail(undefined)} />}
       <p className="muted">
         Finished and failed jobs move here automatically. Removing an item from

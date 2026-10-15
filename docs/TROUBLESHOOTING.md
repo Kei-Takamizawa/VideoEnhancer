@@ -139,10 +139,8 @@ unverifiable output is kept. No refusal is bypassed by permanent deletion.
 When removing History with file options, retained-file reasons keep those records
 visible. Undo restores History records; files remain in the Recycle Bin.
 
-If History cannot play a codec, use Open in your player. Loading a long file into
-the popup currently requires an authenticated authenticated blob; close the popup
-to release it. The full file is retrieved before playback; incremental
-large-file streaming is not claimed by this implementation.
+If History cannot play a codec, use Open in your player. The popup streams recorded files and seeks with HTTP byte ranges. If an output
+was moved or changed, its warning explains why playback or deletion is refused.
 
 A paused job keeps finished parts and restarts the current part. Its card shows
 the estimated work repeated. Schedule hours can be edited with the switch off;
@@ -165,3 +163,25 @@ requesting another processing-time estimate. Output size is an estimate, not a
 guaranteed byte count. The preflight allows room for retained segments, their
 joined copy and the final temporary file, including a 10% reserve. If output and
 engine home are on different volumes, each volume is checked separately.
+
+
+## Processing stops or a removal takes time
+
+A removal with files runs in the background. Its operation shows each settled
+file; the event stream stays connected. A kept file retains its record and
+reason. Dismiss hides a message, while logs and the record's warning remain.
+
+If progress stops and later errors, keep the job and use Copy details before
+removing its record. Segment logs include the last frame count, elapsed time,
+process ID, memory samples and watchdog reason. A fresh-process retry remains
+bounded; an error does not establish that the video, GPU driver or hardware is
+at fault. Memory samples are observations, not guaranteed peaks.
+
+A missing analysis sidecar is rebuilt for queued work after checking the input
+identity. Finished records remain readable. FFmpeg software VP9/AV1 decoder
+availability is reported in Settings and when adding the affected formats.
+Audio checks use each stream's packets and account for codec priming.
+
+2160p forecasts use measured component and whole-pipeline points. Larger output
+is visibly uncalibrated. Old local observations are not silently treated as
+measurements of a new built-in profile revision.

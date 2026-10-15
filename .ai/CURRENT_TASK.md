@@ -539,3 +539,16 @@ The owner said that "model loading and processing are slow and heavy."
   - The O2 4K numbers.
   - The O9 table.
   - The O4 gate numbers.
+
+
+## Additional owner instruction
+
+直近のログも調べてください。処理が止まってしまいました。安定して動画処理ができるよう原因追求と工夫を考えてください。
+
+Owner clarification: progress stopped and later showed an error. The affected input is 960x540 in Standard mode. Owner later confirmed MP4, H.264, 29.97 fps, and 1440p output.
+
+Additional owner request (2026-10-15):
+
+4k出力の場合でも安定して処理できるか確かめてほしいです。
+
+Verification scope: add an isolated 1440p reproduction, then synthetic approximately two-minute 960x540 H.264 MP4 at 30000/1001 fps through Standard and Fast with 3840x2160 output. Keep these GPU jobs sequential. Record completion, stalls, retries, interpolation fallbacks, per-PID sampled GPU memory, Torch peaks and output video/audio validation. Do not infer stability for all long videos from these bounded runs.

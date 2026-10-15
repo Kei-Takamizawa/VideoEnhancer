@@ -290,6 +290,7 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
         seconds=(last - first) / float(rate),
         output_fps=float(output_fps),
         items=[],
+        model_progress={},
     )
     cache: dict[str, Any] = {}
 
@@ -384,11 +385,30 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
             "models": record_models(chosen, get_home(), analysis["media"]),
         }
         segment = dict(index=0, start=first, end=last)
+        from videoenhancer.estimate import predict_segment
+        from videoenhancer.jobs.store import load_machine_profile
+
+        expected_seconds = predict_segment(
+            analysis["media"], chosen, last - first, load_machine_profile(get_home())
+        )
 
         def progress(
-            data: dict[str, Any], model: dict[str, Any] = model, position: int = position
+            data: dict[str, Any],
+            model: dict[str, Any] = model,
+            position: int = position,
+            expected_seconds: float = expected_seconds,
         ) -> None:
             fraction = data.get("frames_done", 0) / (last - first)
+            elapsed = float(data.get("elapsed_seconds", 0))
+            result["model_progress"][model["id"]] = dict(
+                percent=min(100, 100 * fraction),
+                remaining_seconds=max(
+                    0,
+                    elapsed * (1 - fraction) / fraction
+                    if fraction > 0 and elapsed > 0
+                    else expected_seconds,
+                ),
+            )
             publish(
                 f"Making {model.get('catalog', {}).get('title', model['display_name'])}",
                 100 * (position + fraction) / len(value["models"]),
@@ -494,6 +514,7 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
             )
         )
         remember(model_key, model_id, stats["fps"])
+        result["model_progress"][model_id] = dict(percent=100, remaining_seconds=0)
         publish("Preview ready", 100 * (position + 1) / len(value["models"]))
     result["total_seconds"] = time.perf_counter() - started
     return result

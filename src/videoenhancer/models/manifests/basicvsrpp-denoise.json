@@ -51,6 +51,10 @@
       "tile_overlap": null,
       "mode": "standard",
       "seconds": 5
+    },
+    "download_sizes": {
+      "denoise.publisher.zip": 463593013,
+      "mmagic-code.zip": 17451622
     }
   }
 }

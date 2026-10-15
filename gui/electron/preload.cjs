@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld("desktop", {
   connection: () => ipcRenderer.invoke("connection"),
+  reload: () => ipcRenderer.invoke("reload"),
+  restartEngine: () => ipcRenderer.invoke("restart-engine"),
+  logRendererError: (details) => ipcRenderer.invoke("renderer-error", details),
   files: (kind) => ipcRenderer.invoke("files", kind),
   openFolder: (folder) => ipcRenderer.invoke("folder", folder),
   play: (file) => ipcRenderer.invoke("play", file),

@@ -239,3 +239,40 @@ jobs and one real CUDA Standard job; 5,000 rows are an ungated scaling sample.
 The unsigned package still uses the external engine checkout. Only guarded
 Recycle Bin operations may remove a recorded user video. URL imports, remote
 browser control and face/hair restoration remain outside this cycle.
+
+
+## P1e-2 behavior
+
+Add supports a mode switch and options on each file. The top controls apply to
+all files; the total follows the selected mix. Unreadable files have individual
+errors, and valid files remain addable. Standard cleanup of a 4K source is
+blocked on an 8 GiB GPU based on the measured working-set limit; Use Fast is
+available. BT.2020 non-constant-luminance SDR is supported; HDR processing remains blocked.
+
+Install starts downloading immediately and fills its button with measured
+progress. GPU qualification waits between parts with a live countdown. Persistent
+errors and warnings have a keyboard-accessible Dismiss button. Settings offers
+Tutorial; its dock action uses a gear.
+
+Compare keeps labels and the split slider outside the video. Touchpad pinch
+and Ctrl+wheel zoom; horizontal scrolling adjusts the split. Waiting names the
+active video, and model cards show individual progress and remaining time.
+A physical touchpad still requires the owner's check.
+
+History has Select all and one removal dialog with independent History, finished
+video and original choices. Only attention records show a warning badge.
+The player streams recorded media, supports seeking and allows fullscreen for
+the app's own window. Undo restores History records only.
+
+Live forecasts use full queue data and the cumulative active-part rate.
+Startup is measured in named terms. Corrections separate mode, output-size and
+length classes. Finalization reserves 1.5 times its forecast plus 60 seconds;
+safe completed assembly steps can resume after an operating-hours pause.
+The segment child and FFmpeg use Below Normal priority on Windows.
+
+
+The CUDA decoder uses NVDEC's packet API in display order, starting from a prior
+keyframe and checking every requested presentation timestamp against analysis.
+It does not rely on the container's frame count. If seeking is unavailable, it
+decodes forward from an earlier keyframe. This avoids SimpleDecoder timestamp
+tags that were observed to track decode order on a fractional-rate B-frame MP4.

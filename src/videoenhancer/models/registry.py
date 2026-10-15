@@ -44,6 +44,8 @@ def sha256(path: Path, progress: Callable[[str, float], None] | None = None) -> 
         key = (info.st_size, info.st_mtime_ns)
         cached = _hash_cache.get(path)
         if cached and cached[0] == key:
+            if progress:
+                progress(f"Checking {path.name}: {info.st_size} / {info.st_size} bytes", 99)
             return cached[1]
         with path.open("rb") as stream:
             if progress:
@@ -56,7 +58,7 @@ def sha256(path: Path, progress: Callable[[str, float], None] | None = None) -> 
                     if now - published >= 0.2 or received == info.st_size:
                         percent = received / max(1, info.st_size) * 100
                         progress(
-                            f"Verifying {received:,} / {info.st_size:,} bytes ({percent:.0f}%)",
+                            f"Checking {path.name}: {received:,} / {info.st_size:,} bytes",
                             min(99, 90 + percent * 0.09),
                         )
                         published = now
@@ -67,6 +69,13 @@ def sha256(path: Path, progress: Callable[[str, float], None] | None = None) -> 
             raise ValueError("Model weights changed during verification.")
         _hash_cache[path] = (key, digest)
         return digest
+
+
+def remember_verified_hash(path: Path, digest: str, key: tuple[int, int]) -> None:
+    info = path.stat()
+    if (info.st_size, info.st_mtime_ns) == key:
+        with _hash_lock:
+            _hash_cache[path] = (key, digest)
 
 
 def _id(value: Any) -> str:
@@ -333,14 +342,14 @@ class ModelRegistry:
                     raise ValueError(
                         "Set VE_HOME to this registry before downloading built-in RIFE."
                     )
-                _, legacy = _prepare_files()
+                _, legacy = _prepare_files(progress=progress)
                 shutil.copyfile(legacy, path)
             elif model["architecture"] == "rife" and model["architecture_params"].get("variant"):
                 from videoenhancer.models.rife_variants import prepare_variant
 
                 if self.home.resolve() != get_home().resolve():
                     raise ValueError("Set VE_HOME to this registry before downloading RIFE.")
-                _, checkpoint = prepare_variant(model["architecture_params"]["variant"])
+                _, checkpoint = prepare_variant(model["architecture_params"]["variant"], progress)
                 shutil.copyfile(checkpoint, path)
             elif "url" in model["weights"] and model["weights"].get("archive"):
                 from videoenhancer.bench.basicvsr import _verified_download
@@ -348,7 +357,13 @@ class ModelRegistry:
                 bundle = path.with_suffix(".publisher.zip")
                 archive = model["weights"]["archive"]
                 try:
-                    _verified_download(bundle, model["weights"]["url"], archive["sha256"])
+                    _verified_download(
+                        bundle,
+                        model["weights"]["url"],
+                        archive["sha256"],
+                        progress,
+                        archive.get("bytes", 0),
+                    )
                     with (
                         zipfile.ZipFile(bundle) as zipped,
                         zipped.open(archive["member"]) as source,
@@ -385,7 +400,9 @@ class ModelRegistry:
             if not secondary.exists() and download:
                 from videoenhancer.bench.basicvsr import _verified_download
 
-                _verified_download(secondary, blend["url"], blend["sha256"])
+                _verified_download(
+                    secondary, blend["url"], blend["sha256"], progress, blend.get("bytes", 0)
+                )
             if not secondary.is_file() or sha256(secondary) != blend["sha256"]:
                 raise ValueError("Blend weights missing or SHA-256 mismatch.")
         return path
@@ -529,10 +546,6 @@ def selected_models(
         eligible &= output_rate(settings, media) == Fraction(media["cfr_fps"]) * 2
     if eligible:
         selected["interpolate"] = settings.get("interp_model") or RIFE
-    elif settings.get("interp_model"):
-        raise ValueError(
-            "--interp-model requires active 2x interpolation for this preset and input rate."
-        )
     if settings.get("size_model"):
         selected["size"] = settings["size_model"]
     return selected

@@ -224,11 +224,14 @@ def _gpu_info(torch: Any | None) -> dict[str, Any]:
     return info
 
 
-def _bench_tensor_stages(torch: Any, device: str) -> dict[str, Any]:
+def _bench_tensor_stages(
+    torch: Any, device: str, output_size: tuple[int, int] = (1080, 1920)
+) -> dict[str, Any]:
     """Measure CUDA/CPU placeholder operators without claiming video I/O."""
     result: dict[str, Any] = {}
     dtype = torch.float16 if device == "cuda" else torch.float32
-    # Match the 720x1280 portrait source and 1080x1920 portrait output used by P0.
+    # The source remains the 720x1280 portrait reference.
+    output_width, output_height = output_size
     sample = torch.rand((2, 3, 1280, 720), device=device, dtype=dtype)
 
     def measure(name: str, operation: Any) -> None:
@@ -257,7 +260,11 @@ def _bench_tensor_stages(torch: Any, device: str) -> dict[str, Any]:
 
     def resize() -> Any:
         return torch.nn.functional.interpolate(
-            sample, size=(1920, 1080), mode="bicubic", align_corners=False, antialias=True
+            sample,
+            size=(output_height, output_width),
+            mode="bicubic",
+            align_corners=False,
+            antialias=True,
         )
 
     measure("resize", resize)
@@ -274,11 +281,11 @@ def _bench_tensor_stages(torch: Any, device: str) -> dict[str, Any]:
         )
         measure("color_rgb_to_nv12", lambda: rgb_to_nv12(rgb))
         rgb_1080 = torch.rand(
-            (3, 1920, 1080),
+            (3, output_height, output_width),
             device=device,
             dtype=torch.float16 if device == "cuda" else torch.float32,
         )
-        measure("color_rgb_to_nv12_1080p", lambda: rgb_to_nv12(rgb_1080))
+        measure(f"color_rgb_to_nv12_{output_width}p", lambda: rgb_to_nv12(rgb_1080))
     except Exception as exc:
         result["color_conversion"] = {
             "status": "skipped",
@@ -288,7 +295,7 @@ def _bench_tensor_stages(torch: Any, device: str) -> dict[str, Any]:
     try:
         from videoenhancer.pipeline.stages import Blend2xStage, FrameBatch, ResizeStage
 
-        stage = ResizeStage(1080, 1920)
+        stage = ResizeStage(output_width, output_height)
         frames = FrameBatch(sample, (Fraction(0), Fraction(1, 30)), (0, 1))
         blend = Blend2xStage(Fraction(30, 1))
         if hasattr(stage, "setup"):
@@ -393,7 +400,7 @@ def _bench_pynvc_samples(extra_files: list[Path] | None = None) -> dict[str, Any
     return result
 
 
-def _bench_nvenc(torch: Any) -> dict[str, Any]:
+def _bench_nvenc(torch: Any, output_size: tuple[int, int] = (1080, 1920)) -> dict[str, Any]:
     """Measure direct PyNvVideoCodec encode throughput without FFmpeg remux."""
     try:
         import PyNvVideoCodec as nvc  # pyright: ignore[reportMissingImports]
@@ -409,7 +416,8 @@ def _bench_nvenc(torch: Any) -> dict[str, Any]:
             for name in ("hevc_main10", "h264", "av1")
         }
     output: dict[str, Any] = {}
-    rgb = torch.rand((3, 1920, 1080), device="cuda", dtype=torch.float16)
+    width, height = output_size
+    rgb = torch.rand((3, height, width), device="cuda", dtype=torch.float16)
     for name, codec, color_format, matrix, depth in (
         ("hevc_main10", "hevc", "P010", "bt709", 10),
         ("h264", "h264", "NV12", "bt709", 8),
@@ -424,7 +432,7 @@ def _bench_nvenc(torch: Any) -> dict[str, Any]:
                 gop="60",
                 profile="high" if codec == "h264" else "main10" if codec == "hevc" else "main",
             )
-            encoder = nvc.CreateEncoder(1080, 1920, color_format, True, **settings)
+            encoder = nvc.CreateEncoder(width, height, color_format, True, **settings)
             packed = rgb_to_nv12(rgb, matrix, depth)
             torch.cuda.current_stream().synchronize()
             surface = packed.cpu().contiguous()
@@ -439,10 +447,10 @@ def _bench_nvenc(torch: Any) -> dict[str, Any]:
                 for _ in range(60):
                     timed_bytes += len(packet_bytes(encoder.Encode(surface.numpy())))
                 torch.cuda.synchronize()
-                elapsed = time.perf_counter() - started
                 tail = packet_bytes(encoder.EndEncode())
                 timed_bytes += len(tail)
                 torch.cuda.synchronize()
+                elapsed = time.perf_counter() - started
             output[name] = {
                 "status": "measured",
                 "backend": "PyNvVideoCodec NVENC",
@@ -451,6 +459,8 @@ def _bench_nvenc(torch: Any) -> dict[str, Any]:
                 "tuning": "high_quality",
                 "rate_control": "constqp 18",
                 "bit_depth": depth,
+                "width": width,
+                "height": height,
                 "frames": 60,
                 "elapsed_seconds": elapsed,
                 "fps": 60 / elapsed,
@@ -1192,12 +1202,105 @@ def run_bench(
         from videoenhancer.bench.calibration import calibrate_models
 
         publish("Installed models", 40)
-        report["profile"]["models"] = calibrate_models(backend=device, progress=publish)
-        from videoenhancer.bench.reference import calibrate_references
+        report["profile"]["models"] = calibrate_models(
+            backend=device,
+            progress=lambda phase, percent: publish(phase, 40 + (percent - 40) * 0.6),
+        )
+        from videoenhancer.models.registry import RIFE
+
+        large_models = calibrate_models(
+            backend=device,
+            interpolate_size=(2160, 3840),
+            model_ids={RIFE},
+            progress=lambda phase, percent: publish(phase, 55 + (percent - 40) * 0.4),
+        )
+        small = report["profile"]["models"].get(RIFE, {})
+        large = large_models.get(RIFE, {})
+        report["part_a"]["models_2160"] = large_models
+        if small.get("status") == large.get("status") == "measured":
+            small["size_points"] = [
+                {
+                    "pixels": entry["width"] * entry["height"],
+                    "seconds_per_pixel_frame": entry["seconds_per_pixel_frame"],
+                }
+                for entry in (small, large)
+            ]
+            small["memory_2160"] = {
+                key: large[key]
+                for key in (
+                    "torch_reserved_peak_bytes",
+                    "torch_allocated_peak_bytes",
+                    "interpolation_fallbacks",
+                )
+            }
+        publish("2160p stages", 60)
+        large_stages = _bench_tensor_stages(torch, device, (2160, 3840))
+        report["part_a"]["stages_2160"] = large_stages
+        if device == "cuda":
+            publish("2160p encoder", 62)
+            large_encode = _bench_nvenc(torch, (2160, 3840))
+            report["part_a"]["encode_2160"] = large_encode
+            encoded = large_encode.get("hevc_main10", {})
+            if encoded.get("fps") and "encode" in profile_components:
+                profile_components["encode"]["size_points"] = [
+                    {
+                        "pixels": output_pixels,
+                        "seconds_per_pixel_frame": profile_components["encode"][
+                            "seconds_per_pixel_frame"
+                        ],
+                    },
+                    {
+                        "pixels": 2160 * 3840,
+                        "seconds_per_pixel_frame": 1 / (float(encoded["fps"]) * 2160 * 3840),
+                    },
+                ]
+        for component, stage_name in (("resize", "resize_stage"), ("blend2x", "blend2x")):
+            item = large_stages.get(stage_name, {})
+            if item.get("median_ms") and component in profile_components:
+                profile_components[component]["size_points"] = [
+                    {
+                        "pixels": output_pixels,
+                        "seconds_per_pixel_frame": profile_components[component][
+                            "seconds_per_pixel_frame"
+                        ],
+                    },
+                    {
+                        "pixels": 2160 * 3840,
+                        "seconds_per_pixel_frame": float(item["median_ms"])
+                        / 1000
+                        / (2 * 2160 * 3840),
+                    },
+                ]
+        large_color = large_stages.get("color_rgb_to_nv12_2160p", {}).get("median_ms")
+        if color_in and large_color and "color" in profile_components:
+            profile_components["color"]["size_points"] = [
+                {
+                    "pixels": input_pixels + 2 * output_pixels,
+                    "seconds_per_pixel_frame": profile_components["color"][
+                        "seconds_per_pixel_frame"
+                    ],
+                },
+                {
+                    "pixels": input_pixels + 2 * 2160 * 3840,
+                    "seconds_per_pixel_frame": (float(color_in) + 2 * float(large_color))
+                    / 1000
+                    / (input_pixels + 2 * 2160 * 3840),
+                },
+            ]
+        from videoenhancer.bench.reference import calibrate_references, reference_size_points
 
         publish("Reference pipelines", 65)
         report["profile"]["reference_pipelines"] = calibrate_references(
             target / "references", gpu["name"] or "", device, progress=publish
+        )
+        report["profile"]["pipeline_size_points"] = reference_size_points(report["profile"])
+        report["profile"]["max_measured_output_pixels"] = (
+            2160 * 3840
+            if all(
+                any(point["pixels"] >= 2160 * 3840 for point in points)
+                for points in report["profile"]["pipeline_size_points"].values()
+            )
+            else 1080 * 1920
         )
         from videoenhancer.bench.finalization import calibrate_finalization
 

@@ -52,7 +52,7 @@ def prepare(root: Path, model_home: Path, history_template: Path, renderer: bool
         shutil.copytree(model_home / "models" / model, home / "models" / model)
     shutil.copytree(model_home / "adapter-sources", home / "adapter-sources")
     os.environ["VE_HOME"] = str(home)
-    source = root / "synthetic-30s.mp4"
+    source = home / "synthetic-30s.mp4"
     run(
         [
             executable("ffmpeg"),
@@ -79,13 +79,13 @@ def prepare(root: Path, model_home: Path, history_template: Path, renderer: bool
         source,
         dict(preset="standard", backend="cuda", short_side=1080, fps="2x", codec="hevc"),
         home=home,
-        output=root / "output.mp4",
+        output=home / "output.mp4",
     )
     store = JobStore(home)
     template = json.loads(history_template.read_text(encoding="utf-8"))
     if template["state"] != "done" or not any(s.get("stats") for s in template["segments"]):
         raise ValueError("Use a genuinely finished synthetic job with recorded diagnostics.")
-    seed_history(store, template, source, root, 0, 1010)
+    seed_history(store, template, source, home, 0, 1010)
     engine = Engine(home)
     engine._environment()
     engine._home_watcher.start()
@@ -116,7 +116,7 @@ def prepare(root: Path, model_home: Path, history_template: Path, renderer: bool
             value = measure(engine, server, root / f"sample-{repeat + 1}.json", history=1000)
             assert value["actual_standard_running"]
             samples.append(value)
-        seed_history(store, template, source, root, 1010, 5010)
+        seed_history(store, template, source, home, 1010, 5010)
         # Scaling measures steady state, excluding the newly seeded cold projection.
         projection_started = time.perf_counter()
         engine.event_message()

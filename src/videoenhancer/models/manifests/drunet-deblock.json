@@ -92,6 +92,9 @@
           "seconds": 5
         }
       }
+    },
+    "download_sizes": {
+      "drunet.pth": 130590513
     }
   }
 }

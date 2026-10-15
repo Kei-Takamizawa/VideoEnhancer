@@ -15,7 +15,7 @@ from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from videoenhancer import proc
 from videoenhancer.service.engine import Engine
@@ -106,9 +106,18 @@ class LocalServer(ThreadingHTTPServer):
         self.engine = engine
         self.token = secrets.token_urlsafe(32)
         super().__init__(("127.0.0.1", 0), Handler)
+        engine.start_publication()
 
 
 class Handler(BaseHTTPRequestHandler):
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except ConnectionError:
+            # Closing or reconnecting the desktop can abort a loopback socket.
+            # It does not change the queue or stop the processing worker.
+            return
+
     server: LocalServer
     protocol_version = "HTTP/1.1"
 
@@ -116,7 +125,13 @@ class Handler(BaseHTTPRequestHandler):
         # Request URLs/credentials and private filenames must not reach access logs.
         pass
 
-    def _headers(self, status: int, mime: str, size: int | None = None) -> None:
+    def _headers(
+        self,
+        status: int,
+        mime: str,
+        size: int | None = None,
+        extra: dict[str, str] | None = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", mime)
         self.send_header("Cache-Control", "no-store")
@@ -127,6 +142,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Vary", "Origin")
         if size is not None:
             self.send_header("Content-Length", str(size))
+        for key, value in (extra or {}).items():
+            self.send_header(key, value)
         self.end_headers()
 
     def _json(self, status: int, value: Any) -> None:
@@ -169,7 +186,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(401, {"error": "A valid bearer token is required."})
                 return
             url = urlsplit(self.path)
-            parts = url.path.strip("/").split("/")
+            parts = [unquote(part) for part in url.path.strip("/").split("/")]
             if not parts or parts.pop(0) != "v1":
                 self._json(404, {"error": "Unknown API version."})
                 return
@@ -180,7 +197,7 @@ class Handler(BaseHTTPRequestHandler):
                 len(parts) == 3
                 and parts[0] == "queue"
                 and parts[2] == "video"
-                and self.command == "GET"
+                and self.command in {"GET", "HEAD"}
             ):
                 job = self.server.engine.store.load(parts[1])
                 if job["state"] not in {"done", "failed", "cancelled"}:
@@ -188,10 +205,37 @@ class Handler(BaseHTTPRequestHandler):
                 path = Path(job["output"])
                 if not path.is_file():
                     path = Path(job["input"]["path"])
-                self._headers(200, "video/mp4", path.stat().st_size)
+                from videoenhancer.service.media import byte_range
+
+                size = path.stat().st_size
+                requested = self.headers.get("Range")
+                try:
+                    start, end = byte_range(requested, size)
+                except ValueError:
+                    self._headers(
+                        416,
+                        "video/mp4",
+                        0,
+                        {"Content-Range": f"bytes */{size}", "Accept-Ranges": "bytes"},
+                    )
+                    return
+                headers = {"Accept-Ranges": "bytes"}
+                if requested is not None:
+                    headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+                self._headers(
+                    206 if requested is not None else 200,
+                    "video/mp4",
+                    max(0, end - start + 1),
+                    headers,
+                )
+                if self.command == "HEAD":
+                    return
                 with path.open("rb") as stream:
-                    while chunk := stream.read(1024 * 1024):
+                    stream.seek(start)
+                    remaining = end - start + 1
+                    while remaining > 0 and (chunk := stream.read(min(64 * 1024, remaining))):
                         self.wfile.write(chunk)
+                        remaining -= len(chunk)
                 return
             if (
                 len(parts) == 3
@@ -250,7 +294,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             result = self.server.engine.dispatch(self.command, parts, value)
             self._json(200, result)
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:
             pass
         except (KeyError, FileNotFoundError) as error:
             self._json(404, {"error": str(error)})
@@ -274,12 +318,12 @@ class Handler(BaseHTTPRequestHandler):
                 if progress and progress != previous_progress:
                     self.wfile.write(f"event: progress\ndata: {progress}\n\n".encode())
                     previous_progress = progress
-                if time.monotonic() - heartbeat >= 10:
+                if time.monotonic() - heartbeat >= 1:
                     self.wfile.write(b": heartbeat\n\n")
                     heartbeat = time.monotonic()
                 self.wfile.flush()
                 self.server.engine.stop.wait(1)
-            except (BrokenPipeError, ConnectionResetError):
+            except ConnectionError:
                 return
             except Exception:
                 from videoenhancer.logging import get_logger
@@ -294,6 +338,7 @@ class Handler(BaseHTTPRequestHandler):
 
     do_GET = _request
     do_POST = _request
+    do_HEAD = _request
     do_PUT = _request
     do_DELETE = _request
 

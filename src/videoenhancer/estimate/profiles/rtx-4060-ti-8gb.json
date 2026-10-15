@@ -7,16 +7,56 @@
       "seconds_per_pixel_frame": 5.769979745090731e-10
     },
     "encode": {
-      "seconds_per_pixel_frame": 2.5091981738516907e-09
+      "seconds_per_pixel_frame": 2.5921191808379733e-09,
+      "size_points": [
+        {
+          "pixels": 2073600,
+          "seconds_per_pixel_frame": 2.5921191808379733e-09
+        },
+        {
+          "pixels": 8294400,
+          "seconds_per_pixel_frame": 2.5221693753290355e-09
+        }
+      ]
     },
     "color": {
-      "seconds_per_pixel_frame": 3.993055558034158e-10
+      "seconds_per_pixel_frame": 3.993055558034158e-10,
+      "size_points": [
+        {
+          "pixels": 5068800,
+          "seconds_per_pixel_frame": 3.993055558034158e-10
+        },
+        {
+          "pixels": 17510400,
+          "seconds_per_pixel_frame": 7.139471398481714e-10
+        }
+      ]
     },
     "resize": {
-      "seconds_per_pixel_frame": 3.0686969497720035e-10
+      "seconds_per_pixel_frame": 3.0686969497720035e-10,
+      "size_points": [
+        {
+          "pixels": 2073600,
+          "seconds_per_pixel_frame": 3.0686969497720035e-10
+        },
+        {
+          "pixels": 8294400,
+          "seconds_per_pixel_frame": 2.8405912431578373e-10
+        }
+      ]
     },
     "blend2x": {
-      "seconds_per_pixel_frame": 1.765407989891465e-10
+      "seconds_per_pixel_frame": 1.765407989891465e-10,
+      "size_points": [
+        {
+          "pixels": 2073600,
+          "seconds_per_pixel_frame": 1.765407989891465e-10
+        },
+        {
+          "pixels": 8294400,
+          "seconds_per_pixel_frame": 2.067961515608532e-10
+        }
+      ]
     }
   },
   "segment_overhead_seconds": 2.0,
@@ -81,7 +121,17 @@
       "median_seconds": 0.3743722999934107,
       "processed_frames_or_pairs_per_second": 21.369102361848906,
       "seconds_per_pixel_frame": 2.2567774642735504e-08,
-      "torch_reserved_peak_bytes": 1690304512
+      "torch_reserved_peak_bytes": 1690304512,
+      "size_points": [
+        {
+          "pixels": 2073600,
+          "seconds_per_pixel_frame": 2.2567774642735504e-08
+        },
+        {
+          "pixels": 8294400,
+          "seconds_per_pixel_frame": 2.900010850693925e-08
+        }
+      ]
     },
     "scunet-real-psnr": {
       "task": "restore",
@@ -200,81 +250,104 @@
         "sha256": "8b166c75831ea7f694d9058ee9c8df8148af8cc1d2b57e69e6581b15cab572f7",
         "manifest_sha256": "c10f3aedefd64265bbbe4a78bd351267a53bd9f838c6ae24f77f7e023430e9e6"
       }
+    },
+    "basicvsrpp-ntire21-decompress:medium:2160": {
+      "gpu": "NVIDIA GeForce RTX 4060 Ti",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "2160x3840 at 60 fps",
+      "mode": "standard",
+      "fps": 0.6113032514209255,
+      "seconds": 245.377396,
+      "identity": {
+        "id": "basicvsrpp-ntire21-decompress",
+        "version": "1",
+        "sha256": "6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a",
+        "manifest_sha256": "6f32e0e236f194a378a556aed2451ca24df581e2bfae1cf7c0f558274fa77c32"
+      }
+    },
+    "rife-4.25:medium:2160": {
+      "gpu": "NVIDIA GeForce RTX 4060 Ti",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "2160x3840 at 60 fps",
+      "mode": "fast",
+      "fps": 3.081944402010636,
+      "seconds": 48.670573,
+      "identity": {
+        "id": "rife-4.25",
+        "version": "1",
+        "sha256": "6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2",
+        "manifest_sha256": "c2a6267743fee7e6585fe279133a5d2d28d55c6f6bf75f788e71ba01b11b18d0"
+      }
     }
   },
   "finalization": {
     "status": "measured",
-    "a": 0.1946288256969957,
-    "b": 1.6775490557354391e-09,
-    "c": 1.677904452548885e-05,
+    "fit": "piecewise-step-times-v1",
+    "source": "Synthetic Standard output; 1080x1920/60 HEVC; 1, 30, 120 minutes; audio and inline quality; SSD D volume.",
     "samples": [
       {
-        "output_bytes": 74339,
-        "output_frames": 90,
-        "seconds": 0.20288440000149421,
-        "assembling_seconds": 0.11405570000351872,
-        "validating_seconds": 0.08882869999797549,
-        "repeat": 0
+        "output_bytes": 241988219,
+        "output_frames": 3600,
+        "parts": 5,
+        "seconds": 1.1921579999998357,
+        "assembling_seconds": 0.9483218999994278,
+        "validating_seconds": 0.24077419999957783,
+        "aggregating_seconds": 0.002993600000081642
       },
       {
-        "output_bytes": 74339,
-        "output_frames": 90,
-        "seconds": 0.18185629999788944,
-        "assembling_seconds": 0.09320790000492707,
-        "validating_seconds": 0.08864839999296237,
-        "repeat": 1
+        "output_bytes": 7266595756,
+        "output_frames": 108000,
+        "parts": 125,
+        "seconds": 32.5413765000003,
+        "assembling_seconds": 28.856956300000093,
+        "validating_seconds": 3.4181684999994104,
+        "aggregating_seconds": 0.26618280000002414
       },
       {
-        "output_bytes": 744767,
-        "output_frames": 900,
-        "seconds": 0.22509920000447892,
-        "assembling_seconds": 0.11232870000822004,
-        "validating_seconds": 0.11277049999625888,
-        "repeat": 0
-      },
-      {
-        "output_bytes": 744767,
-        "output_frames": 900,
-        "seconds": 0.1976071000099182,
-        "assembling_seconds": 0.10169200001109857,
-        "validating_seconds": 0.09591509999881964,
-        "repeat": 1
-      },
-      {
-        "output_bytes": 2722283,
-        "output_frames": 90,
-        "seconds": 0.20532470000034664,
-        "assembling_seconds": 0.11527470000146423,
-        "validating_seconds": 0.09004999999888241,
-        "repeat": 0
-      },
-      {
-        "output_bytes": 2722283,
-        "output_frames": 90,
-        "seconds": 0.20387330000812653,
-        "assembling_seconds": 0.1054028000071412,
-        "validating_seconds": 0.09847050000098534,
-        "repeat": 1
-      },
-      {
-        "output_bytes": 28324230,
-        "output_frames": 900,
-        "seconds": 0.2626598999922862,
-        "assembling_seconds": 0.15447920000588056,
-        "validating_seconds": 0.10818069998640567,
-        "repeat": 0
-      },
-      {
-        "output_bytes": 28324230,
-        "output_frames": 900,
-        "seconds": 0.2510830000101123,
-        "assembling_seconds": 0.1438934000034351,
-        "validating_seconds": 0.10718960000667721,
-        "repeat": 1
+        "output_bytes": 29066174771,
+        "output_frames": 432000,
+        "parts": 499,
+        "seconds": 324.24331339999935,
+        "assembling_seconds": 247.55091110000103,
+        "validating_seconds": 64.97218650000013,
+        "aggregating_seconds": 11.720149099999617
       }
     ],
-    "rms_seconds": 0.009541054837491693,
-    "method": "Nonnegative least squares: startup + output bytes + packet-count frames."
+    "points": [
+      {
+        "output_bytes": 241988219,
+        "output_frames": 3600,
+        "parts": 5,
+        "checkpoint_validation_seconds": 0.016077499999482825,
+        "concat_seconds": 0.4420862000006309,
+        "faststart_seconds": 0.3689494999998715,
+        "mux_seconds": 0.12120869999944262,
+        "validation_seconds": 0.24077419999957783,
+        "aggregation_seconds": 0.002993600000081642
+      },
+      {
+        "output_bytes": 7266595756,
+        "output_frames": 108000,
+        "parts": 125,
+        "checkpoint_validation_seconds": 0.2211832000002687,
+        "concat_seconds": 10.10168429999976,
+        "faststart_seconds": 9.911965799999962,
+        "mux_seconds": 8.622123000000101,
+        "validation_seconds": 3.4181684999994104,
+        "aggregation_seconds": 0.26618280000002414
+      },
+      {
+        "output_bytes": 29066174771,
+        "output_frames": 432000,
+        "parts": 499,
+        "checkpoint_validation_seconds": 1.4638198000002376,
+        "concat_seconds": 79.07938590000049,
+        "faststart_seconds": 77.40693759999976,
+        "mux_seconds": 89.60076780000054,
+        "validation_seconds": 64.97218650000013,
+        "aggregation_seconds": 11.720149099999617
+      }
+    ]
   },
   "end_to_end_validation": {
     "input_fps": 29.301620489023293,
@@ -284,5 +357,173 @@
   },
   "source": "builtin",
   "provenance": "P1d-2 independent 150-frame 720x1280 synthetic reference calibration; no acceptance-job correction",
-  "analysis_seconds_per_frame": 0.0010458961222223782
+  "analysis_seconds_per_frame": 0.0010458961222223782,
+  "startup_terms_seconds": {
+    "parent_ipc_seconds": 0.7533901,
+    "child_entry_seconds": 1.4640095,
+    "decoder_open_seconds": 0.002008,
+    "model_loading_seconds": 2.1219491,
+    "weight_verification_seconds": 0.1208826,
+    "cuda_initialization_seconds": 0.0294934
+  },
+  "startup_by_preset": {
+    "standard": 4.4917327,
+    "fast": 2.5475333
+  },
+  "max_measured_output_pixels": 8294400,
+  "pipeline_size_points": {
+    "standard": [
+      {
+        "pixels": 2073600,
+        "factor": 1.0546984550837863,
+        "input_frames": 150,
+        "actual_seconds": 68.27405,
+        "startup_seconds": 4.491732700029388,
+        "net_seconds_per_source_frame": 0.42521544866647076
+      },
+      {
+        "pixels": 8294400,
+        "factor": 2.314076691291165,
+        "input_frames": 150,
+        "actual_seconds": 245.377396,
+        "startup_seconds": 4.818455899999208,
+        "net_seconds_per_source_frame": 1.6037262673333386
+      }
+    ],
+    "fast": [
+      {
+        "pixels": 2073600,
+        "factor": 1.3839228585991667,
+        "input_frames": 150,
+        "actual_seconds": 15.01194,
+        "startup_seconds": 2.4032968999999866,
+        "net_seconds_per_source_frame": 0.08405762066666675
+      },
+      {
+        "pixels": 8294400,
+        "factor": 1.0373299750573437,
+        "input_frames": 150,
+        "actual_seconds": 48.670573,
+        "startup_seconds": 2.338080599998648,
+        "net_seconds_per_source_frame": 0.30888328266667564
+      }
+    ]
+  },
+  "calibration_geometry_2160": {
+    "tensor_stages": {
+      "resize": {
+        "status": "measured",
+        "median_ms": 0.9083999993890757,
+        "p90_ms": 0.9203999998135259,
+        "iterations": 50,
+        "device": "cuda"
+      },
+      "color_nv12_to_rgb": {
+        "status": "measured",
+        "median_ms": 0.4622999986167997,
+        "p90_ms": 0.4934999997203704,
+        "iterations": 50,
+        "device": "cuda"
+      },
+      "color_rgb_to_nv12": {
+        "status": "measured",
+        "median_ms": 0.4533499995886814,
+        "p90_ms": 0.4745999995066086,
+        "iterations": 50,
+        "device": "cuda"
+      },
+      "color_rgb_to_nv12_2160p": {
+        "status": "measured",
+        "median_ms": 6.01959999949031,
+        "p90_ms": 6.406499998774962,
+        "iterations": 50,
+        "device": "cuda"
+      },
+      "resize_stage": {
+        "status": "measured",
+        "median_ms": 4.712200001449673,
+        "p90_ms": 5.026800001360243,
+        "iterations": 50,
+        "device": "cuda"
+      },
+      "blend2x": {
+        "status": "measured",
+        "median_ms": 3.4304999990126817,
+        "p90_ms": 3.6670999998023035,
+        "iterations": 50,
+        "device": "cuda"
+      },
+      "p0_test_end_to_end": {
+        "status": "measured",
+        "median_ms": 8.135299999594281,
+        "p90_ms": 8.658900000227732,
+        "iterations": 50,
+        "device": "cuda",
+        "output_frames_per_second": 491.68438781599764
+      }
+    },
+    "models": {
+      "basicvsrpp-ntire21-decompress": {
+        "task": "restore",
+        "backend": "cuda",
+        "status": "measured",
+        "identity": {
+          "id": "basicvsrpp-ntire21-decompress",
+          "version": "1",
+          "sha256": "6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a",
+          "manifest_sha256": "6f32e0e236f194a378a556aed2451ca24df581e2bfae1cf7c0f558274fa77c32"
+        },
+        "load_seconds": 1.7576649000002362,
+        "width": 720,
+        "height": 1280,
+        "batch_frames": 15,
+        "processed_frames_or_pairs": 15,
+        "clip_length": 15,
+        "clip_overlap": 2,
+        "single_frame": false,
+        "precision": "fp16",
+        "effective_precision": "fp16",
+        "seconds_samples": [
+          3.6597227999991446,
+          3.6530806999999186,
+          3.6531006999994133
+        ],
+        "median_seconds": 3.6531006999994133,
+        "processed_frames_or_pairs_per_second": 4.106100880274778,
+        "seconds_per_pixel_frame": 2.6425786313653164e-07,
+        "torch_reserved_peak_bytes": 2610954240
+      },
+      "rife-4.25": {
+        "task": "interpolate",
+        "backend": "cuda",
+        "status": "measured",
+        "identity": {
+          "id": "rife-4.25",
+          "version": "1",
+          "sha256": "6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2",
+          "manifest_sha256": "c2a6267743fee7e6585fe279133a5d2d28d55c6f6bf75f788e71ba01b11b18d0"
+        },
+        "load_seconds": 0.23091629999998986,
+        "width": 2160,
+        "height": 3840,
+        "batch_frames": 9,
+        "processed_frames_or_pairs": 8,
+        "clip_length": 3,
+        "clip_overlap": 1,
+        "single_frame": false,
+        "precision": "fp16",
+        "effective_precision": "fp16",
+        "seconds_samples": [
+          1.9243079999996553,
+          1.9254446000004464,
+          1.9238470000000234
+        ],
+        "median_seconds": 1.9243079999996553,
+        "processed_frames_or_pairs_per_second": 4.15733863809818,
+        "seconds_per_pixel_frame": 2.900010850693925e-08,
+        "torch_reserved_peak_bytes": 7033847808
+      }
+    }
+  },
+  "estimate_revision": "p1e2-stage-sizes2"
 }

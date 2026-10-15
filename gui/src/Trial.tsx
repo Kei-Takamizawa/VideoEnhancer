@@ -1,3 +1,5 @@
+import { Notice } from "./Notice";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { ActionButton } from "./ActionButton";
 import { Check, Download, Layers } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -311,22 +313,6 @@ export function Compare({
               ctx.drawImage(b, 0, 0, width, height);
               ctx.restore();
             }
-            if (mode.side && !mode.resultOnly && mode.solo === null) {
-              ctx.font = "24px Segoe UI";
-              pair.forEach((_, i) => {
-                const x = (i % columns) * width,
-                  y = Math.floor(i / columns) * height;
-                ctx.fillStyle = "rgba(0,0,0,0.7)";
-                ctx.fillRect(
-                  x,
-                  y,
-                  Math.min(width, ctx.measureText(mode.labels[i]).width + 20),
-                  34,
-                );
-                ctx.fillStyle = "white";
-                ctx.fillText(mode.labels[i], x + 10, y + 25);
-              });
-            }
             element.dataset.frame = String(state.frame);
             element.dataset.syncDelta = String(
               Math.max(...pair.map((p) => p!.timestamp)) -
@@ -424,7 +410,7 @@ export function Compare({
             imageRendering: zoom > 100 ? "pixelated" : "auto",
           }}
         />
-        {!side && !resultOnly && <ActionButton className="swipe-handle" role="slider" aria-label="Swipe handle" aria-valuemin={0} aria-valuemax={100} aria-valuenow={split} style={{ left: `${split}%` }} onPointerDown={event => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (event.buttons !== 1) return; event.stopPropagation(); const box = event.currentTarget.parentElement!.getBoundingClientRect(); setSplit(Math.max(0, Math.min(100, (event.clientX - box.left) / box.width * 100))); }} onKeyDown={event => { if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); setSplit(old => Math.max(0, Math.min(100, old + (event.key === "ArrowRight" ? 1 : -1)))); } }}>↔</ActionButton>}
+
       </div>
       {!side && !resultOnly && (
         <label>
@@ -535,9 +521,7 @@ export function Compare({
         Arrow keys step one frame. Drag the zoomed picture to pan.
       </p>
       {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
+        <Notice identity={error} dismiss={() => setError("")}>{error}</Notice>
       )}
     </div>
   );
@@ -554,7 +538,7 @@ function FirstLook({ api, image, name }: { api: Api; image: string; name: string
   return <figure className="first-look">{url && <img src={url} alt={`${name} first look`} />}<figcaption>{name} · First look</figcaption></figure>;
 }
 
-export function TrialDialog({
+function TrialDialogContent({
   api,
   value,
   operations,
@@ -825,11 +809,12 @@ export function TrialDialog({
           {selected.map((id) => {
             const model = models.find((m) => m.id === id);
             const item = operation?.result?.items?.find((m) => m.id === id);
+            const modelProgress = operation?.result?.model_progress?.[id];
             return (
               <article className="card" key={id}>
                 <h3>{model?.catalog?.title || model?.display_name || id}</h3>
                 <p>{model?.catalog?.description || model?.catalog?.summary}</p>
-                <p role="status">{item ? "Ready" : operation?.state === "waiting" ? operation.phase : operation?.state === "failed" ? "Problem" : operation?.state === "running" ? `Making preview ${Math.round(operation.percent || 0)}%` : "Waiting"}</p>
+                <p role="status">{item ? "Ready" : operation?.state === "waiting" ? operation.phase : operation?.state === "failed" ? "Problem" : modelProgress ? `Making preview ${Math.round(modelProgress.percent)}% · ${duration(modelProgress.remaining_seconds)} left` : "Waiting"}</p>
                 <p>
                   {item?.projected_whole_file_seconds === null ? `Speed unknown for this video · ${item.fps.toFixed(2)} fps` : item
                     ? `About ${duration(item.projected_whole_file_seconds)} for this video · ${item.fps.toFixed(2)} fps`
@@ -898,11 +883,15 @@ export function TrialDialog({
           </div>
         )}
         {error && (
-          <p role="alert" className="error">
+          <Notice identity={error} dismiss={() => setError("")}>
             {error}
-          </p>
+          </Notice>
         )}
       </div>
     </div>
   );
+}
+
+export function TrialDialog(props: Parameters<typeof TrialDialogContent>[0]) {
+  return <ErrorBoundary scope="Compare"><TrialDialogContent {...props} /></ErrorBoundary>;
 }

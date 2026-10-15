@@ -38,13 +38,15 @@ export async function events(
   receive: (data: unknown) => void,
   status: (reconnecting: boolean) => void = () => {},
   reconnect?: () => Promise<Connection>,
+  stalled: (value: boolean) => void = () => {},
 ) {
   let attempt = 0;
   while (!signal.aborted) {
     const stream = new AbortController();
     const cancel = () => stream.abort();
+    const timeout = () => { stalled(true); cancel(); };
     signal.addEventListener("abort", cancel, { once: true });
-    let silence = setTimeout(cancel, 30000);
+    let silence = setTimeout(timeout, 30000);
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
       const response = await fetch(`${connection.base_url}/events`, {
@@ -65,7 +67,8 @@ export async function events(
           const message = buffer.slice(0, boundary);
           buffer = buffer.slice(boundary + 2);
           clearTimeout(silence);
-          silence = setTimeout(cancel, 30000);
+          silence = setTimeout(timeout, 30000);
+          stalled(false);
           attempt = 0;
           status(false);
           if (message.startsWith("event: update") || message.startsWith("event: progress")) {

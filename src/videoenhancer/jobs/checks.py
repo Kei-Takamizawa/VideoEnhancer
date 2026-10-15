@@ -20,6 +20,17 @@ def geometry_warning(
             return "Output too small for AV1. Choose HEVC or a larger size."
     restore = selected_models(settings).get("restore")
     if restore and ModelRegistry(home).manifest(restore, "restore")["architecture"] == "basicvsrpp":
+        source_short = min(
+            media.get("display_width", media["width"]), media.get("display_height", media["height"])
+        )
+        memory = capabilities.get("vram_bytes")
+        if (
+            settings.get("preset") == "standard"
+            and source_short >= 2160
+            and memory
+            and memory <= 8 * 1024**3
+        ):
+            return "Standard can't run at this size on this GPU yet. Fast works."
         width, height = output_size(settings, media)
         if min(width, height) < 256:
             return (

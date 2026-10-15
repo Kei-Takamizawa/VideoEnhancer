@@ -1,3 +1,4 @@
+import { Notice } from "./Notice";
 import { ActionButton } from "./ActionButton";
 import { CalendarDays } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -167,7 +168,7 @@ export function ScheduleView({
           Work only during these hours
         </label>
       </div>
-      {!draft.enabled && <p className="muted">Off: VideoEnhancer works at any time. Your hours are kept. <ActionButton onClick={() => setDraft({ ...draft, enabled: true })}>Turn on</ActionButton></p>}
+      {!draft.enabled && <p className="muted">Off: VideoEnhancer works at any time. Your hours are kept.</p>}
       <div className="schedule-presets">
         {[
           "Weeknights 22:00–08:00 + weekends",
@@ -226,9 +227,9 @@ export function ScheduleView({
         </div>
       )}
       {error && (
-        <p className="error" role="alert">
+        <Notice identity={error} dismiss={() => setError("")}>
           {error}
-        </p>
+        </Notice>
       )}
       <div className="schedule-columns">
         <div className="schedule-numeric-column">
@@ -244,7 +245,7 @@ export function ScheduleView({
                 <ActionButton aria-label={`Remove hours ${index + 1}`}  onClick={() => setDraft({ ...draft, weekly: draft.weekly.filter((_, i) => i !== index) })}>×</ActionButton>
                 {window.end < window.start && <small>next day</small>}
               </div>)}
-              <ActionButton  onClick={() => setDraft({ ...draft, weekly: [...draft.weekly, { days: ["mon", "tue", "wed", "thu", "fri"], start: "22:00", end: "08:00" }] })}>+ Add hours</ActionButton>
+              <ActionButton  onClick={() => setDraft({ ...draft, weekly: [...draft.weekly, { days: ["mon", "tue", "wed", "thu", "fri"], start: "22:00", end: "08:00" }] })}>Add hours</ActionButton>
             </div>
             <p className="muted">Overlapping hours count once. From and To at 00:00 means all day.</p>
           </article>

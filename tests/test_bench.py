@@ -4,16 +4,19 @@ import sys
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 
 from videoenhancer.bench.runner import MODEL_CATALOG, _bench_models, _bench_nvenc
 
 
-def test_nvenc_benchmark_input_mode_matches_owned_host_buffers(monkeypatch):
+@pytest.mark.parametrize("size", [(1080, 1920), (2160, 3840)])
+def test_nvenc_benchmark_input_mode_matches_owned_host_buffers(monkeypatch, size):
     encoders = []
 
     class FakeEncoder:
         def __init__(self, width, height, color_format, host_input, **settings):
+            assert (width, height) == size
             assert host_input is True
             assert "cudastream" not in settings
             self.calls = 0
@@ -44,7 +47,7 @@ def test_nvenc_benchmark_input_mode_matches_owned_host_buffers(monkeypatch):
     )
     monkeypatch.setitem(sys.modules, "PyNvVideoCodec", SimpleNamespace(CreateEncoder=FakeEncoder))
 
-    result = _bench_nvenc(fake_torch)
+    result = _bench_nvenc(fake_torch, size)
 
     assert set(result) == {"hevc_main10", "h264", "av1"}
     assert all(item["status"] == "measured" for item in result.values()), result

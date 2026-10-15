@@ -46,7 +46,7 @@ test("P1e modal drop, independent Add fields and paused queue order", async () =
   } finally { await state.close(); }
 });
 
-test("P1e History select, guarded remove choices, clear and Undo", async () => {
+test("P1e History select, guarded remove choices, Select all and Undo", async () => {
   const state = await launch(); const { page, fixture } = state;
   let hidden: unknown[] = [], deletion: unknown;
   const remove = (data: { ids?: string[]; output?: boolean; original?: boolean }, clear = false) => {
@@ -65,17 +65,20 @@ test("P1e History select, guarded remove choices, clear and Undo", async () => {
     await page.locator(".history-image").first().click();
     await expect(page.getByText("1 selected", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Remove from history", exact: true }).click();
-    const option = page.getByRole("checkbox", { name: "Also move the finished videos to the Recycle Bin" });
+    const option = page.getByRole("checkbox", { name: "Move the finished videos to the Recycle Bin" });
     await expect(option).not.toBeChecked(); await option.check();
-    await page.getByRole("dialog").getByRole("button", { name: "Remove from history", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Remove selected items", exact: true }).click();
     await expect(page.getByText(/Files are in the Recycle Bin/)).toBeVisible();
     expect(deletion).toMatchObject({ output: true, original: false });
     await page.locator(".undo-toast").hover(); const width = await page.locator(".undo-tint").evaluate(node => node.getBoundingClientRect().width);
     await page.waitForTimeout(300); expect(await page.locator(".undo-tint").evaluate(node => node.getBoundingClientRect().width)).toBe(width);
     await page.locator(".undo-toast").getByRole("button", { name: "Undo" }).click();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await page.getByRole("button", { name: "Clear history…" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Clear history", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Clear history…" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await page.getByRole("button", { name: "Select all", exact: true }).click();
+    await page.getByRole("button", { name: "Remove from history", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Remove selected items", exact: true }).click();
     await expect(page.getByText("No history yet.")).toBeVisible();
     await page.locator(".undo-toast").getByRole("button", { name: "Undo" }).click();
     await expect(page.locator(".history-image").first()).toBeVisible();
@@ -107,7 +110,7 @@ test("P1e hours remain editable and Models card opens its details", async () => 
 test("P1e Compare wheel gestures, full window and steady counters", async () => {
   const state = await launch(); const { page, fixture, root } = state;
   try {
-    const videoPath = path.join(root, "synthetic.mp4"); mkdirSync(root, { recursive: true });
+    const videoPath = path.join(root, "home", "synthetic.mp4"); mkdirSync(root, { recursive: true });
     execFileSync(process.env.VE_FFMPEG || "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30", "-t", "3", "-c:v", "libx264", "-threads", "2", videoPath]);
     const video = readFileSync(videoPath);
     for (const name of ["original", "enhanced"]) fixture.routes[`operations/wheel/files/${name}`] = video;
@@ -117,16 +120,19 @@ test("P1e Compare wheel gestures, full window and steady counters", async () => 
     await page.getByRole("button", { name: "Preview result" }).click();
     const canvas = page.getByLabel("Original and enhanced synchronized preview");
     await expect(canvas).toHaveAttribute("data-frame", "0");
-    await page.locator(".canvas-viewport").dispatchEvent("wheel", { ctrlKey: true, deltaY: -70, clientX: 600, clientY: 350 });
+    const bounds = (await page.locator(".canvas-viewport").boundingBox())!;
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.synthesizePinchGesture", { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2, scaleFactor: 1.5, gestureSourceType: "mouse" });
+    await cdp.detach();
     await expect(canvas).not.toHaveCSS("transform", "none");
     const before = await canvas.getAttribute("style");
     await page.locator(".canvas-viewport").dispatchEvent("wheel", { deltaX: 40, deltaY: 20 });
     expect(await canvas.getAttribute("style")).not.toBe(before);
     await page.getByRole("checkbox", { name: "Side by side" }).uncheck();
     await page.getByRole("button", { name: "Reset zoom", exact: true }).click();
-    const split = await page.getByRole("slider", { name: "Swipe handle" }).getAttribute("aria-valuenow");
+    const split = await page.getByRole("slider", { name: "Comparison split" }).inputValue();
     await page.locator(".canvas-viewport").dispatchEvent("wheel", { deltaX: 50, deltaY: 0 });
-    await expect.poll(() => page.getByRole("slider", { name: "Swipe handle" }).getAttribute("aria-valuenow")).not.toBe(split);
+    await expect.poll(() => page.getByRole("slider", { name: "Comparison split" }).inputValue()).not.toBe(split);
     await page.getByRole("button", { name: "Full window", exact: true }).click();
     await expect(page.locator(".compare")).toHaveClass(/is-full-window/);
     await page.locator(".compare").press("Escape");

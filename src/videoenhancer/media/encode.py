@@ -89,7 +89,7 @@ def packet_bytes(packets: Any) -> bytes:
 
 
 def color_flags(media: dict[str, Any]) -> list[str]:
-    matrix = "smpte170m" if media["color_matrix"] == "bt601" else "bt709"
+    matrix = {"bt601": "smpte170m", "bt2020nc": "bt2020nc"}.get(media["color_matrix"], "bt709")
     primaries = media.get("color_primaries", "bt709")
     transfer = media.get("color_transfer", "bt709")
     return [
@@ -132,7 +132,7 @@ def color_bsf(media: dict[str, Any], codec: str) -> str:
         "bt2020-10": 14,
         "bt2020-12": 15,
     }
-    matrix = 6 if media["color_matrix"] == "bt601" else 1
+    matrix = {"bt601": 6, "bt2020nc": 9}.get(media["color_matrix"], 1)
     p = primaries.get(media.get("color_primaries", "unknown"), 2)
     t = transfers.get(media.get("color_transfer", "unknown"), 2)
     name = {"hevc": "hevc_metadata", "h264": "h264_metadata", "av1": "av1_metadata"}[codec]

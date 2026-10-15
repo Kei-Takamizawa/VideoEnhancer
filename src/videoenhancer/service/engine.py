@@ -20,6 +20,7 @@ from typing import Any
 from videoenhancer import __version__, proc
 from videoenhancer.cli import _jobs_plan, _save_schedule, _schedule_payload
 from videoenhancer.estimate import estimate_job
+from videoenhancer.estimate.live import live_job
 from videoenhancer.estimate.local import recent_correction
 from videoenhancer.estimate.model import job_progress
 from videoenhancer.jobs.store import (
@@ -38,6 +39,7 @@ from videoenhancer.models.registry import ModelRegistry, selected_models
 from videoenhancer.schedule.controller import SystemClock, _kill_process_tree, run_queue
 from videoenhancer.schedule.planner import build_plan
 from videoenhancer.schedule.windows import Schedule
+from videoenhancer.service.locks import OrderedLock, assert_io_unlocked
 from videoenhancer.service.settings import read_settings, save_settings, write_json
 
 
@@ -60,29 +62,41 @@ def _scenario_jobs(jobs: list[dict[str, Any]], scenario: str) -> list[dict[str, 
         profile = job.get("machine_profile") or {}
         job["machine_profile"] = {
             **profile,
-            "finalization_correction": profile.get("finalization_correction", 1) * ratio,
+            "finalization_scenario_factor": profile.get("finalization_scenario_factor", 1) * ratio,
         }
     return result
 
 
 class Engine:
     def __init__(
-        self, home: Path, *, test_stuck_trial: bool = False, test_trial_timeout: float | None = None
+        self,
+        home: Path,
+        *,
+        test_stuck_trial: bool = False,
+        test_trial_timeout: float | None = None,
+        test_lock_order: bool = False,
     ):
         self.home = home.resolve()
         self._test_stuck_trial = test_stuck_trial
         self._test_trial_timeout = test_trial_timeout
         self.store = JobStore(home)
         self.stop = threading.Event()
-        self.lock = threading.RLock()
+        self.lock = OrderedLock("engine state", 30, test_lock_order)
+        self._mutation_lock = OrderedLock("mutation", 10, test_lock_order)
         self.operations: dict[str, dict[str, Any]] = {}
         self.processes: dict[str, subprocess.Popen[Any]] = {}
         self.last_error: dict[str, Any] | None = None
         self.live_progress: dict[str, dict[str, Any]] = {}
         self._preparations: list[threading.Thread] = []
         self.preview_threads: dict[str, threading.Thread] = {}
+        self.download_threads: dict[str, threading.Thread] = {}
         self.paused = False
-        self._event_lock = threading.RLock()
+        self._event_lock = OrderedLock("published events", 20, test_lock_order)
+        self._event_build_lock = threading.RLock()
+        self._publishing = False
+        self._publisher = threading.Thread(
+            target=self._publish_events, daemon=True, name="event-publisher"
+        )
         self._health_jobs_lock = threading.Lock()
         self._health_jobs_generation = -1
         self._health_jobs: list[dict[str, Any]] = []
@@ -93,6 +107,8 @@ class Engine:
         self._event_built = 0.0
         self._history_rows: dict[str, tuple[Any, dict[str, Any]]] = {}
         self._history_timers: list[threading.Timer] = []
+        self._history_threads: list[threading.Thread] = []
+        self._lock_watchdog = threading.Thread(target=self._watch_locks, daemon=True)
         from videoenhancer.service.events import HomeWatcher
 
         self._home_watcher = HomeWatcher(self.home)
@@ -124,10 +140,29 @@ class Engine:
         self._recover()
         self._home_watcher.start()
         self._health_thread.start()
+        self.start_publication()
         self.worker.start()
         threading.Thread(
             target=self._deletion_recovery, name="deletion-recovery", daemon=True
         ).start()
+
+    def start_publication(self) -> None:
+        if not self._publishing:
+            self._publishing = True
+            self._publisher.start()
+            self._lock_watchdog.start()
+
+    def _watch_locks(self) -> None:
+        while not self.stop.wait(0.5):
+            for lock in (self.lock, self._mutation_lock, self._event_lock):
+                if lock.owner is not None and not lock.warned and time.monotonic() - lock.since > 5:
+                    lock.warned = True
+                    get_logger(self.home).warning(
+                        "Lock %s held over five seconds by thread %s\n%s",
+                        lock.name,
+                        lock.owner,
+                        lock.stack,
+                    )
 
     def _deletion_recovery(self) -> None:
         while not self.stop.wait(60):
@@ -136,8 +171,22 @@ class Engine:
 
     def _recover(self) -> None:
         self.deletion.recover()
+        for entry in self.deletion.completed_outcomes():
+            try:
+                job = self.store.load(entry["job_id"])
+            except (FileNotFoundError, KeyError):
+                continue
+            for key, path in (("original", job["input"]["path"]), ("output", job["output"])):
+                if os.path.normcase(os.path.abspath(path)) == os.path.normcase(
+                    os.path.abspath(entry["path"])
+                ):
+                    job.setdefault("video_deletions", {})[key] = entry["result"]
+                    self.store.save(job)
         for job in self.store.list_jobs():
             if job.get("history_hidden_until"):
+                if "history_undo_remaining" in job:
+                    self.remove(job["id"])
+                    continue
                 self._schedule_history_removal(job)
             if job["state"] == "running":
                 for segment in job["segments"]:
@@ -206,42 +255,65 @@ class Engine:
             ):
                 return
             measured = dict(value)
-            if (
-                previous
-                and old.get("segment") == value.get("segment")
-                and float(old.get("frames_done", 0)) > 0
-                and float(value.get("frames_done", 0)) > float(old.get("frames_done", 0))
-                and now > previous[0]
-            ):
-                measured["fps"] = (
-                    float(value["frames_done"]) - float(old.get("frames_done", 0))
-                ) / (now - previous[0])
             self._progress_received[job["id"]] = (
                 now,
-                {
-                    **{
-                        k: job[k]
-                        for k in (
-                            "id",
-                            "state",
-                            "settings",
-                            "media",
-                            "segments",
-                            "machine_profile",
-                            "admitted_window_end",
-                            "allow_window_overrun",
-                            "estimated_output_bytes",
-                        )
-                        if k in job
-                    },
-                    "progress": measured,
-                },
+                copy.deepcopy(
+                    {
+                        **{
+                            key: value
+                            for key, value in job.items()
+                            if key
+                            not in {
+                                "cfr_map",
+                                "source_pts",
+                                "scene_cuts",
+                                "motion_scores",
+                                "keyframes",
+                            }
+                        },
+                        "progress": measured,
+                    }
+                ),
             )
+
+    def _forecast_jobs(self, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        with self.lock:
+            received = dict(self._progress_received)
+        now = time.monotonic()
+        result = []
+        for job in jobs:
+            if job["state"] == "running" and job.get("progress", {}).get("phase") != "finalizing":
+                latest = received.get(job["id"])
+                # The receipt carries the same complete metadata, not a reduced whitelist.
+                current = {**job, "progress": latest[1]["progress"]} if latest else job
+                work = live_job(current, current.get("progress") or {})
+                if latest and work["progress"].get("cumulative_fps", 0) > 0:
+                    elapsed = max(0, now - latest[0])
+                    active = next(
+                        (part for part in work["segments"] if part["state"] == "running"), None
+                    )
+                    if active:
+                        work["progress"]["frames_done"] = min(
+                            active["end"] - active["start"],
+                            float(work["progress"].get("frames_done", 0))
+                            + work["progress"]["fps"] * elapsed,
+                        )
+                result.append(work)
+            else:
+                result.append(dict(job))
+        return result
 
     def _environment(self) -> None:
         from videoenhancer.logging import environment_info
 
         self.environment = environment_info()
+        from videoenhancer.media.decode import software_decoder_support
+
+        try:
+            self.environment["software_decoders"] = software_decoder_support()
+        except Exception as error:
+            self.environment["software_decoders"] = {"vp9": False, "av1": False}
+            self._error(None, error)
         try:
             import torch
 
@@ -304,6 +376,14 @@ class Engine:
         for timer in self._history_timers:
             timer.cancel()
         deadline = time.monotonic() + 15
+        for thread in self._history_threads:
+            thread.join(timeout=max(0, deadline - time.monotonic()))
+            if thread.is_alive():
+                raise RuntimeError(
+                    "File removal has not finished. Keep the app open and retry Quit."
+                )
+        if self._publisher.ident is not None:
+            self._publisher.join(timeout=2)
         for thread in list(self.preview_threads.values()):
             thread.join(timeout=max(0, deadline - time.monotonic()))
             if thread.is_alive():
@@ -311,6 +391,10 @@ class Engine:
         for process in list(self.processes.values()):
             if process.poll() is None:
                 _kill_process_tree(process.pid)
+        for thread in list(self.download_threads.values()):
+            thread.join(timeout=5)
+            if thread.is_alive():
+                raise RuntimeError("Model installation has not stopped. Retry Quit.")
         if self.worker.ident is not None:
             self.worker.join(timeout=15)
         if self.worker.is_alive():
@@ -361,7 +445,10 @@ class Engine:
             if queued and window is None
             else "Idle"
         )
-        if any(op["state"] == "running" for op in self.operations.values()):
+        if any(
+            op["state"] == "running" and not op["request"].get("_network_only")
+            for op in self.operations.values()
+        ):
             state = "Running"
         if time.monotonic() - self._registry_checked >= 60 or not self._cached_sac:
             self._registry_checked = time.monotonic()
@@ -449,13 +536,7 @@ class Engine:
             for job in jobs
             if not job.get("history_hidden_until") and not job.get("remove_on_cancel")
         ]
-        for job in jobs:
-            if (
-                job["state"] == "running"
-                and job["id"] in self.live_progress
-                and job.get("progress", {}).get("phase") != "finalizing"
-            ):
-                job["progress"] = self.live_progress[job["id"]]
+        jobs = self._forecast_jobs(jobs)
         if plan is None:
             plan = _jobs_plan([j for j in jobs if j["state"] != "preparing"], self.home, days=120)
         completion = {j["job_id"]: j for j in plan["jobs"]}
@@ -585,6 +666,23 @@ class Engine:
                     else j["input"].get("size"),
                     "output_folder": str(Path(j["output"]).parent),
                     "failure_reason": j.get("error"),
+                    "output_changed": bool(
+                        output_info is not None
+                        and j.get("output_identity")
+                        and (
+                            output_info.st_size != j["output_identity"].get("size")
+                            or output_info.st_mtime_ns != j["output_identity"].get("mtime_ns")
+                        )
+                    ),
+                    "file_removal_warnings": [
+                        result
+                        for result in j.get("video_deletions", {}).values()
+                        if result.startswith("Kept:")
+                    ],
+                    "interpolation_fallback_parts": sum(
+                        bool(part.get("stats", {}).get("interpolation_fallbacks"))
+                        for part in j["segments"]
+                    ),
                     "original_state": "present"
                     if original_info is not None
                     else "recycled"
@@ -621,18 +719,22 @@ class Engine:
         if current:
             active = next((s for s in current["segments"] if s["state"] == "running"), None)
             if active:
-                remaining = max(
-                    0.0,
-                    float(active.get("predicted_seconds", 180))
-                    - float(current.get("progress", {}).get("elapsed_seconds", 0)),
+                packet = self.live_progress.get(current["id"]) or current.get("progress") or {}
+                frames = float(packet.get("frames_done", 0))
+                elapsed = float(packet.get("elapsed_seconds", 0))
+                remaining = (
+                    max(0, (active["end"] - active["start"] - frames) * elapsed / frames)
+                    if frames > 0 and elapsed > 0
+                    else float(active.get("predicted_seconds", 180))
                 )
         for op in operations:
             if op["state"] == "waiting":
+                op["remaining_seconds"] = remaining
                 op["phase"] = (
-                    f"Starts after the current step, about {int(remaining) // 60} min "
-                    f"{int(remaining) % 60} s"
+                    f"Waiting for the current part of {Path(current['input']['path']).name} "
+                    f"to finish · about {int(remaining) // 60}:{int(remaining) % 60:02d}"
                     if current
-                    else "Starting preview…"
+                    else "Starting…"
                 )
         return {
             "jobs": rows,
@@ -657,7 +759,7 @@ class Engine:
                 if job["state"] in {"done", "failed", "cancelled"}
                 for path in (job["input"]["path"], job["output"])
             ]
-        with self._event_lock:
+        with self._event_build_lock:
             updated = False
             for path in set(paths):
                 before = self._file_cache.get(path)
@@ -684,7 +786,7 @@ class Engine:
         """Rebuild structural data only after a change; progress is a separate packet."""
         from videoenhancer.service.events import generation
 
-        with self._event_lock:
+        with self._event_build_lock:
             now = time.monotonic()
             current_generation = generation(self.home)
             if current_generation != self._structure_generation or self._event_cache is None:
@@ -725,13 +827,7 @@ class Engine:
                 jobs = self.store.queue_jobs()
                 self._event_jobs = jobs
                 self._event_running_jobs = [job for job in jobs if job["state"] == "running"]
-                for job in jobs:
-                    if (
-                        job["state"] == "running"
-                        and job["id"] in self.live_progress
-                        and job.get("progress", {}).get("phase") != "finalizing"
-                    ):
-                        job["progress"] = dict(self.live_progress[job["id"]])
+                jobs = self._forecast_jobs(jobs)
                 plan = _jobs_plan([j for j in jobs if j["state"] != "preparing"], self.home, 120)
                 self._event_cache = {
                     "queue": self.queue(jobs, plan),
@@ -741,9 +837,30 @@ class Engine:
                 self._event_key, self._event_built = key, now
             return self._event_cache or {}
 
+    def _publish_events(self) -> None:
+        while not self.stop.is_set():
+            try:
+                self._build_event_message()
+                self._build_progress_message()
+            except Exception:
+                get_logger(self.home).exception("Event publication failed")
+            self.stop.wait(0.5)
+
     def event_message(self) -> str:
-        """Share cached serialised terminal rows across clients."""
+        if not self._publishing:
+            return self._build_event_message()
         with self._event_lock:
+            return self._event_wire
+
+    def progress_message(self) -> str:
+        if not self._publishing:
+            return self._build_progress_message()
+        with self._event_lock:
+            return self._progress_wire
+
+    def _build_event_message(self) -> str:
+        """Share cached serialised terminal rows across clients."""
+        with self._event_build_lock:
             snapshot = self.event_snapshot()
             if self._event_key != self._event_wire_key:
                 queue = snapshot["queue"]
@@ -778,36 +895,26 @@ class Engine:
                 self._event_wire_key = self._event_key
             return self._event_wire
 
-    def progress_message(self) -> str:
-        with self.lock:
+    def _build_progress_message(self) -> str:
+        with self._event_build_lock:
             now = time.monotonic()
             if now - self._progress_built < 1 and self._progress_wire:
                 return self._progress_wire
 
             packets = []
-            live_jobs = {}
-            for row in self._event_running_jobs:
-                received, job = self._progress_received.get(row["id"], (now, row))
-                if row.get("progress", {}).get("phase") == "finalizing":
-                    received, job = now, row
-                live: dict[str, Any] = dict(job.get("progress") or {})
-                elapsed = max(0, now - received)
-                frames_done = float(live.get("frames_done", 0))
+            planning_jobs = self._forecast_jobs(
+                [
+                    job
+                    for job in self._event_jobs
+                    if job["state"] not in {"done", "failed", "cancelled"}
+                ]
+            )
+            live_jobs = {job["id"]: job for job in planning_jobs if job["state"] == "running"}
+            for work in live_jobs.values():
+                row = work
+                live = work.get("progress") or {}
                 rate = float(live.get("fps") or 0)
-                active = next(
-                    (segment for segment in job["segments"] if segment["state"] == "running"), None
-                )
-                if active and rate > 0 and live.get("phase") != "finalizing":
-                    live["frames_done"] = min(
-                        active["end"] - active["start"], frames_done + rate * elapsed
-                    )
-                work = {**job, "progress": live}
-                if rate > 0:
-                    work["machine_profile"] = {
-                        **(job.get("machine_profile") or {}),
-                        "live_seconds_per_frame": 1 / rate,
-                    }
-                live_jobs[row["id"]] = work
+                elapsed = 0.0
                 status = job_progress(work)
                 remaining = max(0, estimate_job(work).seconds - (elapsed if rate <= 0 else 0))
                 packets.append(
@@ -822,11 +929,6 @@ class Engine:
                     )
                 )
             if packets:
-                planning_jobs = [
-                    live_jobs.get(job["id"], job)
-                    for job in self._event_jobs
-                    if job["state"] not in {"done", "failed", "cancelled"}
-                ]
                 plan = _jobs_plan(planning_jobs, self.home, 120)
                 finishes = {job["job_id"]: job["completion"] for job in plan["jobs"]}
                 for packet in packets:
@@ -951,6 +1053,12 @@ class Engine:
             previews: dict[str, Any] = {}
             for index, file in enumerate(files):
                 item = {key: data for key, data in value.items() if key != "files"}
+                item["settings"] = {
+                    **value.get("settings", {}),
+                    **value.get("file_settings", {}).get(file, {}),
+                }
+                if "output_folder" in item["settings"]:
+                    item["output_folder"] = item["settings"]["output_folder"]
                 try:
                     previews[file] = self.estimate(
                         {**item, "file": file, "virtual_id": f"preview-{index}"}, virtuals
@@ -958,9 +1066,11 @@ class Engine:
                 except Exception as error:
                     previews[file] = {"error": str(error), "warnings": [], "presets": {}}
             presets = {}
+            plans = {}
             queued = self.store.list_jobs()
             for preset, jobs in virtuals.items():
                 plan = _jobs_plan(queued + jobs, self.home, 120)
+                plans[preset] = plan
                 finish = {job["job_id"]: job["completion"] for job in plan["jobs"]}
                 for index, file in enumerate(files):
                     if "error" in previews[file]:
@@ -986,7 +1096,37 @@ class Engine:
                     ),
                     finish=finish.get(f"preview-{len(files) - 1}"),
                 )
-            return {"files": previews, "presets": presets}
+            selected = []
+            for index, file in enumerate(files):
+                chosen = {
+                    **value.get("settings", {}),
+                    **value.get("file_settings", {}).get(file, {}),
+                }
+                preset = chosen.get("preset", "standard")
+                if preset not in virtuals:
+                    preset = "fast"
+                selected.extend(job for job in virtuals[preset] if job["id"] == f"preview-{index}")
+            selected_plan = (
+                _jobs_plan(queued + selected, self.home, 120)
+                if value.get("file_settings")
+                else plans.get(self.chosen(value.get("settings", {}))["preset"], plans["fast"])
+            )
+            selected_finishes = {job["job_id"]: job["completion"] for job in selected_plan["jobs"]}
+            for index, file in enumerate(files):
+                if "error" not in previews[file]:
+                    chosen = {
+                        **value.get("settings", {}),
+                        **value.get("file_settings", {}).get(file, {}),
+                    }
+                    previews[file]["presets"][
+                        chosen.get("preset") if chosen.get("preset") in virtuals else "fast"
+                    ]["finish"] = selected_finishes.get(f"preview-{index}")
+            return {
+                "files": previews,
+                "presets": presets,
+                "selected_seconds": sum(estimate_job(job).seconds for job in selected),
+                "selected_finish": selected_finishes.get(selected[-1]["id"]) if selected else None,
+            }
         source = Path(value["file"]).resolve(strict=True)
         media = probe(source, allow_hdr=True).to_dict()
         settings = self.chosen(value.get("settings", {}))
@@ -1000,6 +1140,13 @@ class Engine:
         needed = int(output_bytes * locations[0][1] * 1.1)
         free = shutil.disk_usage(locations[0][0]).free
         warnings = []
+        support = self.environment.get("software_decoders", {})
+        codec = media.get("codec")
+        if codec in {"vp9", "av1"} and support.get(codec) is False:
+            warnings.append(
+                f"This FFmpeg build cannot read {str(codec).upper()} videos. "
+                "Install a build with software decoding support."
+            )
         geometry = self.geometry_warning(media, settings)
         if geometry:
             warnings.append(geometry)
@@ -1007,9 +1154,13 @@ class Engine:
             media.get("display_width") or media.get("width", 720),
             media.get("display_height") or media.get("height", 1280),
         ) > int(settings["short_side"]):
+            source_short = min(
+                media.get("display_width") or media["width"],
+                media.get("display_height") or media["height"],
+            )
             warnings.append(
-                "The chosen size is smaller than the source. "
-                "Use Keep if you do not want to shrink it."
+                f"This video is larger than {settings['short_side']}p, so output keeps its size "
+                f"({source_short}p)."
             )
         for location, copies in locations:
             required = int(output_bytes * copies * 1.1)
@@ -1052,7 +1203,9 @@ class Engine:
                     media, [], predicted_seconds_per_frame=per_frame, target_seconds=180
                 ),
                 "machine_profile": profile,
-                "correction_factor": recent_correction(self.store, chosen["preset"], profile),
+                "correction_factor": recent_correction(
+                    self.store, chosen["preset"], profile, media, chosen
+                ),
             }
             estimate = estimate_job(virtual).to_dict()
             if virtual_jobs is not None:
@@ -1083,7 +1236,7 @@ class Engine:
         blocking = [
             warning
             for warning in check["warnings"]
-            if not warning.startswith("The chosen size is smaller")
+            if not warning.startswith("This video is larger than")
         ]
         if blocking:
             raise ValueError(blocking[0])
@@ -1114,7 +1267,7 @@ class Engine:
             ],
             control_generation=0,
         )
-        with self.lock:
+        with self._mutation_lock:
             from videoenhancer.jobs.store import _require_unreserved_output
 
             _require_unreserved_output(self.store, output)
@@ -1217,8 +1370,69 @@ class Engine:
             return self._clean_cancelled(job)
         return job
 
-    def history_action(self, action: str, value: dict[str, Any]) -> dict[str, Any]:
+    def history_operation(self, action: str, value: dict[str, Any]) -> dict[str, Any]:
+        self._validate_history_choices(value)
+        ids = value.get("ids")
+        if action == "clear":
+            ids = [
+                job["id"]
+                for job in self.store.list_jobs()
+                if job["state"] in {"done", "failed", "cancelled"}
+            ]
+        if not isinstance(ids, list) or not ids or any(not isinstance(i, str) for i in ids):
+            raise ValueError("Choose at least one History record.")
+        jobs = [self.store.load(job_id) for job_id in dict.fromkeys(ids)]
+        if any(job["state"] not in {"done", "failed", "cancelled"} for job in jobs):
+            raise ValueError("Only finished, failed or cancelled records can be removed.")
+        for key in ("output", "original"):
+            if not isinstance(value.get(key, False), bool):
+                raise ValueError("File removal choices must be on or off.")
+        op: dict[str, Any] = dict(
+            id=uuid.uuid4().hex,
+            kind="history-removal",
+            state="running",
+            phase="Removing files",
+            request={**value, "ids": ids},
+            created_at=datetime.now().astimezone().isoformat(),
+            percent=0,
+            completed_files=0,
+            total_files=len(jobs) * sum(bool(value.get(key)) for key in ("output", "original")),
+            result={
+                "ids": [],
+                "undo_seconds": 10 if value.get("history", True) else 0,
+                "files": {"moved": 0, "not_found": 0, "kept": 0},
+                "kept": [],
+            },
+        )
         with self.lock:
+            self.operations[op["id"]] = op
+        self._save_operation(op)
+
+        def remove_files() -> None:
+            try:
+                result = self.history_action("remove", {**value, "ids": ids}, op)
+                with self.lock:
+                    op.update(state="done", phase="Complete", percent=100, result=result)
+                    op["completed_at"] = datetime.now().astimezone().isoformat()
+            except Exception as error:
+                with self.lock:
+                    op.update(state="failed", error=str(error))
+                self._error(None, error)
+            finally:
+                self._save_operation(op)
+
+        thread = threading.Thread(target=remove_files, name=f"history-{op['id']}", daemon=True)
+        self._history_threads.append(thread)
+        response = copy.deepcopy(op)
+        thread.start()
+        return response
+
+    def history_action(
+        self, action: str, value: dict[str, Any], operation: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        with self._mutation_lock:
+            if action in {"remove", "clear"}:
+                self._validate_history_choices(value)
             failures: list[str] = []
             kept: list[dict[str, str]] = []
             counts = {"moved": 0, "not_found": 0, "kept": 0}
@@ -1263,8 +1477,10 @@ class Engine:
                             raise ValueError("File removal choices must be on or off.")
                         if value.get(key):
                             path = Path(job["output"] if key == "output" else job["input"]["path"])
+                            assert_io_unlocked()
                             result = self.deletion.delete(path, job, self.store.list_jobs())
                             job.setdefault("video_deletions", {})[key] = result
+                            self.store.save(job)
                             category = (
                                 "moved"
                                 if result == "Moved to the Recycle Bin"
@@ -1276,13 +1492,38 @@ class Engine:
                             if category == "kept":
                                 refused = True
                                 kept.append({"id": job["id"], "reason": result})
+                            if operation is not None:
+                                with self.lock:
+                                    operation["completed_files"] += 1
+                                    operation.update(
+                                        percent=100
+                                        * operation["completed_files"]
+                                        / operation["total_files"],
+                                        current_file={
+                                            "id": job["id"],
+                                            "kind": key,
+                                            "outcome": result,
+                                        },
+                                    )
+                                    operation["result"].update(files=dict(counts), kept=list(kept))
+                                self._save_operation(operation)
                             self.refresh_terminal_files([str(path)])
-                    if refused:
+                    if refused or not value.get("history", True):
                         self.store.save(job)
                         continue
-                    job["history_hidden_until"] = now + 10
+                    job["history_hidden_until"] = time.time() + 10
                     self.store.save(job)
                     self._schedule_history_removal(job)
+                    if operation is not None:
+                        with self.lock:
+                            operation["result"]["ids"].append(job["id"])
+                        self._save_operation(operation)
+            if operation is not None:
+                for job in jobs:
+                    if job.get("history_hidden_until"):
+                        job["history_hidden_until"] = time.time() + 10
+                        self.store.save(job)
+                        self._schedule_history_removal(job)
             if failures:
                 raise ValueError("History entries not removed: " + "; ".join(failures))
             return {
@@ -1291,14 +1532,24 @@ class Engine:
                     for job in jobs
                     if action in {"undo", "pause-undo"} or job.get("history_hidden_until")
                 ],
-                "undo_seconds": 10 if action in {"remove", "clear"} else 0,
+                "undo_seconds": 10
+                if action in {"remove", "clear"} and value.get("history", True)
+                else 0,
                 "files": counts,
                 "kept": kept,
             }
 
+    @staticmethod
+    def _validate_history_choices(value: dict[str, Any]) -> None:
+        for key in ("history", "output", "original"):
+            if not isinstance(value.get(key, key == "history"), bool):
+                raise ValueError("Removal choices must be on or off.")
+        if not any(value.get(key, key == "history") for key in ("history", "output", "original")):
+            raise ValueError("Choose at least one removal option.")
+
     def _schedule_history_removal(self, job: dict[str, Any]) -> None:
         def expire() -> None:
-            with self.lock:
+            with self._mutation_lock:
                 if not (self.store.job_dir(job["id"]) / "manifest.json").exists():
                     return
                 latest = self.store.load(job["id"])
@@ -1433,6 +1684,26 @@ class Engine:
                     self.cancel_operation(previous["id"])
         self.operations[op["id"]] = op
         self._save_operation(op)
+        if kind == "download":
+            op.update(state="running", phase="Starting…", remaining_seconds=None, percent=0)
+            value["_network_only"] = True
+            value.pop("_verified_weight", None)
+            from videoenhancer.service.downloads import gpu_test_prediction
+
+            value["_gpu_test_seconds"] = 15.0
+            if self.environment.get("gpu"):
+                model = ModelRegistry(self.home).manifest(value["model_id"])
+                profile = load_machine_profile(
+                    self.home,
+                    gpu_name=self.environment["gpu"],
+                    driver=self.environment.get("driver"),
+                )
+                value["_gpu_test_seconds"] = gpu_test_prediction(model, profile)
+            thread = threading.Thread(
+                target=self._download_network, args=(op,), daemon=True, name="model-download"
+            )
+            self.download_threads[op["id"]] = thread
+            thread.start()
         if kind == "compare":
             from videoenhancer.service.compare import prime_cached
 
@@ -1532,7 +1803,7 @@ class Engine:
             self.processes.pop(op["id"], None)
             self._save_operation(op)
             if op["kind"] == "compare":
-                with self.lock:
+                with self._mutation_lock:
                     if op["state"] != "done":
                         from videoenhancer.service.compare import discard_incomplete
 
@@ -1540,6 +1811,47 @@ class Engine:
                         op.pop("result", None)
                         self._save_operation(op)
                     self._prune_compare_cache()
+
+    def _download_network(self, op: dict[str, Any]) -> None:
+        try:
+            self._run_operation(op)
+            if self.stop.is_set() or op.get("cancel_requested"):
+                op.update(state="cancelled")
+            else:
+                op["request"]["_network_only"] = False
+                op["request"]["_network_percent"] = op.get("percent", 0)
+                op["request"]["_phase_seconds"] = op.get("expected_phase_seconds", {})
+                op["request"]["_verified_weight"] = op.get("result", {}).pop(
+                    "verified_weight", None
+                )
+                op.update(
+                    state="waiting",
+                    phase="Waiting for the current part to finish",
+                    remaining_seconds=self._part_wait(),
+                )
+        except Exception as error:
+            op.update(
+                state="cancelled" if op.get("cancel_requested") else "failed", error=str(error)
+            )
+        finally:
+            self.processes.pop(op["id"], None)
+            self._save_operation(op)
+
+    def _part_wait(self) -> float:
+        remaining = 0.0
+        for job in self.store.list_jobs():
+            packet = self.live_progress.get(job["id"], {})
+            for segment in job["segments"]:
+                if segment["state"] == "running":
+                    frames = float(packet.get("frames_done", 0))
+                    elapsed = float(packet.get("elapsed_seconds", 0))
+                    count = float(segment["end"] - segment["start"])
+                    remaining += (
+                        max(0, (count - frames) * elapsed / frames)
+                        if frames > 0 and elapsed > 0
+                        else float(segment.get("predicted_seconds", 180))
+                    )
+        return remaining
 
     def _prune_compare_cache(self) -> None:
         sessions = sorted(
@@ -1570,6 +1882,16 @@ class Engine:
         folder = self.home / "previews" / op["id"]
         folder.mkdir(parents=True, exist_ok=True)
         value = op["request"]
+        if op["kind"] == "download" and not value.get("_network_only", True):
+            # The network worker's last snapshot belongs to a completed phase.
+            write_json(
+                folder / "progress.json",
+                dict(
+                    phase="Testing on the GPU",
+                    percent=value.get("_network_percent", 0),
+                    remaining_seconds=value.get("_phase_seconds", {}).get("gpu", 15),
+                ),
+            )
         request_path = folder / "request.json"
         write_json(request_path, {"kind": op["kind"], "request": value, "folder": str(folder)})
         command = [sys.executable, "-m", "videoenhancer.service.operation", str(request_path)]
@@ -1671,14 +1993,15 @@ class Engine:
                             pass
                     elapsed = time.monotonic() - history_started
                     fraction = float(op.get("percent", 0)) / 100
-                    if not fraction:
+                    if not fraction and op["kind"] != "download":
                         op["percent"] = min(95, elapsed / op["expected_seconds"] * 100)
-                    op["remaining_seconds"] = max(
-                        0,
-                        (elapsed / fraction * (1 - fraction))
-                        if fraction > 0.01 and op["kind"] != "calibrate"
-                        else op["expected_seconds"] - elapsed,
-                    )
+                    if op["kind"] != "download":
+                        op["remaining_seconds"] = max(
+                            0,
+                            (elapsed / fraction * (1 - fraction))
+                            if fraction > 0.01 and op["kind"] != "calibrate"
+                            else op["expected_seconds"] - elapsed,
+                        )
                     if op["kind"] == "calibrate":
                         stage = str(op.get("phase", "")).split(":", 1)[0]
                         if stage != current_stage:
@@ -1755,6 +2078,8 @@ class Engine:
                     )
                     self.store.save(job)
         op["result"] = result
+        if op["kind"] == "download" and not value.get("_network_only", True):
+            op["percent"] = 100
         if op["kind"] == "trial":
             op["percent"] = 100
             op["percent_history"].append(
@@ -1775,7 +2100,7 @@ class Engine:
             "queue",
         }:
             return self._dispatch(method, parts, value)
-        with self.lock:
+        with self._mutation_lock:
             started = time.monotonic()
             try:
                 return self._dispatch(method, parts, value)
@@ -1789,6 +2114,9 @@ class Engine:
 
     def _dispatch(self, method: str, parts: list[str], value: dict[str, Any]) -> Any:
         route = "/".join(parts)
+        if route == "errors/dismiss" and method == "POST":
+            self.last_error = None
+            return {"dismissed": True}
         if method == "GET":
             if route == "health":
                 return self.health()
@@ -1798,13 +2126,7 @@ class Engine:
                 return self.queue()
             if route == "plan":
                 jobs = [j for j in self.store.list_jobs() if j["state"] != "preparing"]
-                for job in jobs:
-                    if (
-                        job["state"] == "running"
-                        and job["id"] in self.live_progress
-                        and job.get("progress", {}).get("phase") != "finalizing"
-                    ):
-                        job["progress"] = self.live_progress[job["id"]]
+                jobs = self._forecast_jobs(jobs)
                 scenario = value.get("scenario", "expected")
                 if scenario not in {"best", "expected", "worst"}:
                     raise ValueError("Estimate scenario must be best, expected or worst.")
@@ -1941,13 +2263,18 @@ class Engine:
         if route == "estimate" and method == "POST":
             return self.estimate(value)
         if route == "estimate/space" and method == "POST":
-            settings = self.chosen(value.get("settings", {}))
             files = value.get("files", [])
             if not isinstance(files, list) or len(files) > 100:
                 raise ValueError("Choose up to 100 videos.")
             result = {}
             for file in files:
                 try:
+                    settings = self.chosen(
+                        {
+                            **value.get("settings", {}),
+                            **value.get("file_settings", {}).get(file, {}),
+                        }
+                    )
                     source = Path(file).resolve(strict=True)
                     media = probe(source, read_timeline=False, allow_hdr=True).to_dict()
                     output = self.output(source, {"output_folder": settings.get("output_folder")})
@@ -2001,6 +2328,8 @@ class Engine:
             and parts[1] in {"remove", "undo", "clear", "pause-undo"}
             and method == "POST"
         ):
+            if parts[1] in {"remove", "clear"} and (value.get("output") or value.get("original")):
+                return self.history_operation(parts[1], value)
             return self.history_action(parts[1], value)
         if len(parts) == 2 and parts[0] == "queue" and method == "DELETE":
             return self.remove(parts[1])

@@ -66,6 +66,9 @@ export type Job = {
   original_bytes?: number;
   output_folder?: string;
   failure_reason?: string;
+  output_changed?: boolean;
+  file_removal_warnings?: string[];
+  interpolation_fallback_parts?: number;
   original_state?: "present" | "missing" | "recycled";
   output_state?: "present" | "missing" | "recycled";
   starts?: string;
@@ -76,8 +79,12 @@ export type Job = {
   cancel_cleanup?: boolean;
 };
 export type Operation = {
+  completed_at?: string;
+  completed_files?: number;
+  total_files?: number;
+  current_file?: { id: string; kind: string; outcome: string };
   created_at?: string;
-  remaining_seconds?: number;
+  remaining_seconds?: number | null;
   id: string;
   kind: string;
   state: string;
@@ -87,6 +94,10 @@ export type Operation = {
   job_id?: string;
   request?: { file?: string; model_id?: string };
   result?: {
+    ids?: string[];
+    undo_seconds?: number;
+    files?: { moved: number; not_found: number; kept: number };
+    kept?: { id: string; reason: string }[];
     pipeline?: { fps: number };
     output_fps?: number;
     preview?: { original: string; enhanced: string };
@@ -103,6 +114,7 @@ export type Operation = {
       fps: number;
       projected_whole_file_seconds: number | null;
     }[];
+    model_progress?: Record<string, { percent: number; remaining_seconds: number }>;
   };
 };
 export type Progress = { id: string; percent: number; work_left: number; finish_time: string; fps?: number; phase: string; step: string };
@@ -113,6 +125,7 @@ export type Queue = {
   operations: Operation[];
 };
 export type Health = {
+  software_decoders?: { vp9: boolean; av1: boolean };
   speed_profile?: { source: string; driver_note?: string | null; calibration_minutes: number; profile_path?: string };
   deletion_notices?: { id: string; job_id?: string; path: string; guard: string; result: string }[];
   paused_all?: boolean;
@@ -202,14 +215,17 @@ export type Model = {
 };
 export type Connection = { base_url: string; token: string };
 export interface Desktop {
+  reload?(): Promise<void>;
   reveal(file: string): Promise<void>;
   hide(): Promise<void>;
   onTrayExplanation(callback: () => void): () => void;
   connection(): Promise<Connection>;
+  restartEngine?(): Promise<Connection>;
   files(kind: "videos" | "folder"): Promise<string[]>;
   openFolder(folder: string): Promise<void>;
   play(file: string): Promise<void>;
   copy(text: string): Promise<void>;
+  logRendererError?(details: string): Promise<void>;
   filePath(file: File): string;
   zoom(percent: number): Promise<number>;
   theme?(theme: string): Promise<void>;

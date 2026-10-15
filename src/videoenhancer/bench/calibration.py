@@ -22,13 +22,18 @@ def calibrate_models(
     interpolate_size: tuple[int, int] = (1080, 1920),
     repeats: int = 3,
     progress: Callable[[str, float], None] | None = None,
+    model_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Time complete stage calls, including their parameter transfers, after warmup."""
     if repeats < 1:
         raise ValueError("Calibration repeats must be positive.")
     registry = registry or ModelRegistry()
     results: dict[str, Any] = {}
-    installed_models = [model for model in registry.list_models() if model["weights_verified"]]
+    installed_models = [
+        model
+        for model in registry.list_models()
+        if model["weights_verified"] and (model_ids is None or model["id"] in model_ids)
+    ]
     for index, installed in enumerate(installed_models):
         model_id, task = installed["id"], installed["task"]
         if progress:
@@ -93,6 +98,10 @@ def calibrate_models(
                 torch_reserved_peak_bytes=torch.cuda.max_memory_reserved()
                 if backend == "cuda"
                 else 0,
+                torch_allocated_peak_bytes=torch.cuda.max_memory_allocated()
+                if backend == "cuda"
+                else 0,
+                interpolation_fallbacks=int(getattr(stage, "fallback_count", 0)),
             )
         except Exception as exc:
             entry["reason"] = str(exc)

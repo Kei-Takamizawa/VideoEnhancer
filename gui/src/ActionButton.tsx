@@ -1,7 +1,7 @@
 import { Children, isValidElement } from "react";
 import type { ComponentProps, ReactNode } from "react";
 import { Plus, X, Trash2, Download, Pause, Play, FolderOpen, Copy, RotateCcw,
-  Check, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, ArrowUpToLine, Maximize, Settings2, GripVertical,
+  Check, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, ArrowUpToLine, Maximize, Settings, GripVertical,
   MoreHorizontal, Columns2, ZoomIn, ZoomOut, MousePointer2, Info, History,
   Clock, CalendarDays, Video, FileText, Gauge, WandSparkles, ScanFace, Power,
   Square, LayoutGrid, PanelBottomClose, ShieldCheck, ListChecks, Pencil } from "lucide-react";
@@ -25,7 +25,7 @@ export function ActionButton({ children, icon, ...props }: ComponentProps<"butto
     : name.includes("history") ? History : name.includes("tour") ? Info
     : name.includes("compare") || name.includes("try models") ? Columns2
     : name.includes("verify") ? ShieldCheck
-    : name.includes("retry") || name.includes("undo") || name.includes("reset") ? RotateCcw
+    : name.includes("retry") || name.includes("undo") || name.includes("reset") || name.includes("restart") || name.includes("reload") ? RotateCcw
     : name.includes("pause") ? Pause : name.includes("play") || name.includes("resume") || name.startsWith("run now") ? Play
     : name.includes("close") || name.includes("cancel") || name.includes("skip") || name.includes("keep working") || name.includes("keep files") || name.includes("keep model") || name.includes("dismiss") ? X
     : name.includes("hide") ? PanelBottomClose : name.includes("full window") ? Maximize : name.includes("zoom in") ? ZoomIn : name.includes("zoom out") ? ZoomOut
@@ -36,7 +36,7 @@ export function ActionButton({ children, icon, ...props }: ComponentProps<"butto
     : name.includes("all panes") ? LayoutGrid : name.includes("select all") ? ListChecks : name.includes("select") ? MousePointer2
     : name.includes("default") || name.includes("save") || name === "done" || name === "got it" || name.startsWith("use ") || name.includes("chosen") || name.includes("mark") ? Check
     : name.includes("calibrat") || name.startsWith("fast") ? Gauge
-    : name.includes("settings") || name.includes("change mode") ? Settings2
+    : name.includes("settings") || name.includes("change mode") ? Settings
     : name.includes("edit") ? Pencil : name.includes("exception") ? CalendarDays
     : name.includes("hours") || name.includes("night") || name.includes("work 09") || name === "all day" ? Clock
     : name.includes("log") ? FileText : name.includes("preview") || name === "open" ? Video
