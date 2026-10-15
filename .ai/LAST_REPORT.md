@@ -346,4 +346,6 @@ Evidence: `D:\VideoEnhancer-P1e-2\speed-1\results.json`, `D:\VideoEnhancer-P1e-2
 
 ## Git and CI
 
-Implementation commit/push and exact-source Windows/Ubuntu CI are pending at report creation; update this section after the required CI run. PR remains draft; no merge.
+Implementation commit `d51a2a6dc21e7635d48874b6c5825f606417b417` was pushed and its remote SHA verified. Initial push/PR CI failed on all four Windows/Ubuntu jobs at Pyright: the CPU environment does not install optional `gdown`, and the new Drive helper imported it directly. Logs: https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38742996096 and https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38743003081 .
+
+Corrected the optional dependency to runtime `import_module`, preserving lazy model-download behavior without adding a mandatory dependency. Ruff/format/Pyright passed; related CPU tests passed 54/54 (2 GPU deselected), 58.78 s. This import-only correction does not change inference/encoding. The preceding 421-test full CPU run and GPU measurements remain scoped to the implementation before this import correction; fresh CI on the corrected source is required below. PR remains draft; no merge. Corrected-source CI is pending.

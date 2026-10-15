@@ -1,6 +1,7 @@
 """Byte reporting for publisher Drive archives, including older gdown versions."""
 
 from collections.abc import Callable
+from importlib import import_module
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
@@ -12,7 +13,7 @@ def drive_archive(
     size: int,
     progress: Callable[[str, float], None] | None = None,
 ) -> None:
-    import gdown
+    gdown = import_module("gdown")
 
     from videoenhancer.models.registry import remember_verified_hash, sha256
 
