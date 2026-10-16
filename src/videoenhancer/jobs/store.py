@@ -662,6 +662,11 @@ class JobStore:
                     state = "preparing"
             job["state"] = state
             if state == "queued":
+                if job.pop("working_files_cleaned", False):
+                    for segment in job["segments"]:
+                        segment["state"] = "pending"
+                        segment.pop("stats", None)
+                    job["progress"] = {}
                 job.pop("finished_at", None)
                 job.pop("took_seconds", None)
             job["control_generation"] = int(job.get("control_generation", 0)) + 1

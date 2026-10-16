@@ -366,6 +366,7 @@ export function AddDialog({
                       );
                     })}
                   </div>
+                  {validPreviews[file].warnings.some(w => w.includes("Insufficient")) && <ActionButton onClick={() => window.dispatchEvent(new Event("open-storage"))}>Open Storage settings</ActionButton>}
                   {validPreviews[file].warnings.map((w) => (
                     <Notice className="warning-text" key={w} identity={w + timeKey}>
                       {w}

@@ -1,66 +1,75 @@
-# VE-P1e-2b report
+# VE-P1e-2b revision 2 implementation and verification report
 
-- Task ID / Cycle: VE-P1e-2b, resumed environment inspection, 2026-10-16 (Japan).
-- Status: BLOCKED.
-- Product implementation: none. No new dependencies. Default pipeline unchanged.
+- Task ID / Cycle: VE-P1e-2b revision 2, 2026-10-16 (Japan).
+- Status: PARTIAL. Storage, the D environment and package are implemented. Mandatory cleanup/retention gates remain unmet because automatic approval review refused permanent deletion commands.
+- Branch: p1d-ui-v2, starting at 5e7ca8c8369e13958fae819e9e6b1c78094ccc41. PR #5 is open and draft (verified). No main push, merge, force push or history rewrite.
+- Complete instructions saved in .ai/CURRENT_TASK.md. No project dependency changes, telemetry or automatic updates. Default pipeline output is unchanged.
 
-## Blocker requiring owner / Claude decision
+## Implemented behavior
 
-The required evidence source D:\VideoEnhancer-P1e-2 does not exist. Part B4 requires moving the P1e-2 reports, JSON and logs referenced by its report. Seven concrete data/log records and the prior package referenced by the original P1e-2 report cannot be found at their recorded paths, including:
+Settings > Storage shows the app data folder, Models, working files of unfinished jobs, History/logs, drive free space and failed/cancelled work files. The seven-day automatic cleanup setting is on by default. Insufficient-space Add warnings already name the drive/free GB and now offer Open Storage settings.
 
-- D:\VideoEnhancer-P1e-2\owner-1440-1\home\measurement.json
-- D:\VideoEnhancer-P1e-2\standard-2160-1\home\measurement.json
-- D:\VideoEnhancer-P1e-2\fast-2160-1\home\measurement.json
-- D:\VideoEnhancer-P1e-2\gpu-tests-3\home\results.xml
-- D:\VideoEnhancer-P1e-2\gate-10min-6\home\result.json
-- D:\VideoEnhancer-P1e-2\speed-1\results.json
-- D:\VideoEnhancer-P1e-2\speed-streams-1\results.json
-- D:\VideoEnhancer-P1e-2\packages\p1e2-final\VideoEnhancer-win32-x64\VideoEnhancer.exe
+Move rejects processing, preparation and active auxiliary operations, freezes further mutations and refuses a nonempty destination. Electron stops the service before copying durable data, checks every file's size and SHA-256, and verifies the source did not change. Internal JSON/JSONL paths are rebased. Internal hard-link groups are preserved, with copied journal guard identities updated to the new exact device/inode; external video and guard paths stay where recorded. Deletion.py and its existing NTFS/ReFS safety guard were not changed.
 
-These files were checked only at the specified locations. Their absence does not prove permanent loss. No search outside the authorized locations or in the Recycle Bin was performed. The owner was asked for the backup location; none has been provided at report time. Restore the evidence or have Claude explicitly revise B4 acceptance for unavailable historical records. New measurements cannot establish the original observations. The instructions require stopping for a major missing prerequisite instead of changing acceptance independently.
+The new service starts paused and must become healthy before the new location is published in Electron userData, outside app data. VE_HOME still overrides the saved selection at launch. config.py also reads the normal Windows desktop location for CLI launches without that override. Copy interruption/failure retains the old selection and source; a partial destination is retained for inspection. A missing saved home shows The app data folder was not found with Choose..., Use the previous folder and Quit.
 
-D is now NTFS, as is C (live Get-Volume verification). The previous exFAT blocker recorded in origin commit 8c81b60 is outdated for this environment. No exFAT diagnostic failures from that previous report are claimed as current results.
+The old home remains until Remove the old folder is pressed. Its exact bigint filesystem identity and linked-path/active-folder guards are checked before permanent removal. History, pending Undo, deletion journals/guards, model registry, schedules/logs and paused jobs survive a move. A migration-specific marker preserves remaining Undo time across this explicit restart; normal restart behavior is unchanged.
 
-## Git and completed actions
+Cleanup only removes exact engine part names and assembled.tmp.mp4 from failed/cancelled job directories. Recorded inputs and finished outputs are preserved even if they have part-like names. Redirected job directories are refused. A durable cleanup marker resets every segment for Retry. Automatic cleanup uses finished_at plus seven days, runs hourly while the desktop engine is active, and logs individual locked-file failures without blocking other jobs' cleanup.
 
-- Verified the old C checkout has the expected origin, clean status and HEAD 7347029a00406f57d8a2d74bb40b8c6b325b8200. Its HEAD has no commits outside its origin tracking references.
-- Cloned p1d-ui-v2 into D:\my-workspace\VideoEnhancer\work\repo.
-- Origin already contains 8c81b6079c217ea7f0d9e1f197f8dbfc2ae2454d, a previous P1e-2b report-only commit. The only paths changed since 7347029 are .ai/CURRENT_TASK.md and .ai/LAST_REPORT.md. Product source is therefore the requested baseline. Preserved this existing commit rather than resetting or rewriting remote history.
-- Saved the complete newly attached instructions to .ai/CURRENT_TASK.md; its normalized Git content matches the already tracked instructions.
-- Measured sizes read-only. Counted all 92 expected PNGs in the C-side gui-evidence/visual-9 folder. They have not been moved.
-- No owner media, settings, queue or logs were opened. App data was enumerated for sizes only. No owner sibling folders were accessed. No deletion, move, system settings change or product change was performed.
+## D environment, package and evidence
 
-## Changed files
+The existing D clone was reused without reset. uv sync --locked --python 3.12 --all-extras created a new D .venv with existing optional GPU/model dependencies. Git-ignored local-env.ps1 redirects uv/managed Python, npm, Playwright, Electron, Hugging Face, torch and TEMP/TMP to work/cache or work/scratch, with an isolated VE_HOME. No system/user environment, permissions, long-path settings, drivers or Recycle Bin settings were changed.
 
-- .ai/CURRENT_TASK.md: complete attached task saved; normalized content already present in Git.
-- .ai/LAST_REPORT.md: this replacement report, English UTF-8 with ASCII punctuation, under 40 KB.
+Tools under cache/tools: uv 0.12.23 (MIT/Apache-2.0), official Node 24.22.0 with bundled npm (Node MIT). The Node archive matched official SHASUMS256.txt. Initial Node 24.10.0 caused dependency engine warnings; 24.22.0 resolved them. Bootstrap archives/old Node remain in the bounded cache. Python is 3.12.15 and lock-pinned Electron is 44.7.0. No tool encountered a path-length failure. Dependency manifests and lock files were not changed.
 
-## Verification and expected / actual
+Current package: D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-win32-x64\VideoEnhancer.exe.
+Its engine-location.json points to D:\my-workspace\VideoEnhancer\work\repo. Package smoke removes VE_ENGINE_ROOT and confirms discovery and renderer isolation; service-start.log identifies the D .venv Python. A rebuilt candidate passed smoke and C-D-C before its application archive/location file replaced the current package's matching-version files. Archive equality is in package-promotion.json. Candidate deletion was refused, so a second package/candidate copy remains and the one-package gate FAILS.
+
+Surviving C-side P1e-2 evidence was moved with size/SHA-256 verification: 288 files, 9,139,299 bytes (0.009139 GB), including the 92 visual-9 PNGs, reports/JSON/Japanese summaries and logs/implementation-evidence text artifacts. Destination: work/evidence/P1e-2. Synthetic media and test homes were excluded. The original P1e-2 report was not rewritten. The retained evidence is under 300 MB.
+
+The seven D records and old package lost during the owner's D reformat are accepted as lost by revision 2. They were not searched for, recovered or recreated. Their numerical record remains .ai/LAST_REPORT.md at 7347029, plus missing-evidence.json. D:\VideoEnhancer-P1e-2 and D:\VideoEnhancer cleanup was skipped as instructed.
+
+New GPU test home: work/cache/gpu-home, 0.272225 GB. Existing C1 and RIFE weights total 201,050,393 bytes; pinned hashes verified. Fresh unique downloaded payload (C1 weights and the three source/weight archives) totals 219,812,178 bytes (0.219812 GB), from unchanged registry/adapter URLs. This is retained payload size, not a packet-level network/retry measurement; extracted RIFE weights are not counted twice. No new model qualification or full GPU suite was run.
+
+## Verification, expected and actual
 
 | Check | Result | Expected / Actual |
 | --- | --- | --- |
-| C checkout origin, clean state, baseline | PASS | Expected repository, clean, 7347029 |
-| D clone and product baseline | PASS | Product files identical to 7347029; retained existing report-only commit |
-| Current filesystems | PASS | C NTFS; D NTFS |
-| P1e-2 screenshot inventory | PASS | Expected 92 PNGs; found 92 |
-| B4 historical D evidence source | FAIL | Required source folder absent |
-| Part A full inventory | PARTIAL | Size table below; 15 access errors and attribution limits |
-| .venv from lock, Ruff, format, pyright | NOT RUN | Stopped for missing prerequisite |
-| CPU suite | NOT RUN | No tests run this cycle |
-| GUI lint, typecheck, unit, build, e2e | NOT RUN | No tests or build run this cycle |
-| Package and P1e-2 smoke | NOT RUN | New package not built |
-| G1 Storage GUI screenshots | NOT RUN | Storage not implemented |
-| G2 migration / interruption / cleanup / drive tests | NOT RUN | Storage not implemented |
-| G3 isolated C-D-C move | NOT RUN | Storage not implemented |
-| G4 Windows and Ubuntu final CI | NOT RUN | No implementation delivered |
+| D locked environment | PASS | New .venv from lock; existing optional dependencies |
+| Ruff / format / pyright | PASS | No lint errors; format clean; 0 type errors/warnings |
+| Full local CPU suite | PASS | 433 passed, 3 skipped, 101 deselected; 706.23 s |
+| Final Storage regression cases | PASS | 17 passed in 2.22 s, including strengthened cases after the first full collection |
+| GUI lint / typecheck / build | PASS | Final checks clean; production build completed |
+| GUI units | PASS | 45 passed, 9 files |
+| Final package-enabled Electron e2e coverage | PASS after harness corrections | Full run: 8 passed, 6 skipped, 1 failed; that obsolete Compare interaction was corrected and its targeted rerun passed (1 passed, 6.6 s). Logs retained; no single-run 9-pass claim. |
+| G1 Storage GUI states | PASS | 12 capturePage PNGs, both content sizes (1280x800, 1100x700), dark/light, sizes/moving/result |
+| G2 durable/safety cases | PASS | Every record kind; actual killed copy; corruption/unreadable folder refusal; missing saved home and VE_HOME; guard replay; cleanup/Retry; protected inputs/outputs; age/error continuation; drive/free-space message |
+| G3 package and real C-D-C | PASS | Final candidate: 2 passed in 36.7 s; initial current package also passed |
+| Final-head Windows / Ubuntu CI | NOT RUN AT REPORT CREATION | Requires push; actual outcomes saved afterward to ci-final.json and given in final response |
+| C cleanup | FAIL / REFUSED | No old item deleted |
+| One package / empty scratch | FAIL / REFUSED | Candidate and scratch/test-result cleanup refused |
 
-No GUI operations performed. No application launched. Inventory used the existing C checkout's Python standard library; its environment was not installed into or modified. Historical CI successes are not current-cycle test results.
+The full local CPU collection began before the final defensive Storage cases were added. The final targeted run covers those changes; final-head CI runs the complete final collection. Skips are not passes. CPU fixtures are not GPU quality evidence.
 
-## Part A size inventory
+G3 used only unique isolated C TEMP folders: a real one-second synthetic CPU passthrough job completed, a second job was paused, and verified RIFE weights were installed. The packaged app moved the home to scratch on D and back to a new isolated C folder. Finished/paused states and the model remained intact; resuming the paused job then completed its output. C fixtures remain because cleanup was refused.
 
-Decimal GB, logical file lengths. Overlapping rows must not be summed. This is not physical allocated space or a deletion manifest. Sizes were recorded after the small clone and task save, before any cleanup or environment build. Start-of-turn free space observed before cloning: C 42.074571 GB; D 1016.905925 GB. The JSON measurement below is slightly later.
+G1 uses synthetic service/IPC size and progress states, separate from G3's real migration. The actual Electron controls were operated, 12 screenshots saved and representative captures inspected. capturePage reports native display pixels. No Windows display settings, physical touchpad or reboot checks are claimed. Storage uses the existing scrollable Settings layout.
 
-| Path | Exists | Logical GB | Access errors |
+Failures corrected without product design changes:
+
+- Invalid Storage unit mocks initially crashed the new card. Invalid responses now produce a localized error; 45 final units PASS.
+- The first C-D-C move succeeded but renderer reconnection failed after location.reload. The existing trusted Electron Reload handler fixed it; repeated real moves PASS.
+- The initial visual test used an exact Theme label that included option text. The locator was corrected; Storage visuals PASS.
+- A package-enabled e2e invocation omitted VE_GUI_EVIDENCE and failed two historical optional harnesses. The configured rerun exposed obsolete pre-P1e History/Models selectors, removal responses, opening the existing collapsed Use a model section, Compare scrolling and install-progress assertions. The tests now follow the already implemented UI; no product redesign was made. Earlier failures remain in their logs. Final rerun is reported separately.
+
+Warnings: Vite application chunk above 500 kB and Playwright NO_COLOR/FORCE_COLOR interaction. Neither is a build failure. No dependency or pipeline default was changed to suppress them.
+
+## Part A: accepted inventory from 5e7ca8c
+
+Revision 2 explicitly accepts this historical inventory; it was not repeated. Decimal GB, logical file lengths. Overlapping rows must not be summed. Access errors mean a lower bound. TEMP is unattributed. Owner root files are aggregated to keep private names out of Git. Leaving owner failed/cancelled parts unclassified is accepted. The previously unknown GPU home is replaced by the new measured home above.
+
+| Path | Existed then | Logical GB | Access errors |
 | --- | --- | ---: | ---: |
 | `C:\Users\pro\Documents\VideoEnhancer-P1a` | True | 0.459685 | 0 |
 | `C:\Users\pro\Documents\VideoEnhancer-P1a-2` | True | 0.455523 | 0 |
@@ -104,39 +113,135 @@ Decimal GB, logical file lengths. Overlapping rows must not be summed. This is n
 | `C:\Users\pro\AppData\Local\VideoEnhancer\profiles` | True | 0.000010 | 0 |
 | `C:\Users\pro\AppData\Local\VideoEnhancer\<top-level files combined>` | True | 0.001769 | 0 |
 
-D:\VideoEnhancer-P1e-2 and D:\VideoEnhancer are absent, so no top-level breakdown or created-by-Codex attribution is available there. Cache paths are conventional locations, not an exhaustive proof that no other cache exists. GPU model-home location remains unidentified; prior D model homes cannot be inventoried. TEMP size includes unrelated files and is not attributable to this app. Old checkout size is a lower bound due to 12 access-denied directories; TEMP has 3 access-denied entries. Error details are in inventory-start.json. No ownership or permissions were changed to bypass access errors.
+## Cleanup and For the owner to delete
 
-Owner job parts were not classified by failed/cancelled state: this would require reading manifests, beyond the requested sizes-only app-data access. No owner manifest or video contents were read. Owner top-level file sizes are aggregated to avoid publishing private names. No private names or logs are staged.
+Paths/sizes were recorded before deletion in the report and cleanup-candidates.json. The C command required a clean old checkout whose HEAD is on origin, validated its explicit path allowlist and excluded Videos. Automatic approval review rejected the entire command before execution with "blocked by policy"; no more detailed reason was returned. No old checkout, package, cycle folder, C cache or C test root was deleted.
 
-## Cleanup, report evidence and reproduction
+The D candidate deletion command and D scratch/test-results deletion command were also refused before execution with that reason. No rejected deletion was retried, moved elsewhere, or bypassed using Python, another shell, permissions or privileges. The independently authorized non-deletion package promotion copy was performed after the candidate passed smoke; candidate deletion remains undone.
 
-Space freed per item: 0 GB. No item was deleted. B1 through B4 have not passed; B5 cleanup is prohibited. C-side evidence remains in its original location. The 92 screenshots were counted, not migrated. For the owner to delete: none requested by this cycle; no automatic deletion review rejection occurred in this cycle. Do not delete the old checkout or project before the migration prerequisites pass.
+C candidates below remain for owner cleanup. A later C fixture was not attempted after refusal. Recorded sizes are logical lower bounds where access was denied. Preserve the old root's Videos folder and both owner sibling folders.
 
-External evidence directory: D:\my-workspace\VideoEnhancer\work\evidence\P1e-2b. Files: inventory.py, inventory-start.json, disk-start.json, disk-end.json, workspace-sizes.json, volumes.json and missing-evidence.json. These are private, outside Git. The reference scan in missing-evidence.json groups the three measurement paths in one brace expression as written in the original report; the absent parent establishes that each is absent.
+| For the owner to delete | Recorded logical GB | Status |
+| --- | ---: | --- |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a` | 0.459685 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-2` | 0.455523 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-3` | 2.066596 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-4` | 1.496483 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-5` | 3.247588 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-6` | 105.476427 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-7` | 39.562520 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1b-evidence` | 3.926320 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1d` | 4.193507 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1d-2` | 44.453048 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1d-3` | 17.140502 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1e` | 52.437564 | Automatic deletion refused |
+| `C:\Users\pro\Documents\VideoEnhancer-P1e-2` | 5.808432 | Automatic deletion refused |
+| `C:\Users\pro\AppData\Local\uv\cache` | 3.482512 | Automatic deletion refused |
+| `C:\Users\pro\AppData\Local\pip\Cache` | 2.452420 | Automatic deletion refused |
+| `C:\Users\pro\AppData\Local\npm-cache` | 0.413404 | Automatic deletion refused |
+| `C:\Users\pro\AppData\Local\electron\Cache` | 0.158294 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.agent_jobs_pytest` | 0.000049 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.ai` | 0.000072 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.git` | 0.027181 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.gitattributes` | 0.000000 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.github` | 0.000002 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.gitignore` | 0.000001 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.pytest_cache` | 0.000053 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.ruff_cache` | 0.000017 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.tmp` | 15.005098 | Automatic deletion refused; 12 size access errors |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.ve-home` | 26.868128 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.venv` | 3.570990 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\bench_report.json` | 0.000006 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\bench_report.md` | 0.000002 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\design` | 0.000307 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\dist` | 0.000315 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\docs` | 0.000102 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\gui` | 0.991526 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\LICENSE` | 0.000001 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\pyproject.toml` | 0.000002 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\README.md` | 0.000002 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\scripts` | 0.000094 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\src` | 0.001743 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\test-results` | 0.113405 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\tests` | 0.001601 | Automatic deletion refused |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\uv.lock` | 0.000087 | Automatic deletion refused |
+| `C:\Users\pro\AppData\Local\Temp\ve-p1e2b-crossvolume-20261015-222612` | 0.024694 | Automatic deletion refused |
+| `C:\Users\pro\AppData\Local\Temp\ve-p1e2b-crossvolume-20261015-222827` | 0.049396 | Automatic deletion refused |
+| `C:\Users\pro\AppData\Local\Temp\ve-p1e2b-crossvolume-20261015-223129` | 0.049396 | Automatic deletion refused |
+| `C:\Users\pro\AppData\Local\Temp\ve-p1e2b-crossvolume-20261015-223747` | 0.049396 | Not attempted after C cleanup refusal |
 
-Reproduce: run Get-Volume -DriveLetter C,D; Test-Path -LiteralPath D:\VideoEnhancer-P1e-2; inspect each listed exact path with Test-Path. Count *.png files directly in C:\Users\pro\Documents\VideoEnhancer-P1e-2\gui-evidence\visual-9. Run inventory.py with the old checkout's Python to repeat the read-only size scan. No build/test failure logs exist because those commands were not run.
+The 12 inaccessible old .tmp directories have UNKNOWN individual sizes; no permission bypass was attempted:
 
-## Part C disk table
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\after-regression'
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\before-encode'
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\before-handoff'
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\p1a6-registry-cpu1'
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\p1a7-focused1'
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\p1a7-focused2'
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\pytest-cache-control-after-fixed'
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\pytest-cache-control-before'
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\pytest-control-after'
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\pytest-control-after-fixed'
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\pytest-control-before'
+- [WinError 5] Access is denied: 'C:\\Users\\pro\\Documents\\my-workspace\\Hobby\\VideoEnhancer\\.tmp\\source-path-tests'
 
-| Drive | Inventory start free GB | Inventory end free GB |
-| --- | ---: | ---: |
-| C | 42.072302 | 42.070122 |
-| D | 1016.901280 | 1016.901247 |
+| D artifacts for owner cleanup | End logical GB | Status |
+| --- | ---: | --- |
+| `D:\my-workspace\VideoEnhancer\work\scratch` | 0.770123 | Refused; retained |
+| `D:\my-workspace\VideoEnhancer\work\repo\gui\test-results` | 0.017418 | Refused; retained |
+| `D:\my-workspace\VideoEnhancer\work\repo\test-results` | 0.000000 | Refused; retained |
+| `D:\my-workspace\VideoEnhancer\work\package\candidate` | 0.428413 | Refused; retained |
+
+C candidates total 333.984491 logical GB. Actual old-item space freed: 0 GB per item. Verified C-side evidence transfer removed 0.009139 GB of source files. Refused D cleanup freed 0 GB per item. Drive free-space changes also include downloads/test writes and are not a deletion measurement.
+
+Old checkout Videos contains 5 media files, 22,823,534 bytes, without established synthetic provenance. Only metadata was read; no video was opened, moved or deleted. The old root remains intact following refusal. Preserve Videos during manual cleanup. Remove the old Codex project only after the owner has safely handled that directory and retained artifacts. LOCALAPPDATA\VideoEnhancer, VE-check, AppData and the Recycle Bin were not moved or changed.
+
+## Part C disk table and retention
+
+Start is this revision's free-space measurement. End precedes small final Git/CI metadata writes. Logical .venv/cache sizes can overlap through hard links and do not establish physical allocation.
+
+| Drive | Start free GB | End free GB | Free-space change GB |
+| --- | ---: | ---: | ---: |
+| C | 42.072629 | 41.866519 | -0.206111 |
+| D | 1016.901243 | 1010.216047 | -6.685196 |
 
 | Workspace item | End logical GB |
 | --- | ---: |
-| `package` | 0.000000 |
-| `evidence/P1e-2b` | 0.000027 |
-| `scratch` | 0.000000 |
-| `cache` | 0.000000 |
-| `repo` | 0.003869 |
+| `package` | 0.856825 |
+| `package/VideoEnhancer-win32-x64` | 0.428413 |
+| `package/candidate` | 0.428413 |
+| `evidence/P1e-2` | 0.009139 |
+| `evidence/P1e-2b` | 0.015552 |
+| `scratch` | 0.770123 |
+| `cache` | 4.193152 |
+| `cache/gpu-home` | 0.272225 |
+| `repo` | 4.128287 |
+| `repo/gui/test-results` | 0.017418 |
+| `repo/test-results` | 0.000000 |
 
-These sizes precede this report's final Git commit; the report adds under 40 KB. Persistent growth is under 1 GB for this diagnostic cycle, not a completed migration gate. No scratch directory or synthetic media was created. Package and cache do not exist. No evidence pruning was performed.
+Evidence contains only P1e-2 and P1e-2b, each below 300 MB. Cache is 4.193152 GB, below 40 GB. Retained scratch/GUI results contain 0 synthetic media files larger than 100 MB; details are in disk-end-revision2.json. Scratch is not empty and a second candidate package remains. These gates FAIL because cleanup was refused.
 
-## Unresolved / intentionally not performed
+Persistent growth exceeds 1 GB. Disclosed exception: initial D bootstrap of the locked CUDA Torch/GUI environment, managed Python/Node, caches and required weights, plus finite candidate/scratch artifacts whose deletion was refused. This is not an unqualified growth-gate PASS. The old C cleanup goal remains unmet. WORKSPACE.md specifies one-package promotion, empty scratch, 300 MB/three-cycle evidence, recipe-keyed 40 GB cache, protected owner folders and per-cycle disk reporting.
 
-All of Parts S and G; D environment creation and checks; per-session cache setup; package build; evidence migration; cleanup; docs/WORKSPACE.md, docs/GUI.md and docs/TROUBLESHOOTING.md updates remain unfinished. No requirement is waived. No filesystem conversion, acceptance change, fabricated historical data, broad disk search or new design was introduced.
+## Changed files, logs and reproduction
 
-Requested future package path: D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-win32-x64\VideoEnhancer.exe. It does not exist. Owner action now: provide the historical D evidence backup location, or obtain Claude's revised missing-evidence instructions. Keep the old Codex project until migration and smoke tests pass.
+- .ai/CURRENT_TASK.md, .ai/LAST_REPORT.md and .gitignore (local-env.ps1 excluded).
+- docs/WORKSPACE.md, docs/GUI.md, docs/TROUBLESHOOTING.md.
+- Python config.py, jobs/store.py, service/settings.py, engine.py and new storage.py.
+- Electron main.cjs, preload.cjs and new storage.cjs.
+- Renderer App.tsx, Pages.tsx, Queue.tsx, types.ts, style.css and new Storage.tsx.
+- test_storage.py, storage_seed.py, storage.test.tsx, storage.spec.ts, storage-visual.spec.ts; historical p1d3-changed.spec.ts and visual-states.spec.ts harness fixes.
 
-Git: stage only this cycle's .ai files, commit this report, push p1d-ui-v2 without force, verify origin HEAD and stop. The final response records the actual outcome; no merge or main push is authorized.
+Media, weights, packages, screenshots, private metadata/logs and generated outputs remain outside Git. No private names are staged.
+
+Dot-source local-env.ps1 from work/repo. Run uv run ruff check ., uv run ruff format --check ., uv run pyright and uv run pytest -m "not gpu and not soak" --basetemp=../scratch/cpu. In gui run npm ci, lint, typecheck, test, build and test:e2e. Package opt-ins need VE_GUI_PACKAGE_EXE and VE_GUI_EVIDENCE. Storage C-D-C additionally needs a new VE_STORAGE_C_FIXTURE, VE_STORAGE_SCRATCH and VE_GPU_TEST_MODEL_HOME. Never reuse nonempty targets or the owner's sibling folders.
+
+Evidence: work/evidence/P1e-2b contains accepted inventory/missing-evidence JSON; revision2-start.json; evidence-move-manifest.json; model-downloads.json; cpu.xml/cpu.log; storage-tests-final.log; GUI check and e2e logs; package-smoke-final.log; cross-volume.json; package-promotion.json; storage-visual/*.png; cleanup-candidates.json; d-cleanup-candidates.json; disk-end-revision2.json. Scripts retain exact invocations. Final CI outcomes are saved after push to ci-final.json.
+
+## Unresolved, owner/Claude items and intentional omissions
+
+- Manual cleanup is required for refused C/D paths. Preserve owner media/app data and owner sibling folders. Do not treat the old Codex folder as already deleted.
+- The owner moves real app data through Settings > Storage after this cycle; Codex did not move it.
+- Claude can review the retained evidence and cleanup refusal. No independent product/architecture decision or acceptance waiver was made.
+- No lost-record recovery/regeneration, full GPU suite, new performance/quality calibration, owner media processing, physical touchpad/display scaling/reboot checks, telemetry, automatic update or dependency change.
+- Commit/push only cycle files to p1d-ui-v2, verify final-head Windows/Ubuntu CI, keep PR #5 draft and stop. No merge.

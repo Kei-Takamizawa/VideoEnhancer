@@ -90,7 +90,9 @@ class Engine:
         self._preparations: list[threading.Thread] = []
         self.preview_threads: dict[str, threading.Thread] = {}
         self.download_threads: dict[str, threading.Thread] = {}
-        self.paused = False
+        self.storage_moving = False
+        self._cleanup_checked = 0.0
+        self.paused = os.environ.get("VE_STORAGE_MOVE_HOLD") == "1"
         self._event_lock = OrderedLock("published events", 20, test_lock_order)
         self._event_build_lock = threading.RLock()
         self._publishing = False
@@ -184,6 +186,11 @@ class Engine:
                     self.store.save(job)
         for job in self.store.list_jobs():
             if job.get("history_hidden_until"):
+                if job.pop("storage_move_undo", False):
+                    self.store.save(job)
+                    if "history_undo_remaining" not in job:
+                        self._schedule_history_removal(job)
+                    continue
                 if "history_undo_remaining" in job:
                     self.remove(job["id"])
                     continue
@@ -356,6 +363,12 @@ class Engine:
     def _worker(self) -> None:
         while not self.stop.is_set():
             try:
+                if not self.storage_moving and time.monotonic() - self._cleanup_checked > 3600:
+                    from videoenhancer.service.storage import cleanup_expired
+
+                    with self._mutation_lock:
+                        cleanup_expired(self.store)
+                    self._cleanup_checked = time.monotonic()
                 run_queue(
                     home=self.home,
                     clock=ServiceClock(self.stop),
@@ -501,6 +514,11 @@ class Engine:
         current = finalizing or running
         return {
             "speed_profile": self._speed_profile,
+            "storage_undo_ids": [
+                j["id"]
+                for j in jobs
+                if j.get("history_undo_remaining") and j.get("history_hidden_until")
+            ],
             "paused_all": self.paused,
             "waiting_count": sum(j["state"] in {"queued", "paused", "preparing"} for j in jobs),
             "version": __version__,
@@ -2092,6 +2110,8 @@ class Engine:
             )
 
     def dispatch(self, method: str, parts: list[str], value: dict[str, Any]) -> Any:
+        if self.storage_moving and method != "GET":
+            raise ValueError("App data is moving. Wait for it to finish.")
         if method == "GET" or "/".join(parts) in {
             "estimate",
             "history/delete-files",
@@ -2114,6 +2134,33 @@ class Engine:
 
     def _dispatch(self, method: str, parts: list[str], value: dict[str, Any]) -> Any:
         route = "/".join(parts)
+        if self.storage_moving and method != "GET":
+            raise ValueError("App data is moving. Wait for it to finish.")
+        if route == "storage" and method == "GET":
+            from videoenhancer.service.storage import storage_status
+
+            return storage_status(self.home, self.store)
+        if route == "storage/prepare" and method == "POST":
+            busy = any(j["state"] in {"running", "preparing"} for j in self.store.list_jobs())
+            busy = busy or (
+                not self.paused and any(j["state"] == "queued" for j in self.store.list_jobs())
+            )
+            busy = busy or any(
+                o["state"] in {"running", "waiting"} for o in self.operations.values()
+            )
+            busy = busy or any(t.is_alive() for t in self._history_threads)
+            if busy:
+                raise ValueError("Pause processing first.")
+            self.paused = True
+            self.storage_moving = True
+            return {"ready": True}
+        if route == "storage/cleanup" and method == "POST":
+            from videoenhancer.service.storage import cleanup_job
+
+            ids = value.get("ids")
+            if not isinstance(ids, list) or not ids or any(not isinstance(i, str) for i in ids):
+                raise ValueError("Choose failed or cancelled jobs to clean up.")
+            return {"removed_bytes": sum(cleanup_job(self.store, i) for i in dict.fromkeys(ids))}
         if route == "errors/dismiss" and method == "POST":
             self.last_error = None
             return {"dismissed": True}

@@ -276,3 +276,13 @@ keyframe and checking every requested presentation timestamp against analysis.
 It does not rely on the container's frame count. If seeking is unavailable, it
 decodes forward from an earlier keyframe. This avoids SimpleDecoder timestamp
 tags that were observed to track decode order on a fractional-rate B-frame MP4.
+
+## Storage
+
+Settings > Storage shows the app data location, installed model size, unfinished-job working files, History and logs, and free drive space. Pause processing before choosing **Move...**. Select a new or empty folder. The app stops the service, copies and verifies the data, starts the service on the new location, then saves that location outside app data. `VE_HOME` takes precedence when starting the app or CLI.
+
+The old folder remains until you press **Remove the old folder**, which permanently deletes it. Keep it until the move result is successful. A failed or interrupted copy leaves the original location selected; a partial destination is kept for inspection and cannot be reused until it is empty. If the saved folder is missing at startup, use **Choose...** to locate it or **Use the previous folder** to return to the retained copy.
+
+The Storage list can clean engine-owned part and joined files from failed or cancelled jobs. The History record stays; Retry starts from the beginning. Automatic cleanup is enabled by default seven days after failure or cancellation and runs while the desktop engine is active. The Add dialog offers **Open Storage settings** when admission detects insufficient free space.
+
+Development and evidence retention rules are in [WORKSPACE.md](WORKSPACE.md).

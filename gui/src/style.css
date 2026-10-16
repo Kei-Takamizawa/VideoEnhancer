@@ -1368,3 +1368,7 @@ input, textarea, pre, .log-output { user-select: text; }
 
 .dismissible { position: relative; padding-right: 38px; }
 .dismiss-notice { position: absolute; right: 6px; top: 6px; padding: 4px; background: transparent; color: inherit; }
+
+.storage-card dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; margin: 8px 0; }
+.storage-card dd { margin: 0; }
+.storage-card li { overflow-wrap: anywhere; }

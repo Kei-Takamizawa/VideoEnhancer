@@ -1,5 +1,8 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld("desktop", {
+  storageStatus: () => ipcRenderer.invoke("storage-status"),
+  moveStorage: (folder) => ipcRenderer.invoke("storage-move", folder),
+  removeOldStorage: () => ipcRenderer.invoke("storage-remove-old"),
   connection: () => ipcRenderer.invoke("connection"),
   reload: () => ipcRenderer.invoke("reload"),
   restartEngine: () => ipcRenderer.invoke("restart-engine"),

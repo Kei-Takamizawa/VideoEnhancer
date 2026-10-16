@@ -44,6 +44,10 @@ test("packaged design board inventory with isolated synthetic API data", async (
     queueCalls++; return partial && queueCalls > 1 ? { statusCode: 400, error: "Synthetic second file could not be added." } : { id: "added" };
   };
   fixture.routes["queue/synthetic-0/details"] = { text: "Synthetic job log. No owner footage was used." };
+  fixture.routes["history/remove"] = (data: { ids: string[] }) => {
+    fixture.queue.jobs = fixture.queue.jobs.filter((job: { id: string }) => !data.ids.includes(job.id));
+    return { ids: data.ids, files: { moved: 0, not_found: 0, kept: 0 }, kept: [] };
+  };
   const app = await _electron.launch({ executablePath: process.env.VE_GUI_PACKAGE_EXE!, args: ["--force-device-scale-factor=1", `--user-data-dir=${path.join(root, "desktop")}`], env: { ...process.env, VE_HOME: path.join(root, "home") } });
   const page = await app.firstWindow();
   page.setDefaultTimeout(7000);
@@ -91,10 +95,10 @@ test("packaged design board inventory with isolated synthetic API data", async (
         } else if (board.component === "History") {
           await click("History");
           if (board.variant === "noMatch") await page.getByLabel("Search by file name").fill("no synthetic match");
-          if (board.variant === "select") await page.locator('.history-select input').first().check();
-          if (board.variant === "deleteFiles") { await page.locator('.history-name').first().click(); await click("Delete video files…"); }
-          if (board.variant === "clear") await click("Clear history…");
-          if (board.variant === "toast") { await page.locator('.history-name').first().click(); await click("Remove from history"); }
+          if (board.variant === "select") { await click("Select"); await page.locator('.history-image').first().click(); }
+          if (board.variant === "deleteFiles") { await page.locator('.history-image').first().click(); await click("Delete video files…"); }
+          if (board.variant === "clear") { await click("Select"); await click("Select all"); await click("Remove from history"); }
+          if (board.variant === "toast") { await page.locator('.history-image').first().click(); await click("Remove from history"); await page.getByRole("dialog").getByRole("button", { name: "Remove selected items", exact: true }).click(); await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeVisible(); }
         } else if (board.component === "Schedule") {
           await click("Schedule");
           if (board.variant === "addDay") await click("Add a day");
@@ -102,7 +106,8 @@ test("packaged design board inventory with isolated synthetic API data", async (
         } else if (board.component === "Models") {
           await click("Models");
           if (board.variant === "licence") await page.getByRole("button", { name: "Install", exact: true }).first().click();
-          if (["details", "remove"].includes(board.variant)) { await page.getByRole("button", { name: "Actions for Gentle cleanup" }).click(); await page.getByRole("menuitem", { name: board.variant === "details" ? "Details" : "Remove…", exact: true }).click(); }
+          if (board.variant === "details") await page.getByRole("button", { name: "Details for Gentle cleanup", exact: true }).click();
+          if (board.variant === "remove") await page.getByRole("button", { name: `Details for ${catalog[1].catalog.title}`, exact: true }).getByRole("button", { name: "Uninstall", exact: true }).click();
         } else if (board.component === "Settings") { await click("Settings"); if (board.variant === "advanced") await page.getByText("Advanced", { exact: true }).click();
         } else if (board.component === "Compare") {
           await click("Models"); await click("Compare on my video"); await expect(page.getByRole("heading", { name: /Compare models/ })).toBeVisible();
@@ -138,7 +143,8 @@ test("packaged design board inventory with isolated synthetic API data", async (
     await app.evaluate(async ({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.show(); await window.loadURL("app://videoenhancer/"); });
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
     await click("Models");
-    await expect(page.getByText("Downloading 30%")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Installing Gentle cleanup", exact: true })).toBeVisible();
+    await expect(page.getByRole("progressbar", { name: "Downloading Gentle cleanup", exact: true })).toHaveAttribute("value", "30");
     for (const [width, height] of [[1280, 800], [1100, 700]]) {
       await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(size[0], size[1]), [width, height]);
       const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));

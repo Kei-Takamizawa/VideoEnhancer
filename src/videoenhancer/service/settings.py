@@ -12,6 +12,7 @@ from typing import Any
 from videoenhancer.files import retry_permission
 
 DEFAULTS: dict[str, Any] = {
+    "cleanup_working_files": True,
     "output_folder": "",
     "preset": "standard",
     "codec": "hevc",
@@ -55,6 +56,8 @@ def write_json(path: Path, data: Any) -> None:
 def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
     if set(value) - set(DEFAULTS):
         raise ValueError("Unknown setting.")
+    if "cleanup_working_files" in value and not isinstance(value["cleanup_working_files"], bool):
+        raise ValueError("Automatic cleanup must be on or off.")
     previous = read_settings(home)
     value = {**previous, **value}
     choices = {

@@ -35,7 +35,11 @@ let window,
   connection,
   quitting = false,
   preferenceTimer;
-const home =
+const storage = require("./storage.cjs");
+let storageProgress = { phase: "Idle" };
+let storageBusy = false;
+const locationFile = () => path.join(app.getPath("userData"), "storage-location.json");
+let home =
   process.env.VE_HOME ||
   path.join(app.getPath("appData"), "..", "Local", "VideoEnhancer");
 let child;
@@ -84,12 +88,56 @@ async function request(route, method = "GET", body) {
   return result.json();
 }
 async function ensureService() {
+  if (storageBusy) throw new Error("App data is moving. Wait for it to finish.");
   if (!starting)
     starting = startService().finally(() => {
       starting = undefined;
     });
   return starting;
 }
+async function engineLocation() {
+  if (process.env.VE_ENGINE_ROOT) return process.env.VE_ENGINE_ROOT;
+  if (!app.isPackaged) return path.resolve(__dirname, "../..");
+  return JSON.parse(await fs.readFile(path.join(process.resourcesPath, "engine-location.json"), "utf8")).root;
+}
+async function stopService() {
+
+        await request("shutdown", "POST", {});
+        const deadline = Date.now() + 20000;
+        while (Date.now() < deadline) {
+          try {
+            const current = JSON.parse(await fs.readFile(path.join(home, "serve.json"), "utf8"));
+            process.kill(current.pid, 0);
+          } catch (error) {
+            if (error.code !== "ENOENT" && error.code !== "ESRCH") throw error;
+            connection = undefined;
+            return;
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        throw new Error("The engine could not stop safely. File removal may still be running. Try again when it finishes.");
+
+}
+async function loadStorageLocation() {
+  let choice = await storage.startupLocation(locationFile(), home, process.env.VE_HOME);
+  while (choice.missing) {
+    const result = await dialog.showMessageBox({ type: "error", message: "The app data folder was not found",
+      detail: choice.home, buttons: ["Choose…", "Use the previous folder", "Quit"], cancelId: 2 });
+    if (result.response === 2) { app.exit(0); return false; }
+    let selected;
+    if (result.response === 0) {
+      const pick = await dialog.showOpenDialog({ properties: ["openDirectory"] });
+      if (!pick.canceled) selected = pick.filePaths[0];
+    } else selected = choice.previous;
+    if (selected && await fs.stat(selected).then(stat => stat.isDirectory()).catch(() => false)) {
+      await storage.writeLocation(locationFile(), { active: selected, previous: choice.home });
+      choice = await storage.startupLocation(locationFile(), home);
+    }
+  }
+  home = choice.home;
+  return true;
+}
+
 async function startService() {
   try {
     const candidate = JSON.parse(
@@ -133,7 +181,7 @@ async function startService() {
     await log.write("pythonw.exe is missing; falling back to python.exe with windowsHide.\n");
   child = spawn(python.executable, ["-m", "videoenhancer.cli", "serve"], {
     cwd: engineRoot,
-    env: { ...process.env, VE_HOME: home },
+    env: { ...process.env, VE_HOME: home, VE_STORAGE_MOVE_HOLD: storageBusy ? "1" : "0" },
     windowsHide: true,
     detached: true,
     stdio: ["ignore", log.fd, log.fd],
@@ -299,6 +347,7 @@ else {
   app
     .whenReady()
     .then(async () => {
+      if (!(await loadStorageLocation())) return;
       if (process.platform !== "win32") {
         quitting = true;
         dialog.showErrorBox(
@@ -413,21 +462,61 @@ else {
       handle("connection", ensureService);
       handle("reload", () => { window.webContents.reload(); });
       handle("restart-engine", async () => {
-        await ensureService();
-        await request("shutdown", "POST", {});
-        const deadline = Date.now() + 20000;
-        while (Date.now() < deadline) {
-          try {
-            const current = JSON.parse(await fs.readFile(path.join(home, "serve.json"), "utf8"));
-            process.kill(current.pid, 0);
-          } catch (error) {
-            if (error.code !== "ENOENT" && error.code !== "ESRCH") throw error;
-            connection = undefined;
-            return ensureService();
-          }
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        throw new Error("The engine could not stop safely. File removal may still be running. Try again when it finishes.");
+        await ensureService(); await stopService(); return ensureService();
+      });
+      handle("storage-status", async () => ({ ...storageProgress,
+        ...(await storage.readLocation(locationFile())), folder: home }));
+      handle("storage-remove-old", () => storage.removePrevious(locationFile(), home));
+      handle("storage-move", async (target) => {
+        if (storageBusy) throw new Error("App data is already moving.");
+        if (typeof target !== "string" || !path.isAbsolute(target)) throw new Error("Choose an absolute folder.");
+        // Reject bad targets before stopping the current service.
+        const candidate = await fs.lstat(target).catch(error => { if (error.code === "ENOENT") return undefined; throw error; });
+        if (candidate && (!candidate.isDirectory() || candidate.isSymbolicLink() || (await fs.readdir(target)).length))
+          throw new Error("The target must be a new or empty folder.");
+        await request("storage/prepare", "POST", {});
+        storageBusy = true;
+        storageProgress = { phase: "Stopping the service" };
+        const source = home;
+        const priorLocation = await storage.readLocation(locationFile());
+        let switched = false;
+        try {
+          await stopService();
+          const info = await fs.stat(source, { bigint: true });
+          storageProgress = { phase: "Copying and verifying", copied_bytes: 0 };
+          const engineRoot = await engineLocation();
+          await new Promise((resolve, reject) => {
+            const copy = spawn(process.env.VE_PYTHON || path.join(engineRoot, ".venv", "Scripts", "python.exe"),
+              ["-m", "videoenhancer.service.storage", source, target],
+              { cwd: engineRoot, env: { ...process.env, VE_HOME: source }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+            let buffer = "", errors = "";
+            copy.stdout.on("data", chunk => {
+              buffer += chunk.toString(); let boundary;
+              while ((boundary = buffer.indexOf("\n")) >= 0) {
+                const line = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 1);
+                try { storageProgress = JSON.parse(line); } catch { /* Ignore incomplete diagnostics. */ }
+              }
+            });
+            copy.stderr.on("data", chunk => { errors = (errors + chunk.toString()).slice(-8000); });
+            copy.on("error", reject);
+            copy.on("exit", code => code === 0 ? resolve() : reject(new Error(errors || "App data copy failed.")));
+          });
+          storageProgress = { ...storageProgress, phase: "Starting the service" };
+          home = target; connection = undefined;
+          await startService();
+          // Publish the new location only after its service is reachable.
+          await storage.writeLocation(locationFile(), { active: home, previous: source,
+            previousIdentity: { dev: String(info.dev), ino: String(info.ino) } });
+          switched = true;
+          storageProgress = { ...storageProgress, phase: "Move completed", source, target };
+          return { moved: true, folder: home };
+        } catch (error) {
+          if (home !== source) { await stopService().catch(() => {}); home = source; connection = undefined; }
+          if (!switched) await storage.writeLocation(locationFile(), priorLocation);
+          await startService();
+          storageProgress = { phase: "Move failed; the previous folder is still in use", error: error.message };
+          throw error;
+        } finally { storageBusy = false; }
       });
       handle("renderer-error", async (details) => {
         if (typeof details !== "string") throw new Error("Invalid renderer error.");

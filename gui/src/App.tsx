@@ -69,7 +69,14 @@ export function ControlWarning({
 }
 export default function App() {
   useDialogFocus();
-  const [page, setPage] = useState("Home");
+  const [page, setPage] = useState(sessionStorage.getItem("storage-return") ? "Settings" : "Home");
+  useEffect(() => {
+    const storage = () => { setFiles(undefined); setPage("Settings"); };
+    const moved = () => { sessionStorage.setItem("storage-return", "1"); void window.desktop.reload?.(); };
+    window.addEventListener("open-storage", storage);
+    window.addEventListener("storage-moved", moved);
+    return () => { window.removeEventListener("open-storage", storage); window.removeEventListener("storage-moved", moved); };
+  }, []);
   const [dropCount, setDropCount] = useState(0);
   const [dropNotice, setDropNotice] = useState("");
   useEffect(() => { if (!dropNotice) return; const timer = setTimeout(() => setDropNotice(""), 3000); return () => clearTimeout(timer); }, [dropNotice]);
@@ -163,6 +170,16 @@ export default function App() {
   useEffect(() => window.desktop.onTrayExplanation(() => setTrayExplanation(true)), []);
   const [historyUndo, setHistoryUndo] = useState<string[]>();
   const [historyUndoRevision, setHistoryUndoRevision] = useState("");
+  useEffect(() => {
+    if (!api || !sessionStorage.getItem("storage-return")) return;
+    sessionStorage.removeItem("storage-return");
+    void api.call<{ storage_undo_ids?: string[] }>("health").then(value => {
+      if (value.storage_undo_ids?.length) {
+        setHistoryUndo(value.storage_undo_ids);
+        void api.call("history/pause-undo", "POST", { ids: value.storage_undo_ids, paused: false });
+      }
+    });
+  }, [api]);
   const historyRemovalSeen = useRef(new Map<string, string>());
   useEffect(() => {
     for (const op of queue.operations.filter(op => op.kind === "history-removal")) {

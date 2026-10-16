@@ -1,4 +1,5 @@
 export type Settings = {
+  cleanup_working_files?: boolean;
   preset: string;
   codec: string;
   short_side: string | number;
@@ -215,6 +216,9 @@ export type Model = {
 };
 export type Connection = { base_url: string; token: string };
 export interface Desktop {
+  storageStatus?(): Promise<{ phase?: string; previous?: string; copied_bytes?: number; total_bytes?: number }>;
+  moveStorage?(folder: string): Promise<unknown>;
+  removeOldStorage?(): Promise<unknown>;
   reload?(): Promise<void>;
   reveal(file: string): Promise<void>;
   hide(): Promise<void>;

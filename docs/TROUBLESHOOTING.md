@@ -185,3 +185,13 @@ Audio checks use each stream's packets and account for codec priming.
 2160p forecasts use measured component and whole-pipeline points. Larger output
 is visibly uncalibrated. Old local observations are not silently treated as
 measurements of a new built-in profile revision.
+
+## Moving app data and reclaiming working space
+
+If the app data drive is full, open Settings > Storage. It displays the drive's free space and separates models, unfinished working files, and History/logs. Move app data to a new or empty folder while processing is paused. No owner data is moved by development scripts. A nonempty target is refused so unrelated files are not mixed into app data.
+
+If a move fails, the original folder remains selected. Keep the original and inspect the displayed error; do not delete the only good copy. A partial target is retained and must be emptied before retrying. If the new folder is later missing, startup shows **The app data folder was not found** with **Choose...** and **Use the previous folder**. The environment variable `VE_HOME`, when present, overrides the saved selection on the next application launch.
+
+Use **Remove the old folder** only after a successful move. This is permanent deletion. **Clean up** for failed/cancelled jobs removes engine-owned parts and the joined working video, preserving inputs, finished outputs and History. After cleanup Retry processes every part again. The default automatic cleanup period is seven days; it runs when the desktop engine is active.
+
+For development disk growth and the fixed D-drive layout, see [WORKSPACE.md](WORKSPACE.md). Missing historical P1e-2 D-drive evidence was accepted as lost in P1e-2b revision 2; do not attempt to recover or recreate those historical observations.

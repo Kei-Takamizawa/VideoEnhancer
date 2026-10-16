@@ -63,14 +63,14 @@ test("P1d-3 changed screens in the packaged desktop", async () => {
     fixture.queue.operations = [{ id: "calibration", kind: "calibrate", state: "running", phase: "Measuring synthetic reference", request: {} }];
     await reload(); await open("Settings"); await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible(); await capture("Settings-driver-note-cancel");
     fixture.queue.operations = [];
-    await reload(); await open("History"); await page.locator('.history-name').first().click(); await expect(page.getByText(notice.result)).toBeVisible(); await capture("History-retained-guard");
+    await reload(); await open("History"); await page.locator('.history-image').first().click(); await expect(page.getByText(notice.result)).toBeVisible(); await capture("History-retained-guard");
     await open("Close"); await open("Home");
     await app.evaluate(({ dialog }, files) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: files }); }, [source, normal]);
     await open("Add videos"); await expect(page.getByText("HDR is not supported")).toBeVisible(); await expect(page.getByText("Speed unknown for fixture-without-reference. Run speed calibration.")).toBeVisible(); await capture("Add-HDR-and-unknown-speed");
     await open("Close");
     await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, normal);
-    await open("Models"); await open("Compare on my video");
-    await expect(page.getByText(/Speed unknown for this video/)).toBeVisible();
+    await open("Models"); await open("Compare on my video"); await page.getByText("Use a model", { exact: true }).click();
+    await page.getByText(/Speed unknown for this video/).scrollIntoViewIfNeeded(); await expect(page.getByText(/Speed unknown for this video/)).toBeVisible();
     await expect(page.locator("canvas")).toHaveAttribute("data-frame", /\d+/);
     await capture("Compare-unknown-whole-video-speed");
     writeFileSync(path.join(evidence, "screenshots.json"), JSON.stringify({ fixture: "Isolated synthetic API states; real PQ/HLG behavior separately covered by API integration tests.", paths: captures }, null, 2));

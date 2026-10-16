@@ -1,6 +1,6 @@
 # CURRENT_TASK: Cycle P1e-2b (move the work to drive D and stop disk growth)
 
-- **Task ID:** VE-P1e-2b
+- **Task ID:** VE-P1e-2b, revision 2
 - **Date:** 2026-10-16
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
@@ -17,6 +17,48 @@
 - **This cycle runs in a new Codex project** whose folder is `D:\my-workspace\VideoEnhancer\work`. The owner creates that folder and the project. The old checkout on C belonged to the previous Codex project. Because it is no longer your working folder, step B5 can delete it. Find it: it is a folder on C whose `origin` is this repository. If you are unsure which folder it is, ask the owner.
 - At the end, write `.ai/LAST_REPORT.md` (English, UTF-8, ASCII punctuation, under 40 KB).
 - Do not push to `main`.
+
+## Revision 2: resume after the missing-evidence blocker
+
+This revision overrides the parts it names. Everything else in this file still applies.
+
+**What happened:**
+- Drive D was exFAT (your blocker in `8c81b60`).
+- The owner then reformatted D as NTFS, which erased `D:\VideoEnhancer-P1e-2`.
+- Your report at `5e7ca8c` found that folder missing and stopped correctly.
+
+**Decisions (Claude, as designer):**
+1. **The lost records are accepted as lost.** These are the 7 records and the old package listed in the `5e7ca8c` report.
+   - Do not search for them, try to recover them, or regenerate them.
+   - The record of their numbers is the P1e-2 report in git history (`.ai/LAST_REPORT.md` at `7347029`), plus your `evidence\P1e-2b\missing-evidence.json`. Claude reviewed those numbers from that report before the loss.
+   - P1e-3 measures the 2160 estimate and the other gates again, so no later step needs the lost files.
+2. **Start condition (overrides the one above).**
+   - Continue in the existing clone `D:\my-workspace\VideoEnhancer\work\repo`, on `p1d-ui-v2` at `5e7ca8c`. Its product files are identical to `7347029`.
+   - Do not reset or rewrite history.
+3. **Part A is done.** Do not repeat it.
+   - Reuse the `5e7ca8c` inventory. At the start of this run, measure only the free space on C and D.
+   - Leaving the owner's job parts unclassified by state is accepted. Part S's Clean up list shows them in the app.
+4. **B4 (evidence) is revised.**
+   - Move what still exists in `C:\Users\pro\Documents\VideoEnhancer-P1e-2` into `work\evidence\P1e-2`:
+     - reports, JSON and logs;
+     - the 92 screenshots in `gui-evidence\visual-9`;
+     - the Japanese summaries.
+   - Do not move synthetic media or test homes.
+   - Report the size. If it is over 300 MB, keep it anyway, because it predates the rule, and say so.
+5. **B5 (cleanup).**
+   - Skip the two D items (`D:\VideoEnhancer-P1e-2`, `D:\VideoEnhancer`); they no longer exist. The C items stand.
+   - The old checkout is `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer`. Delete it only after B1 to B4 pass. If its 12 access-denied directories still refuse, list them under "For the owner to delete".
+   - Expected space freed on C is about 334 GB (decimal), from your inventory:
+     - 280.7 GB of `VideoEnhancer-*` folders;
+     - at least 46.6 GB for the old checkout;
+     - 6.5 GB of uv, pip, npm and Electron caches.
+
+     Report the actual figures.
+6. **GPU test model home.** Its old location is unknown, and any copy on D was erased.
+   - Create it under `work\cache`.
+   - Download the weights that the GPU tests need, from the sources the code already uses.
+   - Report its size and how much was downloaded.
+7. **exFAT.** The `8c81b60` blocker is obsolete now that D is NTFS. Do not change the deletion guard in this cycle.
 
 ## Working rules
 
