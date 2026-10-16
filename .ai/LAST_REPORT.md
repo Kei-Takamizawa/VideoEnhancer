@@ -1,175 +1,142 @@
 # VE-P1e-2b report
 
-- Task ID / Cycle: VE-P1e-2b, 2026-10-16.
+- Task ID / Cycle: VE-P1e-2b, resumed environment inspection, 2026-10-16 (Japan).
 - Status: BLOCKED.
-- Starting branch: p1d-ui-v2, 7347029a00406f57d8a2d74bb40b8c6b325b8200.
-- Product implementation: none. Default pipeline unchanged. No new dependencies.
+- Product implementation: none. No new dependencies. Default pipeline unchanged.
 
-## Blocking filesystem incompatibility
+## Blocker requiring owner / Claude decision
 
-D is exFAT; C is NTFS (Get-Volume). The existing guarded deletion implementation requires NTFS or ReFS in src/videoenhancer/service/deletion.py:61 and creates a hard link at line 556. The existing CPU suite also requires real hard links, including tests/test_deletion.py:283. On D, os.link raises OSError [WinError 1] Incorrect function. Running the unchanged deletion module on D produced 20 passed and 13 failed in 13.46 seconds.
+The required evidence source D:\VideoEnhancer-P1e-2 does not exist. Part B4 requires moving the P1e-2 reports, JSON and logs referenced by its report. Seven concrete data/log records and the prior package referenced by the original P1e-2 report cannot be found at their recorded paths, including:
 
-This establishes that the required unchanged CPU acceptance cannot pass with all test files on the selected exFAT workspace. It also means recycling a video located on D is refused by the current product's safety preflight. Moving only the app home does not itself imply that recycling a video remaining on C is broken; guards are next to video paths, not in the app home. Storage migration has NOT been implemented or tested.
+- D:\VideoEnhancer-P1e-2\owner-1440-1\home\measurement.json
+- D:\VideoEnhancer-P1e-2\standard-2160-1\home\measurement.json
+- D:\VideoEnhancer-P1e-2\fast-2160-1\home\measurement.json
+- D:\VideoEnhancer-P1e-2\gpu-tests-3\home\results.xml
+- D:\VideoEnhancer-P1e-2\gate-10min-6\home\result.json
+- D:\VideoEnhancer-P1e-2\speed-1\results.json
+- D:\VideoEnhancer-P1e-2\speed-streams-1\results.json
+- D:\VideoEnhancer-P1e-2\packages\p1e2-final\VideoEnhancer-win32-x64\VideoEnhancer.exe
 
-The owner's instructions require stopping when a specification or architecture decision is needed. No tests were weakened or skipped to disguise this incompatibility. No filesystem conversion, virtual disk, system-wide safe.directory setting or alternative deletion guard was introduced.
+These files were checked only at the specified locations. Their absence does not prove permanent loss. No search outside the authorized locations or in the Recycle Bin was performed. The owner was asked for the backup location; none has been provided at report time. Restore the evidence or have Claude explicitly revise B4 acceptance for unavailable historical records. New measurements cannot establish the original observations. The instructions require stopping for a major missing prerequisite instead of changing acceptance independently.
 
-## Decision needed from Claude and owner
+D is now NTFS, as is C (live Get-Volume verification). The previous exFAT blocker recorded in origin commit 8c81b60 is outdated for this environment. No exFAT diagnostic failures from that previous report are claimed as current results.
 
-Choose the supported filesystem/workspace arrangement before implementation resumes. Options for review include providing an NTFS-backed location at the requested workspace, or explicitly revising the exFAT acceptance and deletion behavior specification. An NTFS virtual disk would be an environment/architecture choice requiring review; it has not been created. Reformatting D is not proposed as an automatic operation and would require owner-managed data preservation. Do not remove hard-link safety checks as a routine implementation fix.
+## Git and completed actions
 
-## Work completed
+- Verified the old C checkout has the expected origin, clean status and HEAD 7347029a00406f57d8a2d74bb40b8c6b325b8200. Its HEAD has no commits outside its origin tracking references.
+- Cloned p1d-ui-v2 into D:\my-workspace\VideoEnhancer\work\repo.
+- Origin already contains 8c81b6079c217ea7f0d9e1f197f8dbfc2ae2454d, a previous P1e-2b report-only commit. The only paths changed since 7347029 are .ai/CURRENT_TASK.md and .ai/LAST_REPORT.md. Product source is therefore the requested baseline. Preserved this existing commit rather than resetting or rewriting remote history.
+- Saved the complete newly attached instructions to .ai/CURRENT_TASK.md; its normalized Git content matches the already tracked instructions.
+- Measured sizes read-only. Counted all 92 expected PNGs in the C-side gui-evidence/visual-9 folder. They have not been moved.
+- No owner media, settings, queue or logs were opened. App data was enumerated for sizes only. No owner sibling folders were accessed. No deletion, move, system settings change or product change was performed.
 
-- Verified old checkout origin matches the requested repository, HEAD matches the start condition, and git status is clean.
-- Cloned origin branch p1d-ui-v2 into D:\my-workspace\VideoEnhancer\work\repo; verified HEAD matches 7347029.
-- Saved the complete provided instructions to .ai/CURRENT_TASK.md.
-- Recorded read-only size inventory and drive free space before cloning.
-- Reproduced the unchanged deletion suite failure using synthetic files under work\scratch.
-- No old evidence or environments were moved or deleted. No owner folders or media were opened.
+## Changed files
 
-Git on exFAT reports dubious ownership. Commands use the per-invocation flag -c safe.directory=D:/my-workspace/VideoEnhancer/work/repo. No global/user/system Git configuration was changed.
+- .ai/CURRENT_TASK.md: complete attached task saved; normalized content already present in Git.
+- .ai/LAST_REPORT.md: this replacement report, English UTF-8 with ASCII punctuation, under 40 KB.
 
-## Files changed
-
-- .ai/CURRENT_TASK.md: exact supplied final instructions.
-- .ai/LAST_REPORT.md: this report.
-
-Untracked generated test caches remain ignored and are not staged. External evidence stays outside Git under work\evidence\P1e-2b.
-
-## Verification
+## Verification and expected / actual
 
 | Check | Result | Expected / Actual |
 | --- | --- | --- |
-| Clone and starting revision | PASS | Requested origin and branch; HEAD 7347029 |
-| Old checkout status | PASS | Clean, no user changes discarded |
-| Filesystem inventory | PASS | Actual D exFAT; C NTFS |
-| Existing deletion CPU module | FAIL | Expected all pass; actual 20 PASS / 13 FAIL |
-| New .venv from lock | NOT RUN | Stopped on filesystem blocker |
-| Ruff / format / pyright | NOT RUN | No product changes; stopped on blocker |
-| Full CPU suite | NOT RUN | Only the diagnostic deletion module ran |
-| GUI lint / types / unit / build / e2e | NOT RUN | Stopped on blocker |
-| Package build / P1e-2 smoke | NOT RUN | No new package exists |
-| G1 Storage screenshots | NOT RUN | Storage feature not implemented |
-| G2 migration and cleanup cases | NOT RUN | Storage feature not implemented |
-| G3 C-D-C isolated migration | NOT RUN | Storage feature not implemented |
-| Windows / Ubuntu final CI | NOT RUN | No full implementation delivered |
+| C checkout origin, clean state, baseline | PASS | Expected repository, clean, 7347029 |
+| D clone and product baseline | PASS | Product files identical to 7347029; retained existing report-only commit |
+| Current filesystems | PASS | C NTFS; D NTFS |
+| P1e-2 screenshot inventory | PASS | Expected 92 PNGs; found 92 |
+| B4 historical D evidence source | FAIL | Required source folder absent |
+| Part A full inventory | PARTIAL | Size table below; 15 access errors and attribution limits |
+| .venv from lock, Ruff, format, pyright | NOT RUN | Stopped for missing prerequisite |
+| CPU suite | NOT RUN | No tests run this cycle |
+| GUI lint, typecheck, unit, build, e2e | NOT RUN | No tests or build run this cycle |
+| Package and P1e-2 smoke | NOT RUN | New package not built |
+| G1 Storage GUI screenshots | NOT RUN | Storage not implemented |
+| G2 migration / interruption / cleanup / drive tests | NOT RUN | Storage not implemented |
+| G3 isolated C-D-C move | NOT RUN | Storage not implemented |
+| G4 Windows and Ubuntu final CI | NOT RUN | No implementation delivered |
 
-No GUI operations performed. Diagnostic used the existing C checkout's Python environment, not a newly created D .venv. Its PYTHONPATH explicitly selected the new D source. TEMP, TMP and VE_HOME for that command pointed under work\scratch. The C environment was not modified.
+No GUI operations performed. No application launched. Inventory used the existing C checkout's Python standard library; its environment was not installed into or modified. Historical CI successes are not current-cycle test results.
 
-## Reproduction and logs
+## Part A size inventory
 
-From work, set PYTHONPATH to work\repo\src and TEMP/TMP to work\scratch, then run the old checkout's .venv\Scripts\python.exe -m pytest repo/tests/test_deletion.py -q --basetemp=D:\my-workspace\VideoEnhancer\work\scratch\deletion-probe.
+Decimal GB, logical file lengths. Overlapping rows must not be summed. This is not physical allocated space or a deletion manifest. Sizes were recorded after the small clone and task save, before any cleanup or environment build. Start-of-turn free space observed before cloning: C 42.074571 GB; D 1016.905925 GB. The JSON measurement below is slightly later.
 
-Evidence:
-- D:\my-workspace\VideoEnhancer\work\evidence\P1e-2b\deletion-probe.log
-- D:\my-workspace\VideoEnhancer\work\evidence\P1e-2b\inventory-start.json
-- D:\my-workspace\VideoEnhancer\work\evidence\P1e-2b\disk-start.json
-- D:\my-workspace\VideoEnhancer\work\evidence\P1e-2b\disk-end.json
+| Path | Exists | Logical GB | Access errors |
+| --- | --- | ---: | ---: |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a` | True | 0.459685 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-2` | True | 0.455523 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-3` | True | 2.066596 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-4` | True | 1.496483 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-5` | True | 3.247588 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-6` | True | 105.476427 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1a-7` | True | 39.562520 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1b-evidence` | True | 3.926320 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1d` | True | 4.193507 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1d-2` | True | 44.453048 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1d-3` | True | 17.140502 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1e` | True | 52.437564 | 0 |
+| `C:\Users\pro\Documents\VideoEnhancer-P1e-2` | True | 5.817571 | 0 |
+| `C:\Users\pro\Documents\jobs` | False | 0.000000 | 0 |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer` | True | 46.603607 | 12 |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.venv` | True | 3.570990 | 0 |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\gui\node_modules` | True | 0.584578 | 0 |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\gui\dist` | True | 0.000554 | 0 |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\gui\release` | True | 0.396649 | 0 |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\dist` | True | 0.000315 | 0 |
+| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\build` | False | 0.000000 | 0 |
+| `D:\VideoEnhancer-P1e-2` | False | 0.000000 | 0 |
+| `D:\VideoEnhancer` | False | 0.000000 | 0 |
+| `C:\Users\pro\AppData\Local\uv\cache` | True | 3.482512 | 0 |
+| `C:\Users\pro\AppData\Local\pip\Cache` | True | 2.452420 | 0 |
+| `C:\Users\pro\AppData\Local\npm-cache` | True | 0.413404 | 0 |
+| `C:\Users\pro\AppData\Local\electron\Cache` | True | 0.158294 | 0 |
+| `C:\Users\pro\AppData\Local\ms-playwright` | False | 0.000000 | 0 |
+| `C:\Users\pro\.cache\huggingface` | False | 0.000000 | 0 |
+| `C:\Users\pro\.cache\torch` | False | 0.000000 | 0 |
+| `C:\Users\pro\AppData\Local\Temp` | True | 0.820541 | 3 |
+| `C:\Users\pro\AppData\Local\VideoEnhancer` | True | 2.027383 | 0 |
+| `C:\Users\pro\AppData\Local\VideoEnhancer\adapter-sources` | True | 0.053617 | 0 |
+| `C:\Users\pro\AppData\Local\VideoEnhancer\cache` | True | 0.000823 | 0 |
+| `C:\Users\pro\AppData\Local\VideoEnhancer\consent` | True | 0.000001 | 0 |
+| `C:\Users\pro\AppData\Local\VideoEnhancer\jobs` | True | 0.076520 | 0 |
+| `C:\Users\pro\AppData\Local\VideoEnhancer\models` | True | 1.304123 | 0 |
+| `C:\Users\pro\AppData\Local\VideoEnhancer\outputs` | True | 0.309862 | 0 |
+| `C:\Users\pro\AppData\Local\VideoEnhancer\previews` | True | 0.280658 | 0 |
+| `C:\Users\pro\AppData\Local\VideoEnhancer\profiles` | True | 0.000010 | 0 |
+| `C:\Users\pro\AppData\Local\VideoEnhancer\<top-level files combined>` | True | 0.001769 | 0 |
 
-## Part A inventory (partial)
+D:\VideoEnhancer-P1e-2 and D:\VideoEnhancer are absent, so no top-level breakdown or created-by-Codex attribution is available there. Cache paths are conventional locations, not an exhaustive proof that no other cache exists. GPU model-home location remains unidentified; prior D model homes cannot be inventoried. TEMP size includes unrelated files and is not attributable to this app. Old checkout size is a lower bound due to 12 access-denied directories; TEMP has 3 access-denied entries. Error details are in inventory-start.json. No ownership or permissions were changed to bypass access errors.
 
-Logical file lengths, decimal GB; nested rows overlap and must not be summed. These are not physical allocated bytes or predicted freed space. Inaccessible files were not included. A zero/missing row is not proof a cache exists nowhere else. TEMP is the entire directory size, not an attribution to VideoEnhancer. No deletion is authorized by this table alone.
+Owner job parts were not classified by failed/cancelled state: this would require reading manifests, beyond the requested sizes-only app-data access. No owner manifest or video contents were read. Owner top-level file sizes are aggregated to avoid publishing private names. No private names or logs are staged.
 
-| Path | Exists | GB |
-| --- | --- | --- |
-| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer` | True | 46.603607 |
-| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\.venv` | True | 3.57099 |
-| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\gui\node_modules` | True | 0.584578 |
-| `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer\dist` | True | 0.000315 |
-| `C:\Users\pro\Documents\jobs` | False | 0 |
-| `C:\Users\pro\AppData\Local\uv\cache` | True | 3.482512 |
-| `C:\Users\pro\AppData\Local\pip\Cache` | True | 2.45242 |
-| `C:\Users\pro\AppData\Local\npm-cache` | True | 0.413404 |
-| `C:\Users\pro\AppData\Local\electron\Cache` | True | 0.158294 |
-| `C:\Users\pro\AppData\Local\ms-playwright` | False | 0 |
-| `C:\Users\pro\.cache\huggingface` | False | 0 |
-| `C:\Users\pro\.cache\torch` | False | 0 |
-| `C:\Users\pro\AppData\Local\Temp` | True | 0.819231 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1a` | True | 0.459685 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1a-2` | True | 0.455523 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1a-3` | True | 2.066596 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1a-4` | True | 1.496483 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1a-5` | True | 3.247588 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1a-6` | True | 105.476427 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1a-7` | True | 39.56252 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1b-evidence` | True | 3.92632 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1d` | True | 4.193507 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1d-2` | True | 44.453048 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1d-3` | True | 17.140502 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1e` | True | 52.437564 |
-| `C:\Users\pro\Documents\VideoEnhancer-P1e-2` | True | 5.817571 |
-| `D:\VideoEnhancer-P1e-2` | True | 237.132324 |
-| `D:\VideoEnhancer-P1e-2\core-decoder-1` | True | 0.003428 |
-| `D:\VideoEnhancer-P1e-2\cpu-all-5` | True | 0.41031 |
-| `D:\VideoEnhancer-P1e-2\cpu-failure-probe` | True | 0.006136 |
-| `D:\VideoEnhancer-P1e-2\D2-1` | True | 0.271715 |
-| `D:\VideoEnhancer-P1e-2\D2-gpu-1` | True | 0.433169 |
-| `D:\VideoEnhancer-P1e-2\decoder-2h-1` | True | 6.931184 |
-| `D:\VideoEnhancer-P1e-2\decoder-core-2h-1` | True | 6.931184 |
-| `D:\VideoEnhancer-P1e-2\fast-2160-1` | True | 0.985988 |
-| `D:\VideoEnhancer-P1e-2\finalization-fit-1` | True | 0.323354 |
-| `D:\VideoEnhancer-P1e-2\finalization-fit-2` | True | 81.762155 |
-| `D:\VideoEnhancer-P1e-2\finalization-replay-1` | True | 7.586277 |
-| `D:\VideoEnhancer-P1e-2\fixture-av1-180-1` | True | 0.012589 |
-| `D:\VideoEnhancer-P1e-2\gate-10min-1` | True | 0.912214 |
-| `D:\VideoEnhancer-P1e-2\gate-10min-2` | True | 1.210295 |
-| `D:\VideoEnhancer-P1e-2\gate-10min-3` | True | 0.912212 |
-| `D:\VideoEnhancer-P1e-2\gate-10min-4` | True | 1.383907 |
-| `D:\VideoEnhancer-P1e-2\gate-10min-5` | True | 3.266152 |
-| `D:\VideoEnhancer-P1e-2\gate-10min-6` | True | 3.266026 |
-| `D:\VideoEnhancer-P1e-2\gate-2160-30-1` | True | 0.725031 |
-| `D:\VideoEnhancer-P1e-2\gate-2160-30-2` | True | 0.72504 |
-| `D:\VideoEnhancer-P1e-2\gpu-tests-1` | True | 26.920543 |
-| `D:\VideoEnhancer-P1e-2\gpu-tests-2` | True | 70.642515 |
-| `D:\VideoEnhancer-P1e-2\gpu-tests-3` | True | 5.560224 |
-| `D:\VideoEnhancer-P1e-2\media-4gib-1` | True | 4.308945 |
-| `D:\VideoEnhancer-P1e-2\nvenc-size-points-1` | True | 1.2E-05 |
-| `D:\VideoEnhancer-P1e-2\owner-1440-1` | True | 0.591202 |
-| `D:\VideoEnhancer-P1e-2\owner-condition-1` | True | 0.379463 |
-| `D:\VideoEnhancer-P1e-2\owner-condition-2` | True | 0.515431 |
-| `D:\VideoEnhancer-P1e-2\packages` | True | 0.856761 |
-| `D:\VideoEnhancer-P1e-2\reference-2160-1` | True | 1.197083 |
-| `D:\VideoEnhancer-P1e-2\service-perf-1` | True | 0.851094 |
-| `D:\VideoEnhancer-P1e-2\speed-1` | True | 5.344003 |
-| `D:\VideoEnhancer-P1e-2\speed-streams-1` | True | 0.784091 |
-| `D:\VideoEnhancer-P1e-2\standard-2160-1` | True | 1.122591 |
-| `D:\VideoEnhancer` | False | 0 |
-| `C:\Users\pro\AppData\Local\VideoEnhancer` | True | 2.027383 |
-| `C:\Users\pro\AppData\Local\VideoEnhancer\adapter-sources` | True | 0.053617 |
-| `C:\Users\pro\AppData\Local\VideoEnhancer\cache` | True | 0.000823 |
-| `C:\Users\pro\AppData\Local\VideoEnhancer\consent` | True | 1E-06 |
-| `C:\Users\pro\AppData\Local\VideoEnhancer\jobs` | True | 0.07652 |
-| `C:\Users\pro\AppData\Local\VideoEnhancer\models` | True | 1.304123 |
-| `C:\Users\pro\AppData\Local\VideoEnhancer\outputs` | True | 0.309862 |
-| `C:\Users\pro\AppData\Local\VideoEnhancer\previews` | True | 0.280658 |
-| `C:\Users\pro\AppData\Local\VideoEnhancer\profiles` | True | 1E-05 |
+## Cleanup, report evidence and reproduction
 
-Inventory limitations: failed/cancelled owner-job part totals were NOT determined because no owner manifests were opened. Jobs were enumerated for sizes only. GPU model-home attribution, alternate cache locations, individual TEMP ownership and old GUI build/package breakdown are NOT complete. The requested full Part A inventory remains incomplete; do not treat these numbers as a cleanup manifest. D:\VideoEnhancer does not exist. No owner sibling directories were accessed.
+Space freed per item: 0 GB. No item was deleted. B1 through B4 have not passed; B5 cleanup is prohibited. C-side evidence remains in its original location. The 92 screenshots were counted, not migrated. For the owner to delete: none requested by this cycle; no automatic deletion review rejection occurred in this cycle. Do not delete the old checkout or project before the migration prerequisites pass.
 
-## Cleanup and migration
+External evidence directory: D:\my-workspace\VideoEnhancer\work\evidence\P1e-2b. Files: inventory.py, inventory-start.json, disk-start.json, disk-end.json, workspace-sizes.json, volumes.json and missing-evidence.json. These are private, outside Git. The reference scan in missing-evidence.json groups the three measurement paths in one brace expression as written in the original report; the absent parent establishes that each is absent.
 
-Space freed per item: 0 GB; no old item deleted. Part B steps 1 (environment/checks), 2, 3 and 4 have not passed, so B5 cleanup is prohibited. Previous P1e-2 evidence remains at its original locations. The requested 92 screenshots have not been migrated or counted. New package path requested: D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-win32-x64; no package built there.
+Reproduce: run Get-Volume -DriveLetter C,D; Test-Path -LiteralPath D:\VideoEnhancer-P1e-2; inspect each listed exact path with Test-Path. Count *.png files directly in C:\Users\pro\Documents\VideoEnhancer-P1e-2\gui-evidence\visual-9. Run inventory.py with the old checkout's Python to repeat the read-only size scan. No build/test failure logs exist because those commands were not run.
 
-For the owner to delete: diagnostic scratch only, listed with its measured size below after automatic review refused cleanup. Do not delete the old checkout/project yet. All original work and evidence are retained for resuming after the filesystem decision.
-
-## Deferred scope
-
-Part C docs/WORKSPACE.md, GUI.md and TROUBLESHOOTING.md updates; per-session cache setup; bounded cache/evidence pruning; all of Part S; all G acceptance; full migration and cleanup. These are unfinished, not silently waived. No synthetic file larger than 100 MB was retained by this diagnostic.
 ## Part C disk table
 
-| Drive | Start free GB | End free GB |
-| --- | --- | --- |
-| C | 42.081051 | 42.079777 |
-| D | 755.775701 | 755.61789 |
-
+| Drive | Inventory start free GB | Inventory end free GB |
+| --- | ---: | ---: |
+| C | 42.072302 | 42.070122 |
+| D | 1016.901280 | 1016.901247 |
 
 | Workspace item | End logical GB |
-| --- | --- |
-| `D:\my-workspace\VideoEnhancer\work\package` | 0 |
-| `D:\my-workspace\VideoEnhancer\work\evidence\P1e-2b` | 2.8E-05 |
-| `D:\my-workspace\VideoEnhancer\work\scratch` | 0.133306 |
-| `D:\my-workspace\VideoEnhancer\work\cache` | 0 |
-| `D:\my-workspace\VideoEnhancer\work\repo` | 0.004328 |
+| --- | ---: |
+| `package` | 0.000000 |
+| `evidence/P1e-2b` | 0.000027 |
+| `scratch` | 0.000000 |
+| `cache` | 0.000000 |
+| `repo` | 0.003869 |
 
-For the owner to delete: D:\my-workspace\VideoEnhancer\work\scratch (133306056 bytes). Automatic approval review rejected the proposed permanent cleanup command. It was not retried or bypassed. The rejected combined command made no changes. Synthetic diagnostic scratch remains, so end-of-cycle scratch-empty requirement is NOT met. No old artifacts deleted. Persistent logical growth is under 1 GB, based on the listed repo and evidence sizes; this is not a full migrated-workspace gate. Git commit/push outcome is provided in the final response.
+These sizes precede this report's final Git commit; the report adds under 40 KB. Persistent growth is under 1 GB for this diagnostic cycle, not a completed migration gate. No scratch directory or synthetic media was created. Package and cache do not exist. No evidence pruning was performed.
 
+## Unresolved / intentionally not performed
 
+All of Parts S and G; D environment creation and checks; per-session cache setup; package build; evidence migration; cleanup; docs/WORKSPACE.md, docs/GUI.md and docs/TROUBLESHOOTING.md updates remain unfinished. No requirement is waived. No filesystem conversion, acceptance change, fabricated historical data, broad disk search or new design was introduced.
+
+Requested future package path: D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-win32-x64\VideoEnhancer.exe. It does not exist. Owner action now: provide the historical D evidence backup location, or obtain Claude's revised missing-evidence instructions. Keep the old Codex project until migration and smoke tests pass.
+
+Git: stage only this cycle's .ai files, commit this report, push p1d-ui-v2 without force, verify origin HEAD and stop. The final response records the actual outcome; no merge or main push is authorized.
