@@ -7,7 +7,6 @@ no original source or compiled extension is added to this repository.
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import importlib.util
 import statistics
@@ -16,7 +15,7 @@ import time
 import types
 import urllib.request
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -36,35 +35,59 @@ SOURCE_NAME = f"mmagic-{COMMIT}"
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    from videoenhancer.models.registry import sha256
+
+    return sha256(path)
 
 
-def _verified_download(path: Path, url: str, expected: str) -> Path:
+def _verified_download(
+    path: Path,
+    url: str,
+    expected: str,
+    progress: Callable[[str, float], None] | None = None,
+    expected_bytes: int = 0,
+) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_file() and _sha256(path) == expected:
+        if progress:
+            progress(
+                f"Present {path.name}: {path.stat().st_size} / {path.stat().st_size} bytes", 90
+            )
         return path
     path.unlink(missing_ok=True)
     temporary = path.with_suffix(path.suffix + ".download")
     try:
         with urllib.request.urlopen(url, timeout=60) as response, temporary.open("wb") as sink:
+            total = expected_bytes or int(response.headers.get("Content-Length", 0))
+            received = 0
             while chunk := response.read(1024 * 1024):
                 sink.write(chunk)
-        observed = _sha256(temporary)
+                received += len(chunk)
+                if progress and total:
+                    progress(
+                        f"Downloading {path.name}: {received} / {total} bytes",
+                        min(90, received / total * 90),
+                    )
+        if progress:
+            progress("Verifying SHA-256", 90)
+        from videoenhancer.models.registry import remember_verified_hash, sha256
+
+        observed = sha256(temporary, progress)
         if observed != expected:
             raise ValueError(f"SHA-256 mismatch for {path.name}: {observed}")
+        info = temporary.stat()
         temporary.replace(path)
+        remember_verified_hash(path, observed, (info.st_size, info.st_mtime_ns))
     finally:
         temporary.unlink(missing_ok=True)
     return path
 
 
-def _source_files(models: Path) -> tuple[Path, Path]:
+def _source_files(
+    models: Path, progress: Callable[[str, float], None] | None = None
+) -> tuple[Path, Path]:
     archive = _verified_download(
-        source_path(models, models / "mmagic-code.zip"), CODE_URL, CODE_SHA256
+        source_path(models, models / "mmagic-code.zip"), CODE_URL, CODE_SHA256, progress, 17451622
     )
     root = models / SOURCE_NAME
     basic = root / "mmagic/models/editors/basicvsr/basicvsr_net.py"

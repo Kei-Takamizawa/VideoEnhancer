@@ -17,6 +17,7 @@
     "package": "tsc --noEmit && vite build && node scripts/package.mjs"
   },
   "dependencies": {
+    "lucide-react": "1.55.0",
     "mp4box": "2.4.1",
     "react": "19.3.0",
     "react-dom": "19.3.0"

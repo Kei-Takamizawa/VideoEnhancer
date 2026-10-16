@@ -46,17 +46,23 @@ def process_segment(
     abort: Callable[[], bool],
     batch_size: int = 2,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    frame_observer: Callable[[torch.Tensor, int], None] | None = None,
     reference_measurement: bool = False,
 ) -> dict[str, Any]:
     from videoenhancer.models.registry import validate_job_models
 
+    verification_started = time.perf_counter()
+    if progress:
+        progress({"step": "Checking weights"})
     validate_job_models(manifest)
+    weight_verification_seconds = time.perf_counter() - verification_started
     started = time.perf_counter()
     settings, media = manifest["settings"], manifest["media"]
     backend = choose_backend(settings.get("backend", "auto"))
     torch.set_num_threads(2)
     if backend == "cuda":
         torch.cuda.reset_peak_memory_stats()
+    cuda_initialization_seconds = time.perf_counter() - started if backend == "cuda" else 0.0
     stages = create_stages(settings, media, set(manifest.get("scene_cuts", [])))
 
     def memory_progress(memory: dict[str, Any]) -> None:
@@ -64,10 +70,14 @@ def process_segment(
             progress({"memory": memory})
 
     memory_sampler = JobMemorySampler(interval_seconds=30, on_sample=memory_progress)
+    memory_started = time.perf_counter()
     memory_sampler.start()
+    first_memory_sample_seconds = time.perf_counter() - memory_started
     try:
         load_started = time.perf_counter()
         for stage in stages:
+            if progress:
+                progress({"step": f"Loading {stage.name}"})
             stage.setup()
     except BaseException:
         for stage in stages:
@@ -96,6 +106,7 @@ def process_segment(
     written = 0
     peak_rss = 0
     decode_seconds = 0.0
+    decoder_open_seconds = 0.0
     encode_seconds = 0.0
     handoff_check_seconds = 0.0
     reference_check_seconds = 0.0
@@ -158,9 +169,12 @@ def process_segment(
             stopped.set()
 
     def decode() -> None:
-        nonlocal decode_seconds, reference_check_seconds
+        nonlocal decode_seconds, reference_check_seconds, decoder_open_seconds
         decode_started = time.perf_counter()
+        if progress:
+            progress({"step": "Opening decoder"})
         decoder = IndexedDecoder(manifest["input"]["path"], media, backend, manifest)
+        decoder_open_seconds += time.perf_counter() - decode_started
         try:
             indices = manifest["cfr_map"][source_start:source_end]
             iterator = decoder.frames(indices, check)
@@ -676,6 +690,8 @@ def process_segment(
                 for frame in batch.frames:
                     if check():
                         raise InterruptedError("The segment was interrupted.")
+                    if frame_observer is not None:
+                        frame_observer(frame, start * factor + written)
                     encode_started = time.perf_counter()
                     encoder.write(frame)
                     encode_seconds += time.perf_counter() - encode_started
@@ -693,7 +709,8 @@ def process_segment(
             raise
 
     workers = [
-        threading.Thread(target=guard, args=(fn,), daemon=True) for fn in (decode, compute, encode)
+        threading.Thread(target=guard, args=(fn,), daemon=True, name=f"ve-{fn.__name__}")
+        for fn in (decode, compute, encode)
     ]
     for worker in workers:
         worker.start()
@@ -763,9 +780,14 @@ def process_segment(
         "output_frames": written,
         "fps": (end - start) / elapsed,
         "model_loading_seconds": model_loading_seconds,
+        "weight_verification_seconds": weight_verification_seconds,
+        "cuda_initialization_seconds": cuda_initialization_seconds,
+        "first_memory_sample_seconds": first_memory_sample_seconds,
+        "child_runtime_pipeline_seconds": time.perf_counter() - verification_started,
         "fps_without_model_loading": (end - start) / render_seconds,
         "peak_torch_allocated_bytes": torch.cuda.max_memory_allocated() if backend == "cuda" else 0,
         "decode_seconds": decode_seconds,
+        "decoder_open_seconds": decoder_open_seconds,
         "stage_seconds": stage_seconds,
         "clip_joints": [
             clip.owned_start for clip in restore_windows if start < clip.owned_start < end

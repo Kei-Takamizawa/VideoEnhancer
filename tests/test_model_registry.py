@@ -79,7 +79,10 @@ def test_calibration_records_identity_and_counts_computed_pairs(fake_model, monk
     monkeypatch.setattr(
         registry,
         "list_models",
-        lambda: [registry.manifest(model["id"]), registry.manifest(paired["id"])],
+        lambda: [
+            {**registry.manifest(model["id"]), "weights_verified": True},
+            {**registry.manifest(paired["id"]), "weights_verified": True},
+        ],
     )
     results = calibrate_models(
         registry, backend="cpu", restore_size=(32, 32), interpolate_size=(32, 32), repeats=2

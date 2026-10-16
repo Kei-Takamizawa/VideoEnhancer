@@ -20,11 +20,11 @@ def ffmpeg_run():
     except FileNotFoundError as error:
         pytest.skip(str(error))
 
-    def run(*arguments: str) -> subprocess.CompletedProcess:
+    def run(*arguments: str, timeout: float = 60) -> subprocess.CompletedProcess:
         result = subprocess.run(
             [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *arguments],
             capture_output=True,
-            timeout=60,
+            timeout=timeout,
         )
         assert result.returncode == 0, result.stderr.decode(errors="replace")
         return result

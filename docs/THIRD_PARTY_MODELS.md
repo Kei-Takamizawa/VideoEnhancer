@@ -55,7 +55,7 @@ older proposed catalog's CC BY-NC-SA 4.0. The manifest follows the actual publis
 Omitted: 1xDeH264_realplksr, because its
 [publisher release](https://github.com/Phhofm/models/releases/tag/1xDeH264_realplksr)
 literally says `CC-BY-0.4`. This cannot establish the proposed CC BY 4.0 terms.
-Real-ESRGAN's specified main/WDN blend is implemented and tested but omitted from
+Real-ESRGAN's specified main/WDN blend is implemented but omitted from
 the catalog: the 0.2 and 0.6 runs sampled 6.890 and 6.865 GB for their own rendering
 PID, exceeding 5.0 GB. Its BSD-3-Clause source remains listed above for benchmark use.
 The WDN checkpoint's measured SHA-256 is

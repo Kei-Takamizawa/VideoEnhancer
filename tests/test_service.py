@@ -109,6 +109,14 @@ def test_cpu_queue_sse_controls_and_completed_output(api, video_factory):
     with request("events") as events:
         assert events.readline() == b"event: update\n"
         payload = json.loads(events.readline().decode().removeprefix("data: "))
+        # SSE can first return the previous snapshot while publication catches up.
+        deadline = time.monotonic() + 5
+        while len(payload["queue"]["jobs"]) != 2 and time.monotonic() < deadline:
+            line = events.readline()
+            if line.startswith(b"data: "):
+                update = json.loads(line[6:])
+                if "queue" in update:
+                    payload = update
         assert len(payload["queue"]["jobs"]) == 2
         engine.worker.start()
         deadline = time.monotonic() + 30
@@ -116,8 +124,11 @@ def test_cpu_queue_sse_controls_and_completed_output(api, video_factory):
         while time.monotonic() < deadline:
             line = events.readline()
             if line.startswith(b"data: "):
-                rows = json.loads(line[6:])["queue"]["jobs"]
-                if all(j["state"] == "done" for j in rows):
+                packet = json.loads(line[6:])
+                if "queue" not in packet:
+                    continue
+                rows = packet["queue"]["jobs"]
+                if len(rows) == 2 and all(j["state"] == "done" for j in rows):
                     finished = True
                     assert all(j["progress_percent"] == 100 for j in rows)
                     break
@@ -206,8 +217,9 @@ def test_saved_schedule_used_by_controller_with_fake_clock(api, monkeypatch, vid
     assert observed and observed[0].hour == 9
 
 
-def test_model_download_requires_consent(api):
+def test_model_download_requires_consent(api, monkeypatch):
     engine, _, request = api
+    monkeypatch.setattr(engine, "_download_network", lambda op: None)
     with request("models") as response:
         model = json.load(response)[0]
     with pytest.raises(urllib.error.HTTPError) as error:
@@ -216,6 +228,6 @@ def test_model_download_requires_consent(api):
     with request(
         f"models/{model['id']}/download", "POST", {"agree": True, "licence": model["licence"]}
     ) as response:
-        assert json.load(response)["state"] == "waiting"
+        assert json.load(response)["state"] == "running"
     consent = json.loads((engine.home / "consent" / f"{model['id']}.json").read_text())
     assert consent["licence"] == model["licence"] and consent["url"]

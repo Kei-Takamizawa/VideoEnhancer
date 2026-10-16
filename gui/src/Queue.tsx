@@ -1,231 +1,18 @@
+import { Notice } from "./Notice";
+import { ActionButton } from "./ActionButton";
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration, filename, folder, when } from "./api";
-import type { Job, Model, Queue, Settings, Estimate, Media } from "./types";
+import type { Job, Model, Settings, Estimate, Media } from "./types";
 
-export function QueuePage({
-  queue,
-  add,
-  action,
-  trial,
-}: {
-  queue: Queue;
-  add(files?: string[]): void;
-  action(job: Job, name: string, data?: unknown): void;
-  trial(job: Job): void;
-}) {
-  const [menu, setMenu] = useState<string>();
-  const [drag, setDrag] = useState<string>();
-  return (
-    <section
-      aria-label="Queue"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault();
-        if (e.dataTransfer.files.length)
-          add(
-            Array.from(e.dataTransfer.files).map((f) =>
-              window.desktop.filePath(f),
-            ),
-          );
-      }}
-    >
-      <div className="page-heading">
-        <div>
-          <h1>Queue</h1>
-          <p>Restore your videos. Keep track of when they will finish.</p>
-        </div>
-        <button className="primary" onClick={() => add()}>
-          + Add videos
-        </button>
-      </div>
-      <div className="drop-zone">Drop videos here, or choose Add videos.</div>
-      {!queue.jobs.length && (
-        <div className="empty">
-          Your queue is empty. Add a video to get started.
-        </div>
-      )}
-      <div className="jobs">
-        {queue.jobs.map((job, index) => (
-          <article
-            key={job.id}
-            className="job"
-            draggable
-            onDragStart={(e) => {
-              setDrag(job.id);
-              e.dataTransfer.setData("text/plain", job.id);
-            }}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.stopPropagation();
-              if (drag) {
-                const moved = queue.jobs.find((j) => j.id === drag);
-                if (moved) action(moved, "move", { position: index + 1 });
-                setDrag(undefined);
-              }
-            }}
-          >
-            <div className="job-top">
-              <span className="ordinal">{index + 1}</span>
-              <div className="job-title">
-                <h2>{filename(job.input)}</h2>
-                <p>
-                  {job.media.display_width} × {job.media.display_height} ·{" "}
-                  {job.media.cfr_fps} fps · {duration(job.media.duration)}
-                </p>
-              </div>
-              <span className="badge">
-                {job.settings.preset === "standard" ? "Standard" : "Fast"}
-              </span>
-              <strong className="state">
-                {job.phase === "finalizing" && job.state !== "done"
-                  ? `Finalizing: ${job.step}`
-                  : job.state === "queued"
-                    ? "Waiting"
-                    : job.state === "preparing"
-                      ? "Preparing…"
-                      : job.state.charAt(0).toUpperCase() + job.state.slice(1)}
-              </strong>
-              <button
-                aria-label={`Actions for ${filename(job.input)}`}
-                onClick={() => setMenu(menu === job.id ? undefined : job.id)}
-              >
-                •••
-              </button>
-            </div>
-            <div className="progress-line">
-              <progress max="100" value={job.progress_percent} />
-              <strong>{job.progress_percent.toFixed(1)}%</strong>
-            </div>
-            <div className="job-bottom">
-              <div>
-                <strong>
-                  {job.state === "done" ? "Finished" : "Finish"}:{" "}
-                  {when(job.eta)}
-                </strong>
-                {!!job.overrun_seconds && (
-                  <p>
-                    Finishing one step after your hours, about{" "}
-                    {Math.ceil(job.overrun_seconds / 60)} min
-                  </p>
-                )}
-                <p>
-                  {duration(job.estimate.seconds)} GPU ·{" "}
-                  {duration(job.estimate.low)}–{duration(job.estimate.high)}
-                  {!job.estimate.calibrated && (
-                    <span className="badge warning">uncalibrated</span>
-                  )}
-                </p>
-              </div>
-              <span>
-                Segment {job.segment}/{job.segments}
-                {job.phase === "finalizing" &&
-                  job.state !== "done" &&
-                  ` · ${job.step_percent.toFixed(0)}% of step`}
-              </span>
-              <button
-                disabled={["done", "cancelled"].includes(job.state)}
-                onClick={() =>
-                  action(
-                    job,
-                    job.state === "paused" || job.state === "failed"
-                      ? "resume"
-                      : "pause",
-                  )
-                }
-              >
-                {job.state === "paused" || job.state === "failed"
-                  ? "Resume"
-                  : "Pause"}
-              </button>
-            </div>
-            {job.error && (
-              <div className="error" role="alert">
-                <strong>
-                  {filename(job.input)} — segment {job.segment}
-                </strong>
-                <p>{job.error}</p>
-                <p>
-                  Review the details, correct the reported problem, then Resume.
-                </p>
-                <button onClick={() => action(job, "copy")}>
-                  Copy details
-                </button>
-              </div>
-            )}
-            {menu === job.id && (
-              <div className="row-menu">
-                {[
-                  "Move to top",
-                  "Move up",
-                  "Move down",
-                  "Pause",
-                  "Resume",
-                  "Cancel",
-                  "Remove",
-                  "Open output folder",
-                  "Show log",
-                  "Copy details",
-                  "Trial",
-                ].map((label) => (
-                  <button
-                    key={label}
-                    disabled={
-                      (["Pause", "Resume", "Cancel"].includes(label) &&
-                        ["done", "cancelled"].includes(job.state)) ||
-                      (label === "Remove" &&
-                        !["done", "cancelled", "failed"].includes(job.state)) ||
-                      (label === "Move up" && index === 0) ||
-                      (label === "Move down" && index === queue.jobs.length - 1)
-                    }
-                    onClick={() => {
-                      setMenu(undefined);
-                      if (label === "Trial") trial(job);
-                      else if (label.startsWith("Move"))
-                        action(job, "move", {
-                          position:
-                            label === "Move to top"
-                              ? 1
-                              : index + (label === "Move up" ? 0 : 2),
-                        });
-                      else
-                        action(
-                          job,
-                          (
-                            {
-                              "Open output folder": "folder",
-                              "Show log": "log",
-                              "Copy details": "copy",
-                            } as Record<string, string>
-                          )[label] || label.toLowerCase(),
-                        );
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </article>
-        ))}
-      </div>
-      <p className="summary">
-        {queue.completion
-          ? `All jobs ${queue.jobs.every((j) => ["done", "cancelled", "failed"].includes(j.state)) ? "finished" : "finish"} ${when(queue.completion)}`
-          : queue.jobs.length
-            ? "Paused or unscheduled jobs have no finish time."
-            : "Your videos stay on your computer."}
-      </p>
-    </section>
-  );
-}
-
-type Preview = {
+type ValidPreview = {
   media: Media;
   presets: Record<string, Estimate>;
   warnings: string[];
   output: string;
+  error?: never;
 };
+type Preview = ValidPreview | { error: string; media?: never; presets?: never; warnings?: never; output?: never };
 export function AddDialog({
   api,
   files,
@@ -249,46 +36,77 @@ export function AddDialog({
     file: string,
     settings: Settings,
     media?: Media,
-    apply?: (key: "restore_model" | "interp_model", id: string) => void,
+    apply?: (key: "restore_model" | "interp_model" | "size_model" | "preset", id: string) => void,
   ): void;
 }) {
+  const [items, setItems] = useState(files);
   const [settings, setSettings] = useState({ ...defaults });
+  const [fileSettings, setFileSettings] = useState<Record<string, Partial<Settings>>>({});
+  const [selectedSeconds, setSelectedSeconds] = useState<number>();
+  const [selectedFinish, setSelectedFinish] = useState<string>();
+  const fileSettingsRef = useRef(fileSettings); fileSettingsRef.current = fileSettings;
+  const forFile = (file: string) => ({ ...settings, ...fileSettings[file] });
+  const fileField = (file: string, key: keyof Settings, value: string | number | boolean) => setFileSettings(old => ({ ...old, [file]: { ...old[file], [key]: value } }));
   const added = useRef(new Set<string>());
+  const [totals, setTotals] = useState<Record<string, Estimate>>({});
   const [previews, setPreviews] = useState<Record<string, Preview>>({});
+  const validPreviews = Object.fromEntries(Object.entries(previews).filter(
+    (entry): entry is [string, ValidPreview] => !!entry[1].media && !entry[1].error,
+  ));
+  const firstValid = items.find(file => validPreviews[file]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const [refresh, setRefresh] = useState(0);
+  const timeKey = JSON.stringify([items, settings.preset, settings.short_side, settings.fps,
+    settings.restore_model, settings.interp_model, settings.size_model, settings.restore_strength, settings.size_strength,
+    Object.fromEntries(Object.entries(fileSettings).map(([file, value]) => [file,
+      Object.fromEntries(Object.entries(value).filter(([key]) => !["codec", "output_folder", "delete_original_after"].includes(key)))]).filter(([, value]) => Object.keys(value).length))]);
+  const spaceKey = JSON.stringify(fileSettings);
+  useEffect(() => {
+    const timer = setInterval(() => setRefresh(old => old + 1), 30000);
+    const focus = () => setRefresh(old => old + 1);
+    window.addEventListener("focus", focus);
+    return () => { clearInterval(timer); window.removeEventListener("focus", focus); };
+  }, []);
   useEffect(() => {
     let current = true;
     setLoading(true);
-    setPreviews({});
-    let remaining = files.length;
-    const timer = setTimeout(
-      () =>
-        files.forEach(async (file) => {
-          try {
-            const preview = await api.call<Preview>("estimate", "POST", {
-              file,
-              settings,
-              output_folder: settings.output_folder,
-            });
-            if (current) setPreviews((old) => ({ ...old, [file]: preview }));
-          } catch (error) {
-            if (current) setError((error as Error).message);
-          } finally {
-            remaining--;
-            if (current && !remaining) setLoading(false);
-          }
-        }),
-      200,
-    );
+    const request = new AbortController();
+    const timer = setTimeout(async () => {
+      if (!items.length) { setLoading(false); return; }
+      try {
+        const chosen = settingsRef.current;
+        const result = await api.call<{ files: Record<string, Preview>; presets: Record<string, Estimate>; selected_seconds?: number; selected_finish?: string }>("estimate", "POST", { files: items, settings: chosen, file_settings: fileSettingsRef.current, output_folder: chosen.output_folder }, request.signal);
+        if (current) { setPreviews(result.files); setTotals(result.presets); setSelectedSeconds(result.selected_seconds); setSelectedFinish(result.selected_finish); setError(""); }
+      } catch (error) { if (current) setError((error as Error).message); }
+      finally { if (current) setLoading(false); }
+    }, 200);
     return () => {
       current = false;
+      request.abort();
       clearTimeout(timer);
     };
-  }, [api, files, settings]);
-  const field = (key: keyof Settings, value: string | number) =>
+  }, [api, items, timeKey, refresh]);
+  useEffect(() => {
+    const request = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const result = await api.call<{ files: Record<string, { warnings: string[]; output: string }> }>("estimate/space", "POST", { files: items, settings: settingsRef.current, file_settings: fileSettingsRef.current }, request.signal);
+        setPreviews(old => Object.fromEntries(Object.entries(old).map(([file, preview]) => [file,
+          result.files[file] && preview.media ? { ...preview, output: result.files[file].output, warnings: [...new Set([...preview.warnings.filter(w => !w.includes("Insufficient") && !w.includes("Output too small")), ...result.files[file].warnings])] } : preview])));
+      } catch (error) { if (!request.signal.aborted) setError((error as Error).message); }
+    }, 200);
+    return () => { clearTimeout(timer); request.abort(); };
+  }, [api, items, settings.output_folder, settings.codec, settings.short_side, settings.fps, spaceKey]);
+  const addable = items.filter(file => validPreviews[file] && !validPreviews[file].warnings.some(w =>
+    ["HDR", "Smart App Control", "Insufficient", "Output too small", "cannot read", "Standard can't run"].some(reason => w.includes(reason))));
+  const field = (key: keyof Settings, value: string | number | boolean) => {
     setSettings((old) => ({ ...old, [key]: value }));
+    setFileSettings(old => Object.fromEntries(Object.entries(old).map(([file, item]) => [file, { ...item, [key]: value }])));
+  };
   return (
     <div className="modal-shade">
       <div
@@ -306,11 +124,12 @@ export function AddDialog({
         }}
       >
         <h2 id="add-title">
-          Add {files.length === 1 ? "video" : `${files.length} videos`}
+          Add {items.length === 1 ? "video" : `${items.length} videos`}
         </h2>
+        <p className="muted">Apply to all</p>
         <div className="mode-cards">
           {["standard", "fast"].map((mode) => (
-            <button
+            <ActionButton
               key={mode}
               aria-pressed={settings.preset === mode}
               onClick={() => field("preset", mode)}
@@ -318,20 +137,20 @@ export function AddDialog({
               <strong>{mode === "standard" ? "Standard" : "Fast"}</strong>
               <p>
                 {mode === "standard"
-                  ? "Cleans up blockiness and noise, then makes motion smoother. Keeps the original look."
-                  : "Only makes motion smoother and resizes. No cleanup."}
+                  ? "Cleans up compression and doubles the frame rate. Best quality, takes longer."
+                  : "Doubles the frame rate without cleanup. Much quicker."}
               </p>
               <p>
-                {previews[files[0]]
-                  ? `${duration(previews[files[0]].presets[mode].seconds)} of work`
+                {totals[mode]
+                  ? totals[mode].unknown_models?.length ? "Speed unknown" : `${duration(totals[mode].seconds)} of work`
                   : "Preparing…"}
               </p>
               <p className="mode-finish">
-                {previews[files[0]]
-                  ? `Done ${when(previews[files[0]].presets[mode].finish)}`
+                {totals[mode]
+                  ? totals[mode].unknown_models?.length ? "Run speed calibration." : `Done ${when(totals[mode].finish)}`
                   : ""}
               </p>
-            </button>
+            </ActionButton>
           ))}
         </div>
         <details>
@@ -342,10 +161,10 @@ export function AddDialog({
                 ? "Original size"
                 : `${settings.short_side}p`}{" "}
               ·{" "}
-              {previews[files[0]]
+              {firstValid
                 ? (() => {
                     const [n, d = "1"] =
-                      previews[files[0]].media.cfr_fps.split("/");
+                      validPreviews[firstValid].media.cfr_fps.split("/");
                     return `${((Number(n) / Number(d)) * (settings.fps === "2x" ? 2 : 1)).toFixed(0)} fps`;
                   })()
                 : settings.fps === "2x"
@@ -401,7 +220,7 @@ export function AddDialog({
               </select>
             </label>
             <label>
-              Codec
+              File format
               <select
                 value={settings.codec}
                 onChange={(e) => field("codec", e.target.value)}
@@ -426,14 +245,14 @@ export function AddDialog({
                   value={settings.output_folder}
                   onChange={(e) => field("output_folder", e.target.value)}
                 />
-                <button
+                <ActionButton
                   onClick={async () => {
                     const selected = await window.desktop.files("folder");
                     if (selected[0]) field("output_folder", selected[0]);
                   }}
                 >
                   Browse…
-                </button>
+                </ActionButton>
               </div>
             </label>
           </div>
@@ -484,22 +303,11 @@ export function AddDialog({
               </select>
             </label>
           )}
-          {settings.size_model === "realesr-general-x4v3" && (
-            <label>
-              Enlarger look
-              <select
-                value={settings.size_strength || 0.2}
-                onChange={(e) => field("size_strength", Number(e.target.value))}
-              >
-                <option value={0.2}>Faithful</option>
-                <option value={0.6}>Cleaner</option>
-              </select>
-            </label>
-          )}
           <label>
             Bigger picture
             <select
               value={settings.size_model || ""}
+              disabled={!models.some(model => model.task === "size" && model.weights_verified)}
               onChange={(e) => field("size_model", e.target.value)}
             >
               <option value="">Standard resize</option>
@@ -513,37 +321,62 @@ export function AddDialog({
             </select>
           </label>
         </details>
+        <label className="check"><input type="checkbox" checked={!!settings.delete_original_after} onChange={event => field("delete_original_after", event.target.checked)} />Delete the original when it is done</label>
+        {!models.some(model => model.task === "size" && model.weights_verified) && <p className="muted">More choices come later.</p>}
+        {selectedSeconds !== undefined && <p>Total selected work: {duration(selectedSeconds)} · Done {when(selectedFinish)}</p>}
         <div className="estimate-list">
-          {loading && <p role="status">Preparing…</p>}
-          {files.map((file) => (
+          {items.map((file) => (
             <div className="estimate-file" key={file}>
               <strong>{filename(file)}</strong>
-              {previews[file] && (
+              <div className="file-mode" aria-label={`Mode for ${filename(file)}`}>
+                {["standard", "fast"].map(mode => <ActionButton key={mode} aria-pressed={forFile(file).preset === mode} onClick={() => fileField(file, "preset", mode)}>{mode === "standard" ? "Standard" : "Fast"}</ActionButton>)}
+              </div>
+              <details><summary>Settings</summary><div className="form-grid">
+                <label>Output short side<select value={forFile(file).short_side} onChange={event => fileField(file, "short_side", event.target.value === "keep" ? "keep" : Number(event.target.value))}><option value="keep">Keep</option>{[1080,1440,2160].map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+                <label>Frame rate<select value={forFile(file).fps} onChange={event => fileField(file, "fps", event.target.value)}><option value="off">Keep</option><option value="2x">2×</option></select></label>
+                <label>File format<select value={forFile(file).codec} onChange={event => fileField(file, "codec", event.target.value)}><option value="hevc">HEVC</option><option value="h264">H.264</option><option value="av1" disabled={!av1}>AV1</option></select></label>
+                {(["restore_model", "interp_model", "size_model"] as const).map((key, index) => <label key={key}>{["Cleanup", "Smoother motion", "Bigger picture"][index]}<select value={forFile(file)[key] || ""} onChange={event => fileField(file, key, event.target.value)}><option value="">Preset default</option>{models.filter(model => model.weights_verified && model.task === ["restore", "interpolate", "size"][index]).map(model => <option key={model.id} value={model.id}>{model.catalog?.title || model.display_name}</option>)}</select></label>)}
+                {models.find(model => model.id === forFile(file).restore_model)?.architecture === "drunet" && <label>Cleanup strength<select value={forFile(file).restore_strength || "medium"} onChange={event => fileField(file, "restore_strength", event.target.value)}>{["light", "medium", "strong"].map(strength => <option key={strength} value={strength}>{strength}</option>)}</select></label>}
+                <label className="check"><input type="checkbox" checked={!!forFile(file).delete_original_after} onChange={event => fileField(file, "delete_original_after", event.target.checked)} />Delete this original when it is done</label>
+                <label>Output folder<input value={forFile(file).output_folder} onChange={event => fileField(file, "output_folder", event.target.value)} /></label>
+              </div></details>
+
+              <ActionButton disabled={busy} onClick={() => setItems(old => old.filter(item => item !== file))}>Remove it</ActionButton>
+              {loading && !previews[file] && <p role="status">Checking…</p>}
+              {previews[file]?.error && <Notice identity={previews[file].error!}>{previews[file].error}</Notice>}
+              {validPreviews[file] && (
                 <>
                   <div className="preset-estimates">
                     {["standard", "fast"].map((preset) => {
-                      const e = previews[file].presets[preset];
+                      const e = validPreviews[file].presets[preset];
                       return (
-                        <div key={preset}>
+                        <div key={preset} aria-current={forFile(file).preset === preset ? "true" : undefined}>
                           <strong>
                             {preset === "standard" ? "Standard" : "Fast"}
                           </strong>
                           <p>
-                            {duration(e.seconds)} of work ({duration(e.low)}–
-                            {duration(e.high)})
+                            {e.unknown_models?.length ? "Speed unknown" : `${duration(e.seconds)} of work (${duration(e.low)}–${duration(e.high)})`}
                           </p>
-                          <p>Finish: {when(e.finish)}</p>
-                          {!e.calibrated && (
+                          <p>Finish: {e.unknown_models?.length ? "Speed unknown" : when(e.finish)}</p>
+                          {e.unknown_models?.map(model => <Notice className="warning-text" key={model} identity={model + timeKey}>Speed unknown for {model}. Run speed calibration.</Notice>)}
+                          {!e.calibrated && !e.unknown_models?.length && (
                             <span className="badge warning">uncalibrated</span>
                           )}
                         </div>
                       );
                     })}
                   </div>
-                  {previews[file].warnings.map((w) => (
-                    <p className="warning-text" key={w}>
+                  {validPreviews[file].warnings.some(w => w.includes("Insufficient")) && <ActionButton onClick={() => window.dispatchEvent(new Event("open-storage"))}>Open Storage settings</ActionButton>}
+                  {validPreviews[file].warnings.map((w) => (
+                    <Notice className="warning-text" key={w} identity={w + timeKey}>
                       {w}
-                    </p>
+                      {w.includes("Insufficient") && <ActionButton onClick={async () => { const folder = (await window.desktop.files("folder"))[0]; if (folder) fileField(file, "output_folder", folder); }}>Choose a folder…</ActionButton>}
+                      {w.includes("too small for cleanup") && <ActionButton onClick={() => fileField(file, "short_side", 1080)}>Use 1080</ActionButton>}
+                      {w.includes("too small for AV1") && <ActionButton onClick={() => fileField(file, "codec", "hevc")}>Use HEVC</ActionButton>}
+                      {w.includes("Standard can't run") && <ActionButton onClick={() => fileField(file, "preset", "fast")}>Use Fast</ActionButton>}
+                      {w.includes("HDR") && <ActionButton onClick={() => setItems(old => old.filter(item => item !== file))}>Remove it</ActionButton>}
+                      {w.includes("Smart App Control") && <a href="https://github.com/Kei-Takamizawa/VideoEnhancer/blob/main/docs/TROUBLESHOOTING.md" target="_blank" rel="noreferrer">Read instructions</a>}
+                    </Notice>
                   ))}
                 </>
               )}
@@ -551,49 +384,42 @@ export function AddDialog({
           ))}
         </div>
         {error && (
-          <p className="error" role="alert">
+          <Notice identity={error} dismiss={() => setError("")}>
             {error}
-          </p>
+          </Notice>
         )}
         <div className="dialog-actions">
-          <button disabled={busy} onClick={close}>
+          <ActionButton disabled={busy} onClick={close}>
             Close
-          </button>
-          <button
-            disabled={busy || !previews[files[0]]}
+          </ActionButton>
+          <ActionButton
+            disabled={busy || !firstValid}
             onClick={() =>
-              trial(files[0], settings, previews[files[0]]?.media, field)
+              firstValid && trial(firstValid, forFile(firstValid), validPreviews[firstValid].media, (key, value) => fileField(firstValid, key, value))
             }
           >
             Try models first
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             className="primary add-submit"
             disabled={
               busy ||
-              !!error ||
-              files.some((f) =>
-                previews[f]?.warnings.some(
-                  (w) =>
-                    w.includes("HDR") ||
-                    w.includes("Insufficient") ||
-                    w.includes("Output too small"),
-                ),
-              )
+              !addable.length ||
+              !!error
             }
             onClick={async () => {
               setBusy(true);
               setError("");
               try {
-                for (const file of files) {
+                for (const file of addable) {
                   if (added.current.has(file)) continue;
                   await api.call("queue", "POST", {
                     file,
                     settings: {
-                      ...settings,
-                      restore_model: settings.restore_model || undefined,
+                      ...forFile(file),
+                      restore_model: forFile(file).restore_model || undefined,
                     },
-                    output_folder: settings.output_folder,
+                    output_folder: forFile(file).output_folder,
                   });
                   added.current.add(file);
                 }
@@ -607,7 +433,7 @@ export function AddDialog({
             }}
           >
             {busy ? "Analyzing and adding…" : "Add to queue"}
-          </button>
+          </ActionButton>
         </div>
       </div>
     </div>
@@ -615,5 +441,8 @@ export function AddDialog({
 }
 export async function localAction(job: Job, name: string) {
   if (name === "copy") await window.desktop.copy(JSON.stringify(job, null, 2));
-  if (name === "folder") await window.desktop.openFolder(folder(job.output));
+  if (name === "folder") {
+    if (job.output_state === "present") await window.desktop.reveal(job.output);
+    else await window.desktop.openFolder(folder(job.output));
+  }
 }

@@ -71,3 +71,127 @@ After a service restart, unfinished previews show **Interrupted. Try again.**.
 Trial rendering ignores your operating hours and waits only for the current
 segment. Long-file Trial startup still performs whole-file analysis pending a
 range-decoder design decision; the requested 30-second bound is unverified.
+
+## P1d-2 development checks
+
+For cleanup outputs under 256 pixels, choose Use 1080. For AV1 outputs under
+the detected minimum (130x66 on the tested RTX 4060 Ti), choose Use HEVC.
+Choose a folder for insufficient space, remove HDR inputs, and read the Smart
+App Control instructions if Windows blocks FFmpeg. A smaller chosen size is
+a nonblocking note; Use Keep preserves the source dimensions.
+
+Estimates remain approximate. Settings identifies the measured or built-in
+profile. A driver update retains the newest measurement for the same GPU and
+shows the measured/current driver note. With no profile, the uncalibrated range
+remains. Speed unknown means the chosen model has no reference: run manual
+speed calibration, or add the job with its time left unknown. Calibration's
+button shows an approximate duration and offers Cancel while running. See
+`.ai/LAST_REPORT.md` for measured accuracy and calibration wall times; these
+measurements do not establish performance on other GPUs.
+
+History removal preserves videos. Delete video files is a separate action.
+Files on network/removable/FAT/exFAT drives, reparse points and files in use
+are kept. Close the player and retry. If recycling is not confirmed, the
+hard-link guard restores the original. Keep `deletions.jsonl` and any `.ve-guard-`
+file until recovery is resolved; do not remove guards manually.
+
+Kept: the file changed after this job used it means its recorded identity no
+longer matches. Recycling off or a file exceeding the readable drive limit
+also keeps the file. Unresolved recovery notices show the exact guard path in
+History, or Home when no job matches, with Show in folder. A running deletion
+owns a cross-process lock; recovery skips its live owner and retries later.
+Read-only attributes remain on a successfully recycled file. Restore the exact
+file through Windows Recycle Bin if you need it again.
+
+One HDR file does not invalidate estimates for other selected files. Remove
+PQ/HLG inputs before adding; API/CLI additions enforce the same warning rules.
+Progress can count down between child reports using the last measured speed;
+it is an estimate, not an additional completed-frame measurement. Terminal file
+presence updates when History opens and in the background every 60 seconds.
+Brief Windows sharing violations on preview progress files are retried at the
+next poll. If an operation fails, the service stops its remaining child tree
+before releasing ownership, so a failed preview cannot silently keep using the
+GPU alongside the next operation.
+The tray polls status every three seconds. Health replies reuse compact job
+metadata rather than copying the full History diagnostics on each poll.
+
+Automatic original deletion is off by default. `Original kept: reason` explains
+failed output checks or another unfinished job using the same original.
+Compare again requires the original; restore a recycled original with Windows
+Recycle Bin before comparing again.
+
+Persistent cancellation cleanup failures reappear in History with their reason.
+Clear history reports partial failure, preserving records it could not remove.
+
+## P1e owner-check fixes
+
+Close an open dialog before dropping another video. Add reports problems on the
+individual file row: remove an HDR file without discarding other SDR choices.
+A correctly tagged BT.2020 PQ/HLG video remains unsupported for processing.
+"Checking..." can remain on a large file while packet metadata is read; closing
+Add cancels the client's request. A low-space message names required and free GB
+on the output volume. Downscaling is included in the byte estimate, which remains
+an estimate rather than a guaranteed final codec size.
+
+For an old finished output without recorded identity, deletion requires both its
+job-time modification window and matching planned duration. A changed or
+unverifiable output is kept. No refusal is bypassed by permanent deletion.
+When removing History with file options, retained-file reasons keep those records
+visible. Undo restores History records; files remain in the Recycle Bin.
+
+If History cannot play a codec, use Open in your player. The popup streams recorded files and seeks with HTTP byte ranges. If an output
+was moved or changed, its warning explains why playback or deletion is refused.
+
+A paused job keeps finished parts and restarts the current part. Its card shows
+the estimated work repeated. Schedule hours can be edited with the switch off;
+the dimmed hours remain saved until you turn it on.
+
+A model's disabled Uninstall action explains whether it is the default or used
+by unfinished work. Full details and supported strength controls are in its
+popup. An install failure retains a short card reason and its diagnostic details.
+
+Long-video forecasts include analysis and measured startup costs, locally learned
+finalization correction with a safety margin, operating-hours gaps and recent
+same-mode timing correction. Initial forecasts are kept in new manifests; old
+initial forecasts can only be reconstructed and must be labelled as such.
+Corrupted local timing observations are ignored without changing video output.
+
+## Disk-space and codec warnings
+
+Changing HEVC/AV1 or the output folder refreshes the size and space checks without
+requesting another processing-time estimate. Output size is an estimate, not a
+guaranteed byte count. The preflight allows room for retained segments, their
+joined copy and the final temporary file, including a 10% reserve. If output and
+engine home are on different volumes, each volume is checked separately.
+
+
+## Processing stops or a removal takes time
+
+A removal with files runs in the background. Its operation shows each settled
+file; the event stream stays connected. A kept file retains its record and
+reason. Dismiss hides a message, while logs and the record's warning remain.
+
+If progress stops and later errors, keep the job and use Copy details before
+removing its record. Segment logs include the last frame count, elapsed time,
+process ID, memory samples and watchdog reason. A fresh-process retry remains
+bounded; an error does not establish that the video, GPU driver or hardware is
+at fault. Memory samples are observations, not guaranteed peaks.
+
+A missing analysis sidecar is rebuilt for queued work after checking the input
+identity. Finished records remain readable. FFmpeg software VP9/AV1 decoder
+availability is reported in Settings and when adding the affected formats.
+Audio checks use each stream's packets and account for codec priming.
+
+2160p forecasts use measured component and whole-pipeline points. Larger output
+is visibly uncalibrated. Old local observations are not silently treated as
+measurements of a new built-in profile revision.
+
+## Moving app data and reclaiming working space
+
+If the app data drive is full, open Settings > Storage. It displays the drive's free space and separates models, unfinished working files, and History/logs. Move app data to a new or empty folder while processing is paused. No owner data is moved by development scripts. A nonempty target is refused so unrelated files are not mixed into app data.
+
+If a move fails, the original folder remains selected. Keep the original and inspect the displayed error; do not delete the only good copy. A partial target is retained and must be emptied before retrying. If the new folder is later missing, startup shows **The app data folder was not found** with **Choose...** and **Use the previous folder**. The environment variable `VE_HOME`, when present, overrides the saved selection on the next application launch.
+
+Use **Remove the old folder** only after a successful move. This is permanent deletion. **Clean up** for failed/cancelled jobs removes engine-owned parts and the joined working video, preserving inputs, finished outputs and History. After cleanup Retry processes every part again. The default automatic cleanup period is seven days; it runs when the desktop engine is active.
+
+For development disk growth and the fixed D-drive layout, see [WORKSPACE.md](WORKSPACE.md). Missing historical P1e-2 D-drive evidence was accepted as lost in P1e-2b revision 2; do not attempt to recover or recreate those historical observations.

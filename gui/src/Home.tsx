@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { Check, GripVertical } from "lucide-react";
+import { historyWarning } from "./history";
+import { ActionButton } from "./ActionButton";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration, filename, when } from "./api";
 import type { Health, Job, Plan, Queue } from "./types";
+import { HistoryDetail } from "./HistoryDetail";
 
 export function historyWhen(value?: string, now = new Date()) {
   if (!value) return "Not available";
@@ -18,6 +22,10 @@ export function historyWhen(value?: string, now = new Date()) {
     return `Yesterday ${clock}`;
   return `${ended.toLocaleDateString("en-US", { weekday: "short" })} ${String(ended.getMonth() + 1).padStart(2, "0")}/${String(ended.getDate()).padStart(2, "0")} ${clock}`;
 }
+export function problemWhen(value: string) {
+  const date = new Date(value);
+  return `${date.toLocaleDateString("en-US", { weekday: "short" })} ${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
 
 export function Icon({ name }: { name: string }) {
   const paths: Record<string, string> = {
@@ -26,7 +34,7 @@ export function Icon({ name }: { name: string }) {
     Schedule: "M4 5h16v16H4ZM8 3v4M16 3v4M4 10h16",
     Models: "m12 3 9 5-9 5-9-5Zm-9 9 9 5 9-5m-18 5 9 5 9-5",
     Settings:
-      "M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+      "M8.94 4.61L10.61 4.12L10.09 1.17L13.91 1.17L13.39 4.12L15.06 4.61L16.59 5.45L18.31 2.99L21.01 5.69L18.55 7.41L19.39 8.94L19.88 10.61L22.83 10.09L22.83 13.91L19.88 13.39L19.39 15.06L18.55 16.59L21.01 18.31L18.31 21.01L16.59 18.55L15.06 19.39L13.39 19.88L13.91 22.83L10.09 22.83L10.61 19.88L8.94 19.39L7.41 18.55L5.69 21.01L2.99 18.31L5.45 16.59L4.61 15.06L4.12 13.39L1.17 13.91L1.17 10.09L4.12 10.61L4.61 8.94L5.45 7.41L2.99 5.69L5.69 2.99L7.41 5.45ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
   };
   return (
     <svg
@@ -62,6 +70,7 @@ export function Thumbnail({
       void api
         .blob(`queue/${job.id}/thumbnail`)
         .then((blob) => {
+          if (!blob.type.startsWith("image/")) return;
           if (alive) {
             object = URL.createObjectURL(blob);
             setUrl(object);
@@ -94,46 +103,62 @@ export function JobMenu({
 }: Actions & { job: Job; position?: number }) {
   const [open, setOpen] = useState(false);
   const [changingMode, setChangingMode] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      if (!menu.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
+  }, [open]);
   return (
-    <div className="job-menu">
-      <button
+    <div className="job-menu" ref={menu}>
+      <ActionButton
         aria-label={`Actions for ${filename(job.input)}`}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
         ⋯
-      </button>
+      </ActionButton>
       {open && (
         <div className="row-menu">
           {!["done", "failed", "cancelled"].includes(job.state) && (
             <>
-              <button onClick={() => action(job, "move", { position: 1 })}>
+              <ActionButton onClick={() => action(job, "move", { position: 1 })}>
                 Move to top
-              </button>
-              <button
+              </ActionButton>
+              <ActionButton
                 disabled={position < 2}
                 onClick={() => action(job, "move", { position: position - 1 })}
               >
                 Move up
-              </button>
-              <button
+              </ActionButton>
+              <ActionButton
                 onClick={() => action(job, "move", { position: position + 1 })}
               >
                 Move down
-              </button>
-              <button
+              </ActionButton>
+              <ActionButton
                 onClick={() =>
                   action(job, job.state === "paused" ? "resume" : "pause")
                 }
               >
                 {job.state === "paused" ? "Resume" : "Pause"}
-              </button>
-              <button onClick={() => action(job, "cancel")}>Cancel</button>
+              </ActionButton>
+              <ActionButton onClick={() => action(job, "cancel")}>Cancel</ActionButton>
               {!job.started_at &&
                 job.segment === 0 &&
                 job.state !== "running" && (
                   <>
-                    <button
+                    <ActionButton disabled={job.state === "preparing"} onClick={() => action(job, "remove-unstarted")}>
+                      Remove from queue
+                    </ActionButton>
+                    <ActionButton
                       disabled={job.state === "preparing"}
                       title={
                         job.state === "preparing"
@@ -143,10 +168,10 @@ export function JobMenu({
                       onClick={() => setChangingMode(!changingMode)}
                     >
                       Change mode
-                    </button>
+                    </ActionButton>
                     {changingMode &&
                       ["standard", "fast"].map((preset) => (
-                        <button
+                        <ActionButton
                           key={preset}
                           aria-pressed={job.settings.preset === preset}
                           onClick={() => {
@@ -156,13 +181,15 @@ export function JobMenu({
                           }}
                         >
                           {preset === "standard" ? "Standard" : "Fast"}
-                        </button>
+                        </ActionButton>
                       ))}
                   </>
                 )}
             </>
           )}
-          <button
+          <ActionButton
+            disabled={job.original_state === "missing" || job.original_state === "recycled"}
+            title={job.original_state === "missing" || job.original_state === "recycled" ? "Compare again needs the original video." : undefined}
             onClick={() => {
               trial(job);
               setOpen(false);
@@ -171,16 +198,16 @@ export function JobMenu({
             {["done", "failed", "cancelled"].includes(job.state)
               ? "Compare again"
               : "Try models on this video"}
-          </button>
-          <button onClick={() => action(job, "folder")}>
+          </ActionButton>
+          <ActionButton onClick={() => action(job, "folder")}>
             Open output folder
-          </button>
-          <button onClick={() => action(job, "log")}>Show log</button>
-          <button onClick={() => action(job, "copy")}>Copy details</button>
+          </ActionButton>
+          <ActionButton onClick={() => action(job, "log")}>Show log</ActionButton>
+          <ActionButton onClick={() => action(job, "copy")}>Copy details</ActionButton>
           {["done", "failed", "cancelled"].includes(job.state) && (
-            <button onClick={() => action(job, "remove")}>
+            <ActionButton onClick={() => action(job, "remove")}>
               Remove from history
-            </button>
+            </ActionButton>
           )}
         </div>
       )}
@@ -221,7 +248,7 @@ export function HomePage({
   );
   const current =
     active.find((j) => j.state === "running") ||
-    active.find((j) => j.state === "queued") ||
+    active.find((j) => ["queued", "paused"].includes(j.state)) ||
     active[0];
   const next = active.filter((j) => j !== current);
   const failures = queue.jobs.filter(
@@ -238,7 +265,7 @@ export function HomePage({
   const chip = reconnecting
     ? "Reconnecting…"
     : health?.last_error
-      ? "Problem · details"
+      ? `Problem · ${problemWhen(health.last_error.time)}`
       : health?.engine_state === "Paused"
         ? "Paused"
         : current?.step === "Paused for a preview"
@@ -257,7 +284,7 @@ export function HomePage({
       <div className="page-heading">
         <div>
           <h1>Home</h1>
-          <button
+          <ActionButton
             className="status-chip"
             onClick={() => {
               if (health?.last_error) setProblem(true);
@@ -268,25 +295,25 @@ export function HomePage({
               className={health?.last_error ? "warning-dot" : "status-dot"}
             />
             {chip}
-          </button>
+          </ActionButton>
         </div>
         <div className="actions">
-          <button onClick={pauseAll}>
-            {health?.engine_state === "Paused" ? "Resume all" : "Pause all"}
-          </button>
-          <button className="primary" onClick={() => add()}>
-            + Add videos
-          </button>
+          <ActionButton onClick={pauseAll} disabled={!health?.paused_all && !active.some(job => job.state === "running" || (job.state === "queued" && health?.engine_state !== "Waiting for your hours"))} title="Pause jobs running or ready to run now">
+            {health?.paused_all ? "Resume all" : "Pause all"}
+          </ActionButton>
+          <ActionButton className="primary" onClick={() => add()}>
+            Add videos
+          </ActionButton>
         </div>
       </div>
       {!!failures.length && (
         <div className="attention" role="status">
           {failures.length}{" "}
           {failures.length === 1 ? "video needs" : "videos need"} attention ·{" "}
-          <button onClick={() => navigate("History")}>Open History</button>
-          <button onClick={() => seen?.(failures.map((j) => j.id))}>
+          <ActionButton onClick={() => navigate("History")}>Open History</ActionButton>
+          <ActionButton onClick={() => seen?.(failures.map((j) => j.id))}>
             Dismiss
-          </button>
+          </ActionButton>
         </div>
       )}
       {problem && health?.last_error && (
@@ -307,7 +334,7 @@ export function HomePage({
                 "App"}
             </p>
             <div className="actions">
-              <button
+              <ActionButton
                 onClick={() =>
                   window.desktop.copy(
                     JSON.stringify(health.last_error, null, 2),
@@ -315,12 +342,13 @@ export function HomePage({
                 }
               >
                 Copy details
-              </button>
-              <button onClick={() => setProblem(false)}>Close</button>
+              </ActionButton>
+              <ActionButton onClick={() => setProblem(false)}>Close</ActionButton>
             </div>
           </div>
         </div>
       )}
+      {health?.deletion_notices?.filter(notice => !queue.jobs.some(job => job.id === notice.job_id)).map(notice => <div className="alert" role="status" key={notice.id}><p>{notice.result}</p><p>{notice.guard}</p><ActionButton onClick={() => window.desktop.reveal(notice.guard)}>Show in folder</ActionButton></div>)}
       <div className="home-columns">
         <div>
           {current ? (
@@ -328,7 +356,7 @@ export function HomePage({
               <Thumbnail job={current} api={api} />
               <div className="now-details">
                 <p className="muted">
-                  {current.state === "running"
+                  {health?.paused_all || current.state === "paused" ? "Paused" : current.state === "running"
                     ? "Now processing"
                     : current.state === "preparing"
                       ? "Preparing…"
@@ -355,19 +383,20 @@ export function HomePage({
                 {current.phase === "finalizing" && (
                   <p>
                     Finishing:{" "}
-                    {current.step === "validating" ? "checking" : current.step}
+                    {current.step === "validating" ? "checking the file" : current.step}
                   </p>
                 )}
                 <div className="finish-row">
+                  {(health?.paused_all || current.state === "paused") && <p>Paused. Finished parts are kept; the current part restarts (about {duration(current.part_seconds || 0)} of work).</p>}
                   <strong>
                     {current.state === "queued"
                       ? `Starts ${when(current.starts)}`
-                      : `Finishes ${when(current.eta)}`}
+                      : current.estimate.unknown_models?.length ? "Speed unknown" : `Finishes ${when(current.eta)}`}
                   </strong>
                   <span>
                     Work left
                     <br />
-                    {duration(current.estimate.seconds)}
+                    {current.estimate.unknown_models?.length ? "Speed unknown" : duration(current.estimate.seconds)}
                   </span>
                 </div>
                 {!!current.overrun_seconds && (
@@ -377,7 +406,8 @@ export function HomePage({
                   </p>
                 )}
                 <div className="actions">
-                  <button
+                  <ActionButton
+                    title="Pause this video. The next one starts instead."
                     onClick={() =>
                       action(
                         current,
@@ -386,18 +416,18 @@ export function HomePage({
                     }
                   >
                     {current.state === "paused" ? "Resume" : "Pause"}
-                  </button>
-                  <button
+                  </ActionButton>
+                  <ActionButton
                     disabled={!current.preview_ready}
                     onClick={() => preview(current)}
                   >
                     Preview result
-                  </button>
+                  </ActionButton>
                   <JobMenu
                     job={current}
                     action={action}
                     trial={trial}
-                    position={queue.jobs.indexOf(current) + 1}
+                    position={current.position || 1}
                   />
                 </div>
               </div>
@@ -406,9 +436,9 @@ export function HomePage({
             <div className="empty">
               <h2>Nothing in the queue.</h2>
               <p>Add a video to see when it will be ready.</p>
-              <button className="primary" onClick={() => add()}>
-                Add videos
-              </button>
+              <ActionButton onClick={() => add()}>
+                Add your first video
+              </ActionButton>
             </div>
           )}
           {!!next.length && (
@@ -436,7 +466,7 @@ export function HomePage({
                       );
                       if (moved)
                         action(moved, "move", {
-                          position: queue.jobs.indexOf(job) + 1,
+                          position: job.position || 1,
                         });
                     }}
                     onKeyDown={(e) => {
@@ -446,15 +476,15 @@ export function HomePage({
                       ) {
                         e.preventDefault();
                         const n =
-                          queue.jobs.indexOf(job) +
-                          (e.key === "ArrowUp" ? 0 : 2);
+                          (job.position || 1) +
+                          (e.key === "ArrowUp" ? -1 : 1);
                         if (n >= 1 && n <= queue.jobs.length)
                           action(job, "move", { position: n });
                       }
                     }}
                     tabIndex={0}
                   >
-                    <span aria-hidden="true">⋮⋮</span>
+                    <GripVertical size={16} aria-hidden="true" />
                     <Thumbnail job={job} api={api} small />
                     <div className="next-name">
                       <h2>{filename(job.input)}</h2>
@@ -466,10 +496,12 @@ export function HomePage({
                       </p>
                     </div>
                     <div>
-                      {job.state === "preparing" ? (
+                      {job.cancel_cleanup ? ("Cancelling…") : job.state === "preparing" ? (
                         "Preparing…"
                       ) : job.state === "paused" ? (
-                        "Paused"
+                        "Waits until you resume it"
+                      ) : job.estimate.unknown_models?.length ? (
+                        "Speed unknown"
                       ) : (
                         <>
                           Starts {when(job.starts)}
@@ -482,22 +514,22 @@ export function HomePage({
                       job={job}
                       action={action}
                       trial={trial}
-                      position={queue.jobs.indexOf(job) + 1}
+                      position={job.position || 1}
                     />
                   </article>
                 ))}
               </div>
             </>
           )}
-          <button className="drop-zone" onClick={() => add()}>
+          <ActionButton className="drop-zone" onClick={() => add()}>
             + Drop videos anywhere in this window, or click to add
-          </button>
+          </ActionButton>
         </div>
         <div className="home-sidebar">
           <article className="card">
             <div className="section-heading">
-              <h2>This week</h2>
-              <button onClick={() => navigate("Schedule")}>Edit hours</button>
+              <h2>Your hours this week</h2>
+              <ActionButton onClick={() => navigate("Schedule")}>Edit hours</ActionButton>
             </div>
             {plan?.days.slice(0, 5).map((day) => (
               <div className="week-row" key={day.date}>
@@ -522,13 +554,13 @@ export function HomePage({
           <article className="card">
             <div className="section-heading">
               <h2>Recently finished</h2>
-              <button onClick={() => navigate("History")}>All history</button>
+              <ActionButton onClick={() => navigate("History")}>All history</ActionButton>
             </div>
             {recent.map((job) => (
               <div className="recent-row" key={job.id}>
                 <Thumbnail job={job} api={api} small />
                 <span>{filename(job.input)}</span>
-                <button onClick={() => action(job, "play")}>Open</button>
+                <ActionButton onClick={() => action(job, "play")}>Open</ActionButton>
               </div>
             ))}
           </article>
@@ -547,24 +579,75 @@ export function HistoryPage({
 }: Actions & { queue: Queue; api?: Api; seen?(ids: string[]): void }) {
   const [search, setSearch] = useState(""),
     [filter, setFilter] = useState("All");
-  const terminal = queue.jobs
+  const [selected, setSelected] = useState<string[]>([]);
+  const [selectMode, setSelectMode] = useState(false);
+  const [galleryWidth, setGalleryWidth] = useState(1000);
+  const [detail, setDetail] = useState<string>();
+  const viewport = useRef<HTMLDivElement>(null);
+  const [scroll, setScroll] = useState(0);
+  const [columns, setColumns] = useState(3);
+  useEffect(() => {
+    if (!viewport.current || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(entries => { setGalleryWidth(entries[0].contentRect.width); setColumns(Math.max(1, Math.floor((entries[0].contentRect.width + 16) / 256))); });
+    observer.observe(viewport.current);
+    return () => observer.disconnect();
+  }, []);
+  const terminal = useMemo(() => queue.jobs
     .filter((j) => ["done", "failed", "cancelled"].includes(j.state))
     .sort((a, b) =>
       (b.finished_at || b.eta || "").localeCompare(
         a.finished_at || a.eta || "",
       ),
-    );
+    ), [queue.history_revision || queue.jobs]);
   const matches = (job: Job, name: string) =>
     name === "All" ||
     (name === "Needs attention"
       ? job.state === "failed"
       : job.settings.preset === name.toLowerCase());
-  const visible = terminal.filter(
+  const visible = useMemo(() => terminal.filter(
     (j) =>
       matches(j, filter) &&
       filename(j.input).toLowerCase().includes(search.toLowerCase()),
-  );
+  ), [terminal, filter, search]);
   const visibleIds = visible.map((j) => j.id).join(",");
+  const calendarDay = new Date().toDateString();
+  const groups = useMemo(() => {
+    const groups = new Map<string, Job[]>();
+  const now = new Date(), yesterday = new Date(now);
+  const monthYear = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" });
+  yesterday.setDate(yesterday.getDate() - 1);
+  const todayLabel = now.toDateString(), yesterdayLabel = yesterday.toDateString();
+  for (const job of visible) {
+    const date = new Date(job.finished_at || job.eta || 0);
+    const label = date.toDateString() === todayLabel ? "Today"
+      : date.toDateString() === yesterdayLabel ? "Yesterday"
+      : now.getTime() - date.getTime() < 7 * 86400000 ? "Last 7 days"
+      : `Earlier in ${monthYear.format(date)}`;
+    const group = groups.get(label);
+    if (group) group.push(job);
+    else groups.set(label, [job]);
+  }
+    return groups;
+  }, [visible, calendarDay]);
+  const rows: { label?: string; jobs: Job[]; top: number; height: number }[] = [];
+  let height = 0;
+  for (const [label, jobs] of groups) {
+    rows.push({ label, jobs: [], top: height, height: 32 }); height += 32;
+    let pending: Job[] = [], aspectSum = 0;
+    const flush = () => {
+      if (!pending.length) return;
+      const rowHeight = Math.min(200, (galleryWidth - (pending.length - 1) * 12) / aspectSum);
+      rows.push({ jobs: pending, top: height, height: rowHeight + 12 });
+      height += rowHeight + 12; pending = []; aspectSum = 0;
+    };
+    for (const job of jobs) {
+      const aspect = job.media.display_width / Math.max(1, job.media.display_height);
+      pending.push(job); aspectSum += aspect;
+      if (aspectSum * 200 + (pending.length - 1) * 12 >= galleryWidth) flush();
+    }
+    flush();
+  }
+  const windowRows = rows.filter(row => row.top + row.height >= scroll - 300 && row.top < scroll + (viewport.current?.clientHeight || 450) + 300);
   useEffect(() => {
     if (!seen) return;
     const cards = document.querySelectorAll<HTMLElement>(
@@ -585,7 +668,7 @@ export function HistoryPage({
     );
     cards.forEach((card) => observer.observe(card));
     return () => observer.disconnect();
-  }, [visibleIds, seen]);
+  }, [visibleIds, seen, scroll, columns]);
   return (
     <section aria-label="History">
       <div className="page-heading">
@@ -596,85 +679,54 @@ export function HistoryPage({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        {!selectMode && <ActionButton className="small history-select-button" onClick={() => setSelectMode(true)}>Select</ActionButton>}
       </div>
+      {selectMode && <div className="toolbar">
+        <span>{selected.length} selected</span>
+        <ActionButton onClick={() => setSelected(visible.map(job => job.id))}>Select all</ActionButton>
+        <ActionButton disabled={!selected.length} onClick={() => action(terminal.find(job => job.id === selected[0])!, "remove", { ids: selected })}>Remove from history</ActionButton>
+        <ActionButton disabled={!selected.length} onClick={() => action(terminal.find(job => job.id === selected[0])!, "delete-files", { ids: selected })}>Delete video files…</ActionButton>
+        <ActionButton onClick={() => { setSelected([]); setSelectMode(false); }}>Cancel</ActionButton>
+      </div>}
       <div className="filters">
         {["All", "Standard", "Fast", "Needs attention"].map((name) => (
-          <button
+          <ActionButton
             key={name}
             aria-pressed={filter === name}
             onClick={() => setFilter(name)}
           >
             {name} ({terminal.filter((j) => matches(j, name)).length})
-          </button>
+          </ActionButton>
         ))}
       </div>
-      <div className="history-grid">
-        {terminal
-          .filter(
-            (j) =>
-              matches(j, filter) &&
-              filename(j.input).toLowerCase().includes(search.toLowerCase()),
-          )
-          .map((job) => (
+      <div className="history-viewport" ref={viewport} onScroll={event => setScroll(event.currentTarget.scrollTop)}>
+        {!visible.length && <p className="empty">{terminal.length ? "No videos match your search." : "No history yet."}</p>}
+        <div style={{ height, position: "relative" }}>
+        {windowRows.map(row => row.label ? <h2 key={row.top} className="history-group" style={{ top: row.top }}>{row.label}</h2> : <div key={row.top} className="history-grid virtual-row" style={{ top: row.top, height: row.height - 12, display: "flex", gap: 12 }}>{row.jobs.map((job) => (
             <article
               className="card history-card"
               key={job.id}
               data-job-id={job.id}
               data-failed={job.state === "failed"}
             >
-              <Thumbnail job={job} api={api} small />
-              <h2>{filename(job.input)}</h2>
-              <p>{historyWhen(job.finished_at || job.eta)}</p>
-              <p>
-                {job.settings.preset === "standard" ? "Standard" : "Fast"}
-                {job.took_seconds !== undefined
-                  ? ` · took ${duration(job.took_seconds)}`
-                  : ""}
-                {job.output_bytes !== undefined
-                  ? ` · ${(job.output_bytes / 1_000_000).toFixed(0)} MB`
-                  : ""}
-              </p>
-              <p
-                className={
-                  job.state === "done"
-                    ? "success"
-                    : job.state === "failed"
-                      ? "warning-text"
-                      : "muted"
-                }
-              >
-                {job.state === "done"
-                  ? "Finished"
-                  : job.state === "failed"
-                    ? job.error?.startsWith("Needs attention:")
-                      ? job.error
-                      : `Needs attention: ${job.error || "processing could not finish"}`
-                    : "Cancelled"}
-              </p>
-              <div className="actions">
-                {job.state === "done" ? (
-                  <>
-                    <button onClick={() => action(job, "play")}>Play</button>
-                    <button onClick={() => action(job, "folder")}>
-                      Show in folder
-                    </button>
-                  </>
-                ) : job.state === "failed" ? (
-                  <>
-                    <button onClick={() => action(job, "retry")}>Retry</button>
-                    <button onClick={() => action(job, "copy")}>
-                      Copy details
-                    </button>
-                  </>
-                ) : null}
-                <JobMenu job={job} action={action} trial={trial} />
-              </div>
+              <button className="history-image" aria-label={selectMode ? `Select ${filename(job.input)}` : filename(job.input)}
+                style={{ width: (row.height - 12) * job.media.display_width / Math.max(1, job.media.display_height), height: row.height - 12 }}
+                onClick={() => selectMode ? setSelected(old => old.includes(job.id) ? old.filter(id => id !== job.id) : [...old, job.id]) : setDetail(job.id)}>
+                <Thumbnail job={job} api={api} small />
+                {selectMode && <span className="history-select" aria-hidden="true">{selected.includes(job.id) && <Check size={16} strokeWidth={1.8} />}</span>}
+                <span className="history-scrim"><span className="history-filename" title={filename(job.input)}>{filename(job.input)}</span>
+                  {historyWarning(job) && <span className="badge warning" role="img"
+                    aria-label={historyWarning(job)} title={historyWarning(job)}>⚠</span>}
+                </span>
+              </button>
             </article>
-          ))}
+          ))}</div>)}
+        </div>
       </div>
+      {detail && queue.jobs.find(job => job.id === detail) && <HistoryDetail job={queue.jobs.find(job => job.id === detail)!} api={api} action={action} compare={trial} close={() => setDetail(undefined)} />}
       <p className="muted">
         Finished and failed jobs move here automatically. Removing an item from
-        History never deletes the video file.
+        History keeps files unless you explicitly choose to move them to the Recycle Bin.
       </p>
     </section>
   );

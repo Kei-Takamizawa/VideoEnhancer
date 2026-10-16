@@ -21,6 +21,7 @@ def build_plan(
 ) -> dict[str, Any]:
     if days < 1:
         raise ValueError("Plan days must be positive.")
+    jobs = sorted(jobs, key=lambda job: (job.get("position", 10**9), job.get("created_at", "")))
     start_date = now.astimezone(schedule.zone).date()
     limit = instant(
         resolve_wall(datetime.combine(start_date + timedelta(days=days), time.min), schedule.zone)
@@ -67,7 +68,13 @@ def build_plan(
                 job.get("media", {}),
                 job.get("settings", {}),
                 frames,
-                effective,
+                effective
+                if segment.get("state") == "running"
+                else {
+                    key: value
+                    for key, value in (effective or {}).items()
+                    if key != "live_seconds_per_frame"
+                },
                 float(job.get("correction_factor", 1)),
             )
             total += prediction
@@ -81,6 +88,7 @@ def build_plan(
                 dict(
                     index=segment.get("index", 0),
                     seconds=prediction * fraction,
+                    full_seconds=prediction,
                     frames=frames * fraction,
                     finalizing=False,
                     active=segment.get("state") == "running",
@@ -111,6 +119,7 @@ def build_plan(
                 frames_left=frames_left,
                 completion=instant(now) if not units else None,
                 window_end=job.get("admitted_window_end"),
+                allow_window_overrun=job.get("allow_window_overrun", True),
             )
         )
     timeline: list[dict[str, Any]] = []
@@ -147,6 +156,31 @@ def build_plan(
         unit = selected["units"].pop(0)
         predicted = unit["seconds"]
         finish = cursor + timedelta(seconds=predicted)
+        if (
+            unit["active"]
+            and boundary
+            and not selected["allow_window_overrun"]
+            and finish > instant(boundary)
+        ):
+            lost = max(0, (instant(boundary) - cursor).total_seconds())
+            selected["total"] += lost + unit.get("full_seconds", predicted) - predicted
+            unit.update(active=False, seconds=unit.get("full_seconds", predicted))
+            selected["units"].insert(0, unit)
+            timeline.append(
+                dict(
+                    job_id=selected["identity"],
+                    segment_index=unit["index"],
+                    phase="interrupted work",
+                    start=cursor.astimezone(schedule.zone).isoformat(),
+                    end=instant(boundary).astimezone(schedule.zone).isoformat(),
+                    seconds=lost,
+                    overrun_seconds=0,
+                    start_percent=0,
+                    end_percent=0,
+                )
+            )
+            cursor = instant(boundary)
+            continue
         timeline.append(
             dict(
                 job_id=selected["identity"],

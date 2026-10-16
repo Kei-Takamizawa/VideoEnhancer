@@ -100,6 +100,33 @@ def test_assembly_never_overwrites_another_file(
     assert not list(tmp_path.glob("*.tmp.mp4"))
 
 
+@pytest.mark.parametrize("change_settings", [False, True])
+def test_assembly_abort_preserves_verified_concat_for_resume(
+    video_factory, build_manifest, tmp_path, change_settings
+):
+    source = video_factory(frames=12)
+    manifest = build_manifest(source)
+    segment = {"index": 0, "start": 0, "end": 12, "file": "seg_00000.mp4"}
+    process_segment(manifest, segment, tmp_path / segment["file"], lambda: False)
+    manifest.update(segments=[segment], output=str(tmp_path / "resumed.mp4"))
+
+    def interrupt():
+        raise InterruptedError("Synthetic interruption after mux")
+
+    with pytest.raises(InterruptedError):
+        assemble(manifest, tmp_path, validation_started=interrupt)
+    joined = tmp_path / "assembled.tmp.mp4"
+    assert joined.exists() and (tmp_path / "assembly-checkpoint.json").exists()
+    assert not list(tmp_path.glob("resumed.*.tmp.mp4"))
+    if change_settings:
+        manifest["settings"]["codec"] = "hevc"
+    output = assemble(manifest, tmp_path)
+    assert probe(output, count_packets=True).frame_count == 24
+    assert manifest["timing"]["finalization_steps"]["concat_reused"] is not change_settings
+    assert not joined.exists()
+    assert not (tmp_path / "assembly-checkpoint.json").exists()
+
+
 def test_blend_exact_timestamps_last_duplicate_and_cut_protection():
     frames = torch.tensor([0, 1, 0.25], dtype=torch.float16)[:, None, None, None].expand(3, 3, 4, 4)
     rate = Fraction(30000, 1001)

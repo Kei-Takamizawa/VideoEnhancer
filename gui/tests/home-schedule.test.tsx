@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { HomePage, HistoryPage, historyWhen } from "../src/Home";
+import { HistoryDetail } from "../src/HistoryDetail";
 import { ScheduleView } from "../src/ScheduleView";
 import type { Api } from "../src/api";
 import type { Job, Plan, Queue, Schedule } from "../src/types";
@@ -100,7 +101,7 @@ describe("Home and History", () => {
       },
     } as import("../src/types").Health;
     const view = render(<HomePage {...props} health={health} />);
-    fireEvent.click(screen.getByRole("button", { name: "Problem · details" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Problem ·/ }));
     expect(
       screen.getByRole("dialog", { name: "Problem details" }),
     ).toBeTruthy();
@@ -152,7 +153,7 @@ describe("Home and History", () => {
     );
     expect(seen).toHaveBeenCalledWith([failed.id]);
     fireEvent.click(
-      screen.getByRole("button", { name: "Actions for locked.mp4" }),
+      screen.getByRole("button", { name: "locked.mp4" }),
     );
     expect(screen.getByRole("button", { name: "Compare again" })).toBeTruthy();
   });
@@ -214,9 +215,11 @@ describe("Home and History", () => {
     const action = vi.fn();
     render(<HistoryPage queue={queue} action={action} trial={vi.fn()} />);
     expect(screen.queryByText("synthetic.mp4")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "locked.mp4" }));
     expect(screen.getByText(failed.error!)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(action).toHaveBeenCalledWith(failed, "retry");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     fireEvent.change(
       screen.getByRole("textbox", { name: "Search by file name" }),
       { target: { value: "missing" } },
@@ -226,47 +229,37 @@ describe("Home and History", () => {
 });
 
 describe("Schedule week", () => {
-  it("adds and deletes a block, drags its edge and opens a date-only context menu", () => {
-    vi.stubGlobal("PointerEvent", MouseEvent);
+  it("sends one preview after 400 ms and aborts the stale request after an edit", async () => {
+    vi.useFakeTimers();
     const call = vi.fn(async () => ({ plan }));
-    render(
-      <ScheduleView
-        api={{ call } as unknown as Api}
-        value={schedule}
-        plan={plan}
-        jobs={[]}
-        applied={vi.fn()}
-      />,
-    );
-    const track = document.querySelector<HTMLElement>(".hours-track")!;
-    track.setPointerCapture = vi.fn();
-    vi.spyOn(track, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      width: 960,
-    } as DOMRect);
-    fireEvent.click(track, { clientX: 360 });
-    const added = screen.getByRole("group", { name: "2026-10-12 09:00–11:00" });
-    fireEvent.keyDown(added, { key: "Delete" });
-    expect(
-      screen.queryByRole("group", { name: "2026-10-12 09:00–11:00" }),
-    ).toBeNull();
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "2026-10-12 start edge" }),
-      { clientX: 880, pointerId: 1 },
-    );
-    fireEvent.pointerMove(track, { clientX: 900, pointerId: 1 });
-    fireEvent.pointerUp(track, { pointerId: 1 });
-    const changed = screen.getByRole("group", {
-      name: "2026-10-12 22:30–24:00",
-    });
-    fireEvent.contextMenu(changed);
-    fireEvent.click(
-      screen.getByRole("menuitem", { name: "Only on Mon 10/12" }),
-    );
-    expect(
-      screen.getByRole("button", { name: /2026-10-12 · 22:30/ }),
-    ).toBeTruthy();
-    vi.unstubAllGlobals();
+    const view = render(<ScheduleView api={{ call } as unknown as Api} value={schedule}
+      plan={plan} jobs={[]} applied={vi.fn()} />);
+    try {
+      await act(async () => { await vi.advanceTimersByTimeAsync(399); });
+      expect(call).not.toHaveBeenCalled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(call).toHaveBeenCalledTimes(1);
+      const oldSignal = (call.mock.calls as unknown as unknown[][])[0][3] as AbortSignal;
+      fireEvent.keyDown(screen.getByLabelText("Hours 1 start"),
+        { key: "ArrowUp" });
+      expect(oldSignal.aborted).toBe(true);
+      await act(async () => { await vi.advanceTimersByTimeAsync(399); });
+      expect(call).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(call).toHaveBeenCalledTimes(2);
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+  it("quick fill enables hours and All day stores equal midnight endpoints", async () => {
+    const call = vi.fn(async () => ({ plan }));
+    render(<ScheduleView api={{ call } as unknown as Api} value={{ ...schedule, enabled: false }} plan={plan} jobs={[]} applied={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Every night 22:00–08:00" }));
+    expect((screen.getByRole("switch", { name: "Work only during these hours" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "All day" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("schedule", "PUT", expect.objectContaining({ weekly: [expect.objectContaining({ start: "00:00", end: "00:00" })] })), { timeout: 2000 });
+    expect(screen.queryByRole("button", { name: "Custom…" })).toBeNull();
   });
   it("edits an exception in place and deletes it", async () => {
     const call = vi.fn(async () => ({ plan }));
@@ -328,21 +321,21 @@ describe("Schedule week", () => {
         />,
       );
       fireEvent.keyDown(
-        screen.getByRole("button", { name: "2026-10-12 start edge" }),
-        { key: "ArrowRight" },
+        screen.getByLabelText("Hours 1 start"),
+        { key: "ArrowUp" },
       );
       await act(() => vi.advanceTimersByTimeAsync(750));
       await act(() => vi.advanceTimersByTimeAsync(6000));
       fireEvent.keyDown(
-        screen.getByRole("button", { name: "2026-10-12 start edge" }),
-        { key: "ArrowRight" },
+        screen.getByLabelText("Hours 1 start"),
+        { key: "ArrowUp" },
       );
       await act(() => vi.advanceTimersByTimeAsync(750));
       await act(() => vi.advanceTimersByTimeAsync(2000));
       expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Undo" }));
       expect(
-        screen.getByRole("group", { name: "2026-10-12 22:15–24:00" }),
+        (screen.getByLabelText("Hours 1 start") as HTMLInputElement).value === "22:15",
       ).toBeTruthy();
     } finally {
       vi.useRealTimers();
@@ -361,8 +354,8 @@ describe("Schedule week", () => {
       />,
     );
     fireEvent.keyDown(
-      screen.getByRole("button", { name: "2026-10-12 start edge" }),
-      { key: "ArrowRight" },
+      screen.getByLabelText("Hours 1 start"),
+      { key: "ArrowUp" },
     );
     await waitFor(
       () =>
@@ -387,6 +380,7 @@ describe("Schedule week", () => {
       "schedule/preview",
       "POST",
       expect.any(Object),
+      expect.any(AbortSignal),
     );
   });
   it("runs through queue completion using the explicit override API", async () => {
@@ -409,4 +403,30 @@ describe("Schedule week", () => {
       }),
     );
   });
+});
+
+it("opens the shared file-removal flow from History details", () => {
+  const action = vi.fn(), close = vi.fn();
+  const job = { ...failed, original_state: "recycled" as const, output_state: "missing" as const };
+  render(<HistoryDetail job={job} close={close} action={action} compare={vi.fn()} />);
+  expect((screen.getByRole("button", { name: "Compare again" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText("Moved to the Recycle Bin")).toBeTruthy();
+  expect(screen.getByText("File not found")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Delete video files…" }));
+  expect(action).toHaveBeenCalledWith(job, "delete-files");
+  expect(close).toHaveBeenCalled();
+});
+it("saves an overnight row without changing its end date semantics", async () => {
+  const call = vi.fn(async () => ({ plan }));
+  render(<ScheduleView api={{ call } as unknown as Api} value={schedule} plan={plan} jobs={[]} applied={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText("Hours 1 start"), { target: { value: "23:00" } });
+  await waitFor(() => expect(call).toHaveBeenCalledWith("schedule", "PUT", expect.objectContaining({ weekly: [{ days: ["mon"], start: "23:00", end: "08:00" }] })), { timeout: 2000 });
+});
+it("creates an off-day exception through the new editor", async () => {
+  const call = vi.fn(async () => ({ plan }));
+  render(<ScheduleView api={{ call } as unknown as Api} value={schedule} plan={plan} jobs={[]} applied={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Add a day" }));
+  fireEvent.change(screen.getByLabelText("Exception date"), { target: { value: "2026-10-13" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save day" }));
+  await waitFor(() => expect(call).toHaveBeenCalledWith("schedule", "PUT", expect.objectContaining({ exceptions: [{ date: "2026-10-13", windows: "off" }] })), { timeout: 2000 });
 });

@@ -1,7 +1,11 @@
 """Stream-copy final assembly with original audio and atomic publication."""
 
+import hashlib
+import json
+import math
 import os
 import subprocess
+import time
 import uuid
 from collections.abc import Callable
 from fractions import Fraction
@@ -11,10 +15,31 @@ from typing import Any
 from videoenhancer import proc
 from videoenhancer.config import executable
 from videoenhancer.files import retry_permission
+from videoenhancer.jobs.store import input_identity
 from videoenhancer.media.probe import probe
 from videoenhancer.media.timing import output_rate
 
 MP4_AUDIO_CODECS = {"aac", "mp3", "ac3", "eac3", "alac"}
+
+
+def audio_sync_delta(original: dict[str, Any], actual: dict[str, Any]) -> float:
+    """Offset difference after an exactly matching codec priming interval."""
+    delta = float(original["start_offset"]) - float(actual["start_offset"])
+    if abs(delta) <= 0.020:
+        return delta
+    intervals = []
+    for stream in (original, actual):
+        rate = int(stream.get("sample_rate", 0))
+        if rate:
+            padding = int(stream.get("initial_padding", 0))
+            if padding:
+                intervals.append(padding / rate)
+            if stream.get("codec") == "aac":
+                intervals.append(1024 / rate)
+    for interval in intervals:
+        if abs(abs(delta) - interval) <= 0.001:
+            return delta - math.copysign(interval, delta)
+    return delta
 
 
 def _audio_duration_matches(original: dict[str, Any], actual: dict[str, Any]) -> bool:
@@ -23,6 +48,18 @@ def _audio_duration_matches(original: dict[str, Any], actual: dict[str, Any]) ->
         return True
     sample_rate = int(original.get("sample_rate", 0))
     initial_padding = int(original.get("initial_padding", 0))
+    if (
+        original.get("codec") == actual.get("codec") == "aac"
+        and sample_rate
+        and abs(abs(delta) - 1024 / sample_rate) <= 0.001
+    ):
+        return True
+    if original.get("codec") != actual.get("codec"):
+        actual_rate = int(actual.get("sample_rate", sample_rate))
+        frame_tolerance = max(
+            1024 / actual_rate if actual_rate else 0, 960 / sample_rate if sample_rate else 0
+        )
+        return abs(delta) <= 0.020 + frame_tolerance
     if sample_rate <= 0 or initial_padding <= 0:
         return False
     # Some AAC inputs include encoder priming in the probed track duration.
@@ -31,8 +68,32 @@ def _audio_duration_matches(original: dict[str, Any], actual: dict[str, Any]) ->
     return abs(delta - initial_padding / sample_rate) <= 0.020
 
 
-def _run(command: list[str], abort: Callable[[], bool] | None, *, cwd: Path | None = None) -> None:
-    process = proc.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, cwd=cwd)
+def _run(
+    command: list[str],
+    abort: Callable[[], bool] | None,
+    *,
+    cwd: Path | None = None,
+    faststart: dict[str, float] | None = None,
+) -> None:
+    diagnostic = bytearray()
+
+    def observe(chunk: bytes) -> None:
+        diagnostic.extend(chunk)
+        if (
+            faststart is not None
+            and "started" not in faststart
+            and b"Starting second pass" in diagnostic
+        ):
+            faststart["started"] = time.perf_counter()
+        del diagnostic[:-512]
+
+    process = proc.Popen(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        stderr_observer=observe if faststart is not None else None,
+    )
     try:
         while True:
             try:
@@ -48,6 +109,10 @@ def _run(command: list[str], abort: Callable[[], bool] | None, *, cwd: Path | No
                 f"Final assembly failed: {error.decode(errors='replace')}. "
                 "Keep the job and retry after checking FFmpeg."
             )
+        if faststart is not None:
+            faststart["seconds"] = max(
+                0, time.perf_counter() - faststart.get("started", time.perf_counter())
+            )
     finally:
         if process.poll() is None:
             process.terminate()
@@ -61,6 +126,7 @@ def assemble(
     *,
     validation_started: Callable[[], None] | None = None,
 ) -> Path:
+    checkpoint_started = time.perf_counter()
     output = Path(manifest.get("output", manifest.get("output_path", "")))
     if not str(output) or output.resolve() == Path(manifest["input"]["path"]).resolve():
         raise ValueError("Choose an output path different from the input video.")
@@ -69,6 +135,7 @@ def assemble(
     output.parent.mkdir(parents=True, exist_ok=True)
     listing = job_dir / "concat.txt"
     lines = []
+    identities = []
     for segment in manifest["segments"]:
         name = segment.get("file", segment.get("output", f"seg_{segment['index']:05d}.mp4"))
         path = Path(name)
@@ -79,35 +146,72 @@ def assemble(
                 f"Segment {segment['index']} is missing: {path}. Resume to regenerate it."
             )
         escaped = path.resolve().as_posix().replace("'", "'\\''")
+        identities.append(input_identity(path))
         lines.append(f"file '{escaped}'\n")
     listing.write_text("".join(lines), encoding="utf-8")
     joined = job_dir / "assembled.tmp.mp4"
+    checkpoint = job_dir / "assembly-checkpoint.json"
+    signature = hashlib.sha256(
+        json.dumps(
+            {
+                "input": input_identity(Path(manifest["input"]["path"])),
+                "settings": manifest["settings"],
+                "models": manifest.get("models"),
+                "segments": identities,
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    joined_ready = False
+    interrupted = False
+    if joined.is_file() and checkpoint.is_file():
+        try:
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+            joined_ready = saved["signature"] == signature and saved["joined"] == input_identity(
+                joined
+            )
+        except (OSError, ValueError, KeyError):
+            joined_ready = False
     temporary = output.with_name(output.stem + f".{uuid.uuid4().hex}.tmp.mp4")
     ffmpeg = executable("ffmpeg")
+    step_times = manifest.setdefault("timing", {}).setdefault("finalization_steps", {})
+    step_times["checkpoint_validation_seconds"] = time.perf_counter() - checkpoint_started
+    reused = joined_ready
     try:
-        _run(
-            [
-                ffmpeg,
-                "-v",
-                "error",
-                "-nostdin",
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(listing),
-                "-map",
-                "0:v:0",
-                "-c",
-                "copy",
-                "-video_track_timescale",
-                str(output_rate(manifest["settings"], manifest["media"]).numerator),
-                str(joined),
-            ],
-            abort,
-        )
+        concat_started = time.perf_counter()
+        if not joined_ready:
+            _run(
+                [
+                    ffmpeg,
+                    "-v",
+                    "error",
+                    "-nostdin",
+                    "-y",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(listing),
+                    "-map",
+                    "0:v:0",
+                    "-c",
+                    "copy",
+                    "-video_track_timescale",
+                    str(output_rate(manifest["settings"], manifest["media"]).numerator),
+                    str(joined),
+                ],
+                abort,
+            )
+            checkpoint_temp = checkpoint.with_suffix(".tmp")
+            checkpoint_temp.write_text(
+                json.dumps({"signature": signature, "joined": input_identity(joined)}),
+                encoding="utf-8",
+            )
+            retry_permission(os.replace, checkpoint_temp, checkpoint)
+            joined_ready = True
+        step_times["concat_reused"] = reused
+        step_times["concat_seconds"] = time.perf_counter() - concat_started
         rate = output_rate(manifest["settings"], manifest["media"])
         expected_duration = float(
             Fraction(len(manifest["cfr_map"])) * rate / Fraction(manifest["media"]["cfr_fps"])
@@ -123,7 +227,7 @@ def assemble(
         command = [
             ffmpeg,
             "-v",
-            "error",
+            "info",
             "-nostdin",
             "-y",
             "-copyts",
@@ -162,9 +266,16 @@ def assemble(
             "+faststart",
             str(temporary),
         ]
-        _run(command, abort)
+        mux_started = time.perf_counter()
+        faststart: dict[str, float] = {}
+        _run(command, abort, faststart=faststart)
+        step_times["faststart_seconds"] = faststart.get("seconds", 0)
+        step_times["mux_seconds"] = max(
+            0, time.perf_counter() - mux_started - step_times["faststart_seconds"]
+        )
         if validation_started:
             validation_started()
+        validation_began = time.perf_counter()
         result = probe(temporary, count_packets=True)
         expected = int(
             Fraction(len(manifest["cfr_map"])) * rate / Fraction(manifest["media"]["cfr_fps"])
@@ -185,7 +296,7 @@ def assemble(
         for original, actual in zip(
             manifest["media"].get("audio_streams", []), result.audio_streams, strict=True
         ):
-            if abs(original["start_offset"] - actual["start_offset"]) > 0.020:
+            if abs(audio_sync_delta(original, actual)) > 0.020:
                 raise RuntimeError(
                     f"Audio timing mismatch: {original['start_offset']:.4f}/"
                     f"{actual['start_offset']:.4f} s offset. Keep segments and inspect "
@@ -198,14 +309,22 @@ def assemble(
                 )
         if abort and abort():
             raise InterruptedError("Final assembly was interrupted.")
+        step_times["validation_seconds"] = time.perf_counter() - validation_began
         # Both operations refuse an output created while assembly was in progress.
         # Windows rename also works on external drives without hard-link support.
         if os.name == "nt":
             retry_permission(os.rename, temporary, output)
         else:
             retry_permission(os.link, temporary, output)
+        manifest["output_identity"] = input_identity(output)
+        manifest["output_bytes"] = manifest["output_identity"]["size"]
         return output
+    except InterruptedError:
+        interrupted = True
+        raise
     finally:
         temporary.unlink(missing_ok=True)
-        joined.unlink(missing_ok=True)
+        if not interrupted or not joined_ready:
+            joined.unlink(missing_ok=True)
+            checkpoint.unlink(missing_ok=True)
         listing.unlink(missing_ok=True)

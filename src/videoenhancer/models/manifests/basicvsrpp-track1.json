@@ -46,6 +46,10 @@
       "tile_overlap": null,
       "mode": "standard",
       "seconds": 5
+    },
+    "download_sizes": {
+      "track1.pth": 176414076,
+      "mmagic-code.zip": 17451622
     }
   }
 }

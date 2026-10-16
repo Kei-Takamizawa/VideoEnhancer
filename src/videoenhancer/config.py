@@ -1,5 +1,6 @@
 """Runtime paths; processing never downloads dependencies."""
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -13,6 +14,17 @@ def get_home() -> Path:
         result = (
             Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local")) / "VideoEnhancer"
         )
+        location = (
+            Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming"))
+            / "VideoEnhancer"
+            / "storage-location.json"
+        )
+        if location.is_file():
+            saved = json.loads(location.read_text(encoding="utf-8"))
+            if saved.get("active"):
+                result = Path(saved["active"])
+                if not result.is_dir():
+                    raise FileNotFoundError("The app data folder was not found")
     else:
         result = (
             Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "VideoEnhancer"

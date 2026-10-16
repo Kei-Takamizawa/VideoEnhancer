@@ -91,7 +91,7 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
         filePaths: [file],
       });
     }, source);
-    await page.getByRole("button", { name: "+ Add videos" }).click();
+    await page.getByRole("button", { name: "Add videos" }).click();
     await page.getByText("More options", { exact: true }).click();
     await page
       .getByRole("combobox", { name: /Output short side/ })

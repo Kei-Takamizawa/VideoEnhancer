@@ -11,10 +11,11 @@ def admit_step(
 ) -> tuple[bool, bool]:
     if interval is None:
         return False, False
-    reserve = predicted if finalizing else predicted * 1.1 + 30
+    reserve = predicted * 1.5 + 60 if finalizing else predicted * 1.1 + 30
     beginning = getattr(interval, "start", None)
     overrun = (
-        beginning is not None
+        not finalizing
+        and beginning is not None
         and predicted > (instant(interval.end) - instant(beginning)).total_seconds()
         and 0 <= (instant(now) - instant(beginning)).total_seconds() < 30
     )

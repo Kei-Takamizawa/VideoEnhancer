@@ -1,6 +1,7 @@
 """Indexed NVDEC and deterministic FFmpeg CPU decoding."""
 
 import importlib
+import itertools
 import subprocess
 from collections.abc import Callable, Iterator
 from fractions import Fraction
@@ -55,6 +56,24 @@ def choose_backend(requested: str = "auto") -> str:
     return "cpu"
 
 
+def software_decoder_support() -> dict[str, bool]:
+    result = proc.run(
+        [executable("ffmpeg"), "-hide_banner", "-decoders"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    names = {
+        fields[1]
+        for line in result.stdout.splitlines()
+        if len(fields := line.split()) >= 2 and fields[0].startswith("V")
+    }
+    return {
+        "vp9": bool(names & {"vp9", "libvpx-vp9"}),
+        "av1": bool(names & {"av1", "libdav1d", "libaom-av1"}),
+    }
+
+
 def read_exact(stream: Any, size: int) -> bytes:
     chunks = bytearray()
     while len(chunks) < size:
@@ -93,17 +112,103 @@ class IndexedDecoder:
         self.manifest = manifest or {}
         validate_pixel_format(media)
         self.decoder: Any = None
+        self.demuxer: Any = None
+        self._cuda_used = False
         if backend == "cuda":
-            nvc: Any = _load_pynvcodec()
+            self._open_cuda()
 
-            self.decoder = nvc.SimpleDecoder(
-                self.path,
-                gpu_id=0,
-                use_device_memory=True,
-                output_color_type=nvc.OutputColorType.NATIVE,
-                decoder_cache_size=1,
-                need_scanned_stream_metadata=True,
+    def _open_cuda(self) -> None:
+        nvc: Any = _load_pynvcodec()
+        self.demuxer = nvc.CreateDemuxer(filename=self.path)
+        self.decoder = nvc.CreateDecoder(
+            gpuid=0,
+            codec=self.demuxer.GetNvCodecId(),
+            usedevicememory=True,
+            outputColorType=nvc.OutputColorType.NATIVE,
+        )
+
+    def _cuda_frames(self, indices: list[int], abort: Callable[[], bool]) -> Iterator[torch.Tensor]:
+        if not indices:
+            return
+        if any(second < first for first, second in zip(indices, indices[1:], strict=False)):
+            for index in indices:
+                yield from self._cuda_frames([index], abort)
+            return
+        if self._cuda_used:
+            self.decoder = self.demuxer = None
+            self._open_cuda()
+        self._cuda_used = True
+        pts = self.manifest.get("source_pts", [])
+        anchor = (
+            max(
+                (
+                    key["index"]
+                    for key in self.manifest.get("keyframes", [])
+                    if key["index"] <= indices[0]
+                ),
+                default=0,
             )
+            if pts
+            else 0
+        )
+        packet = None
+        while anchor > 0:
+            try:
+                packet = self.demuxer.Seek(anchor)
+                base = Fraction(self.demuxer.GetTimebaseNum(), self.demuxer.GetTimebaseDen())
+                if Fraction(packet.pts) * base <= Fraction(pts[indices[0]]):
+                    break
+            except Exception as error:
+                if "seek" not in str(error).lower():
+                    raise
+            # Some containers have no usable frame-count/seek index. Decode from
+            # an earlier keyframe rather than trusting an approximate index.
+            self.decoder = self.demuxer = None
+            self._open_cuda()
+            anchor //= 2
+            packet = None
+        packets = (
+            itertools.chain([packet], self.demuxer) if packet is not None else iter(self.demuxer)
+        )
+        base = Fraction(self.demuxer.GetTimebaseNum(), self.demuxer.GetTimebaseDen())
+
+        def decoded() -> Iterator[Any]:
+            for compressed in packets:
+                if abort():
+                    raise InterruptedError("The segment was interrupted.")
+                yield from self.decoder.Decode(compressed)
+            yield from self.decoder.Flush()
+
+        wanted = iter(indices)
+        target = next(wanted)
+        self._active_cuda_index = target
+        for ordinal, frame in enumerate(decoded()):
+            if abort():
+                raise InterruptedError("The segment was interrupted.")
+            stamp = Fraction(frame.getPTS()) * base
+            expected = Fraction(pts[target]) if pts else None
+            if (expected is not None and stamp < expected) or (
+                expected is None and ordinal < target
+            ):
+                continue
+            if expected is not None and stamp != expected:
+                raise ValueError(
+                    f"Decoded timestamp {stamp} does not match "
+                    f"analysed frame {target} ({expected})."
+                )
+            picture = self._convert(torch.from_dlpack(frame))
+            # Core decode surfaces may be reused on the next Decode call.
+            torch.cuda.current_stream().synchronize()
+            while True:
+                yield picture
+                previous = target
+                target = next(wanted, -1)
+                if target == -1:
+                    return
+                if target != previous:
+                    self._active_cuda_index = target
+                    break
+        raise ValueError(f"Decoder ended before analysed frame {target}.")
 
     def _convert(self, frame: torch.Tensor) -> torch.Tensor:
         rgb = nv12_to_rgb(
@@ -131,10 +236,16 @@ class IndexedDecoder:
 
     def frames(self, indices: list[int], abort: Callable[[], bool]) -> Iterator[torch.Tensor]:
         if self.backend == "cuda":
-            for index in indices:
-                if abort():
-                    raise InterruptedError("The segment was interrupted.")
-                yield self._convert(torch.from_dlpack(self.decoder[index]))
+            try:
+                yield from self._cuda_frames(indices, abort)
+            except (torch.OutOfMemoryError, InterruptedError):
+                raise
+            except Exception as error:
+                raise RuntimeError(
+                    f"Couldn't read frame {getattr(self, '_active_cuda_index', 0) + 1:,} "
+                    "of this video. "
+                    "Try adding it again, or remux it to MP4. Use Copy details for the error."
+                ) from error
             return
         if not indices:
             return
@@ -217,3 +328,4 @@ class IndexedDecoder:
 
     def close(self) -> None:
         self.decoder = None
+        self.demuxer = None

@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { assertPanelFits } from "./clipping";
 const electron: string = createRequire(import.meta.url)("electron");
 
 test("desktop starts real CPU service, adds synthetic footage, streams completion and survives window close", async () => {
@@ -19,7 +20,8 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
   mkdirSync(evidence, { recursive: true });
   const run = path.resolve("test-results", `engine-${Date.now()}`);
   mkdirSync(run, { recursive: true });
-  const source = path.join(run, "synthetic.mp4");
+  mkdirSync(path.join(run, "home"), { recursive: true });
+  const source = path.join(run, "home", "synthetic.mp4");
   execFileSync(process.env.VE_FFMPEG || "ffmpeg", [
     "-v",
     "error",
@@ -76,6 +78,8 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
       },
     }),
   );
+  mkdirSync(env.VE_HOME, { recursive: true });
+  writeFileSync(path.join(env.VE_HOME, "settings.json"), JSON.stringify({ tour_completed: true }));
   const app = await _electron.launch({
     executablePath: electron,
     args: [".", `--user-data-dir=${path.join(run, "desktop")}`],
@@ -114,8 +118,8 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
       };
       await route.continue({ postData: JSON.stringify(body) });
     });
-    await page.getByRole("button", { name: "+ Add videos" }).click();
-    await page.getByRole("button", { name: /^Fast/ }).click();
+    await page.getByRole("button", { name: "Add videos" }).click();
+    await page.locator(".mode-cards").getByRole("button", { name: /^Fast/ }).click();
     await expect(
       page.getByRole("button", { name: "Add to queue" }),
     ).toBeEnabled({ timeout: 30000 });
@@ -128,7 +132,7 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
       path: path.join(evidence, "now-processing-synthetic.png"),
     });
     await page.getByRole("button", { name: "History", exact: true }).click();
-    await expect(page.getByText("Finished", { exact: true })).toBeVisible({
+    await expect(page.locator(".history-image").first()).toBeVisible({
       timeout: 40000,
     });
     await page.screenshot({
@@ -145,9 +149,6 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
     }
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByLabel("Theme").selectOption("dark");
-    await page
-      .getByRole("button", { name: "Save settings", exact: true })
-      .click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     for (const size of [
       { width: 1280, height: 800 },
@@ -166,9 +167,6 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
           .getByRole("button", { name: "Settings", exact: true })
           .click();
         await page.getByLabel("Theme").selectOption(theme);
-        await page
-          .getByRole("button", { name: "Save settings", exact: true })
-          .click();
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         for (const name of [
           "Home",
@@ -186,6 +184,36 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
               () => document.documentElement.scrollWidth > innerWidth,
             ),
           ).toBe(false);
+          const clipping = await page.evaluate(() => {
+            const main = document.querySelector<HTMLElement>(".app main")!;
+            const issues: string[] = [];
+            if (document.documentElement.scrollHeight > innerHeight || main.scrollHeight > main.clientHeight + 1) issues.push("page scrolls");
+            const dock = document.querySelector<HTMLElement>("aside")!.getBoundingClientRect();
+            for (const element of main.querySelectorAll<HTMLElement>("button,label")) {
+              const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+              let top = rect.top, bottom = rect.bottom, left = rect.left, right = rect.right;
+              for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+                const clip = parent.getBoundingClientRect(), parentStyle = getComputedStyle(parent);
+                if (/hidden|auto|scroll|clip/.test(parentStyle.overflowY)) { top = Math.max(top, clip.top); bottom = Math.min(bottom, clip.bottom); }
+                if (/hidden|auto|scroll|clip/.test(parentStyle.overflowX)) { left = Math.max(left, clip.left); right = Math.min(right, clip.right); }
+              }
+              if (bottom <= top || right <= left) continue;
+              if (!rect.width || !rect.height || rect.bottom < main.getBoundingClientRect().top || rect.top >= dock.top) continue;
+              if (element.scrollWidth > element.clientWidth + 1 && style.textOverflow !== "ellipsis") issues.push(`clipped: ${element.textContent?.trim()}`);
+              if (top < dock.bottom && bottom > dock.top && left < dock.right && right > dock.left) issues.push(`behind dock: ${element.textContent?.trim()}`);
+            }
+            return issues;
+          });
+          expect(clipping).toEqual([]);
+          for (const button of await page.locator("aside button").all()) {
+            await button.hover();
+            const rect = await button.locator('[role="tooltip"]').boundingBox();
+            expect(rect).not.toBeNull();
+            expect(rect!.x).toBeGreaterThanOrEqual(0);
+            expect(rect!.y).toBeGreaterThanOrEqual(0);
+            expect(rect!.x + rect!.width).toBeLessThanOrEqual(size.width);
+            expect(rect!.y + rect!.height).toBeLessThanOrEqual(size.height);
+          }
           await page.screenshot({
             path: path.join(
               evidence,
@@ -194,7 +222,12 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
           });
         }
         await page.getByRole("button", { name: "Home", exact: true }).click();
-        await page.getByRole("button", { name: "+ Add videos" }).click();
+        await page.getByRole("button", { name: "Add videos" }).click();
+        for (const zoom of [1, 1.1]) {
+          await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom);
+          await assertPanelFits(page);
+        }
+        await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
         await page.screenshot({
           path: path.join(
             evidence,
@@ -209,6 +242,11 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
         await expect(page.locator(".thumbnails img")).toHaveCount(8, {
           timeout: 30000,
         });
+        for (const zoom of [1, 1.1]) {
+          await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom);
+          await assertPanelFits(page);
+        }
+        await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
         await page.screenshot({
           path: path.join(
             evidence,
@@ -217,6 +255,18 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
         });
         await page.getByRole("button", { name: "Back", exact: true }).click();
         await page.getByRole("button", { name: "Close", exact: true }).click();
+        await page.getByRole("button", { name: "History", exact: true }).click();
+        for (const zoom of [1, 1.1]) {
+          await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom);
+          await page.locator(".history-image").first().click();
+          await expect(page.getByRole("dialog", { name: "Video details" })).toBeVisible();
+          await assertPanelFits(page);
+          await page.getByRole("button", { name: "Delete video files…" }).click();
+          await assertPanelFits(page);
+          await page.getByRole("dialog", { name: "Remove records or video files?" }).getByRole("button", { name: "Cancel", exact: true }).click();
+          await expect(page.getByRole("dialog")).toHaveCount(0);
+        }
+        await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
       }
     }
     await page.getByRole("button", { name: "Models", exact: true }).click();
@@ -286,6 +336,8 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].close(),
     );
+    await expect(page.getByRole("heading", { name: "VideoEnhancer keeps working in the tray" })).toBeVisible();
+    await page.getByRole("button", { name: "Got it" }).click();
     await expect
       .poll(() =>
         app.evaluate(({ BrowserWindow }) =>
@@ -302,7 +354,7 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
       BrowserWindow.getAllWindows()[0].show(),
     );
     await page.getByRole("button", { name: "History", exact: true }).click();
-    await expect(page.getByText("Finished", { exact: true })).toBeVisible();
+    await expect(page.locator(".history-image").first()).toBeVisible();
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].setSize(1100, 700),
     );
@@ -354,4 +406,25 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
   } finally {
     await app.close().catch(() => {});
   }
+});
+
+test("Schedule bar tooltips stay inside both window sizes and zoom levels", async () => {
+  const { fakeEngine } = createRequire(import.meta.url)("../perf/fake-engine.cjs");
+  const home = path.resolve("test-results", `tooltip-${Date.now()}`);
+  const fixture = await fakeEngine(home);
+  fixture.plan.timezone = "UTC";
+  fixture.plan.days = [{ date: "2026-10-12", windows: [], run_hours: 1, jobs: [] }];
+  fixture.plan.timeline = [{ job_id: "synthetic-0", start: "2026-10-12T23:00:00Z", end: "2026-10-13T00:00:00Z", overrun_seconds: 45 }];
+  const app = await _electron.launch({ executablePath: electron, args: [".", `--user-data-dir=${path.join(home, "desktop")}`], env: { ...process.env, VE_HOME: home } });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Schedule", exact: true }).click();
+    for (const size of [[1280, 800], [1100, 700]]) for (const factor of [1, 1.1]) {
+      await app.evaluate(({ BrowserWindow }, value) => { const window = BrowserWindow.getAllWindows()[0]; window.setContentSize(value[0], value[1]); window.webContents.setZoomFactor(value[2]); }, [...size, factor]);
+      await page.locator(".planned-block").first().hover();
+      await expect(page.locator(".timeline-tooltip").first()).toBeVisible();
+      await assertPanelFits(page);
+    }
+  } finally { await app.close(); await fixture.close(); }
 });

@@ -12,6 +12,7 @@ from typing import Any
 from videoenhancer.files import retry_permission
 
 DEFAULTS: dict[str, Any] = {
+    "cleanup_working_files": True,
     "output_folder": "",
     "preset": "standard",
     "codec": "hevc",
@@ -19,6 +20,10 @@ DEFAULTS: dict[str, Any] = {
     "fps": "2x",
     "start_with_windows": False,
     "theme": "system",
+    "zoom": 100,
+    "tray_explained": False,
+    "tour_completed": False,
+    "delete_original_after": False,
     "log_folder": "",
     "advanced": {},
     "seen_failures": [],
@@ -51,6 +56,8 @@ def write_json(path: Path, data: Any) -> None:
 def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
     if set(value) - set(DEFAULTS):
         raise ValueError("Unknown setting.")
+    if "cleanup_working_files" in value and not isinstance(value["cleanup_working_files"], bool):
+        raise ValueError("Automatic cleanup must be on or off.")
     previous = read_settings(home)
     value = {**previous, **value}
     choices = {
@@ -59,6 +66,7 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
         "short_side": {"keep", 1080, 1440, 2160},
         "fps": {"off", "2x"},
         "theme": {"system", "dark", "light"},
+        "zoom": {80, 90, 100, 110, 125, 150},
         "restore_strength": {"light", "medium", "strong"},
         "size_strength": {0.2, 0.6},
     }
@@ -67,6 +75,12 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"Invalid {key}.")
     if not isinstance(value["start_with_windows"], bool):
         raise ValueError("Start with Windows must be on or off.")
+    if not isinstance(value["tray_explained"], bool):
+        raise ValueError("Tray explanation must be on or off.")
+    if not isinstance(value["tour_completed"], bool):
+        raise ValueError("Tour completion must be on or off.")
+    if not isinstance(value["delete_original_after"], bool):
+        raise ValueError("Delete original after processing must be on or off.")
     if not isinstance(value["seen_failures"], list) or any(
         not isinstance(item, str) or len(item) > 80 for item in value["seen_failures"]
     ):

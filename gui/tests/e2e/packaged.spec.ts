@@ -28,7 +28,7 @@ test("unsigned owner folder finds the external engine and enforces renderer isol
       timeout: 40000,
     });
     await expect
-      .poll(() => existsSync(path.join(env.VE_HOME, "serve.json")))
+      .poll(() => existsSync(path.join(env.VE_HOME, "serve.json")), { timeout: 40000 })
       .toBe(true);
     const preferences = await app.evaluate(({ BrowserWindow }) => {
       const contents = BrowserWindow.getAllWindows()[0]

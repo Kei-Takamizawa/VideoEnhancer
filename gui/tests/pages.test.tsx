@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueuePage } from "../src/Queue";
-import { SchedulePage, cells, windows } from "../src/Schedule";
+import { HomePage } from "../src/Home";
 import { ConnectionBanner, ControlWarning } from "../src/App";
-import { ModelsPage, PlanPage, SettingsPage, timelineHour } from "../src/Pages";
+import { ModelsPage, SettingsPage, timelineHour } from "../src/Pages";
 import type { Api } from "../src/api";
-import type { Health, Job, Model, Schedule, Settings } from "../src/types";
+import type { Health, Job, Model, Settings } from "../src/types";
 
 const settings: Settings = {
   preset: "standard",
@@ -41,97 +40,10 @@ const job: Job = {
   segments: 2,
   log: "",
 };
-const schedule: Schedule = {
-  schema_version: 1,
-  timezone: "UTC",
-  enabled: true,
-  weekly: [{ days: ["mon"], start: "22:00", end: "08:00" }],
-  exceptions: [],
-};
 const api = {
   call: vi.fn(async () => ({ plan: { jobs: [] }, next_window: null })),
   blob: vi.fn(),
 } as unknown as Api;
-describe("Queue", () => {
-  it("shows concrete ETA and engine finalization without prematurely showing 100%", () => {
-    render(
-      <QueuePage
-        queue={{ jobs: [job], completion: job.eta!, operations: [] }}
-        add={vi.fn()}
-        action={vi.fn()}
-        trial={vi.fn()}
-      />,
-    );
-    expect(screen.getByText("99.9%")).toBeTruthy();
-    expect(screen.getByText("Finalizing: validating")).toBeTruthy();
-    expect(screen.getByText(/All jobs finish/)).toBeTruthy();
-    expect(screen.getByText("uncalibrated")).toBeTruthy();
-  });
-  it("offers keyboard reorder and actionable error details", () => {
-    const action = vi.fn();
-    render(
-      <QueuePage
-        queue={{
-          jobs: [
-            { ...job, state: "failed", error: "The component is missing." },
-          ],
-          completion: null,
-          operations: [],
-        }}
-        add={vi.fn()}
-        action={action}
-        trial={vi.fn()}
-      />,
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Actions for synthetic.mp4" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Move to top" }));
-    expect(action).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "one" }),
-      "move",
-      { position: 1 },
-    );
-    expect(screen.getByText("The component is missing.")).toBeTruthy();
-  });
-});
-describe("Schedule", () => {
-  it("preserves crossing midnight when converting between grid and list", () => {
-    const grid = cells(schedule);
-    expect(grid[0][88]).toBe(true);
-    expect(grid[1][31]).toBe(true);
-    expect(grid[1][32]).toBe(false);
-    expect(cells({ ...schedule, weekly: windows(grid) })).toEqual(grid);
-  });
-  it("keeps edits unsaved until Save and updates the shared API schedule", async () => {
-    const applied = vi.fn();
-    render(<SchedulePage api={api} value={schedule} applied={applied} />);
-    fireEvent.keyDown(screen.getByRole("button", { name: "mon 12:00" }), {
-      key: "Enter",
-    });
-    expect(screen.getByText("Unsaved changes")).toBeTruthy();
-    expect(
-      screen
-        .getByRole("button", { name: "mon 12:00" })
-        .getAttribute("aria-pressed"),
-    ).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Save schedule" }));
-    await waitFor(() => expect(applied).toHaveBeenCalled());
-    expect(api.call).toHaveBeenCalledWith(
-      "schedule",
-      "PUT",
-      expect.objectContaining({ weekly: expect.any(Array) }),
-    );
-  });
-  it("creates and deletes an Off exception", () => {
-    render(<SchedulePage api={api} value={schedule} applied={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "15" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mark Off" }));
-    expect(screen.getByText(/: Off/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Delete exception/ }));
-    expect(screen.queryByText(/: Off/)).toBeNull();
-  });
-});
 describe("Recovery and settings", () => {
   it("places plan blocks in the engine timezone across the daylight-saving jump", () => {
     expect(
@@ -149,11 +61,11 @@ describe("Recovery and settings", () => {
     render(
       <>
         <ConnectionBanner error="Connection closed" retry={retry} />
-        <QueuePage
+        <HomePage
           queue={{ jobs: [job], operations: [], completion: null }}
           add={vi.fn()}
           action={vi.fn()}
-          trial={vi.fn()}
+          trial={vi.fn()} preview={vi.fn()} pauseAll={vi.fn()} navigate={vi.fn()} reconnecting={false}
         />
       </>,
     );
@@ -196,7 +108,6 @@ describe("Recovery and settings", () => {
     fireEvent.click(
       screen.getByRole("checkbox", { name: /Start with Windows/ }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(saved).toHaveBeenCalled());
     expect(api.call).toHaveBeenCalledWith(
       "settings",
@@ -206,35 +117,7 @@ describe("Recovery and settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" }));
     expect(window.desktop.copy).toHaveBeenCalled();
   });
-  it("renders plan progress and delegates scenario changes to the engine", () => {
-    const change = vi.fn();
-    render(
-      <PlanPage
-        jobs={[job]}
-        scenario="expected"
-        change={change}
-        calibrate={vi.fn()}
-        plan={{
-          timezone: "UTC",
-          jobs: [{ job_id: "one", completion: job.eta! }],
-          timeline: [],
-          days: [
-            {
-              date: "2026-10-09",
-              windows: [],
-              run_hours: 1.2,
-              jobs: [{ job_id: "one", start_percent: 8, end_percent: 50 }],
-            },
-          ],
-        }}
-      />,
-    );
-    expect(screen.getByText(/8% → 50%/)).toBeTruthy();
-    fireEvent.change(screen.getByRole("combobox"), {
-      target: { value: "worst" },
-    });
-    expect(change).toHaveBeenCalledWith("worst");
-  });
+
 });
 
 describe("Models", () => {
@@ -248,6 +131,7 @@ describe("Models", () => {
     builtin: true,
     weights_verified: false,
     size_bytes: 0,
+    publisher_url: "https://example.invalid/publisher",
     weights: { url: "https://example.invalid/fixture", sha256: "a".repeat(64) },
   };
   it("requires explicit acceptance with licence and source before requesting a download", () => {
@@ -263,8 +147,11 @@ describe("Models", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
     expect(operate).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Model publisher’s page" }).getAttribute("href")).toBe(model.publisher_url);
     expect(screen.getByText(`Licence: ${model.licence}`)).toBeTruthy();
     expect(screen.getByText(model.weights.url!)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Accept licence and download" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: "I accept this licence" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Accept licence and download" }),
     );
@@ -272,6 +159,15 @@ describe("Models", () => {
       agree: true,
       licence: model.licence,
     });
+  });
+  it("shows the active download instead of another Install button", () => {
+    const operate = vi.fn();
+    render(<ModelsPage api={api} models={[model]} refresh={vi.fn()} operate={operate} operations={[{ id: "download", kind: "download", state: "running", phase: "12 MB of 40 MB", percent: 30, request: { model_id: model.id } }]} />);
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+    expect(screen.getByText(/30%/)).toBeTruthy();
+    expect(screen.getByRole("progressbar", { name: "Downloading Fixture model" }).getAttribute("value")).toBe("30");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(operate).toHaveBeenCalledWith("operations/download/cancel");
   });
   it("shows folder-validation errors and confirms user-model removal", async () => {
     const call = vi
@@ -283,7 +179,7 @@ describe("Models", () => {
     render(
       <ModelsPage
         api={{ ...api, call } as Api}
-        models={[{ ...model, builtin: false }]}
+        models={[{ ...model, builtin: false, weights_verified: true }]}
         refresh={refresh}
         operate={vi.fn()}
         operations={[]}
@@ -293,13 +189,22 @@ describe("Models", () => {
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain("SHA-256"),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Actions for Fixture model" }),
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Uninstall" }));
     expect(call).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Remove model" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
     expect(call).toHaveBeenLastCalledWith("models/fixture", "DELETE");
   });
+});
+it("shows finalization and moves queued videos with Alt arrows", () => {
+  const action = vi.fn();
+  const pending = { ...job, id: "next", position: 2, state: "queued", input: "C:\\next.mp4", segment: 0 };
+  render(<HomePage queue={{ jobs: [job, pending, { ...pending, id: "third", input: "C:\\third.mp4" }], operations: [], completion: null }} reconnecting={false} add={vi.fn()} action={action} trial={vi.fn()} preview={vi.fn()} pauseAll={vi.fn()} navigate={vi.fn()} />);
+  expect(screen.getByText("Finishing: checking the file")).toBeTruthy();
+  const row = screen.getByRole("heading", { name: "next.mp4" }).closest("article")!;
+  fireEvent.keyDown(row, { key: "ArrowUp", altKey: true });
+  expect(action).toHaveBeenCalledWith(pending, "move", { position: 1 });
+  fireEvent.keyDown(row, { key: "ArrowDown", altKey: true });
+  expect(action).toHaveBeenLastCalledWith(pending, "move", { position: 3 });
+  expect(action).toHaveBeenCalledTimes(2);
 });

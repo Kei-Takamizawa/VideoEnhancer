@@ -44,6 +44,9 @@
       "tile_overlap": 32,
       "mode": "standard",
       "seconds": 5
+    },
+    "download_sizes": {
+      "scunet.pth": 71982841
     }
   }
 }

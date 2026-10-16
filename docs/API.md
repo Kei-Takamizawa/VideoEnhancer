@@ -194,7 +194,8 @@ See `.ai/LAST_REPORT.md` for measured acceptance results and remaining gaps.
   Compare files can be read while later models are still being processed.
 - `POST queue/<id>/preview` is CPU-only. Cancelling the operation or quitting
   terminates encoding and deletes partial preview files, preserving job output.
-- `POST schedule/preview` returns `plan`, `best` and `worst`. Planned timeline
+- `POST schedule/preview` returns `plan` and the next window. Set `include_range`
+  to true to request `best` and `worst` as well. Planned timeline
   bars include `start_percent` and `end_percent`.
 - Model deletion refuses weights used by active queue jobs or active previews.
   Built-in deletion removes weights only; its card and licence remain available
@@ -228,3 +229,178 @@ resize), `restore_strength` (`light`, `medium`, `strong`), and `size_strength`
 Trial operation states retain `percent_history`: UTC `time`, `elapsed_seconds`
 since operation processing starts, and `percent`, sampled no more frequently
 than every two seconds, plus a terminal sample. Segment waiting is separate.
+
+## P1d additions
+
+- `POST estimate` also accepts `files` (up to 100 paths), returning per-file
+  metadata and combined Standard/Fast estimates with shared queue planning.
+- `health.paused_all` is independent of individual job states.
+- `POST history/remove` accepts `ids`, hides terminal entries for ten seconds,
+  then removes their job/work data. `POST history/undo` accepts the same IDs
+  within that interval. `POST history/clear` removes terminal entries without
+  Undo. Recorded original and output videos are preserved.
+- Queue records include completed-segment count, waiting count, preset/mode,
+  source bytes, output folder and file presence information.
+- `health.av1_min_width` and `av1_min_height` come from production
+  encoder probes. Smaller output is rejected before queue creation.
+- Compare publishes `first_looks`; authenticated
+  `GET operations/<id>/stills/<name>` serves only the published PNG names.
+- Event snapshots reuse structural plans. Schedule preview returns expected
+  planning only by default; `include_range: true` requests bound scenarios.
+
+Guarded Recycle Bin operations and automatic original deletion are described below.
+
+
+## P1d-2 guarded deletion and timing
+
+`POST history/delete-files` takes `{ids: [job_id], output: true, original: false}`
+and returns `results`, one `{job_id, file, path, result}` per selected file.
+Results include `Moved to the Recycle Bin`, `File not found`, and `Kept: reason`.
+Only recorded regular files on fixed NTFS/ReFS drives are eligible. A same-folder
+hard link and fsynced `deletions.jsonl` protect against permanent shell
+deletions and interrupted operations. Recovery runs on service startup.
+
+`delete_original_after` is a boolean in settings and individual jobs, default
+false. Automatic deletion verifies decoding, frame count, duration within one
+frame, and expected audio. Shared originals wait until no unfinished job uses
+them. Queue rows expose `original_delete_result`, `video_deletions`,
+`original_state`, `output_state`, and `cancel_cleanup`.
+
+Model-specific estimates add `frames * (1/fps_ref(model) - 1/fps_ref(default))`
+for each non-default category, using the same GPU and reference pipeline.
+Calibration stores `reference_pipelines` per GPU/driver with verified identities.
+Compare, Add, queue admission and planner use the shared estimator.
+`GET operations/{id}/stills/{model_id}` requires authentication and a published
+First look entry; it returns PNG bytes. Stills use the actual render tensor.
+
+History clear errors identify records that were not removed. Hidden cancellation
+cleanup failures become visible failed records. AV1 probes are cached by GPU/driver.
+
+Queue snapshots retain segment timing and fps while excluding per-frame quality
+and memory-sampling arrays from their internal projection. Full job details
+and persisted manifests retain those diagnostics. History-row cache invalidation
+uses file identity, modification time and size; read access alone does not
+change the displayed file state.
+
+## P1d-3 progress, estimates and deletion safety
+
+`GET events` publishes two authenticated SSE event types. `update` carries a
+structural snapshot only when its revision changes. `progress` carries
+`{progress: [{id, percent, work_left, finish_time, fps, phase, step}]}` for
+running jobs, at most once per second. Remaining work is extrapolated from the
+measured frame rate between child reports. Terminal rows and their serialized
+representations are cached per manifest revision. Full diagnostic manifests are
+available through `GET queue/<id>/json`; removed jobs return 404.
+
+`GET queue?refresh_files=true` refreshes terminal original/output presence when
+History opens. A background pass also refreshes file states every 60 seconds;
+owned deletions refresh immediately. Windows directory notifications invalidate
+manifest caches. Schedule reads use modification-time caching; registry and
+installed-model checks are cached for 60 seconds.
+Direct `GET health` also caches only job IDs, states, error messages and phases
+by engine-home change generation. The desktop tray's three-second health poll
+does not copy terminal probes, profiles or diagnostics.
+Temporary sharing violations while reading an operation's advisory progress
+file are retried on the next poll; cancellation is still checked. A failed
+operation terminates its remaining child tree before dropping process ownership.
+
+Estimates select an exact measured GPU/driver profile, then the newest measured
+profile for the same GPU, then a matching built-in GPU profile, then provisional
+defaults. The RTX 4060 Ti built-in profile comes from an independent five-second
+reference calibration. `health.speed_profile` identifies the source, driver note
+and approximate manual calibration minutes. Calibration records wall time and
+can be cancelled through `POST operations/<id>/cancel`. A selected model without
+a reference appears in `estimate.unknown_models`; clients suppress its numeric
+time and request manual calibration. Adding the job remains allowed.
+
+Multi-file estimates evaluate HDR independently: PQ/HLG files receive their own
+blocking warning without suppressing other files. API and CLI additions enforce
+HDR, available space, Smart App Control, cleanup's 256-pixel minimum and the
+detected AV1 minimum. The downscale note remains nonblocking.
+
+Deletion compares recorded input/output identities, including size, modification
+time and edge hash. Legacy outputs require matching recorded byte count and a
+modification time no later than completion plus 60 seconds. A cross-process
+`deletion.lock` covers deletion and recovery; journals record owner PID/start time.
+Recovery skips live owners and retries at least every 60 seconds. The guard is
+removed only after the returned Recycle Bin path identifies the same file.
+Read-only guard removal preserves the recycled file's attributes. Readable
+per-volume limits/policies prevent shell calls for disabled or undersized bins.
+Shell dialogs are suppressed behind the guard; unconfirmed deletion restores
+the original name or retains its full guard path. Unresolved `deletion_notices`
+appear on the matching History row or in health for Home. Automatic deletion
+runs off the queue worker and merges only its own fields into an existing job.
+
+## P1e additions
+
+`POST estimate` accepts the existing file list and settings. A failed file has
+`error`, empty `presets` and empty `warnings`; other rows still return estimates.
+The Add client does not impose a fixed timeout on this request. HDR10/PQ and HLG
+with BT.2020 matrices return per-file HDR warnings instead of SDR matrix errors.
+
+`POST estimate/space` accepts `files` and `settings`, including `output_folder`.
+It returns `{files: {path: {warnings, output}}}` using chosen geometry, fps and
+codec, without recomputing processing times or a schedule plan.
+
+`POST history/remove` and `POST history/clear` accept optional `output` and
+`original` booleans (both default false). Requested files pass the existing
+identity and Recycle Bin guards before record hiding. A kept file keeps its
+record. File removal returns a background operation immediately; its streamed
+result contains `ids`, `undo_seconds`, `files` counts (`moved`,
+`not_found`, `kept`) and retained-record reasons. Clear now shares soft hiding
+and Undo. `POST history/pause-undo` accepts `ids` and a `paused` boolean to pause
+or resume the remaining undo window. `POST history/undo` restores records only.
+
+`GET queue/{id}/video` serves the recorded output, or the original when no output
+exists, for terminal History jobs. The normal token, Host and Origin checks
+apply; there are no bearer tokens in media URLs. GET and HEAD support one byte
+range, including suffix and open-ended ranges (206), and reject unsatisfiable
+ranges (416). Electron forwards Range and the token through its app media
+protocol; the renderer uses a streaming URL without retrieving the whole file.
+
+`GET models` includes `uninstall_reason` for defaults and unfinished-job use.
+Weight hashes are cached by size and modification time; explicit verification
+bypasses that cache. Operations expose `remaining_seconds`, a stage name and a
+determinate percentage, including calibration and weight transfer/verification.
+
+Settings add the validated boolean `tour_completed`. New homes choose AV1 after
+successful hardware qualification; existing stored codec choices are preserved.
+Desktop IPC adds a validated `theme` choice for immediate native appearance.
+
+Completed manifests preserve `output_identity` and `output_bytes`. Legacy output
+identity fallback requires a modification time in [started_at, finished_at +
+60 seconds] and planned duration within one output frame. Large timestamp arrays
+are stored in the fixed `analysis.json` sidecar; normal JobStore loads hydrate
+them. New jobs record `initial_estimate_seconds` and `initial_finish_at`.
+
+Disk preflight accounts for segments and the joined video in the engine home,
+and the final temporary in the output folder, with the existing 10% reserve.
+On one volume that is 3.3x estimated output bytes; separate volumes require
+2.2x at home and 1.1x at output. The estimate remains a geometry/fps/codec size
+heuristic. `estimate/space` also refreshes codec geometry warnings without timing
+the pipeline. Live inference FPS applies only to the active part; pending parts
+retain their corrected end-to-end prediction.
+
+
+## P1e-2 contracts
+
+Both estimate routes accept `file_settings`, a map from input path to settings
+that override the shared defaults. Batch estimates include `selected_seconds`
+and `selected_finish` for the actual mix of modes, with per-file finish times.
+
+History removal accepts `history` (default true), `output` and `original`.
+At least one choice must be enabled. File-only operations preserve History.
+File outcomes are committed individually; operations expose `completed_files`,
+`total_files`, `current_file`, and the hidden record IDs for Undo. A restart
+replays settled outcomes and purges expired or paused removals without restoring
+or permanently deleting videos.
+
+Service locks have ranks: mutation (10), publication (20), state (30).
+Publication/state locks never cover file I/O or shell calls. SSE uses published
+snapshots and independent heartbeats. The watchdog logs a lock held over five
+seconds, including the holding thread's stack.
+
+`POST errors/dismiss` clears the published engine problem while retaining logs.
+Download operations report byte-based transfer and hash phases; only their GPU
+test waits for a running part. `remaining_seconds` may be null until speed data
+is available. Compare results include per-model `model_progress`.

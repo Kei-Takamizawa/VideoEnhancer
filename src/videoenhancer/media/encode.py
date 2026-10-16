@@ -22,7 +22,7 @@ NVENC_SETTINGS = {
 }
 
 
-def probe_av1() -> tuple[bool, str | None]:
+def probe_av1(width: int = 1920, height: int = 1080) -> tuple[bool, str | None]:
     """Exercise the production CUDA encoder and muxer at a supported HD size."""
     encoder = None
     try:
@@ -31,15 +31,15 @@ def probe_av1() -> tuple[bool, str | None]:
         with tempfile.TemporaryDirectory(prefix="ve-av1-probe-") as folder:
             encoder = Encoder(
                 Path(folder) / "probe.mp4",
-                1920,
-                1080,
+                width,
+                height,
                 Fraction(30),
                 "av1",
                 "cuda",
                 {"color_matrix": "bt709", "color_primaries": "bt709", "color_transfer": "bt709"},
             )
             with torch.inference_mode():
-                frame = torch.zeros((3, 1080, 1920), device="cuda")
+                frame = torch.zeros((3, height, width), device="cuda")
                 for _ in range(2):
                     encoder.write(frame)
             encoder.finish()
@@ -51,6 +51,35 @@ def probe_av1() -> tuple[bool, str | None]:
         return False, "AV1 hardware encoding is unavailable: " + " ".join(str(error).split())
 
 
+def av1_minimum_size() -> tuple[int, int]:
+    """Probe the smallest even dimensions; driver limits may be block-aligned."""
+    nvc: Any = importlib.import_module("PyNvVideoCodec")
+    caps = nvc.GetEncoderCaps(0, "av1")
+    width, height = int(caps["width_min"]), int(caps["height_min"])
+    if width <= 0 or height <= 0:
+        raise RuntimeError("AV1 minimum output size could not be determined.")
+    supported, reason = probe_av1(width, height)
+    if not supported:
+        raise RuntimeError(reason)
+
+    def minimum(upper: int, horizontal: bool) -> int:
+        low, high = 1, upper // 2
+        while low < high:
+            middle = (low + high) // 2
+            ok, _ = probe_av1(middle * 2, height) if horizontal else probe_av1(width, middle * 2)
+            if ok:
+                high = middle
+            else:
+                low = middle + 1
+        return low * 2
+
+    minimum_width, minimum_height = minimum(width, True), minimum(height, False)
+    supported, reason = probe_av1(minimum_width, minimum_height)
+    if not supported:
+        raise RuntimeError(reason)
+    return minimum_width, minimum_height
+
+
 def packet_bytes(packets: Any) -> bytes:
     if isinstance(packets, dict):
         return bytes(packets["data"])
@@ -60,7 +89,7 @@ def packet_bytes(packets: Any) -> bytes:
 
 
 def color_flags(media: dict[str, Any]) -> list[str]:
-    matrix = "smpte170m" if media["color_matrix"] == "bt601" else "bt709"
+    matrix = {"bt601": "smpte170m", "bt2020nc": "bt2020nc"}.get(media["color_matrix"], "bt709")
     primaries = media.get("color_primaries", "bt709")
     transfer = media.get("color_transfer", "bt709")
     return [
@@ -103,7 +132,7 @@ def color_bsf(media: dict[str, Any], codec: str) -> str:
         "bt2020-10": 14,
         "bt2020-12": 15,
     }
-    matrix = 6 if media["color_matrix"] == "bt601" else 1
+    matrix = {"bt601": 6, "bt2020nc": 9}.get(media["color_matrix"], 1)
     p = primaries.get(media.get("color_primaries", "unknown"), 2)
     t = transfers.get(media.get("color_transfer", "unknown"), 2)
     name = {"hevc": "hevc_metadata", "h264": "h264_metadata", "av1": "av1_metadata"}[codec]

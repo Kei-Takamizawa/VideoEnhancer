@@ -1,37 +1,44 @@
 # Desktop development app
 
-## P1c-3 screens
+## P1e owner-check update
 
-Home offers Change mode for prepared jobs that have not started. Problem opens
-details before anything is copied. The attention banner and rail dot count only
-unseen failures; displaying a History card or dismissing the banner records it
-as seen. History uses Today, Yesterday, or a weekday and date.
+The P1e update follows the owner-check instructions while retaining the cafe
+palette and dock. See `.ai/LAST_REPORT.md` for measured acceptance results.
 
-The Add dialog shows its output summary beside More options. Its Cleanup and
-Smoother motion selectors contain installed models; Bigger picture currently
-offers Standard resize. Try models first preserves dialog choices, and Use this
-returns a model selection to the dialog.
+The five-screen floating dock supports Ctrl+1 through Ctrl+5. The Windows title
+bar supports native window controls. Settings offers System, Dark and Light
+themes and six zoom levels from 80% to 150%. The first close explains the tray.
 
-Schedule previews expected, best and worst finish times. Work bars expose progress
-and finish-time tooltips. Exceptions can be edited directly, including multiple
-time windows. Add a day opens the one-day editor. Right-click, the block's menu
-button, Menu, or Shift+F10 opens Only on this date. Every save restarts the eight
-second Undo timer. Settings groups Defaults, App, Advanced, Diagnostics and About.
+Home separates global pause from a job's individual pause. Cancel removes an
+unstarted job; a job with completed segments stays in History as Cancelled.
+Cancellation discards intermediate work and preserves recorded source/output
+videos. History uses grouped virtual rows, file search, selection, removal and
+a ten-second Undo. Clear history requires confirmation. Remove and Clear share a ten-second Undo. Their optional file choices are off
+by default; a refused file keeps its record visible. Undo restores records only.
+Video details also offers a separate guarded Recycle Bin action.
+Settings > After processing and Add offer automatic original deletion, off by
+default, after output verification and completion of other dependent jobs.
 
-Models uses category cards, explicit licence consent, Verify again, Details,
-Make it my default and Remove. Qualified publisher cards show synthetic reference
-speeds; unknown speed for your own model is shown as not measured. Defaults affect
-new jobs only. Nine additional optional models are qualified in P1c-4.
+Add requests shared Standard/Fast finish estimates for all selected files.
+Estimates add whole-pipeline per-frame deltas for non-default models. Missing
+or different-GPU references show uncalibrated with a 25% range. Speed calibration
+measures verified installed alternatives. The P1d-2 acceptance report records
+remaining accuracy failures; estimated times are not guarantees. AV1 choices use the actual encoder's minimum dimensions.
+Models shows the qualified catalog, licence consent, download cancellation,
+details and defaults. Active downloads show their reported progress and Cancel
+in place of Install. Settings saves edits automatically.
 
-Compare renders Original and up to three installed models of one category, with
-one synchronized frame clock. Its initial view is side by side; uncheck Side by
-side for a swipe view and choose Left/Right. Zoom and panning apply to every
-picture. Arrow keys step, Space toggles playback, and Loop can be switched off.
-Use this is disabled for a job that has started. Back returns to the opener and
-leaves admitted work running; Cancel explicitly stops it. Learned size comparison
-includes SPAN and Standard resize. The service chooses saved motion data or the
-middle fallback and reuses previews by key. The GUI range box and automatic
-selection/render interactions are deferred to P1d.
+Schedule uses numeric time fields, fifteen-minute arrow increments, quick fill,
+exceptions, autosave and eight-second Undo. Its timeline is read-only. Unsaved
+previews request the expected scenario after a 400 ms debounce.
+
+Compare selects a range, renders automatically after an 800 ms debounce and
+allows installation followed by selection. Up to three models share the
+existing synchronized viewer. Early stills are labelled First look; completed
+preview files survive cancellation for reuse. The range box supports click placement and Left/Right (Shift: five seconds).
+Swipe has a draggable handle and zoom uses segmented buttons. First look comes
+from the actual preview render before encoding, without a second model run.
+Standalone Trial still uses the existing completed-video preview path.
 
 For isolated packaging while another package is open, set `VE_GUI_PACKAGE_OUT`
 to a fresh output folder before `npm run package`. Automated Electron tests use
@@ -159,36 +166,123 @@ Control failures show troubleshooting instructions. The app never changes
 Windows security settings. Reports and screenshots must use synthetic footage
 and exclude private sample names.
 
-## P1c partial reliability update
+## Service reliability
 
-Queue adds return immediately as **Preparing…**, then become ready or show a
-preparation error. The current segment reports its step and frame-based progress.
-Copy details includes the tail of the segment diagnostics. Controller errors
-are visible with their timestamp. Interrupted previews become retryable after
-service restart.
+Queue additions return immediately as Preparing, then become ready or show a
+preparation error. Active work reports frame progress. Copy details includes
+segment diagnostics. Interrupted previews become retryable after restart.
 
-If no event or heartbeat arrives for 30 seconds, the client keeps its last
-snapshot, shows **Reconnecting…**, and retries after 1, 2, 5 and 10 seconds.
-Retries refresh the service discovery; restoring/focusing the window also
-reconnects. P1c now includes Home, History, hours editing and multi-model Compare.
-Windows service launch uses pythonw and hidden subprocess settings. The upcoming
-P1d redesign and the owner-deferred interactions below remain separate work.
+If no event or heartbeat arrives for thirty seconds, the client retains the
+last snapshot and reconnects after 1, 2, 5 and 10 seconds. Restore/focus refreshes
+service discovery. Windows launches use pythonw and hidden subprocess settings.
+Structural queue plans change with their revisions. A separate small progress
+stream counts down between processing reports; the desktop limits progress-text
+changes to once per second. History grouping is reused across progress updates.
 
-## P1c-4 scope
+Settings identifies the active speed profile. An RTX 4060 Ti can use the built-in
+reference profile without running calibration. A profile measured with another
+driver remains usable, with both driver versions shown. Run speed calibration
+stays manual, shows an approximate duration, and offers Cancel while running.
+The gear in the navigation dock opens Settings.
+Tray status refreshes use cached compact job metadata, including with a large History.
+Models without a reference show Speed unknown in Add; adding remains allowed.
+PQ/HLG warnings apply to each file separately. The service enforces the same
+blocking rules as the dialog, including additions from the CLI.
 
-Add and Settings always show the same AV1 availability from health. If AV1 is
-unavailable, its option is disabled and the same one-line reason appears.
+Unresolved deletion recovery appears on the matching History detail or Home.
+The notice includes the full retained guard path and Show in folder. Original
+and output presence refresh when History opens and in a 60-second background
+pass. Do not manually remove retained guards.
 
-Qualified optional catalog cards show measured reference speeds. Model details
-identify the reference mode, sampled per-process GPU memory and tiling. Optional
-cleanup, motion and size defaults apply to new jobs; queued jobs keep their
-captured settings. DRUNet has one card with Light / Medium / Strong settings.
-The size default remains Standard resize. Each qualified manifest includes a
-short `summary` for the upcoming design; the card layout is unchanged.
+The performance generator `tests/perf/prepare_service.py` accepts `--root`,
+`--model-home`, `--history-template` and optional `--renderer`. Use fresh external
+directories and a genuinely finished synthetic Standard manifest. It measures
+three service CPU samples with 1,000 diagnostic-rich terminal rows, ten queued
+jobs and one real CUDA Standard job; 5,000 rows are an ungated scaling sample.
+`playwright.perf.config.ts` runs ten renderer repeats. Real progress checks use
+`VE_REAL_ENGINE_HOME` and `VE_GUI_EVIDENCE` with an isolated running GPU fixture.
 
-Owner feedback defers the draggable Compare range box, 800 ms automatic
-re-render, install-then-select, their GUI tests, and dark/light screenshots to
-P1d. This cycle implements cache reuse, cancellation and busiest-range selection
-in the service. The existing four-stream viewer and explicit Render action stay.
-Fast cleanup comparisons remain unavailable. The proposed GUI Switch to Standard
-action is also deferred with the Compare redesign.
+## Owner-check changes
+
+- Global pause preserves queue order. A paused card explains that completed parts
+  are kept and the current part restarts, with its predicted time.
+- Add shows errors and HDR warnings on individual rows. Valid files remain
+  addable. The time request has no fixed client timeout and can be cancelled by
+  closing the dialog. Folder and codec changes re-check disk space separately;
+  the original-deletion switch sends no time request. Finish times refresh every
+  30 seconds and on focus, retaining existing values during the refresh.
+- Theme choices apply immediately in the renderer and Windows title bar; saving
+  runs in the background. Remaining-time values use M:SS or H:MM:SS.
+- Action buttons use locally bundled Lucide outline icons. Dock icons, including
+  the Settings gear, retain their original shapes.
+  Icons describe their actions: History, video preview, hours, logs and verification
+  use distinct symbols. Arrows are reserved for directional navigation. Add videos
+  shows a plus icon without a second plus in its label.
+- History uses uncropped, justified thumbnails and a toolbar Select mode. Its
+  detail popup has an in-app player and an external-player fallback. The Undo
+  tint shrinks for ten seconds and pauses on hover or keyboard focus. Reduced
+  motion uses one-second steps.
+- Model cards keep their summary and main Install/Uninstall action. Open the
+  card for details, defaults, supported strength choices and verification.
+  Default models and models used by unfinished videos cannot be uninstalled.
+- Compare fits the largest tiles into the available space. Ctrl+wheel pinches
+  from 1x to 8x around the pointer; scroll pans while zoomed, or moves the swipe
+  divider at 1x. Zoom buttons remain available. Double-click isolates a pane;
+  Full window or F hides controls; Esc returns. Counters have fixed widths.
+- Schedule hours remain editable when its large switch is off. Saved hours stay
+  visible and dimmed; plan bands remain separate.
+- A five-step tour appears on first start. Skip closes it; Settings can replay it.
+- Jobs store their first estimate and finish time. Long-video timestamp arrays
+  live in a write-once analysis sidecar. Local timing observations supplement
+  the built-in profile; live finish times use the operating-hours planner.
+
+The unsigned package still uses the external engine checkout. Only guarded
+Recycle Bin operations may remove a recorded user video. URL imports, remote
+browser control and face/hair restoration remain outside this cycle.
+
+
+## P1e-2 behavior
+
+Add supports a mode switch and options on each file. The top controls apply to
+all files; the total follows the selected mix. Unreadable files have individual
+errors, and valid files remain addable. Standard cleanup of a 4K source is
+blocked on an 8 GiB GPU based on the measured working-set limit; Use Fast is
+available. BT.2020 non-constant-luminance SDR is supported; HDR processing remains blocked.
+
+Install starts downloading immediately and fills its button with measured
+progress. GPU qualification waits between parts with a live countdown. Persistent
+errors and warnings have a keyboard-accessible Dismiss button. Settings offers
+Tutorial; its dock action uses a gear.
+
+Compare keeps labels and the split slider outside the video. Touchpad pinch
+and Ctrl+wheel zoom; horizontal scrolling adjusts the split. Waiting names the
+active video, and model cards show individual progress and remaining time.
+A physical touchpad still requires the owner's check.
+
+History has Select all and one removal dialog with independent History, finished
+video and original choices. Only attention records show a warning badge.
+The player streams recorded media, supports seeking and allows fullscreen for
+the app's own window. Undo restores History records only.
+
+Live forecasts use full queue data and the cumulative active-part rate.
+Startup is measured in named terms. Corrections separate mode, output-size and
+length classes. Finalization reserves 1.5 times its forecast plus 60 seconds;
+safe completed assembly steps can resume after an operating-hours pause.
+The segment child and FFmpeg use Below Normal priority on Windows.
+
+
+The CUDA decoder uses NVDEC's packet API in display order, starting from a prior
+keyframe and checking every requested presentation timestamp against analysis.
+It does not rely on the container's frame count. If seeking is unavailable, it
+decodes forward from an earlier keyframe. This avoids SimpleDecoder timestamp
+tags that were observed to track decode order on a fractional-rate B-frame MP4.
+
+## Storage
+
+Settings > Storage shows the app data location, installed model size, unfinished-job working files, History and logs, and free drive space. Pause processing before choosing **Move...**. Select a new or empty folder. The app stops the service, copies and verifies the data, starts the service on the new location, then saves that location outside app data. `VE_HOME` takes precedence when starting the app or CLI.
+
+The old folder remains until you press **Remove the old folder**, which permanently deletes it. Keep it until the move result is successful. A failed or interrupted copy leaves the original location selected; a partial destination is kept for inspection and cannot be reused until it is empty. If the saved folder is missing at startup, use **Choose...** to locate it or **Use the previous folder** to return to the retained copy.
+
+The Storage list can clean engine-owned part and joined files from failed or cancelled jobs. The History record stays; Retry starts from the beginning. Automatic cleanup is enabled by default seven days after failure or cancellation and runs while the desktop engine is active. The Add dialog offers **Open Storage settings** when admission detects insufficient free space.
+
+Development and evidence retention rules are in [WORKSPACE.md](WORKSPACE.md).
