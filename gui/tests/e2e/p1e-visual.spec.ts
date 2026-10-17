@@ -1,4 +1,5 @@
-import { _electron, expect, test } from "@playwright/test";
+import { desktop } from "../desktop";
+import { expect, test } from "@playwright/test";
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -12,7 +13,7 @@ test("P1e changed screens in both window sizes and themes", async () => {
   test.setTimeout(600000);
   const evidence = process.env.VE_P1E_VISUAL_EVIDENCE!;
   mkdirSync(evidence, { recursive: true });
-  const root = path.join(evidence, "fixture"), fixture = await fakeEngine(path.join(root, "home"));
+  const root = path.resolve(process.env.VE_GUI_TEST_ROOT || "../../scratch/P1t/e2e", `visual-fixture-${Date.now()}`), fixture = await fakeEngine(path.join(root, "home"));
   const modelIds = ["basicvsrpp-ntire21-decompress", "scunet-real-psnr", "drunet-deblock"];
   for (const id of modelIds) fixture.models.push({ ...JSON.parse(readFileSync(path.resolve("../src/videoenhancer/models/manifests", `${id}.json`), "utf8")), builtin: true, weights_verified: true });
   const media: Record<string, Buffer> = {};
@@ -42,30 +43,30 @@ test("P1e changed screens in both window sizes and themes", async () => {
   fixture.routes.estimate = (data: { files: string[] }) => ({ presets: { standard: estimate, fast: estimate }, files: Object.fromEntries(data.files.map(file => [file, file.includes("broken") ? { error: "This video cannot be read.", presets: {}, warnings: [] } : { media: fixture.queue.jobs[0].media, presets: { standard: estimate, fast: estimate }, warnings: [], output: `${file}.output.mp4` }])) });
   fixture.plan.days = [{ date: "2026-10-12", windows: [{ start: "2026-10-12T16:00:00Z", end: "2026-10-13T01:00:00Z" }], run_hours: 9, jobs: [] }];
   fixture.plan.timeline = [{ job_id: "synthetic-0", start: "2026-10-12T16:00:00Z", end: "2026-10-12T19:00:00Z" }];
-  const app = await _electron.launch({ executablePath: require("electron"), args: ["--force-device-scale-factor=1", ".", `--user-data-dir=${path.join(root, "desktop")}`], env: { ...process.env, VE_HOME: path.join(root, "home") } });
+  const app = await desktop.launch({ executablePath: (process.env.VE_TAURI_EXE || ""), args: ["--force-device-scale-factor=1", ".", `--user-data-dir=${path.join(root, "desktop")}`], env: { ...process.env, VE_HOME: path.join(root, "home") } });
   const page = await app.firstWindow();
   const records: object[] = [];
   const visit = (name: string) => page.getByRole("button", { name, exact: true }).click();
   try {
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
-    await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: ["C:\\synthetic\\portrait.mp4", "C:\\synthetic\\landscape.mp4"] }); });
+    await app.files(["C:\\synthetic\\portrait.mp4", "C:\\synthetic\\landscape.mp4"]);
     for (const [width, height] of [[1280, 800], [1100, 700]]) {
-      await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(size[0], size[1]), [width, height]);
+      await (async (size) => app.setContentSize(size[0], size[1]))([width, height]);
       for (const theme of ["dark", "light"]) {
         await visit("Settings"); await page.getByLabel("Theme").selectOption(theme);
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         const shot = async (name: string) => {
           await page.waitForTimeout(100); await assertPanelFits(page);
           const file = path.join(evidence, `${name}-${width}x${height}-${theme}.png`);
-          const raw = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
+          const raw = await (async () => (await app.capturePage()).toString("base64"))();
           writeFileSync(file, Buffer.from(raw, "base64"));
           records.push({ name, width, height, theme, path: file }); writeFileSync(path.join(evidence, "inventory.json"), JSON.stringify(records, null, 2));
         };
         await visit("Home"); await shot("home");
         await page.getByRole("button", { name: "Add videos" }).click(); await expect(page.getByRole("button", { name: "Add to queue" })).toBeEnabled(); await shot("add"); await page.getByRole("button", { name: "Close", exact: true }).click();
-        await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: ["C:\\synthetic\\broken.mp4", "C:\\synthetic\\portrait.mp4"] }); });
+        await app.files(["C:\\synthetic\\broken.mp4", "C:\\synthetic\\portrait.mp4"]);
         await page.getByRole("button", { name: "Add videos" }).click(); await expect(page.getByText("This video cannot be read.")).toBeVisible(); await page.getByText("This video cannot be read.").scrollIntoViewIfNeeded(); await shot("add-error"); await page.getByRole("button", { name: "Close", exact: true }).click();
-        await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: ["C:\\synthetic\\portrait.mp4", "C:\\synthetic\\landscape.mp4"] }); });
+        await app.files(["C:\\synthetic\\portrait.mp4", "C:\\synthetic\\landscape.mp4"]);
         await visit("History"); await shot("history"); await page.getByRole("button", { name: "Select", exact: true }).click(); await page.locator(".history-image").first().click(); await shot("history-select"); await page.getByRole("button", { name: "Cancel", exact: true }).click();
         await page.locator(".history-image").first().click(); await shot("history-popup"); await page.getByRole("button", { name: "Close", exact: true }).click();
         await page.getByRole("button", { name: "Select", exact: true }).click(); await page.locator(".history-image").first().click(); await page.getByRole("button", { name: "Remove from history", exact: true }).click(); await shot("history-removal"); await page.getByRole("dialog", { name: "Remove records or video files?" }).getByRole("button", { name: "Cancel", exact: true }).click(); await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -92,7 +93,7 @@ test("P1e changed screens in both window sizes and themes", async () => {
           }
           await page.getByRole("button", { name: "Full window", exact: true }).click();
           await expect(labels).toBeVisible();
-          expect(await labels.evaluate(element => element.getBoundingClientRect().top)).toBeGreaterThanOrEqual(await page.locator(".title-bar").evaluate(element => element.getBoundingClientRect().bottom));
+          expect(await labels.evaluate(element => element.getBoundingClientRect().top)).toBeGreaterThanOrEqual(0);
           expect(await labels.evaluate(element => element.getBoundingClientRect().bottom)).toBeLessThanOrEqual(await canvas.evaluate(element => element.getBoundingClientRect().top));
           await shot(`compare-${shape}-${models}-full`); await page.locator(".compare").press("Escape");
           await page.getByRole("button", { name: "Close", exact: true }).click();

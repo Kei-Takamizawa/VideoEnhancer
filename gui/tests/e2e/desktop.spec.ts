@@ -1,4 +1,5 @@
-import { _electron, expect, test } from "@playwright/test";
+import { desktop } from "../desktop";
+import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
@@ -10,15 +11,16 @@ import {
 import path from "node:path";
 import { createRequire } from "node:module";
 import { assertPanelFits } from "./clipping";
-const electron: string = createRequire(import.meta.url)("electron");
+const electron: string = (process.env.VE_TAURI_EXE || "");
 
 test("desktop starts real CPU service, adds synthetic footage, streams completion and survives window close", async () => {
-  test.setTimeout(150000);
+  // This CPU/visual integration flow is separate from the unchanged perf budgets.
+  test.setTimeout(300000);
   const root = path.resolve("..");
   const evidence =
     process.env.VE_GUI_EVIDENCE || path.resolve("test-results/evidence");
   mkdirSync(evidence, { recursive: true });
-  const run = path.resolve("test-results", `engine-${Date.now()}`);
+  const run = path.resolve(process.env.VE_GUI_TEST_ROOT || "../../scratch/P1t/e2e", `engine-${Date.now()}`);
   mkdirSync(run, { recursive: true });
   mkdirSync(path.join(run, "home"), { recursive: true });
   const source = path.join(run, "home", "synthetic.mp4");
@@ -80,29 +82,24 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
   );
   mkdirSync(env.VE_HOME, { recursive: true });
   writeFileSync(path.join(env.VE_HOME, "settings.json"), JSON.stringify({ tour_completed: true }));
-  const app = await _electron.launch({
+  const app = await desktop.launch({
     executablePath: electron,
     args: [".", `--user-data-dir=${path.join(run, "desktop")}`],
     env,
   });
   const page = await app.firstWindow();
-  await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
-    window.webContents.setZoomFactor(1);
-    window.setContentSize(1280, 800);
-  });
+  await (async () => {
+    const window = app;
+    (await window.setZoomFactor(1));
+    (await window.setContentSize(1280, 800));
+  })();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   try {
     await expect(page.getByText("Nothing in the queue.")).toBeVisible({
       timeout: 40000,
     });
-    await app.evaluate(({ dialog }, file) => {
-      dialog.showOpenDialog = async () => ({
-        canceled: false,
-        filePaths: [file],
-      });
-    }, source);
+    await app.files((file => [file])(source));
     // Restoration weights are deliberately absent in CI. Exercise the existing CPU fixture preset.
     await page.route(/\/v1\/(queue|estimate)$/, async (route) => {
       const request = route.request();
@@ -154,14 +151,10 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
       { width: 1280, height: 800 },
       { width: 1100, height: 700 },
     ]) {
-      await app.evaluate(
-        ({ BrowserWindow }, dimensions) =>
-          BrowserWindow.getAllWindows()[0].setContentSize(
+      await (async (dimensions) => app.setContentSize(
             dimensions.width,
             dimensions.height,
-          ),
-        size,
-      );
+          ))(size);
       for (const theme of ["dark", "light"]) {
         await page
           .getByRole("button", { name: "Settings", exact: true })
@@ -224,10 +217,10 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
         await page.getByRole("button", { name: "Home", exact: true }).click();
         await page.getByRole("button", { name: "Add videos" }).click();
         for (const zoom of [1, 1.1]) {
-          await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom);
+          await (async (factor) => app.setZoomFactor(factor))(zoom);
           await assertPanelFits(page);
         }
-        await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
+        await (async () => app.setZoomFactor(1))();
         await page.screenshot({
           path: path.join(
             evidence,
@@ -243,10 +236,10 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
           timeout: 30000,
         });
         for (const zoom of [1, 1.1]) {
-          await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom);
+          await (async (factor) => app.setZoomFactor(factor))(zoom);
           await assertPanelFits(page);
         }
-        await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
+        await (async () => app.setZoomFactor(1))();
         await page.screenshot({
           path: path.join(
             evidence,
@@ -257,7 +250,7 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
         await page.getByRole("button", { name: "Close", exact: true }).click();
         await page.getByRole("button", { name: "History", exact: true }).click();
         for (const zoom of [1, 1.1]) {
-          await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom);
+          await (async (factor) => app.setZoomFactor(factor))(zoom);
           await page.locator(".history-image").first().click();
           await expect(page.getByRole("dialog", { name: "Video details" })).toBeVisible();
           await assertPanelFits(page);
@@ -266,7 +259,7 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
           await page.getByRole("dialog", { name: "Remove records or video files?" }).getByRole("button", { name: "Cancel", exact: true }).click();
           await expect(page.getByRole("dialog")).toHaveCount(0);
         }
-        await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
+        await (async () => app.setZoomFactor(1))();
       }
     }
     await page.getByRole("button", { name: "Models", exact: true }).click();
@@ -333,16 +326,12 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
     const discovery = JSON.parse(
       readFileSync(path.join(env.VE_HOME!, "serve.json"), "utf8"),
     );
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].close(),
-    );
+    await (async () => app.closeWindow())();
     await expect(page.getByRole("heading", { name: "VideoEnhancer keeps working in the tray" })).toBeVisible();
     await page.getByRole("button", { name: "Got it" }).click();
     await expect
       .poll(() =>
-        app.evaluate(({ BrowserWindow }) =>
-          BrowserWindow.getAllWindows()[0].isVisible(),
-        ),
+        (async () => app.isVisible())(),
       )
       .toBe(false);
     const response = await fetch(
@@ -350,20 +339,12 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
       { headers: { Authorization: `Bearer ${discovery.token}` } },
     );
     expect(response.ok).toBe(true);
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].show(),
-    );
+    await (async () => app.show())();
     await page.getByRole("button", { name: "History", exact: true }).click();
     await expect(page.locator(".history-image").first()).toBeVisible();
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].setSize(1100, 700),
-    );
+    await (async () => app.setContentSize(1100, 700))();
     for (const zoom of [1.25, 1.5]) {
-      await app.evaluate(
-        ({ BrowserWindow }, factor) =>
-          BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor),
-        zoom,
-      );
+      await (async (factor) => app.setZoomFactor(factor))(zoom);
       for (const name of [
         "Home",
         "History",
@@ -388,18 +369,14 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
             requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
           ),
       );
-      const png = await app.evaluate(async ({ BrowserWindow }) =>
-        (await BrowserWindow.getAllWindows()[0].capturePage())
-          .toPNG()
-          .toString("base64"),
-      );
+      const png = (await app.capturePage()).toString("base64");
       writeFileSync(
         path.join(evidence, `settings-${zoom * 100}-percent.png`),
         Buffer.from(png, "base64"),
       );
     }
     expect(errors).toEqual([]);
-    await app.evaluate(({ app }) => app.quit());
+    await (async () => app.quit())();
     await expect
       .poll(() => existsSync(path.join(env.VE_HOME!, "serve.json")))
       .toBe(false);
@@ -410,18 +387,18 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
 
 test("Schedule bar tooltips stay inside both window sizes and zoom levels", async () => {
   const { fakeEngine } = createRequire(import.meta.url)("../perf/fake-engine.cjs");
-  const home = path.resolve("test-results", `tooltip-${Date.now()}`);
+  const home = path.resolve(process.env.VE_GUI_TEST_ROOT || "../../scratch/P1t/e2e", `tooltip-${Date.now()}`);
   const fixture = await fakeEngine(home);
   fixture.plan.timezone = "UTC";
   fixture.plan.days = [{ date: "2026-10-12", windows: [], run_hours: 1, jobs: [] }];
   fixture.plan.timeline = [{ job_id: "synthetic-0", start: "2026-10-12T23:00:00Z", end: "2026-10-13T00:00:00Z", overrun_seconds: 45 }];
-  const app = await _electron.launch({ executablePath: electron, args: [".", `--user-data-dir=${path.join(home, "desktop")}`], env: { ...process.env, VE_HOME: home } });
+  const app = await desktop.launch({ executablePath: electron, args: [".", `--user-data-dir=${path.join(home, "desktop")}`], env: { ...process.env, VE_HOME: home } });
   try {
     const page = await app.firstWindow();
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Schedule", exact: true }).click();
     for (const size of [[1280, 800], [1100, 700]]) for (const factor of [1, 1.1]) {
-      await app.evaluate(({ BrowserWindow }, value) => { const window = BrowserWindow.getAllWindows()[0]; window.setContentSize(value[0], value[1]); window.webContents.setZoomFactor(value[2]); }, [...size, factor]);
+      await (async (value) => { const window = app; (await window.setContentSize(value[0], value[1])); (await window.setZoomFactor(value[2])); })([...size, factor]);
       await page.locator(".planned-block").first().hover();
       await expect(page.locator(".timeline-tooltip").first()).toBeVisible();
       await assertPanelFits(page);

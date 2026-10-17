@@ -1,5 +1,23 @@
 # Troubleshooting
 
+## Tauri candidate startup and playback
+
+The Windows shell requires the Microsoft Edge WebView2 Runtime. If the webview
+cannot start, install the Evergreen Runtime from Microsoft's official WebView2
+download page and retry. Building the shell also requires Microsoft C++ Build Tools
+and a Windows SDK; these are developer requirements, not owner package contents.
+
+HEVC playback depends on the codecs available to WebView2. If the app reports that
+HEVC cannot play inside the app, use its HEVC Video Extensions Store button or open
+the video in the default player. H.264/AV1 support is measured on the target PC;
+an installed codec package alone does not prove successful playback. Processing
+and the default output codec do not change when in-app playback is unavailable.
+
+The shell and CLI share `%APPDATA%/VideoEnhancer/storage-location.json`. If its active
+folder is missing, choose an existing folder, use the previous folder, or quit.
+The app must not silently open an older default home. Explicit `VE_HOME` overrides
+location selection and disables Move and Remove.
+
 ## Preview and catalog messages
 
 Closing Preview result stops its CPU encoding and removes partial previews;

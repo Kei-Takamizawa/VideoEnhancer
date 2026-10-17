@@ -1,4 +1,5 @@
-import { _electron, expect, test } from "@playwright/test";
+import { desktop } from "../desktop";
+import { expect, test } from "@playwright/test";
 import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -9,7 +10,7 @@ const { fakeEngine } = require("../perf/fake-engine.cjs");
 test("P1d-3 changed screens in the packaged desktop", async () => {
   test.skip(!process.env.VE_GUI_PACKAGE_EXE, "Requires the isolated package.");
   test.setTimeout(180000);
-  const root = path.resolve("test-results", `p1d3-${Date.now()}`), evidence = process.env.VE_GUI_EVIDENCE!;
+  const root = path.resolve(process.env.VE_GUI_TEST_ROOT || "../../scratch/P1t/e2e", `p1d3-${Date.now()}`), evidence = process.env.VE_GUI_EVIDENCE!;
   mkdirSync(evidence, { recursive: true });
   const fixture = await fakeEngine(path.join(root, "home"));
   fixture.queue.jobs = fixture.queue.jobs.slice(0, 15);
@@ -34,16 +35,16 @@ test("P1d-3 changed screens in the packaged desktop", async () => {
     fixture.queue.operations = [operation]; fixture.snapshot(); return operation;
   };
   fixture.routes.estimate = { presets: { standard: unknown, fast: known }, files: { [source]: { media, warnings: ["HDR is not supported"], output: `${source}.output.mp4`, presets: { standard: known, fast: known } }, [normal]: { media, warnings: [], output: `${normal}.output.mp4`, presets: { standard: unknown, fast: known } } } };
-  const app = await _electron.launch({ executablePath: process.env.VE_GUI_PACKAGE_EXE!, args: ["--force-device-scale-factor=1", `--user-data-dir=${path.join(root, "desktop")}`], env: { ...process.env, VE_HOME: path.join(root, "home") } });
+  const app = await desktop.launch({ executablePath: process.env.VE_GUI_PACKAGE_EXE!, args: ["--force-device-scale-factor=1", `--user-data-dir=${path.join(root, "desktop")}`], env: { ...process.env, VE_HOME: path.join(root, "home") } });
   const page = await app.firstWindow();
   const captures: string[] = [];
   const capture = async (name: string) => {
     for (const [width, height] of [[1280, 800], [1100, 700]]) {
-      await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(size[0], size[1]), [width, height]);
+      await (async (size) => app.setContentSize(size[0], size[1]))([width, height]);
       if (name.startsWith("Compare")) await page.getByText(/Speed unknown for this video/).scrollIntoViewIfNeeded();
       await page.waitForTimeout(200);
       const file = path.join(evidence, `${name}-${width}x${height}.png`);
-      const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
+      const png = await (async () => (await app.capturePage()).toString("base64"))();
       writeFileSync(file, Buffer.from(png, "base64")); captures.push(file);
       if (name === "Settings-builtin") {
         const icon = path.join(evidence, `Settings-gear-${width}x${height}.png`);
@@ -53,7 +54,7 @@ test("P1d-3 changed screens in the packaged desktop", async () => {
     }
   };
   const open = async (name: string) => page.getByRole("button", { name, exact: true }).click();
-  const reload = async () => { await app.evaluate(async ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].loadURL("app://videoenhancer/")); await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible(); };
+  const reload = async () => { await (async () => app.loadURL("http://tauri.localhost/"))(); await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible(); };
   try {
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
     await expect(page.getByText(guard, { exact: true })).toBeVisible();
@@ -65,10 +66,10 @@ test("P1d-3 changed screens in the packaged desktop", async () => {
     fixture.queue.operations = [];
     await reload(); await open("History"); await page.locator('.history-image').first().click(); await expect(page.getByText(notice.result)).toBeVisible(); await capture("History-retained-guard");
     await open("Close"); await open("Home");
-    await app.evaluate(({ dialog }, files) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: files }); }, [source, normal]);
+    await app.files((files => files)([source, normal]));
     await open("Add videos"); await expect(page.getByText("HDR is not supported")).toBeVisible(); await expect(page.getByText("Speed unknown for fixture-without-reference. Run speed calibration.")).toBeVisible(); await capture("Add-HDR-and-unknown-speed");
     await open("Close");
-    await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, normal);
+    await app.files((file => [file])(normal));
     await open("Models"); await open("Compare on my video"); await page.getByText("Use a model", { exact: true }).click();
     await page.getByText(/Speed unknown for this video/).scrollIntoViewIfNeeded(); await expect(page.getByText(/Speed unknown for this video/)).toBeVisible();
     await expect(page.locator("canvas")).toHaveAttribute("data-frame", /\d+/);

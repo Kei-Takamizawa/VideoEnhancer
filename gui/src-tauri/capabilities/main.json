@@ -1,0 +1,7 @@
+{
+  "identifier": "main",
+  "description": "Only the local main app can use the validated desktop seam and receive events.",
+  "windows": ["main"],
+  "local": true,
+  "permissions": ["allow-desktop-command", "core:event:allow-listen", "core:event:allow-unlisten"]
+}

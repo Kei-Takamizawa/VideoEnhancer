@@ -416,6 +416,12 @@ it("opens the shared file-removal flow from History details", () => {
   expect(action).toHaveBeenCalledWith(job, "delete-files");
   expect(close).toHaveBeenCalled();
 });
+it("disables in-app playback when HEVC support is absent", () => {
+  const job = { ...failed, settings: { ...failed.settings, codec: "hevc" as const } };
+  render(<HistoryDetail job={job} close={vi.fn()} action={vi.fn()} compare={vi.fn()} />);
+  expect(screen.getByText(/This PC can't play HEVC videos inside the app/)).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Play or Pause" }) as HTMLButtonElement).disabled).toBe(true);
+});
 it("saves an overnight row without changing its end date semantics", async () => {
   const call = vi.fn(async () => ({ plan }));
   render(<ScheduleView api={{ call } as unknown as Api} value={schedule} plan={plan} jobs={[]} applied={vi.fn()} />);

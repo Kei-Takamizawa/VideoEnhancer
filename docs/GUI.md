@@ -1,5 +1,17 @@
 # Desktop development app
 
+## Tauri candidate
+
+P1t moves the existing React screens to a Windows 11 Tauri 2 shell with WebView2.
+The native Windows title bar follows the app theme. The client area begins directly
+below it. Native file drops provide local paths; queue reordering uses pointer
+events and retains Alt+Arrow keyboard reordering.
+
+History playback uses the shell's bounded media protocol. On PCs without HEVC
+playback support, the player offers the Microsoft Store codec page and the default
+player. The default output codec is unchanged. Test results and remaining acceptance
+items are recorded in `.ai/LAST_REPORT.md`.
+
 ## P1e owner-check update
 
 The P1e update follows the owner-check instructions while retaining the cafe
@@ -281,7 +293,9 @@ tags that were observed to track decode order on a fractional-rate B-frame MP4.
 
 Settings > Storage shows the app data location, installed model size, unfinished-job working files, History and logs, and free drive space. Pause processing before choosing **Move...**. Select a new or empty folder. The app stops the service, copies and verifies the data, starts the service on the new location, then saves that location outside app data. `VE_HOME` takes precedence when starting the app or CLI.
 
-The old folder remains until you press **Remove the old folder**, which permanently deletes it. Keep it until the move result is successful. A failed or interrupted copy leaves the original location selected; a partial destination is kept for inspection and cannot be reused until it is empty. If the saved folder is missing at startup, use **Choose...** to locate it or **Use the previous folder** to return to the retained copy.
+The old folder remains until you press **Remove the old folder** and confirm. This is enabled only when the engine is using the saved new location, that folder passes a read/write check, and its core records load. Removal permanently deletes only old files recorded in the move manifest that still match their recorded size and hash, where recorded. Changed and unlisted files stay in the old folder and are reported. A failed or interrupted copy leaves the original location selected; a partial destination is kept for inspection and cannot be reused until it is empty. If the saved folder is missing at startup, use **Choose...** to locate it or **Use the previous folder** to return to the retained copy.
+
+Move preserves damaged nonessential log and journal records unchanged and lists them in its result. If a file needed at startup is damaged, Move stops and identifies its relative path. The current folder stays selected and the app does not repair or discard the damaged data.
 
 The Storage list can clean engine-owned part and joined files from failed or cancelled jobs. The History record stays; Retry starts from the beginning. Automatic cleanup is enabled by default seven days after failure or cancellation and runs while the desktop engine is active. The Add dialog offers **Open Storage settings** when admission detects insufficient free space.
 

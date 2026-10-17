@@ -1,4 +1,5 @@
-import { _electron, expect, test } from "@playwright/test";
+import { desktop } from "../desktop";
+import { expect, test } from "@playwright/test";
 import { createRequire } from "node:module";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -9,7 +10,7 @@ const { fakeEngine } = require("../perf/fake-engine.cjs");
 test("packaged design board inventory with isolated synthetic API data", async () => {
   test.skip(!process.env.VE_GUI_PACKAGE_EXE, "Opt-in packaged visual inventory.");
   test.setTimeout(600000);
-  const root = path.resolve("test-results", `boards-${Date.now()}`);
+  const root = path.resolve(process.env.VE_GUI_TEST_ROOT || "../../scratch/P1t/e2e", `boards-${Date.now()}`);
   const evidence = path.join(process.env.VE_GUI_EVIDENCE!, "boards");
   mkdirSync(root, { recursive: true }); mkdirSync(evidence, { recursive: true });
   const source = path.join(root, "synthetic-one.mp4"), second = path.join(root, "synthetic-two.mp4");
@@ -48,11 +49,11 @@ test("packaged design board inventory with isolated synthetic API data", async (
     fixture.queue.jobs = fixture.queue.jobs.filter((job: { id: string }) => !data.ids.includes(job.id));
     return { ids: data.ids, files: { moved: 0, not_found: 0, kept: 0 }, kept: [] };
   };
-  const app = await _electron.launch({ executablePath: process.env.VE_GUI_PACKAGE_EXE!, args: ["--force-device-scale-factor=1", `--user-data-dir=${path.join(root, "desktop")}`], env: { ...process.env, VE_HOME: path.join(root, "home") } });
+  const app = await desktop.launch({ executablePath: process.env.VE_GUI_PACKAGE_EXE!, args: ["--force-device-scale-factor=1", `--user-data-dir=${path.join(root, "desktop")}`], env: { ...process.env, VE_HOME: path.join(root, "home") } });
   const page = await app.firstWindow();
   page.setDefaultTimeout(7000);
   await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible({ timeout: 40000 });
-  await app.evaluate(({ dialog }, files) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: files }); }, [source, second]);
+  await app.files((files => files)([source, second]));
   const inventory = readFileSync(path.resolve("../design/p1d/README.md"), "utf8").split("\n").filter(line => /^\| \d+ \|/.test(line)).map(line => { const parts = line.split("|").map(part => part.trim()); return { number: Number(parts[1]), name: parts[2], component: parts[3], variant: parts[4], theme: parts[5] }; });
   const filter = process.env.VE_GUI_BOARD_IDS?.split(",").map(Number);
   const results: { number: number; name: string; paths?: string[]; error?: string }[] = filter ? JSON.parse(readFileSync(path.join(evidence, "inventory.json"), "utf8")).filter((row: { number: number }) => !filter.includes(row.number)) : [];
@@ -81,9 +82,9 @@ test("packaged design board inventory with isolated synthetic API data", async (
         fixture.schedule.enabled = board.variant !== "off";
         fixture.schedule.override_until = board.variant === "override" ? new Date(Date.now() + 3600000).toISOString() : null;
         fixture.health.av1_supported = board.variant != "optionsNoAv1";
-        await app.evaluate(({ dialog }, files) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: files }); }, board.variant === "one" ? [source] : [source, second]);
-        await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.show(); window.webContents.setZoomFactor(1); });
-        await app.evaluate(async ({ BrowserWindow }) => { await BrowserWindow.getAllWindows()[0].loadURL("app://videoenhancer/"); });
+        await app.files((files => files)(board.variant === "one" ? [source] : [source, second]));
+        await (async () => { const window = app; (await window.show()); (await window.setZoomFactor(1)); })();
+        await (async () => { await app.loadURL("http://tauri.localhost/"); })();
         await page.waitForTimeout(250);
         if (board.variant === "connecting") await expect(page.getByRole("heading", { name: "Connecting to the engine…" })).toBeVisible();
         else await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
@@ -118,16 +119,16 @@ test("packaged design board inventory with isolated synthetic API data", async (
           if (board.variant === "drop") await page.locator('.app').evaluate(element => { const dataTransfer = new DataTransfer(); dataTransfer.items.add(new File(['synthetic'], 'synthetic.mp4')); element.dispatchEvent(new DragEvent('dragenter', { bubbles: true, dataTransfer })); });
           if (board.variant === "zoom") await page.keyboard.press("Control+=");
           if (board.variant === "preview") { fixture.queue.jobs[0].preview_ready = true; fixture.snapshot(); await expect(page.getByRole("button", { name: "Preview result" })).toBeEnabled(); await click("Preview result"); }
-          if (board.variant === "tray") { await page.waitForTimeout(3200); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()); await expect(page.getByRole("heading", { name: "VideoEnhancer keeps working in the tray" })).toBeVisible(); }
+          if (board.variant === "tray") { await page.waitForTimeout(3200); await (async () => app.closeWindow())(); await expect(page.getByRole("heading", { name: "VideoEnhancer keeps working in the tray" })).toBeVisible(); }
           if (board.variant === "reconnecting") { fixture.control.events = false; fixture.disconnect(); await expect(page.locator(".connection.card").filter({ hasText: "Reconnecting" })).toBeVisible(); }
           if (board.variant === "unreachable") { fixture.control.events = false; fixture.routes.models = { statusCode: 503, error: "Synthetic engine is unreachable." }; await page.evaluate(() => window.dispatchEvent(new Event("focus"))); await expect(page.getByRole('heading', { name: "Can’t reach the engine" })).toBeVisible(); }
         }
         const paths: string[] = [];
         for (const [width, height] of [[1280, 800], [1100, 700]]) {
-          await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(size[0], size[1]), [width, height]);
+          await (async (size) => app.setContentSize(size[0], size[1]))([width, height]);
           await page.waitForTimeout(150);
           const file = path.join(evidence, `${String(board.number).padStart(2, "0")}-${board.component}-${board.variant}-${board.theme}-${width}x${height}.png`);
-          const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
+          const png = await (async () => (await app.capturePage()).toString("base64"))();
           writeFileSync(file, Buffer.from(png, "base64")); paths.push(file);
         }
         results.push({ number: board.number, name: board.name, paths });
@@ -140,14 +141,14 @@ test("packaged design board inventory with isolated synthetic API data", async (
     fixture.models[0].weights_verified = false;
     fixture.queue.operations = [{ id: "download", kind: "download", state: "running", phase: "12 MB of 40 MB", percent: 30, request: { model_id: modelIds[0] } }];
     fixture.snapshot();
-    await app.evaluate(async ({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.show(); await window.loadURL("app://videoenhancer/"); });
+    await (async () => { const window = app; (await window.show()); await (await window.loadURL("http://tauri.localhost/")); })();
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
     await click("Models");
     await expect(page.getByRole("button", { name: "Installing Gentle cleanup", exact: true })).toBeVisible();
     await expect(page.getByRole("progressbar", { name: "Downloading Gentle cleanup", exact: true })).toHaveAttribute("value", "30");
     for (const [width, height] of [[1280, 800], [1100, 700]]) {
-      await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(size[0], size[1]), [width, height]);
-      const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
+      await (async (size) => app.setContentSize(size[0], size[1]))([width, height]);
+      const png = await (async () => (await app.capturePage()).toString("base64"))();
       writeFileSync(path.join(evidence, `derived-Models-downloading-dark-${width}x${height}.png`), Buffer.from(png, "base64"));
     }
 

@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from videoenhancer import proc
 from videoenhancer.service.engine import Engine
 
-APP_ORIGIN = "app://videoenhancer"
+APP_ORIGIN = "http://tauri.localhost"
 DEV_ORIGIN = "http://127.0.0.1:5173"
 
 

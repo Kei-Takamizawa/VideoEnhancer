@@ -1,15 +1,14 @@
-import { _electron, expect, test } from "@playwright/test";
-import { createRequire } from "node:module";
+import { desktop } from "../desktop";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-const require = createRequire(import.meta.url);
 
 test("real CUDA engine progress reaches the renderer at the specified cadence", async () => {
   test.skip(!process.env.VE_REAL_ENGINE_HOME, "Requires an isolated live CUDA fixture.");
   test.setTimeout(90000);
   const home = process.env.VE_REAL_ENGINE_HOME!;
   const connection = JSON.parse(readFileSync(path.join(home, "serve.json"), "utf8"));
-  const app = await _electron.launch({ executablePath: require("electron"), args: [".", `--user-data-dir=${path.join(home, "desktop-progress")}`], env: { ...process.env, VE_HOME: home } });
+  const app = await desktop.launch({ executablePath: (process.env.VE_TAURI_EXE || ""), args: [".", `--user-data-dir=${path.join(home, "desktop-progress")}`], env: { ...process.env, VE_HOME: home, VE_KEEP_TEST_ENGINE: "1" } });
   const page = await app.firstWindow();
   try {
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
@@ -50,7 +49,7 @@ test("real CUDA engine progress reaches the renderer at the specified cadence", 
     expect(numbers.minimum_paint_gap_ms).toBeGreaterThanOrEqual(900);
   } finally {
     // The fixture owns the service lifetime; exit this isolated desktop only.
-    await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
+    await (async () => app.exit())().catch(() => {});
     await app.close().catch(() => {});
   }
 });

@@ -8,7 +8,9 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "node scripts/dev.mjs",
+    "dev": "tauri dev",
+    "dev:renderer": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "build:desktop": "tauri build --no-bundle",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "test:e2e": "playwright test",
@@ -17,6 +19,7 @@
     "package": "tsc --noEmit && vite build && node scripts/package.mjs"
   },
   "dependencies": {
+    "@tauri-apps/api": "2.12.4",
     "lucide-react": "1.55.0",
     "mp4box": "2.4.1",
     "react": "19.3.0",
@@ -26,6 +29,7 @@
     "@electron/packager": "20.3.0",
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.64.0",
+    "@tauri-apps/cli": "2.12.3",
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "14.6.7",
     "@types/node": "26.6.4",

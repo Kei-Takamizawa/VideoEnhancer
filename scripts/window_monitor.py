@@ -20,6 +20,10 @@ def main() -> None:
     user.IsWindowVisible.argtypes = [wintypes.HWND]
     user.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user.GetWindowLongPtrW.restype = ctypes.c_ssize_t
 
     def windows():
         result = []
@@ -31,13 +35,26 @@ def main() -> None:
                 user.GetClassNameW(handle, name, 256)
                 pid = wintypes.DWORD()
                 user.GetWindowThreadProcessId(handle, ctypes.byref(pid))
-                result.append((int(handle), pid.value, name.value))
+                rect = wintypes.RECT()
+                user.GetWindowRect(handle, ctypes.byref(rect))
+                client = wintypes.RECT()
+                user.GetClientRect(handle, ctypes.byref(client))
+                result.append(
+                    (
+                        int(handle),
+                        pid.value,
+                        name.value,
+                        [rect.left, rect.top, rect.right, rect.bottom],
+                        [client.left, client.top, client.right, client.bottom],
+                        user.GetWindowLongPtrW(handle, -20),
+                    )
+                )
             return True
 
         user.EnumWindows(visit, 0)
         return result
 
-    baseline = {handle for handle, _, _ in windows()}
+    baseline = {handle for handle, _, _, _, _, _ in windows()}
     (folder / "ready").write_text("ready")
     events, seen, polls = [], set(), 0
     started = time.monotonic()
@@ -50,7 +67,7 @@ def main() -> None:
                 descendants.update(p.pid for p in psutil.Process(root).children(recursive=True))
             except psutil.NoSuchProcess:
                 pass
-        for handle, pid, name in windows():
+        for handle, pid, name, rect, client, exstyle in windows():
             if handle in baseline or handle in seen:
                 continue
             console = name in {"ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS"}
@@ -65,6 +82,9 @@ def main() -> None:
                         window_class=name,
                         console=console,
                         owned_extra=extra,
+                        rect=rect,
+                        client_rect=client,
+                        extended_style=exstyle,
                     )
                 )
         polls += 1
@@ -72,6 +92,23 @@ def main() -> None:
     own_path = folder / "own-windows.json"
     own = set(json.loads(own_path.read_text())) if own_path.exists() else set()
     events = [event for event in events if event["hwnd"] not in own]
+    non_display = [
+        event
+        for event in events
+        if not event["console"]
+        and (
+            event["rect"][0] >= event["rect"][2]
+            or event["rect"][1] >= event["rect"][3]
+            or (
+                event["extended_style"] & 0x80000
+                and (
+                    event["client_rect"][0] >= event["client_rect"][2]
+                    or event["client_rect"][1] >= event["client_rect"][3]
+                )
+            )
+        )
+    ]
+    events = [event for event in events if event not in non_display]
     (folder / "windows.json").write_text(
         json.dumps(
             dict(
@@ -79,6 +116,7 @@ def main() -> None:
                 polls=polls,
                 elapsed_seconds=time.monotonic() - started,
                 unexpected_windows=events,
+                non_display_windows=non_display,
             ),
             indent=2,
         )

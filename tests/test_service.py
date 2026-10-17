@@ -48,6 +48,20 @@ def api(tmp_path):
     thread.join(timeout=5)
 
 
+def test_production_engine_does_not_expose_prototype_media_urls(api):
+    _, _, request = api
+    for route, method in [
+        ("fixture-url/h264-1440-large", "POST"),
+        ("fixture-playback/00000000000000000000000000000000", "GET"),
+    ]:
+        with pytest.raises(urllib.error.HTTPError) as error:
+            request(route, method=method, data={} if method == "POST" else None)
+        assert error.value.code in {400, 404}
+        with pytest.raises(urllib.error.HTTPError) as error:
+            request(route, method=method, data={} if method == "POST" else None, token=False)
+        assert error.value.code == 401
+
+
 def test_token_origin_host_and_user_private_discovery(api):
     engine, server, request = api
     assert server.server_address[0] == "127.0.0.1"
@@ -58,6 +72,7 @@ def test_token_origin_host_and_user_private_discovery(api):
         (dict(origin="https://evil.invalid"), 403),
         (dict(host="evil.invalid"), 403),
         (dict(origin="null"), 403),
+        (dict(origin="app://videoenhancer"), 403),
     ):
         with pytest.raises(urllib.error.HTTPError) as error:
             request("health", **kwargs)
