@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-desktop-command"
+description = "Invoke the validated local desktop seam. No general filesystem, shell, or HTTP access."
+commands.allow = ["desktop_command"]
+
+[[permission]]
+identifier = "allow-desktop-test"
+description = "Test build only; never granted by an owner build."
+commands.allow = ["desktop_test"]

@@ -14,17 +14,41 @@ async function fakeEngine(home) {
   const health = { version: "fixture", engine_state: "Working", waiting_count: 10, paused_all: false, gpu: "Synthetic RTX 4060 Ti", driver: "fixture", vram_bytes: 8589934592, home, av1_supported: true, av1_min_width: 130, av1_min_height: 66, smart_app_control: { blocked: false } };
   const token = crypto.randomBytes(32).toString("hex");
   const clients = new Set();
-  const routes = {};
+  const routes = { storage: { folder: home, total_bytes: 0, models_bytes: 0, working_bytes: 0, history_bytes: 0, free_bytes: 0, cleanup: [], core_records_load: true } };
   const models = [];
-  const control = { events: true };
+  const control = { events: true, media_active: 0, media_peak: 0, media_total: 0 };
   let previewSequence = 0;
   const server = http.createServer((req, res) => {
     const route = req.url.split("?")[0].replace(/^\/v1\//, "");
-    res.setHeader("Access-Control-Allow-Origin", "app://videoenhancer");
+    res.setHeader("Access-Control-Allow-Origin", req.headers.origin === "http://tauri.localhost" ? "http://tauri.localhost" : "app://videoenhancer");
     res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
     if (req.headers.authorization !== `Bearer ${token}`) { res.writeHead(401); res.end(); return; }
+    const mediaFile = routes[route]?.fixtureVideoPath;
+    if (mediaFile && ["GET", "HEAD"].includes(req.method)) {
+      const size = fs.statSync(mediaFile).size;
+      let start = 0, end = size - 1;
+      if (req.headers.range) {
+        const match = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range);
+        if (!match || (!match[1] && !match[2])) { res.writeHead(416); res.end(); return; }
+        start = match[1] ? Number(match[1]) : Math.max(0, size - Number(match[2]));
+        end = match[1] && match[2] ? Math.min(size - 1, Number(match[2])) : size - 1;
+        if (start >= size || end < start) { res.writeHead(416, { "Content-Range": `bytes */${size}` }); res.end(); return; }
+      }
+      control.media_active++; control.media_total++;
+      control.media_peak = Math.max(control.media_peak, control.media_active);
+      let ended = false;
+      const finish = () => { if (!ended) { ended = true; control.media_active--; } };
+      res.once("close", finish); res.once("finish", finish);
+      res.setHeader("Content-Type", "video/mp4"); res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Content-Length", end - start + 1); res.setHeader("Cache-Control", "no-store");
+      if (req.headers.range) { res.statusCode = 206; res.setHeader("Content-Range", `bytes ${start}-${end}/${size}`); }
+      if (req.method === "HEAD") { res.end(); return; }
+      const stream = fs.createReadStream(mediaFile, { start, end });
+      res.once("close", () => stream.destroy()); stream.on("error", () => res.destroy()); stream.pipe(res);
+      return;
+    }
     if (route === "events") {
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       clients.add(res); req.on("close", () => clients.delete(res));

@@ -1,4 +1,5 @@
 import { Notice } from "./Notice";
+import { hevcPlaybackSupported } from "./desktop";
 import { ActionButton } from "./ActionButton";
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "./api";
@@ -225,7 +226,7 @@ export function AddDialog({
                 value={settings.codec}
                 onChange={(e) => field("codec", e.target.value)}
               >
-                <option value="hevc">HEVC</option>
+                <option value="hevc">{hevcPlaybackSupported() ? "HEVC" : "HEVC - Needs HEVC Video Extensions to play inside the app"}</option>
                 <option value="h264">H.264</option>
                 <option value="av1" disabled={!av1}>
                   AV1
@@ -334,7 +335,7 @@ export function AddDialog({
               <details><summary>Settings</summary><div className="form-grid">
                 <label>Output short side<select value={forFile(file).short_side} onChange={event => fileField(file, "short_side", event.target.value === "keep" ? "keep" : Number(event.target.value))}><option value="keep">Keep</option>{[1080,1440,2160].map(value => <option key={value} value={value}>{value}</option>)}</select></label>
                 <label>Frame rate<select value={forFile(file).fps} onChange={event => fileField(file, "fps", event.target.value)}><option value="off">Keep</option><option value="2x">2×</option></select></label>
-                <label>File format<select value={forFile(file).codec} onChange={event => fileField(file, "codec", event.target.value)}><option value="hevc">HEVC</option><option value="h264">H.264</option><option value="av1" disabled={!av1}>AV1</option></select></label>
+                <label>File format<select value={forFile(file).codec} onChange={event => fileField(file, "codec", event.target.value)}><option value="hevc">{hevcPlaybackSupported() ? "HEVC" : "HEVC - Needs HEVC Video Extensions to play inside the app"}</option><option value="h264">H.264</option><option value="av1" disabled={!av1}>AV1</option></select></label>
                 {(["restore_model", "interp_model", "size_model"] as const).map((key, index) => <label key={key}>{["Cleanup", "Smoother motion", "Bigger picture"][index]}<select value={forFile(file)[key] || ""} onChange={event => fileField(file, key, event.target.value)}><option value="">Preset default</option>{models.filter(model => model.weights_verified && model.task === ["restore", "interpolate", "size"][index]).map(model => <option key={model.id} value={model.id}>{model.catalog?.title || model.display_name}</option>)}</select></label>)}
                 {models.find(model => model.id === forFile(file).restore_model)?.architecture === "drunet" && <label>Cleanup strength<select value={forFile(file).restore_strength || "medium"} onChange={event => fileField(file, "restore_strength", event.target.value)}>{["light", "medium", "strong"].map(strength => <option key={strength} value={strength}>{strength}</option>)}</select></label>}
                 <label className="check"><input type="checkbox" checked={!!forFile(file).delete_original_after} onChange={event => fileField(file, "delete_original_after", event.target.checked)} />Delete this original when it is done</label>

@@ -8,7 +8,7 @@ Quit/shutdown aborts the active segment consistently and leaves queued work
 resumable. The CLI and service share the same JobStore and controller lock.
 
 Every endpoint requires `Authorization: Bearer <token>`. Host must be the exact
-127.0.0.1:port. Allowed origins are `app://videoenhancer` and the development
+127.0.0.1:port. Allowed origins are `http://tauri.localhost` and the development
 renderer `http://127.0.0.1:5173`; null and foreign origins are rejected. Local
 non-browser tools may omit Origin; cross-site browser requests without an allowed
 origin are rejected. Tokens are not URL parameters. OPTIONS only provides local

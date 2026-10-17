@@ -1,10 +1,11 @@
-import { _electron, expect, test } from "@playwright/test";
+import { desktop } from "../desktop";
+import { expect, test } from "@playwright/test";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
 test("unsigned owner folder finds the external engine and enforces renderer isolation", async () => {
   test.skip(
-    !process.env.VE_GUI_PACKAGE_EXE,
+    !process.env.VE_TAURI_RELEASE_EXE,
     "Opt-in generated Windows package smoke check.",
   );
   const env: Record<string, string> = {
@@ -13,12 +14,12 @@ test("unsigned owner folder finds the external engine and enforces renderer isol
         (entry): entry is [string, string] => typeof entry[1] === "string",
       ),
     ),
-    VE_HOME: path.resolve("test-results", `packaged-${Date.now()}`),
+    VE_HOME: path.resolve(process.env.VE_GUI_TEST_ROOT || "../../scratch/P1t/e2e", `packaged-${Date.now()}`),
   };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.VE_ENGINE_ROOT;
-  const app = await _electron.launch({
-    executablePath: process.env.VE_GUI_PACKAGE_EXE!,
+  const app = await desktop.launch({
+    executablePath: process.env.VE_TAURI_RELEASE_EXE!,
     args: [`--user-data-dir=${path.join(env.VE_HOME, "desktop")}`],
     env,
   });
@@ -30,27 +31,17 @@ test("unsigned owner folder finds the external engine and enforces renderer isol
     await expect
       .poll(() => existsSync(path.join(env.VE_HOME, "serve.json")), { timeout: 40000 })
       .toBe(true);
-    const preferences = await app.evaluate(({ BrowserWindow }) => {
-      const contents = BrowserWindow.getAllWindows()[0]
-        .webContents as unknown as {
-        getLastWebPreferences(): {
-          contextIsolation: boolean;
-          nodeIntegration: boolean;
-          sandbox: boolean;
-        };
-      };
-      return contents.getLastWebPreferences();
-    });
-    expect(preferences.contextIsolation).toBe(true);
-    expect(preferences.nodeIntegration).toBe(false);
-    expect(preferences.sandbox).toBe(true);
-    expect(page.url()).toBe("app://videoenhancer/");
+    expect(page.url()).toBe("http://tauri.localhost/");
+    await expect(app.command("state")).rejects.toThrow();
     expect(
       await page.evaluate(
         () => typeof (window as unknown as { require?: unknown }).require,
       ),
     ).toBe("undefined");
-    await app.evaluate(({ app }) => app.quit());
+    await page.evaluate(async () => {
+      const c = await window.desktop.connection();
+      await fetch(`${c.base_url}/shutdown`, { method: "POST", headers: { Authorization: `Bearer ${c.token}`, "Content-Type": "application/json" }, body: "{}" });
+    });
     await expect
       .poll(() => existsSync(path.join(env.VE_HOME, "serve.json")), {
         timeout: 25000,

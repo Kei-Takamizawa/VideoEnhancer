@@ -243,6 +243,7 @@ export function HomePage({
   seen?(ids: string[]): void;
 }) {
   const [problem, setProblem] = useState(false);
+  const pointerJob = useRef<string | null>(null);
   const active = queue.jobs.filter(
     (j) => !["done", "failed", "cancelled"].includes(j.state),
   );
@@ -454,20 +455,20 @@ export function HomePage({
                   <article
                     key={job.id}
                     className="next-row"
-                    draggable
-                    onDragStart={(e) =>
-                      e.dataTransfer.setData("text/plain", job.id)
-                    }
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const moved = queue.jobs.find(
-                        (j) => j.id === e.dataTransfer.getData("text/plain"),
-                      );
-                      if (moved)
-                        action(moved, "move", {
-                          position: job.position || 1,
-                        });
+                    data-job-id={job.id}
+                    onPointerDown={e => {
+                      if (e.button !== 0 || (e.target as Element).closest("button,input,select,a")) return;
+                      pointerJob.current = job.id;
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    }}
+                    onPointerCancel={() => { pointerJob.current = null; }}
+                    onPointerUp={e => {
+                      const moved = queue.jobs.find(j => j.id === pointerJob.current);
+                      pointerJob.current = null;
+                      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+                      const targetId = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>(".next-row")?.dataset.jobId;
+                      const target = queue.jobs.find(j => j.id === targetId);
+                      if (moved && target && moved.id !== target.id) action(moved, "move", { position: target.position || 1 });
                     }}
                     onKeyDown={(e) => {
                       if (

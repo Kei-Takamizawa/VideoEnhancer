@@ -86,6 +86,11 @@ export default function App() {
   const [engineStalled, setEngineStalled] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [actionError, setActionError] = useState("");
+  useEffect(() => {
+    const error = (event: Event) => setActionError((event as CustomEvent<string>).detail);
+    window.addEventListener("desktop-error", error);
+    return () => window.removeEventListener("desktop-error", error);
+  }, []);
   const [zoomToast, setZoomToast] = useState<number>();
   useEffect(() => window.desktop.onZoom((zoom) => {
     setZoomToast(zoom);
@@ -407,50 +412,31 @@ export default function App() {
     else if (name === "remove") { const ids = (data as { ids?: string[] } | undefined)?.ids || [job.id]; setHistoryRemoval(queue.jobs.filter(record => ids.includes(record.id))); }
     else void perform(job, name, data);
   };
-  const add = async (paths?: string[]) => {
+  const add = useCallback(async (paths?: string[]) => {
     try {
       const selected = paths || (await window.desktop.files("videos"));
       if (selected.length) setFiles(selected);
     } catch (e) {
       setActionError((e as Error).message);
     }
-  };
+  }, []);
   const calibration = queue.operations.findLast((o) => o.kind === "calibrate");
+  useEffect(() => window.desktop.onFileDrop?.(event => {
+    setDropCount(event.type === "enter" ? event.paths.length : 0);
+    if (event.type !== "drop") return;
+    if (document.querySelector('[role="dialog"][aria-modal="true"]')) {
+      setDropNotice("Close the dialog first to add videos."); return;
+    }
+    if (event.paths.length) void add(event.paths);
+  }), [add]);
   return (
     <div
       className="app"
-      onDragEnter={(e) => {
-        if (Array.from(e.dataTransfer.types).includes("Files"))
-          setDropCount(Math.max(1, e.dataTransfer.items.length));
-      }}
-      onDragOver={(e) => {
-        if (Array.from(e.dataTransfer.types).includes("Files"))
-          e.preventDefault();
-      }}
-      onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropCount(0);
-      }}
-      onDrop={(e) => {
-        setDropCount(0);
-        if (e.dataTransfer.files.length) {
-          e.preventDefault();
-          if (document.querySelector('[role="dialog"][aria-modal="true"]')) {
-            setDropNotice("Close the dialog first to add videos.");
-            return;
-          }
-          void add(
-            Array.from(e.dataTransfer.files).map((file) =>
-              window.desktop.filePath(file),
-            ),
-          );
-        }
-      }}
     >
       {dropNotice && <div className="zoom-toast" role="status">{dropNotice}</div>}
       {!!dropCount && (
         <div className="drop-overlay">Drop to add {dropCount} {dropCount === 1 ? "video" : "videos"}</div>
       )}
-      <div className="title-bar"><span className="title-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 6 6 6-6 6m7-12 6 6-6 6" fill="none" stroke="currentColor" strokeWidth="3" /></svg></span>VideoEnhancer</div>
       {tour && <Tour navigate={setPage} close={() => { setTour(false); void api!.call("settings", "PUT", { tour_completed: true }).then(() => setSettings(old => old ? { ...old, tour_completed: true } : old)).catch(error => setActionError(error.message)); }} />}
       {historyUndo && <UndoToast key={`${historyUndo.join(",")}:${historyUndoRevision}`} moved={filesMoved} expire={() => setHistoryUndo(undefined)}
         pause={paused => { void api!.call("history/pause-undo", "POST", { ids: historyUndo, paused }).catch(error => setActionError(error.message)); }}

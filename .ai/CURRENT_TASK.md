@@ -1,5 +1,91 @@
 # CURRENT_TASK: Cycle P1t (replace Electron with Tauri)
 
+## Designer decision on the P1t M2 results (2026-10-17; supersedes media selection below)
+
+Part M of .ai/CURRENT_TASK.md is updated the same way.
+Decision
+- M1 with 1 MiB responses is the P1t media path. Keep M3 out of the default build.
+- Report AV1 gates 1 and 2 as FAIL in the report. Do not relabel them as passed.
+- Reason: timing passes at every chunk size (1 MiB best), the 10-minute test passes, and H.264 passes. The AV1 extra memory barely changes with chunk size and sits in the WebView2 processes, not the shell (shell peak 20.5 MB at 1 MiB). So a different chunk size won't fix it. It is either WebView2's AV1 playback itself or the custom-scheme path, and the old M3 numbers (USS) can't tell which.
+Follow-up measurements (same harness, Private Bytes per process role)
+1. Repeat test: open the player, play 30 s with 3 seeks, close, wait 30 s. Do 10 cycles. Run AV1 on Tauri and on Electron, and H.264 on Tauri. Record the total and each role after every close. Gate: the total after cycle 10 is at most 50 MB above the total after cycle 1.
+2. AV1 residual detail: which process role holds it, and the total after 5 minutes idle with the player closed.
+3. Decoder in use, from the CDP Media domain (the video decoder name), for Tauri and Electron with H.264 and AV1.
+4. M3 on the same harness, in a local build with the developer flag on: AV1 only, test P 3 runs with the 30 s residual, and the repeat test once.
+5. Optional, one try: if WebView2's memory usage target level can be set from the shell without patching Tauri or wry, set it to Low while no player is open and Normal while one is. Keep it only if it lowers the AV1 residual and the timing gates still pass.
+Rules after the follow-up (no need to wait for the designer)
+- M1 passes the repeat test: keep M1. The AV1 extra memory becomes a known issue in the report and the owner check.
+- M1 fails the repeat test and M3 passes it: keep M1 for now and put both tables under "Questions for the designer". The designer decides.
+- Both fail: keep M1 and report it as a known issue.
+Continue the remaining parts in the existing order. Fit these measurements wherever they're convenient before Part G.
+
+## Designer decision on P1t S5 (2026-10-17; supersedes S5 below)
+
+The S5 row in .ai/CURRENT_TASK.md is updated the same way.
+Your safe handling is correct. Keep it. A Move whose new-folder start check fails is a failed Move: the pointer stays on the current folder, and nothing is repaired, rewritten or discarded. The S5 phrase "the move succeeds" was too broad and is narrowed:
+1. Damage only in files the engine does not need to start (JSONL logs and journals it already reads line by line): the move succeeds and its result lists how many damaged records were copied unchanged and in which files.
+2. Damage in a file the engine must read to start (for example previews/*/state.json, previews/*/request.json, a job manifest.json, settings.json): the move fails and the app keeps using the current folder. Message: "Move stopped. A file the app needs at start is damaged: <path relative to the app-data folder>. Your data stays in the current folder."
+3. Checking these files before the copy starts is preferred, so the user does not wait for a full copy. Keep the start check of the new folder as the final guard.
+4. Do not change how the engine reads damaged files in this cycle (engine._recover, JobStore._cached_jobs, read_settings). Making engine start survive a damaged file is planned for P1e-3.
+5. Test (after M2 is fine): a damaged previews/*/state.json makes Move fail with the message above, with the pointer and the old folder unchanged. Report it in the S table.
+Continue the remaining parts in the existing order.
+
+## Designer decision on the P1t M2 memory gate (2026-10-16; supersedes the old M2 memory gate)
+
+Part M of .ai/CURRENT_TASK.md is updated the same way; replace your copy with the designer's file or apply this text.
+
+The old gate is withdrawn. "The shell's private memory grows by at most 100 MB" was a designer number with no baseline. Your M3 prototype bypasses the shell and still grew about 140 MB, so most of the growth is WebView2's own playback memory. M1's extra 160-180 MB over M3 is real: find which process holds it and reduce it where possible. The timing gates do not change (play start at most 0.5 s, seek at most 0.3 s, median of 10).
+
+Measurement
+- Private Bytes of every process of the app instance: the shell and every WebView2 or Electron child (browser, renderer, GPU, utility or network). Sample every 1 s. Report each process and the total.
+- "Growth" is the peak total during a test minus the mean total over the 10 s before Play, with the player already open.
+
+Tests (for each codec used in M2, same file, same fixed-seed seek positions, Tauri and Electron run alternately, 3 runs each, median)
+- P: play 2 minutes with 20 seeks spread evenly.
+- R: 20 seeks 100 ms apart, then play 30 s.
+
+Gates for the Tauri build
+1. Growth in P and in R is at most Electron's growth in the same test plus 100 MB.
+2. 30 s after the player closes, the total is within 50 MB of the pre-play total. If Electron's own residual is above 50 MB, it must be no higher than Electron's.
+3. No steady growth: play 10 minutes with a seek every 30 s; the total at 10:00 is at most 50 MB above the total at 2:00. One run each for Tauri and Electron.
+
+Chunk size
+- Run P and R with 8, 2 and 1 MiB responses. Use the largest chunk that passes gates 1-3 and the timing gates.
+- Report a table: chunk, play start, seek, growth in P and R per process, the shell's own peak, and the peak number of engine fetches in flight. Say which process holds M1's extra memory; mark anything inferred as inferred.
+- If no chunk size passes: keep the best M1, put the table and the M3 numbers under "Questions for the designer", and continue. The designer then chooses between M1 and M3.
+
+M3: do not ship it unless the designer chooses it. Until then the engine must not issue or accept these URLs unless an explicit developer flag is set, and that flag is off in the package and in CI.
+Do not stop the cycle for this. Continue the remaining parts in the existing order.
+
+## Designer decision on P1t S1/S9 (2026-10-16; supersedes S1 validation below)
+
+Your point is correct; S1 as written was my error. The new folder is live data that the engine appends to and prunes, so never compare the move manifest with the new folder.
+1. Compare the manifest only with the OLD folder. S2 is unchanged: delete only old files that are in the manifest and still match their recorded size (and hash where recorded); keep everything else and report it.
+2. Enable Remove only when the new folder is healthy and in use: a. the engine is healthy and its reported home equals the pointer's active folder (resolved paths); b. a probe file can be written, read back and removed inside that folder; c. the engine's core records there exist and load (the same files the engine loads at start-up, such as settings, the job store and the model registry). Then show the S1 confirmation dialog, unchanged.
+3. S9: Move, Quit, relaunch on the new folder, then append to a log and remove a History item in the new folder. Remove must still be enabled and must delete only matching old files. Add tests where the probe fails or the core records do not load: Remove must stay disabled.
+The task file has the same change. Continue from where you are.
+
+## Designer update after owner stop (2026-10-16; supersedes size requirements below)
+
+The owner decided that VideoEnhancer accepts sources only up to 1080p (short side at most 1080), and that the largest output is 1440 (2160 is removed). That product change is built in the next cycle (P1f Part R), not in P1t. For P1t:
+
+1. Never process, generate or encode anything with a short side above 1440, and never use a source above 1080. Stop any such job, test or fixture generation that is still running, and do not resume it.
+2. A3a: test the codecs at 1080 and 1440, not 2160.
+3. M2: use a 1440p file of at least 2 GB. Make it with FFmpeg directly from synthetic content, in each codec that plays. Do not run the enhancement pipeline to produce it. The gates are unchanged.
+4. CPU tests that only use 2160 or 3840 metadata or tiny synthetic clips may still run; P1f will replace them. Do not run any GPU test that processes a source above 1080 or an output above 1440. List such tests as NOT RUN (designer decision) in the report.
+5. Delete the 4K and 2160 files you created for this run, under working rule 6. Report what was measured before the stop, then continue from where you stopped.
+
+The updated task file has the same changes (start condition and A3a, M2).
+
+Resume instruction from the owner (2026-10-16): Build Tools installed; resume from A1. Continue the complete cycle below on the existing p1t-tauri branch and draft PR #6.
+
+Designer decision on P1t M1 (2026-10-16): drop the requirement to abort the engine request when the webview cancels. Tauri's custom protocol API gives no cancellation signal, and the 8 MiB cap already limits the waste to one chunk per abandoned request.
+Instead:
+1. Keep every response at most 8 MiB. You may use a smaller chunk if it helps the M2 seek gate.
+2. Give each engine fetch a 10 s timeout. A response that arrives after the webview has given up is simply dropped.
+3. Add a test with 20 rapid seeks on the 2 GB file. The M2 gates must still pass (play start at most 0.5 s, seek at most 0.3 s, shell memory growth at most 100 MB). Report the peak number of engine fetches in flight at the same time.
+Do not switch to M3 for this reason. Continue with the rest of the task as written.
+
 - **Task ID:** VE-P1t
 - **Date:** 2026-10-16
 - **Author:** Claude (designer and reviewer)
@@ -70,7 +156,7 @@ Measure with the current package (`work\package\VideoEnhancer-win32-x64`) on an 
 ### A3. Feasibility spike
 
 A throwaway, minimal Tauri 2 window in `work\scratch` (not committed). Report each result before porting.
-- **a. Playback codecs.** Encode short clips with the engine's own encoder: HEVC Main10 (the default output), H.264 and AV1, at 1080 and 2160.
+- **a. Playback codecs.** Encode short clips with the engine's own encoder: HEVC Main10 (the default output), H.264 and AV1, at 1080 and 1440.
   - In the WebView2 page, report `MediaSource.isTypeSupported` and `canPlayType` with the exact codec strings of those files, and whether each file plays and seeks.
   - Read-only, report which Microsoft Store codec packages are installed (`Get-AppxPackage *HEVC*`, `*AV1*`, `*VP9*`).
   - Expect a risk here: Microsoft documents that Edge (and so WebView2, inferred) needs the HEVC Video Extensions for HEVC, while Electron decodes HEVC itself. If HEVC does not play, continue and build M4.
@@ -116,18 +202,19 @@ Every row below must behave as the Electron app does today (`gui/electron/main.c
 **M1. Media protocol.**
 - A custom scheme handled in Rust replaces `app://videoenhancer/media/<job id>`. Update `HistoryDetail.tsx` and any other user of that URL.
 - GET and HEAD only. Validate the job id. Forward the `Range` header to `GET /v1/queue/<id>/video` with the token, and return 200 or 206 with correct `Content-Range`, `Content-Length`, `Content-Type` and `Accept-Ranges`.
-- **Never buffer a whole file.** Answer an open or large range with at most 8 MiB per response and a matching `Content-Range`; the media stack asks for the rest. Abort the engine request when the webview cancels.
+- **Never buffer a whole file.** Answer an open or large range with at most 8 MiB per response and a matching `Content-Range`; the media stack asks for the rest. Cancellation-based abort is withdrawn by the M1 decision above. Each engine fetch has a 10 s timeout; an abandoned response is dropped.
 
-**M2. Gates** on a 2160p output of at least 2 GB, in a codec that plays (A3a), median of 10:
+**M2. Gates** on a 1440p file of at least 2 GB in each codec that plays (A3a), median of 10. Generate it directly with FFmpeg from synthetic content, with a source short side at most 1080; do not use the enhancement pipeline:
 - play start at most 0.5 s;
 - seek at most 0.3 s;
-- the shell's private memory grows by at most 100 MB during 2 minutes of playback with 20 seeks.
+- Memory follows the superseding designer M2 decision above: 1 s Private Bytes samples, a 10 s pre-Play mean, paired alternate Electron/Tauri P and R runs (three each), post-close residual and ten-minute stability gates. The old absolute 100 MB growth gate is withdrawn. Test 8, 2 and 1 MiB responses and select the largest passing chunk.
 
 For reference, the Electron app measured 0.32 s and 0.12 s in P1e-2.
 
 **M3. Only if M1 cannot meet M2:** try a short-lived, read-only, per-job URL issued by the engine and loaded straight from `127.0.0.1`.
 - Use a random 128-bit value that expires after 10 minutes and serves only that one job's video.
 - Report both designs' numbers and the security trade-off under "Questions for the designer". Do not ship M3 if M1 passes.
+- Do not ship M3 without a designer choice. Prototype URL issuance/acceptance requires an explicit developer flag, off in the owner package and CI.
 
 **M4. When HEVC does not play** (from A3a, checked again at start-up with the exact codec string of the app's HEVC output):
 - The player says: "This PC can't play HEVC videos inside the app. Install HEVC Video Extensions from the Microsoft Store, or open the video in your default player." It offers "Open Microsoft Store" (the HEVC Video Extensions page, through the opener with an allowlisted `ms-windows-store:` link) and "Open in default player".
@@ -174,15 +261,15 @@ For reference, the Electron app measured 0.32 s and 0.12 s in P1e-2.
 
 | # | Finding | Fix |
 |---|---|---|
-| S1 | "Remove the old folder" does not check that the new folder exists and works, and has no confirmation (finding 1). | Enable it only when: the running engine reports the same home as the pointer's `active`; that folder exists and is writable; and every file in the move manifest exists there with the recorded size. Then show a confirmation dialog: "Remove the old app data folder? `<path>` · `<N>` files · `<size>`. This permanently deletes the app's old copy. Your videos are not in this folder." with Remove and Cancel (Cancel is the default). |
+| S1 | "Remove the old folder" does not check that the new folder exists and works, and has no confirmation (finding 1). | Enable it only when the healthy engine's resolved home equals the pointer's resolved `active`, a probe can be written/read back/removed there, and startup core records exist and load. Never compare the move manifest with the live new folder. Compare it only with the old folder under S2. Then show a confirmation dialog: "Remove the old app data folder? `<path>` · `<N>` files · `<size>`. This permanently deletes the app's old copy. Your videos are not in this folder." with Remove and Cancel (Cancel is the default). |
 | S2 | It deletes the whole folder recursively (finding 2). | Keep a manifest of the move: relative path, size, and SHA-256 where hashed. Delete only the old files that are in it and still match its size (and hash where recorded). Then remove the folders that became empty. Never follow links. Refuse a drive root, the active folder, or any folder that contains it. Result: "Removed X files (Y GB). Kept Z files that were not part of the move." with the folder. |
 | S3 | Move works while `VE_HOME` is set, and the next start then ignores the move (finding 3). | When `VE_HOME` is set, disable Move and Remove with "App data is set by VE_HOME. Unset it to use Move." |
 | S4 | The shell's and the engine's pointer locations may differ (finding 4). | U2. |
-| S5 | One torn or invalid JSON or JSONL line stops the whole move (finding 5). | Copy every file's bytes first. Rebase paths only in lines and files that parse; keep the rest byte-for-byte. The move succeeds, and its result lists how many damaged records were copied unchanged and in which files. Never drop a record. |
+| S5 | One torn or invalid JSON or JSONL line stops the whole move (finding 5). | Copy every file's bytes first and rebase only records that parse. Damage limited to non-startup logs/journals is copied unchanged and reported. Damaged startup core records fail Move with the specified relative-path message, retaining the current pointer and folder without repair or discard. Prefer checking before copying and keep the new-folder start check. Engine corruption recovery remains unchanged until P1e-3. |
 | S6 | A failure during `storage/prepare` leaves "App data is moving" until a restart (finding 6). | Any failure before the copy starts resets the moving state and resumes normal operation without a restart. Add a test. |
 | S7 | Opening Storage during processing can fail when temporary files vanish (finding 7). | The status scan skips files that vanish or are locked during the scan. Add a test with concurrent file churn. |
 | S8 | The Clean up list shows internal job ids (finding 8). | Show the video's file name, the state, the date and the size. Show the id only in details or a tooltip. |
-| S9 | No end-to-end test of the real restart path (finding 9). | Without `VE_HOME`, in isolated `%APPDATA%` and `%LOCALAPPDATA%`: Move → Quit → relaunch uses the new folder with History intact → Remove the old folder through the dialog → relaunch is still fine. Also cover the missing-folder dialog at start-up. |
+| S9 | No end-to-end test of the real restart path (finding 9). | Without `VE_HOME`, in isolated `%APPDATA%` and `%LOCALAPPDATA%`: Move → Quit → relaunch uses the new folder with History intact → append a log and remove a History item in the new folder → Remove remains enabled and deletes only matching old files through the dialog → relaunch is still fine. Probe failure or unreadable core records must disable Remove. Also cover the missing-folder dialog at start-up. |
 
 ## Part X: tests and CI
 

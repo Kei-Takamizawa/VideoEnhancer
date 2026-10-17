@@ -2110,7 +2110,8 @@ class Engine:
             )
 
     def dispatch(self, method: str, parts: list[str], value: dict[str, Any]) -> Any:
-        if self.storage_moving and method != "GET":
+        cancelling_move = parts == ["storage", "prepare"] and value.get("cancel") is True
+        if self.storage_moving and method != "GET" and not cancelling_move:
             raise ValueError("App data is moving. Wait for it to finish.")
         if method == "GET" or "/".join(parts) in {
             "estimate",
@@ -2122,25 +2123,45 @@ class Engine:
             return self._dispatch(method, parts, value)
         with self._mutation_lock:
             started = time.monotonic()
+            previous_paused = self.paused
             try:
-                return self._dispatch(method, parts, value)
-            finally:
-                from videoenhancer.service.events import changed
+                try:
+                    return self._dispatch(method, parts, value)
+                finally:
+                    from videoenhancer.service.events import changed
 
-                changed(self.home)
-                elapsed = time.monotonic() - started
-                if elapsed > 0.5:
-                    get_logger(self.home).warning("Mutation lock held for %.3f seconds", elapsed)
+                    changed(self.home)
+                    elapsed = time.monotonic() - started
+                    if elapsed > 0.5:
+                        get_logger(self.home).warning(
+                            "Mutation lock held for %.3f seconds", elapsed
+                        )
+            except BaseException:
+                if parts == ["storage", "prepare"]:
+                    self.storage_moving = False
+                    self.paused = previous_paused
+                raise
 
     def _dispatch(self, method: str, parts: list[str], value: dict[str, Any]) -> Any:
         route = "/".join(parts)
-        if self.storage_moving and method != "GET":
+        if (
+            self.storage_moving
+            and method != "GET"
+            and not (route == "storage/prepare" and value.get("cancel") is True)
+        ):
             raise ValueError("App data is moving. Wait for it to finish.")
         if route == "storage" and method == "GET":
             from videoenhancer.service.storage import storage_status
 
             return storage_status(self.home, self.store)
         if route == "storage/prepare" and method == "POST":
+            if value.get("cancel") is True:
+                self.storage_moving = False
+                self.paused = getattr(self, "_storage_previous_paused", self.paused)
+                return {"ready": False}
+            from videoenhancer.service.storage import check_startup_records
+
+            check_startup_records(self.home)
             busy = any(j["state"] in {"running", "preparing"} for j in self.store.list_jobs())
             busy = busy or (
                 not self.paused and any(j["state"] == "queued" for j in self.store.list_jobs())
@@ -2151,6 +2172,7 @@ class Engine:
             busy = busy or any(t.is_alive() for t in self._history_threads)
             if busy:
                 raise ValueError("Pause processing first.")
+            self._storage_previous_paused = self.paused
             self.paused = True
             self.storage_moving = True
             return {"ready": True}

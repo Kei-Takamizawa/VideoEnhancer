@@ -1,13 +1,17 @@
-import { _electron, expect, test } from "@playwright/test";
+import { desktop } from "../desktop";
+import { expect, test } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import {
   copyFileSync,
+  createReadStream,
   existsSync,
   mkdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { createServer } from "node:https";
 
 test("owner Windows: packaged GPU flows create no extra visible console windows", async () => {
   test.skip(
@@ -55,20 +59,33 @@ test("owner Windows: packaged GPU flows create no extra visible console windows"
   const env = { ...process.env, VE_HOME: home } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.VE_ENGINE_ROOT;
-  const app = await _electron.launch({
+  const manifestPath = path.join(home, "models/basicvsrpp-ntire21-decompress/model.json");
+  const model = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const downloadFixture = process.env.VE_GUI_DOWNLOAD_FIXTURE;
+  if (downloadFixture && (!process.env.VE_GUI_DOWNLOAD_CERT || !process.env.VE_GUI_DOWNLOAD_KEY)) throw new Error("The local HTTPS publisher needs an isolated certificate and key.");
+  if (downloadFixture) env.SSL_CERT_FILE = process.env.VE_GUI_DOWNLOAD_CERT!;
+  const publisher = downloadFixture ? createServer({ cert: readFileSync(process.env.VE_GUI_DOWNLOAD_CERT!), key: readFileSync(process.env.VE_GUI_DOWNLOAD_KEY!) }, (_request, response) => {
+    response.writeHead(200, { "Content-Length": statSync(downloadFixture).size });
+    createReadStream(downloadFixture).pipe(response);
+  }) : undefined;
+  if (publisher) {
+    expect(existsSync(path.join(path.dirname(manifestPath), model.weights.filename))).toBe(false);
+    await new Promise<void>(resolve => publisher.listen(0, "127.0.0.1", resolve));
+    const address = publisher.address();
+    if (!address || typeof address === "string") throw new Error("Missing local fixture publisher");
+    model.weights.url = `https://127.0.0.1:${address.port}/weights.pth`;
+    writeFileSync(manifestPath, JSON.stringify(model));
+  }
+  const app = await desktop.launch({
     executablePath: process.env.VE_GUI_PACKAGE_EXE!,
     args: [`--user-data-dir=${path.join(home, "desktop")}`],
     env,
-  });
+  }).catch(error => { publisher?.closeAllConnections(); publisher?.close(); monitor.kill(); throw error; });
   writeFileSync(path.join(evidence, "app.pid"), String(app.process().pid));
   writeFileSync(
     path.join(evidence, "own-windows.json"),
     JSON.stringify(
-      await app.evaluate(({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows().map((window) =>
-          Number(window.getNativeWindowHandle().readBigUInt64LE()),
-        ),
-      ),
+      await Promise.all([app.getNativeWindowHandle().then(handle => Number(handle.readBigUInt64LE()))]),
     ),
   );
   const flows: string[] = [];
@@ -100,7 +117,9 @@ test("owner Windows: packaged GPU flows create no extra visible console windows"
       return response.json();
     };
     await page.getByRole("button", { name: "Models", exact: true }).click();
-    await page.getByRole("button", { name: "Install", exact: true }).click();
+    const card = page.getByRole("button", { name: `Details for ${model.catalog.title}`, exact: true });
+    await card.getByRole("button", { name: "Install", exact: true }).click();
+    await page.getByRole("checkbox", { name: "I accept this licence", exact: true }).check();
     await page
       .getByRole("button", { name: "Accept licence and download" })
       .click();
@@ -114,28 +133,18 @@ test("owner Windows: packaged GPU flows create no extra visible console windows"
       )
       .toBe("done");
     await expect(
-      page.getByRole("button", { name: "Installed", exact: true }),
+      card.getByText("Installed", { exact: true }),
     ).toBeVisible();
     flows.push("licence consent and verified built-in model install");
     await call("settings", "PUT", { short_side: "keep" });
-    await app.evaluate(({ dialog }, file) => {
-      dialog.showOpenDialog = async () => ({
-        canceled: false,
-        filePaths: [file],
-      });
-    }, source);
+    await app.files((file => [file])(source));
     await page.getByRole("button", { name: "Home", exact: true }).click();
     for (const mode of ["Standard", "Fast"]) {
       const input = path.join(evidence, `${mode.toLowerCase()}-synthetic.mp4`);
       copyFileSync(source, input);
-      await app.evaluate(({ dialog }, file) => {
-        dialog.showOpenDialog = async () => ({
-          canceled: false,
-          filePaths: [file],
-        });
-      }, input);
+      await app.files((file => [file])(input));
       await page.getByRole("button", { name: "Add videos" }).click();
-      await page.getByRole("button", { name: new RegExp(`^${mode}`) }).click();
+      await page.locator(".mode-cards").getByRole("button", { name: new RegExp(`^${mode}`) }).click();
       await page.getByRole("button", { name: "Add to queue" }).click();
       await expect
         .poll(
@@ -163,8 +172,8 @@ test("owner Windows: packaged GPU flows create no extra visible console windows"
       .toBe("done");
     flows.push("P1b trial completed");
     await page.getByRole("button", { name: "Models", exact: true }).click();
+    await app.files([source]);
     await page.getByRole("button", { name: "Compare on my video" }).click();
-    await page.getByRole("button", { name: "Compare selected models" }).click();
     await expect(page.getByText("Compare: done")).toBeVisible({
       timeout: 90000,
     });
@@ -173,7 +182,7 @@ test("owner Windows: packaged GPU flows create no extra visible console windows"
     });
     flows.push("GPU compare completed");
     await page.screenshot({ path: path.join(evidence, "gpu-compare.png") });
-    await app.evaluate(({ app }) => app.quit());
+    await (async () => app.quit())();
     await expect
       .poll(() => existsSync(path.join(home, "serve.json")))
       .toBe(false);
@@ -185,6 +194,8 @@ test("owner Windows: packaged GPU flows create no extra visible console windows"
       .poll(() => existsSync(path.join(evidence, "windows.json")))
       .toBe(true);
     monitor.kill();
+    publisher?.closeAllConnections();
+    if (publisher) await new Promise<void>(resolve => publisher.close(() => resolve()));
     writeFileSync(
       path.join(evidence, "flows.json"),
       JSON.stringify(flows, null, 2),

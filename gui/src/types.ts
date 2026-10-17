@@ -230,7 +230,8 @@ export interface Desktop {
   play(file: string): Promise<void>;
   copy(text: string): Promise<void>;
   logRendererError?(details: string): Promise<void>;
-  filePath(file: File): string;
+  openExternal?(url: string): Promise<void>;
+  onFileDrop?(callback: (event: { type: "enter" | "drop" | "leave"; paths: string[] }) => void): () => void;
   zoom(percent: number): Promise<number>;
   theme?(theme: string): Promise<void>;
   onZoom(callback: (percent: number) => void): () => void;
