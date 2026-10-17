@@ -53,6 +53,9 @@ The Windows CI job checks for the WebView2 Runtime and installs Microsoft's
 Evergreen Runtime on the hosted runner when missing. It passes the resolved
 runtime folder explicitly so isolated local app-data paths do not hide a
 per-user runtime. This does not install software on the developer's PC.
+Elevated hosted runners can ignore environment-only WebView2 debugging flags.
+The `e2e` feature forwards only the validated CDP port through Tauri's browser
+arguments API; feature-free owner builds do not include this test configuration.
 
 The owner package is an executable and `engine-location.json` in one folder.
 The engine checkout and Python environment remain external. No updater is included.

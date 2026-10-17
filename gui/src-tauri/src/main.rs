@@ -188,7 +188,7 @@ fn main() {
             let link_handle = app.handle().clone();
             #[cfg(feature = "e2e")]
             eprintln!("E2E startup: creating webview");
-            let webview =
+            let webview_builder =
                 tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
                     .on_navigation(|url| {
                         url.origin().ascii_serialization() == "http://tauri.localhost"
@@ -203,8 +203,27 @@ fn main() {
                             }
                         }
                         tauri::webview::NewWindowResponse::Deny
+                    });
+            #[cfg(feature = "e2e")]
+            let webview_builder = {
+                // Elevated CI hosts ignore environment-only WebView2 debugging flags.
+                let port = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")
+                    .ok()
+                    .and_then(|args| {
+                        args.split_ascii_whitespace()
+                            .find_map(|arg| arg.strip_prefix("--remote-debugging-port="))
+                            .and_then(|port| port.parse::<u16>().ok())
                     })
-                    .build()?;
+                    .filter(|port| *port != 0);
+                if let Some(port) = port {
+                    webview_builder.additional_browser_args(&format!(
+                        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --remote-debugging-port={port}"
+                    ))
+                } else {
+                    webview_builder
+                }
+            };
+            let webview = webview_builder.build()?;
             #[cfg(feature = "e2e")]
             eprintln!("E2E startup: webview created");
             window::theme(&webview, initial["theme"].as_str().unwrap_or("system"))
