@@ -1,7 +1,7 @@
 # VE-P1t implementation and validation
 
 - Task ID / Cycle: VE-P1t, P1t.
-- Status: PARTIAL. Implementation and local validation complete; final CI pending. Cold start, History switching, AV1 and repeat-memory gates failed; cleanup was refused.
+- Status: PARTIAL. Implementation/local validation and source Windows/Ubuntu CI complete. Cold start, History switching, AV1 and repeat-memory gates failed; cleanup was refused.
 - Branch: p1t-tauri, base p1d-ui-v2 at 40755c0. Draft PR #6.
 - CURRENT_TASK.md preserves the complete task and designer decisions.
 - All media is synthetic and all application homes/profiles are isolated under work/scratch. The owner queue was not used. Product source/output limits are deferred to P1f Part R as instructed; no new product limit is introduced here.
@@ -9,7 +9,7 @@
 
 ## Implementation and changed files
 
-Added the Windows Tauri shell in gui/src-tauri, split into engine, media, storage, window and command modules. Added the desktop.ts renderer bridge and a CDP test harness. Preserved the existing React screens with native title bar, native file-drop events, pointer/keyboard queue reordering, HEVC compatibility messages and the specified Storage fixes. Updated six project documents and the Windows/Ubuntu workflow. Electron source and dependencies remain while acceptance is incomplete; they are not presented as removed.
+Added gui/src-tauri (engine/media/storage/window/commands), the renderer bridge and CDP harness. Existing screens retain native title bar/drop events, pointer/keyboard reorder, HEVC guidance and Storage fixes. Updated six documents and CI. Electron removal remains conditional on acceptance.
 
 The M1 protocol bounds every response, limits simultaneous upstream fetches to two, uses a 10-second engine-fetch timeout and checks the exact returned body length. Cancellation notification is unavailable and the designer waived engine cancellation. M3 is not in the production engine; the private prototype requires VE_DEV_M3_MEDIA=1.
 
@@ -25,8 +25,8 @@ Storage uses one canonical roaming pointer, migrates a legacy pointer atomically
 | D | PARTIAL | Pointer/keyboard and trusted wheel tests passed; physical pinch/native OS drops NOT RUN. |
 | U | PARTIAL | Read-only pointer/cache checks and two stale-default isolation tests passed, including final10 E2E. Owner cache deletion intentionally not attempted. |
 | S | PARTIAL | Expanded S9 and exact S5 UI refusal PASS. Startup damage safely fails Move; recovery deferred to P1e-3 by designer. |
-| X | PARTIAL | Final local checks PASS; remote CI pending. |
-| G | PARTIAL | Package/visuals/local checks complete; cold start, renderer and media gates FAIL. Old package and scratch cleanup refused; CI pending. |
+| X | DONE | Local checks and Windows/Ubuntu source CI PASS. |
+| G | PARTIAL | Package/visuals/local checks complete; cold start, renderer and media gates FAIL. Old package and scratch cleanup refused; source CI PASS. |
 
 ## Baseline and feasibility
 
@@ -209,7 +209,7 @@ Physical touchpad pinch, real Explorer drops of 1/50 files, cross-volume C-D-C m
 | T17 | Release strict CSP configured and enforced by initial blocked custom-scheme fetch; owner smoke has no require/test command. Full security audit not claimed. |
 | T18 | Actual CDP origin http://tauri.localhost; service tests reject old origin and retain auth/Host/Sec-Fetch checks. |
 | T19 | Local-main capability only, no FS/shell/HTTP scope; command validation Rust tests and release test-command denial passed. |
-| T20 | Non-Windows refusal stub implemented; execution in Ubuntu final CI pending. |
+| T20 | Non-Windows refusal stub PASS in Ubuntu source CI. |
 | T21 | Expanded S9 Move/Quit/relaunch, live log append, History removal, probe/core failures, cancellation, old-only matching removal and exact S5 refusal PASS final10. |
 | T22 | Browser accelerators, zoom/pinch controls and context-menu interception implemented; native menu/text editing interaction not fully verified. |
 
@@ -326,7 +326,7 @@ Both automatic approval reviews rejected deletion as "blocked by policy". Neithe
 For the owner to delete (two development folders):
 
 - D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-win32-x64: 428,412,636 logical / 428,572,856 allocated bytes, 74 files.
-- D:\my-workspace\VideoEnhancer\work\scratch: 69,884,762,259 logical bytes, 112,348 files. Includes generated 1440p media and temporary profiles/binaries; all owned jobs/apps were stopped before the rejected attempt.
+- D:\my-workspace\VideoEnhancer\work\scratch: 70,425,356,034 logical bytes, 118,244 files. Includes generated 1440p media and temporary profiles/binaries; all owned jobs/apps were stopped before the rejected attempt.
 
 For the owner to delete later (read-only U5 inventory under %APPDATA%/VideoEnhancer): Cache856,456 bytes/7 files; Code Cache13,636/9; GPUCache1,642,864/5. Only these three cache subfolders were inspected; no owner app-data/pointer folder is a deletion candidate.
 
@@ -334,18 +334,18 @@ Owner package: D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer, exactly
 
 | Disk item | Start GB | Final GB |
 | --- | ---: | ---: |
-| C free | 332.084830208 | 308.739457024 |
-| D free | 1010.481532928 | 934.244171776 |
-| Cache logical | 4.193152357 | 10.640700339 |
-| Scratch logical | not inventoried | 69.884762259 |
-| P1t evidence logical | not inventoried | 0.166048749 |
+| C free | 332.084830208 | 308.735836160 |
+| D free | 1010.481532928 | 933.678587904 |
+| Cache logical | 4.193152357 | 10.641370770 |
+| Scratch logical | not inventoried | 70.425356034 |
+| P1t evidence logical | not inventoried | 0.175634689 |
 | Tauri / old package logical | 0 / .428413 | .005749 / .428413 |
 
-Rust target 4.240587854 GB (debug/release recorded separately in disk-final16.json), cargo .853716 GB, rustup1.314835 GB are the explicit one-time bootstrap exception. CARGO_BUILD_JOBS=2, session-only paths, complete cache 10.640700339 GB <40 GB. Cache increase is 6.447547982 GB; drive-free deltas are not attributed to this project. Evidence retains exactly P1e-2/P1e-2b/P1t at .009139/.015587/0.166048749 GB, each below300 MB. Inventory errors: none. Full persistent-growth <=1 GB cannot be claimed with scratch cleanup blocked and incomplete starting root inventories. See disk-final16.json; logical lengths are not allocated sizes or drive-wide free changes.
+Rust target 4.241259126 GB (debug/release recorded separately in disk-final25.json), cargo .853716 GB, rustup1.314835 GB are the explicit one-time bootstrap exception. CARGO_BUILD_JOBS=2, session-only paths, complete cache 10.641370770 GB <40 GB. Cache increase is 6.448218413 GB; drive-free deltas are not attributed to this project. Evidence retains exactly P1e-2/P1e-2b/P1t at .009139/.015587/0.175634689 GB, each below300 MB. Inventory errors: none. Full persistent-growth <=1 GB cannot be claimed with scratch cleanup blocked and incomplete starting root inventories. See disk-final25.json; logical lengths are not allocated sizes or drive-wide free changes.
 
 ## Visual comparison and native checks
 
-Compared the existing P1e-2 visual reference with current Home/Add/History/player/Compare/Models/Schedule/Settings images at 1280x800 and 1100x700 in both themes. Intentional changes: removing the HTML title bar moves content up about 32 CSS pixels and gives Compare more height; Settings contains the specified Storage card; unsupported HEVC player shows its compatibility notice/actions with Play disabled. Native caption/dialog styling, font antialiasing and native checkbox rendering differ from Electron. Time/progress/path differences follow the synthetic fixtures and clocks. No other layout change was observed; pixel identity is not claimed. Evidence: visual-p1e-final10, visual-player-final10, visual-storage-final10, visual-comparison-final10, native-final.
+Compared P1e-2 against all required screens at both sizes/themes. Differences: removing the HTML title bar moves content up about32 CSS px and increases Compare height; Settings adds Storage; unsupported HEVC adds notice/actions and disables Play. Native caption/dialog styles, font antialiasing and checkbox rendering differ. Times/progress/paths follow fixtures/clocks. No other layout change observed; no pixel-identity claim. Evidence: visual-p1e-final10, visual-player-final10, visual-storage-final10, visual-comparison-final10, native-final.
 
 Native custom labels initially fell back to standard labels: rfd lacked common-controls-v6. Enabled it using Tauri's existing manifest, rebuilt, and verified Cancel/Remove and recovery dialogs. The interactive launcher used Normal visibility to expose the startup modal. All homes were isolated; no owner Run registration was changed.
 
@@ -373,18 +373,22 @@ Renderer final13 completed all ten independent launches in 5.6 min. Suite FAIL a
 
 ## Final local checks and cleanup preflight
 
-Final13: Ruff check/format, Pyright, Rust fmt and e2e clippy, GUI lint/typecheck and 47 unit tests PASS (6.48 s); S9 PASS (23.6 s), including cleanup against the current moved engine. Default Rust clippy and 12 unit tests PASS final12. Feature-free package final22 built and smoke PASS (7.9 s); default Rust clippy/unit12 PASS final22. Vite's 531.11 KB chunk warning and Node's NO_COLOR/FORCE_COLOR warning are nonfatal.
+Final13 Python/Rust/frontend static checks and47 GUI units PASS; S9 PASS23.6 s. Final22 default Rust fmt/clippy/unit12 and feature-free package/smoke PASS7.9 s. Final23 GUI lint/typecheck and five startup repeats PASS7.3 s; final24 default E2E13 PASS/13 SKIP,1.9 min. Vite531.11 KB, NO_COLOR and Node DEP0190 warnings are nonfatal.
 
 Real CUDA final13: cadence PASS, but the test teardown stopped the external fixture, leaving its job queued; completion FAIL. Fixed the test to set VE_KEEP_TEST_ENGINE=1. Fresh final14: cadence PASS, job done, all three segments complete. Backend median1.00806%, p90 1.33064% of one core; 5,000-History diagnostic retained. Display0.96657 Hz, shortest999.5 ms, good SSE-gap fraction1.0. Both runs, including the interruption, are preserved under g-real-final13/14.
 
 ## Remaining acceptance and Git
 
-G1 FAIL cold start/History; G2 PARTIAL manual tray/pickers/physical checks; G3 codec/M4 complete; G4 S1-S9 PASS except cross-volume manual NOT RUN; G5 U checks complete with owner Run writes intentionally NOT RUN; G6 screenshots reviewed; G7 allowed GPU101 PASS, prohibited2160 GUI calibration NOT RUN (designer decision); G8 local checks PASS except perf, final CI pending; G9 smoke PASS/old package removal refused; G10 cache/evidence caps PASS, empty scratch/growth not qualified. Electron removal remains conditional on G passing and is intentionally deferred. No merge or main/base-branch push.
+G1 FAIL cold start/History; G2 PARTIAL manual tray/pickers/physical checks; G3 codec/M4 complete; G4 S1-S9 PASS except cross-volume manual NOT RUN; G5 U checks complete with owner Run writes intentionally NOT RUN; G6 screenshots reviewed; G7 allowed GPU101 PASS, prohibited2160 GUI calibration NOT RUN (designer decision); G8 local checks/source CI PASS except perf; G9 smoke PASS/old package removal refused; G10 cache/evidence caps PASS, empty scratch/growth not qualified. Electron removal remains conditional on G passing and is intentionally deferred. No merge or main/base-branch push.
 
 Changed files: six docs, .ai task/report, workflow/ignore rules; gui package/lock, src-tauri modules/config/locks/icons, desktop bridge and existing App/Home/Queue/HistoryDetail/Storage/main/style/types; desktop test harness/unit contracts and the mapped E2E/perf files above; window_monitor.py and desktop_startup_diagnostics.py; service engine/server/storage and their tests. Exact inventory: changed-files-final.txt outside Git.
 
-Questions for designer: cold-start and warm-History budgets remain unmet; current implementation retained without a design change. The media choice is already resolved by the both-fail rule. Native/physical gaps and memory failures remain on the owner check. CI and push verification follow this local report checkpoint.
+Questions for designer: cold-start and warm-History budgets remain unmet; current implementation retained without a design change. The media choice is already resolved by the both-fail rule. Native/physical gaps and memory failures remain on the owner check. Source push verified; report-only head verification follows its push.
 
-CI history: a710b21 push39026277983/PR39026280367 and 194135c push39028150187/PR39028152936: Ubuntu PASS; Windows FAIL (12 CDP timeouts,14 SKIP). Runtime154.0.4258.62 already existed. Diagnostic8845b0a push39032412952/PR39032415568: Ubuntu PASS; Windows early startup FAIL1; CPU/full E2E NOT RUN on that head. Native diagnostics show completed setup and live WebView2 children, but no CDP port in browser arguments. Microsoft's elevated-host documentation explains ignored environment overrides (learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security). E2E-only fix forwards the validated port through Tauri's API; package has no test port. Local clippy/build/startup PASS (2.0 s); hosted verification pending. Local runtime later auto-updated to155.0.4283.60 versus A2's155.0.4283.45; no exact runtime version was captured per M2 run, and M2 was not repeated after the update.
+CI history: a710b21 push39026277983/PR39026280367 and 194135c push39028150187/PR39028152936: Ubuntu PASS; Windows FAIL (12 CDP timeouts,14 SKIP). Runtime154.0.4258.62 already existed. Diagnostic8845b0a push39032412952/PR39032415568: Ubuntu PASS; Windows early startup FAIL1; CPU/full E2E NOT RUN on that head. Native diagnostics show completed setup and live WebView2 children, but no CDP port in browser arguments. Microsoft's elevated-host documentation explains ignored environment overrides (learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security). E2E-only fix forwards the validated port through Tauri's API; package has no test port. Local clippy/build/startup PASS (2.0 s); hosted startup subsequently PASS. Local runtime later auto-updated to155.0.4283.60 versus A2's155.0.4283.45; no exact runtime version was captured per M2 run, and M2 was not repeated after the update.
 
-13a2603: push startup PASS; PR39033258141 startup FAIL because CDP connected before the page target existed. Runner elevated=True confirms ignored environment flags. Harness now awaits the page event; lint/typecheck and five local startup repeats PASS (7.3 s). Earlier packaging commands used a nonexistent npm script and wrong env-file path; corrected script/build/smoke PASS. Hosted validation pending.
+13a2603: push startup PASS; PR39033258141 startup FAIL because CDP connected before the page target existed. Runner elevated=True confirms ignored environment flags. Harness now awaits the page event; lint/typecheck and five local startup repeats PASS (7.3 s). Earlier packaging commands used a nonexistent npm script and wrong env-file path; corrected script/build/smoke PASS. Subsequent source CI PASS.
+
+## CI and Git result
+
+Source4941a28: [Windows/Ubuntu push CI PASS](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/39033561280). Python Windows457 PASS/4 SKIP; Ubuntu456/5; GUI47 and Rust12 PASS; Windows CDP12 PASS/14 SKIP. Source SHA matches origin. This final report-only commit preserves source; its checks are verified after push in the final handoff. Draft PR6 stays unmerged.
