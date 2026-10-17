@@ -59,6 +59,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run pytest -m "not gpu and not soak" --basetemp=.venv/testtmp
+        if: runner.os == 'Linux'
         env:
           VE_HOME: ${{ runner.temp }}/ve-home
       - uses: actions/setup-node@v4
@@ -85,6 +86,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: gui/src-tauri
+          cache-on-failure: true
       - name: Non-Windows refusal stub
         if: runner.os == 'Linux'
         shell: bash
@@ -104,6 +106,18 @@ jobs:
       - name: Build Tauri test shell
         if: runner.os == 'Windows'
         run: cargo build --manifest-path gui/src-tauri/Cargo.toml --features e2e
+      - name: Tauri startup smoke over CDP
+        if: runner.os == 'Windows'
+        run: npm run test:e2e -- tests/e2e/p1e.spec.ts -g "hidden startup"
+        working-directory: gui
+        env:
+          VE_GUI_TEST_ROOT: ${{ runner.temp }}/scratch/ve-startup
+          VE_TAURI_EXE: ${{ github.workspace }}/gui/src-tauri/target/debug/VideoEnhancer.exe
+      - name: CPU engine tests (Windows)
+        if: runner.os == 'Windows'
+        run: uv run pytest -m "not gpu and not soak" --basetemp=.venv/testtmp
+        env:
+          VE_HOME: ${{ runner.temp }}/ve-home
       - name: Tauri CPU end-to-end over CDP
         if: runner.os == 'Windows'
         run: npm run test:e2e

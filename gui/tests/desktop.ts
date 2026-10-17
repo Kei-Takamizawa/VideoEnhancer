@@ -1,5 +1,5 @@
 import { chromium, type Browser, type Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import net from "node:net";
@@ -61,7 +61,11 @@ export const desktop = {
     child.stdout?.on("data", capture); child.stderr?.on("data", capture);
     let browser: Browser | undefined;
     for (let i = 0; i < 150; i++) { if (failure) throw failure; if (child.exitCode !== null) break; try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`); break; } catch { await new Promise(resolve => setTimeout(resolve, 200)); } }
-    if (!browser) { child.kill(); throw new Error(`Tauri CDP attachment failed (${exe}, exit=${child.exitCode}): ${output}`); }
+    if (!browser) {
+      let native: string;
+      try { native = execFileSync(path.resolve(import.meta.dirname, "../../.venv/Scripts/python.exe"), [path.resolve(import.meta.dirname, "../../scripts/desktop_startup_diagnostics.py"), String(child.pid)], { encoding: "utf8", windowsHide: true, timeout: 10000 }); } catch (error) { native = String(error); }
+      child.kill(); throw new Error(`Tauri CDP attachment failed (${exe}, exit=${child.exitCode}): ${output}\n${native}`);
+    }
     const page = browser.contexts()[0].pages()[0]; await page.waitForURL("http://tauri.localhost/**");
     return new DesktopApp(child, browser, page, home, env.VE_KEEP_TEST_ENGINE === "1");
   },

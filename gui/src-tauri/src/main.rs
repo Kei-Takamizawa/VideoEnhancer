@@ -119,6 +119,8 @@ fn initial_state() -> Option<(Arc<State>, Value)> {
 
 #[cfg(windows)]
 fn main() {
+    #[cfg(feature = "e2e")]
+    eprintln!("E2E startup: main");
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             window::show(app)
@@ -168,11 +170,15 @@ fn main() {
             }
         })
         .setup(move |app| {
+            #[cfg(feature = "e2e")]
+            eprintln!("E2E startup: setup, resolving isolated home");
             // The single-instance plugin runs first; a second launch only focuses it.
             let Some((state, initial)) = initial_state() else {
                 std::process::exit(0);
             };
             app.manage(state);
+            #[cfg(feature = "e2e")]
+            eprintln!("E2E startup: home resolved");
             #[cfg(feature = "e2e")]
             app.add_capability(
                 tauri::ipc::CapabilityBuilder::new("e2e-main")
@@ -180,6 +186,8 @@ fn main() {
                     .permission("allow-desktop-test"),
             )?;
             let link_handle = app.handle().clone();
+            #[cfg(feature = "e2e")]
+            eprintln!("E2E startup: creating webview");
             let webview =
                 tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
                     .on_navigation(|url| {
@@ -197,6 +205,8 @@ fn main() {
                         tauri::webview::NewWindowResponse::Deny
                     })
                     .build()?;
+            #[cfg(feature = "e2e")]
+            eprintln!("E2E startup: webview created");
             window::theme(&webview, initial["theme"].as_str().unwrap_or("system"))
                 .map_err(std::io::Error::other)?;
             let percent = initial["zoom"]
@@ -266,6 +276,8 @@ fn main() {
                     }
                 })
                 .build(app)?;
+            #[cfg(feature = "e2e")]
+            eprintln!("E2E startup: tray created");
             let handle = app.handle().clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_secs(3));
