@@ -326,22 +326,22 @@ Both automatic approval reviews rejected deletion as "blocked by policy". Neithe
 For the owner to delete (two development folders):
 
 - D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-win32-x64: 428,412,636 logical / 428,572,856 allocated bytes, 74 files.
-- D:\my-workspace\VideoEnhancer\work\scratch: 70,425,356,034 logical bytes, 118,244 files. Includes generated 1440p media and temporary profiles/binaries; all owned jobs/apps were stopped before the rejected attempt.
+- D:\my-workspace\VideoEnhancer\work\scratch: 70,456,005,439 logical bytes, 118,460 files. Includes generated 1440p media and temporary profiles/binaries; all owned jobs/apps were stopped before the rejected attempt.
 
 For the owner to delete later (read-only U5 inventory under %APPDATA%/VideoEnhancer): Cache856,456 bytes/7 files; Code Cache13,636/9; GPUCache1,642,864/5. Only these three cache subfolders were inspected; no owner app-data/pointer folder is a deletion candidate.
 
 Owner package: D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer, exactly VideoEnhancer.exe and engine-location.json. Logical5,749,307 / allocated5,750,848 bytes, two files. Feature-free final22 build and byte-identical copy smoke PASS (7.9 s); hashes in owner-release-final22-hashes.json. External engine checkout/.venv are not bundled.
 
-| Disk item | Start GB | Final GB |
+| Disk item | Start GB | Local-final GB |
 | --- | ---: | ---: |
-| C free | 332.084830208 | 308.735836160 |
-| D free | 1010.481532928 | 933.678587904 |
-| Cache logical | 4.193152357 | 10.641370770 |
-| Scratch logical | not inventoried | 70.425356034 |
-| P1t evidence logical | not inventoried | 0.175634689 |
+| C free | 332.084830208 | 308.733317120 |
+| D free | 1010.481532928 | 933.641998336 |
+| Cache logical | 4.193152357 | 10.641370786 |
+| Scratch logical | not inventoried | 70.456005439 |
+| P1t evidence logical | not inventoried | 0.181551217 |
 | Tauri / old package logical | 0 / .428413 | .005749 / .428413 |
 
-Rust target 4.241259126 GB (debug/release recorded separately in disk-final25.json), cargo .853716 GB, rustup1.314835 GB are the explicit one-time bootstrap exception. CARGO_BUILD_JOBS=2, session-only paths, complete cache 10.641370770 GB <40 GB. Cache increase is 6.448218413 GB; drive-free deltas are not attributed to this project. Evidence retains exactly P1e-2/P1e-2b/P1t at .009139/.015587/0.175634689 GB, each below300 MB. Inventory errors: none. Full persistent-growth <=1 GB cannot be claimed with scratch cleanup blocked and incomplete starting root inventories. See disk-final25.json; logical lengths are not allocated sizes or drive-wide free changes.
+Rust target 4.241259126 GB (debug/release recorded separately in disk-final27.json), cargo .853716 GB, rustup1.314835 GB are the explicit one-time bootstrap exception. CARGO_BUILD_JOBS=2, session-only paths, complete cache 10.641370786 GB <40 GB. Cache increase is 6.448218429 GB; drive-free deltas are not attributed to this project. Evidence retains exactly P1e-2/P1e-2b/P1t at .009139/.015587/0.181551217 GB, each below300 MB. Inventory errors: none. Full persistent-growth <=1 GB cannot be claimed with scratch cleanup blocked and incomplete starting root inventories. See disk-final27.json; logical lengths are not allocated sizes or drive-wide free changes.
 
 ## Visual comparison and native checks
 
