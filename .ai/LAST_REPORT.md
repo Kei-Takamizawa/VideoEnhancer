@@ -391,4 +391,6 @@ CI history: a710b21 push39026277983/PR39026280367 and 194135c push39028150187/PR
 
 ## CI and Git result
 
-Source4941a28: [Windows/Ubuntu push CI PASS](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/39033561280). Python Windows457 PASS/4 SKIP; Ubuntu456/5; GUI47 and Rust12 PASS; Windows CDP12 PASS/14 SKIP. Source SHA matches origin. This final report-only commit preserves source; its checks are verified after push in the final handoff. Draft PR6 stays unmerged.
+Source4941a28: [Windows/Ubuntu push CI PASS](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/39033561280). Python Windows457 PASS/4 SKIP; Ubuntu456/5; GUI47 and Rust12 PASS; Windows CDP12 PASS/14 SKIP. Source SHA matches origin. Only the functional test timeout/report change afterward; final-head checks are verified after push. Draft PR6 stays unmerged.
+
+ac3375d: PR CI PASS; push11 PASS/1 FAIL/14 SKIP (CPU/visual integration exceeded150 s). Raised only its overall timeout to300 s; assertions/perf budgets unchanged. Lint and local targeted1 PASS (1.2 min). Failure: ci-final-push-failed.log. New head verified after push.

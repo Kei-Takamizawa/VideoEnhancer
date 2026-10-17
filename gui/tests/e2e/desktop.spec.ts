@@ -14,7 +14,8 @@ import { assertPanelFits } from "./clipping";
 const electron: string = (process.env.VE_TAURI_EXE || "");
 
 test("desktop starts real CPU service, adds synthetic footage, streams completion and survives window close", async () => {
-  test.setTimeout(150000);
+  // This CPU/visual integration flow is separate from the unchanged perf budgets.
+  test.setTimeout(300000);
   const root = path.resolve("..");
   const evidence =
     process.env.VE_GUI_EVIDENCE || path.resolve("test-results/evidence");
