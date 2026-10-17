@@ -49,6 +49,10 @@ For local tests, build the renderer, then run
 Every desktop test uses an isolated home under scratch, isolated roaming/local
 app-data roots and a separate WebView2 data directory, and attaches over CDP.
 Owner packages must omit `e2e`; their test-command denial is verified separately.
+The Windows CI job checks for the WebView2 Runtime and installs Microsoft's
+Evergreen Runtime on the hosted runner when missing. It passes the resolved
+runtime folder explicitly so isolated local app-data paths do not hide a
+per-user runtime. This does not install software on the developer's PC.
 
 The owner package is an executable and `engine-location.json` in one folder.
 The engine checkout and Python environment remain external. No updater is included.

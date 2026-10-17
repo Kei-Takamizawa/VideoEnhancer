@@ -56,9 +56,12 @@ export const desktop = {
       env: { ...env, APPDATA: env.VE_TEST_APPDATA || path.join(profile, "roaming"), LOCALAPPDATA: env.VE_TEST_LOCALAPPDATA || path.join(profile, "local"), WEBVIEW2_USER_DATA_FOLDER: profile,
         WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --autoplay-policy=no-user-gesture-required` }, stdio: ["ignore", "pipe", "pipe"] });
     let failure: Error | undefined; child.once("error", error => { failure = error; });
+    let output = "";
+    const capture = (chunk: Buffer) => { output = (output + chunk.toString()).slice(-4000); };
+    child.stdout?.on("data", capture); child.stderr?.on("data", capture);
     let browser: Browser | undefined;
-    for (let i = 0; i < 150; i++) { if (failure) throw failure; try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`); break; } catch { await new Promise(resolve => setTimeout(resolve, 200)); } }
-    if (!browser) { child.kill(); throw new Error("Tauri CDP attachment timed out."); }
+    for (let i = 0; i < 150; i++) { if (failure) throw failure; if (child.exitCode !== null) break; try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`); break; } catch { await new Promise(resolve => setTimeout(resolve, 200)); } }
+    if (!browser) { child.kill(); throw new Error(`Tauri CDP attachment failed (${exe}, exit=${child.exitCode}): ${output}`); }
     const page = browser.contexts()[0].pages()[0]; await page.waitForURL("http://tauri.localhost/**");
     return new DesktopApp(child, browser, page, home, env.VE_KEEP_TEST_ENGINE === "1");
   },
