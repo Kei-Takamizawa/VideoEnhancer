@@ -3,7 +3,7 @@
 - Task ID / Cycle: VE-P1t, P1t.
 - Status: PARTIAL. Implementation and local validation complete; final CI pending. Cold start, History switching, AV1 and repeat-memory gates failed; cleanup was refused.
 - Branch: p1t-tauri, base p1d-ui-v2 at 40755c0. Draft PR #6.
-- Owner instruction resumed A1 after installing Build Tools. Designer M1, size-limit, S1/S9 and revised M2 decisions are preserved in CURRENT_TASK.md.
+- CURRENT_TASK.md preserves the complete task and designer decisions.
 - All media is synthetic and all application homes/profiles are isolated under work/scratch. The owner queue was not used. Product source/output limits are deferred to P1f Part R as instructed; no new product limit is introduced here.
 - External evidence root: work/evidence/P1t. No media, weights, packages, screenshots, caches or owner logs belong in Git.
 
@@ -200,7 +200,7 @@ Physical touchpad pinch, real Explorer drops of 1/50 files, cross-volume C-D-C m
 | T8 | Keyboard/numpad, saved zoom and trusted Ctrl+wheel no-page-zoom passed in parity-run2. Physical pinch NOT RUN. |
 | T9 | Final size/theme inventory and comparison completed. DWM calls HRESULT 0, Snap observed; native confirmation screenshots captured at all four size/theme combinations. |
 | T10 | Dialog seam E2E PASS. Real three-button missing-folder dialog inspected; Use previous recovered the healthy home, Quit preserved the pointer. Native video/folder chooser selection NOT RUN. |
-| T11 | Path validation PASS. Native Open folder and Media Player PASS. Explorer reveal initially opened Desktop; corrected Windows command-line quoting and feature-free package retest selected clip space 日本語,one.mp4 correctly (native-final/reveal-fixed.jpg). |
+| T11 | Path validation PASS. Native Open folder and Media Player PASS. Explorer reveal initially opened Desktop; corrected Windows command-line quoting and feature-free package retest selected the space/Unicode/comma filename correctly (native-final/reveal-fixed.jpg). |
 | T12 | Clipboard limits/readback passed in parity-run2. |
 | T13 | URL allowlist unit PASS. Native allowed documentation link opened in Brave; app stayed on http://tauri.localhost/. Only the newly opened tab was closed. |
 | T14 | 64,000-character error-log boundary passed in parity-run2. |
@@ -330,7 +330,7 @@ For the owner to delete (two development folders):
 
 For the owner to delete later (read-only U5 inventory under %APPDATA%/VideoEnhancer): Cache856,456 bytes/7 files; Code Cache13,636/9; GPUCache1,642,864/5. Only these three cache subfolders were inspected; no owner app-data/pointer folder is a deletion candidate.
 
-Owner package: D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer, exactly VideoEnhancer.exe and engine-location.json. Logical5,749,307 / allocated5,750,848 bytes, two files. Feature-free final12 build and isolated byte-identical copy smoke PASS (5.9 s); hashes in owner-release-final12-hashes.json. External engine checkout/.venv are not bundled.
+Owner package: D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer, exactly VideoEnhancer.exe and engine-location.json. Logical5,749,307 / allocated5,750,848 bytes, two files. Feature-free final22 build and byte-identical copy smoke PASS (7.9 s); hashes in owner-release-final22-hashes.json. External engine checkout/.venv are not bundled.
 
 | Disk item | Start GB | Final GB |
 | --- | ---: | ---: |
@@ -373,7 +373,7 @@ Renderer final13 completed all ten independent launches in 5.6 min. Suite FAIL a
 
 ## Final local checks and cleanup preflight
 
-Final13: Ruff check/format, Pyright, Rust fmt and e2e clippy, GUI lint/typecheck and 47 unit tests PASS (6.48 s); S9 PASS (23.6 s), including cleanup against the current moved engine. Default Rust clippy and 12 unit tests PASS final12. Feature-free package final12 built and smoke PASS (5.9 s). Vite's 531.11 KB chunk warning and Node's NO_COLOR/FORCE_COLOR warning are nonfatal.
+Final13: Ruff check/format, Pyright, Rust fmt and e2e clippy, GUI lint/typecheck and 47 unit tests PASS (6.48 s); S9 PASS (23.6 s), including cleanup against the current moved engine. Default Rust clippy and 12 unit tests PASS final12. Feature-free package final22 built and smoke PASS (7.9 s); default Rust clippy/unit12 PASS final22. Vite's 531.11 KB chunk warning and Node's NO_COLOR/FORCE_COLOR warning are nonfatal.
 
 Real CUDA final13: cadence PASS, but the test teardown stopped the external fixture, leaving its job queued; completion FAIL. Fixed the test to set VE_KEEP_TEST_ENGINE=1. Fresh final14: cadence PASS, job done, all three segments complete. Backend median1.00806%, p90 1.33064% of one core; 5,000-History diagnostic retained. Display0.96657 Hz, shortest999.5 ms, good SSE-gap fraction1.0. Both runs, including the interruption, are preserved under g-real-final13/14.
 
@@ -386,3 +386,5 @@ Changed files: six docs, .ai task/report, workflow/ignore rules; gui package/loc
 Questions for designer: cold-start and warm-History budgets remain unmet; current implementation retained without a design change. The media choice is already resolved by the both-fail rule. Native/physical gaps and memory failures remain on the owner check. CI and push verification follow this local report checkpoint.
 
 CI history: a710b21 push39026277983/PR39026280367 and 194135c push39028150187/PR39028152936: Ubuntu PASS; Windows FAIL (12 CDP timeouts,14 SKIP). Runtime154.0.4258.62 already existed. Diagnostic8845b0a push39032412952/PR39032415568: Ubuntu PASS; Windows early startup FAIL1; CPU/full E2E NOT RUN on that head. Native diagnostics show completed setup and live WebView2 children, but no CDP port in browser arguments. Microsoft's elevated-host documentation explains ignored environment overrides (learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security). E2E-only fix forwards the validated port through Tauri's API; package has no test port. Local clippy/build/startup PASS (2.0 s); hosted verification pending. Local runtime later auto-updated to155.0.4283.60 versus A2's155.0.4283.45; no exact runtime version was captured per M2 run, and M2 was not repeated after the update.
+
+13a2603: push startup PASS; PR39033258141 startup FAIL because CDP connected before the page target existed. Runner elevated=True confirms ignored environment flags. Harness now awaits the page event; lint/typecheck and five local startup repeats PASS (7.3 s). Earlier packaging commands used a nonexistent npm script and wrong env-file path; corrected script/build/smoke PASS. Hosted validation pending.

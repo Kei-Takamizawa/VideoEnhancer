@@ -66,7 +66,15 @@ export const desktop = {
       try { native = execFileSync(path.resolve(import.meta.dirname, "../../.venv/Scripts/python.exe"), [path.resolve(import.meta.dirname, "../../scripts/desktop_startup_diagnostics.py"), String(child.pid)], { encoding: "utf8", windowsHide: true, timeout: 10000 }); } catch (error) { native = String(error); }
       child.kill(); throw new Error(`Tauri CDP attachment failed (${exe}, exit=${child.exitCode}): ${output}\n${native}`);
     }
-    const page = browser.contexts()[0].pages()[0]; await page.waitForURL("http://tauri.localhost/**");
-    return new DesktopApp(child, browser, page, home, env.VE_KEEP_TEST_ENGINE === "1");
+    try {
+      const context = browser.contexts()[0];
+      const page = context.pages()[0] || await context.waitForEvent("page", { timeout: 30000 });
+      await page.waitForURL("http://tauri.localhost/**");
+      return new DesktopApp(child, browser, page, home, env.VE_KEEP_TEST_ENGINE === "1");
+    } catch (error) {
+      child.kill();
+      await browser.close().catch(() => {});
+      throw error;
+    }
   },
 };
