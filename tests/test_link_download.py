@@ -205,6 +205,10 @@ def test_cancelled_transfer_resumes_partial_file(
         thread.join(timeout=2)
 
 
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Real Windows FFmpeg TLS integration; portable transport policy has separate unit tests",
+)
 def test_https_header_redirect_to_http_is_refused(tmp_path, monkeypatch):
     openssl = shutil.which("openssl")
     if not openssl and os.name == "nt":

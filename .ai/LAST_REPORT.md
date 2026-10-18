@@ -424,3 +424,23 @@ tests/test_p1f_sizes.py
 tests/test_planner.py
 tests/test_video_links.py
 ```
+
+
+## Candidate CI correction
+
+Push CI 39103967329 on 1c41f38: Ubuntu CPU tests had 509 PASS, 1 FAIL, 16 SKIP,
+101 deselected in 349.22 s. The failure was the new real HTTPS redirect fixture
+running against Ubuntu's FFmpeg 6.1.1, which returned the generic header fallback
+rather than the Windows 9.0.2 whitelist refusal. The real transport integration
+is now Windows-only, matching the product and standalone downloader target.
+Portable URL, whitelist arguments and refusal-propagation unit tests still run
+on both platforms. This does not change application behavior or relabel that
+failed run. Local Windows real TLS remains PASS. Evidence:
+ci-39103967329-ubuntu.log and g1-https-redirect2.log. Older Linux FFmpeg behavior
+is not evidence of the Windows package's refusal gate.
+
+Published draft PR: https://github.com/Kei-Takamizawa/VideoEnhancer/pull/7,
+base p1t-tauri. Candidate 1c41f3886489ceb9a901ffcfaf3440266d78eb18 was pushed and
+verified by ls-remote. This is still the same unfinished P1f cycle.
+Final feature-free package startup PASS; executable SHA-256
+b9bc65eea6a326706789af9393760006d847701675cb557ec9a13e298bd407f0.
