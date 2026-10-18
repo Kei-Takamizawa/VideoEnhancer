@@ -25,6 +25,7 @@ async function fakeEngine(home) {
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
     if (req.headers.authorization !== `Bearer ${token}`) { res.writeHead(401); res.end(); return; }
+    if (route === "health" && !control.first_health_epoch_ms) res.once("finish", () => { control.first_health_epoch_ms ??= Date.now(); });
     const mediaFile = routes[route]?.fixtureVideoPath;
     if (mediaFile && ["GET", "HEAD"].includes(req.method)) {
       const size = fs.statSync(mediaFile).size;

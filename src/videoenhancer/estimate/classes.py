@@ -15,7 +15,7 @@ def output_class(media: dict[str, Any], settings: dict[str, Any]) -> str:
         "display_height": media.get("display_height") or media.get("height", 1280),
     }
     short = min(output_size(settings, normalized))
-    return next((str(size) for size in (1080, 1440, 2160) if short <= size), "above2160")
+    return next((str(size) for size in (1080, 1440) if short <= size), "above1440")
 
 
 def length_class(job: dict[str, Any]) -> str:

@@ -34,6 +34,7 @@ pub struct State {
     connection: Mutex<Option<engine::Connection>>,
     storage_busy: AtomicBool,
     storage_progress: Mutex<Value>,
+    storage_verification: Mutex<Value>,
     quitting: AtomicBool,
     tray_explained: AtomicBool,
     publishers: Mutex<Vec<String>>,
@@ -101,6 +102,7 @@ fn initial_state() -> Option<(Arc<State>, Value)> {
         connection: Mutex::new(None),
         storage_busy: AtomicBool::new(false),
         storage_progress: Mutex::new(json!({"phase":"Idle"})),
+        storage_verification: Mutex::new(Value::Null),
         quitting: AtomicBool::new(false),
         tray_explained: AtomicBool::new(initial["tray_explained"] == true),
         publishers: Mutex::new(vec![]),
@@ -204,7 +206,7 @@ fn main() {
                         }
                         tauri::webview::NewWindowResponse::Deny
                     });
-            #[cfg(feature = "e2e")]
+            #[cfg(feature = "cdp")]
             let webview_builder = {
                 // Elevated CI hosts ignore environment-only WebView2 debugging flags.
                 let port = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")

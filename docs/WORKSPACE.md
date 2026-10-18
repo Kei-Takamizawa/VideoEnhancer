@@ -5,7 +5,7 @@ All local cycle work belongs under `D:\my-workspace\VideoEnhancer\work`:
 | Folder | Purpose |
 | --- | --- |
 | `repo` | Git checkout and its `.venv`; run Git here |
-| `package` | The portable `VideoEnhancer` candidate; the historical Electron folder remains until its permitted cleanup |
+| `package` | The single portable `VideoEnhancer` candidate |
 | `evidence/<cycle>` | Reports, JSON measurements, logs and essential screenshots |
 | `scratch` | Isolated test homes, generated media and temporary outputs |
 | `cache` | Recipe-keyed reusable fixtures, GPU test model home and tool caches |
@@ -22,9 +22,10 @@ development artifacts only after inventorying their exact paths and sizes.
 Rust bootstrap is the P1t one-time exception to the 1 GB growth gate; report it.
 
 The Tauri portable layout is `package/VideoEnhancer/VideoEnhancer.exe` with
-`engine-location.json` beside it. During migration, keep the existing current
-package until the candidate passes its isolated smoke test. Remove Electron code,
-dependencies and its cache only after P1t acceptance passes.
+`engine-location.json` beside it. Keep the existing current package until the
+candidate passes its isolated smoke test. P1f removes the historical shell and
+its dependencies after the P2 baseline measurements; the accepted P1t failures
+remain recorded and do not delay that removal.
 
 Use a Git-ignored `repo/local-env.ps1` and dot-source it before installing, building or testing. Set `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`, `npm_config_cache`, `PLAYWRIGHT_BROWSERS_PATH`, `ELECTRON_CACHE`, `HF_HOME`, `TORCH_HOME`, `TEMP` and `TMP` to subfolders of `work/cache` or `work/scratch`. Use an isolated `VE_HOME` under scratch and `VE_GPU_TEST_MODEL_HOME` under cache. These variables apply only to the current shell or command. Never change system or user environment variables, long-path policy, drivers or Recycle Bin settings.
 

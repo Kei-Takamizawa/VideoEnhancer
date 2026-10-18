@@ -10,7 +10,7 @@ import torch
 from videoenhancer.bench.runner import MODEL_CATALOG, _bench_models, _bench_nvenc
 
 
-@pytest.mark.parametrize("size", [(1080, 1920), (2160, 3840)])
+@pytest.mark.parametrize("size", [(1080, 1920), (1440, 2560)])
 def test_nvenc_benchmark_input_mode_matches_owned_host_buffers(monkeypatch, size):
     encoders = []
 

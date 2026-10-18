@@ -13,6 +13,44 @@ fn text(args: &Value) -> engine::Result<&str> {
     args.as_str()
         .ok_or_else(|| "Invalid command argument.".into())
 }
+fn source_target(value: &str) -> engine::Result<String> {
+    if value.len() > 8192 || value.chars().any(char::is_control) {
+        return Err("Invalid source link.".into());
+    }
+    let url = reqwest::Url::parse(value).map_err(|_| "Invalid source link.")?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err("Invalid source link.".into());
+    }
+    Ok(url.to_string())
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::source_target;
+    #[test]
+    fn validates_and_normalizes_source_links() {
+        for value in [
+            "javascript:alert(1)",
+            "file:///C:/video.mp4",
+            "ftp://example.com/a",
+            "https://user:pass@example.com/",
+        ] {
+            assert!(source_target(value).is_err());
+        }
+        assert_eq!(
+            source_target("https://example.com/a\"b").unwrap(),
+            "https://example.com/a%22b"
+        );
+        assert_eq!(
+            source_target("http://example.com/video").unwrap(),
+            "http://example.com/video"
+        );
+    }
+}
 pub fn execute(
     app: &tauri::AppHandle,
     state: &State,
@@ -128,11 +166,25 @@ pub fn execute(
         }
         "openExternal" => {
             let url = text(&args)?;
-            if !window::external_allowed(url, &state.publishers.lock().map_err(|e| e.to_string())?)
-            {
-                return Err("External link denied.".into());
+            let normalized =
+                window::external_target(url, &state.publishers.lock().map_err(|e| e.to_string())?)?;
+            window::open(&normalized, false)?;
+            Ok(Value::Null)
+        }
+        "sourceLink" => {
+            let id = text(&args)?;
+            if id.len() != 32 || !id.bytes().all(|c| c.is_ascii_hexdigit()) {
+                return Err("Invalid job ID.".into());
             }
-            window::open(url, false)?;
+            let record = engine::request(
+                &state.connected()?,
+                &format!("queue/{id}/source"),
+                "GET",
+                None,
+            )?;
+            let source = record["url"].as_str().ok_or("Source link missing.")?;
+            let normalized = source_target(source)?;
+            window::open(&normalized, false)?;
             Ok(Value::Null)
         }
         "copy" => {
@@ -167,6 +219,9 @@ pub fn execute(
                 .clone()
             {
                 return Ok(value);
+            }
+            if args.as_bool().unwrap_or(false) {
+                storage::refresh(state)?;
             }
             storage::status(state)
         }

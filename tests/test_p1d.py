@@ -12,7 +12,10 @@ from videoenhancer.service.engine import Engine
 
 def test_batch_estimate_uses_all_files_and_two_shared_plans(tmp_path, video_factory, monkeypatch):
     engine = Engine(tmp_path / "home")
-    first, second = video_factory(frames=30), video_factory(frames=60)
+    first, second = (
+        video_factory(width=512, height=288, frames=30),
+        video_factory(width=512, height=288, frames=60),
+    )
     builds = []
 
     def plan(jobs, *_a, **_kw):

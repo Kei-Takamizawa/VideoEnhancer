@@ -22,7 +22,7 @@ from videoenhancer.cli import _jobs_plan, _save_schedule, _schedule_payload
 from videoenhancer.estimate import estimate_job
 from videoenhancer.estimate.live import live_job
 from videoenhancer.estimate.local import recent_correction
-from videoenhancer.estimate.model import job_progress
+from videoenhancer.estimate.model import job_progress, predict_segment
 from videoenhancer.jobs.store import (
     JobStore,
     _manifest_lock,
@@ -90,6 +90,14 @@ class Engine:
         self._preparations: list[threading.Thread] = []
         self.preview_threads: dict[str, threading.Thread] = {}
         self.download_threads: dict[str, threading.Thread] = {}
+        from videoenhancer.service.link_tools import ToolManager
+
+        self.link_tools = ToolManager(self.home)
+        from videoenhancer.service.link_jobs import LinkJobs
+        from videoenhancer.service.video_links import VideoLinks
+
+        self.video_links = VideoLinks(self.home, self.link_tools)
+        self.link_jobs = LinkJobs(self)
         self.storage_moving = False
         self._cleanup_checked = 0.0
         self.paused = os.environ.get("VE_STORAGE_MOVE_HOLD") == "1"
@@ -140,6 +148,7 @@ class Engine:
 
     def start(self) -> None:
         self._recover()
+        self.link_jobs.recover()
         self._home_watcher.start()
         self._health_thread.start()
         self.start_publication()
@@ -185,6 +194,20 @@ class Engine:
                     job.setdefault("video_deletions", {})[key] = entry["result"]
                     self.store.save(job)
         for job in self.store.list_jobs():
+            from videoenhancer.jobs.checks import job_support_reason
+
+            unsupported = job_support_reason(job)
+            if job["state"] not in {"done", "failed", "cancelled"} and unsupported:
+                for segment in job["segments"]:
+                    if segment["state"] == "running":
+                        segment["state"] = "pending"
+                job.update(
+                    unsupported_reason=unsupported, error=f"No longer supported: {unsupported}"
+                )
+                if job["state"] in {"running", "preparing"}:
+                    job["state"] = "queued"
+                self.store.save(job)
+                continue
             if job.get("history_hidden_until"):
                 if job.pop("storage_move_undo", False):
                     self.store.save(job)
@@ -289,6 +312,25 @@ class Engine:
         now = time.monotonic()
         result = []
         for job in jobs:
+            if job["state"] == "downloading":
+                work = copy.deepcopy(job)
+                if job.get("link_estimate") and job["media"].get("frame_count"):
+                    from videoenhancer.jobs.segments import plan_segments
+
+                    profile = load_machine_profile(self.home, backend=job["settings"]["backend"])
+                    frames = job["media"]["frame_count"]
+                    work["machine_profile"] = profile
+                    work["segments"] = plan_segments(
+                        job["media"],
+                        [],
+                        predicted_seconds_per_frame=predict_segment(
+                            job["media"], job["settings"], frames, profile
+                        )
+                        / frames,
+                        target_seconds=180,
+                    )
+                result.append(work)
+                continue
             if job["state"] == "running" and job.get("progress", {}).get("phase") != "finalizing":
                 latest = received.get(job["id"])
                 # The receipt carries the same complete metadata, not a reduced whitelist.
@@ -386,6 +428,9 @@ class Engine:
     def close(self) -> None:
         self._home_watcher.close()
         self.stop.set()
+        self.link_jobs.wake.set()
+        if self.link_jobs.thread.ident is not None:
+            self.link_jobs.thread.join(timeout=2)
         for timer in self._history_timers:
             timer.cancel()
         deadline = time.monotonic() + 15
@@ -404,6 +449,12 @@ class Engine:
         for process in list(self.processes.values()):
             if process.poll() is None:
                 _kill_process_tree(process.pid)
+        for thread in list(self.link_jobs.active.values()):
+            thread.join(timeout=10)
+            if thread.is_alive():
+                raise RuntimeError(
+                    "A video download has not stopped. Keep the app open and retry Quit."
+                )
         for thread in list(self.download_threads.values()):
             thread.join(timeout=5)
             if thread.is_alive():
@@ -548,6 +599,8 @@ class Engine:
     def queue(
         self, jobs: list[dict[str, Any]] | None = None, plan: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        from videoenhancer.jobs.checks import job_support_reason
+
         jobs = self.store.queue_jobs() if jobs is None else jobs
         jobs = [
             job
@@ -571,6 +624,36 @@ class Engine:
             return file_stats[path]
 
         for j in jobs:
+            if j["state"] == "downloading":
+                download = j.get("download", {})
+                rows.append(
+                    dict(
+                        id=j["id"],
+                        state="downloading",
+                        input=j["input"]["path"],
+                        output=j["output"],
+                        settings=j["settings"],
+                        media=j["media"],
+                        source=j.get("source"),
+                        download=download,
+                        estimate=j.get("link_estimate")
+                        or dict(seconds=0, low=0, high=0, calibrated=False),
+                        estimate_after_download=not bool(j.get("link_estimate")),
+                        eta=completion.get(j["id"], {}).get("completion"),
+                        starts=completion.get(j["id"], {}).get("start"),
+                        progress_percent=download.get("percent") or 0,
+                        phase="downloading",
+                        step=download.get("phase", "Downloading"),
+                        step_percent=download.get("percent") or 0,
+                        segment=0,
+                        segments=0,
+                        log=f"queue/{j['id']}/log",
+                        position=j.get("position"),
+                        preview_ready=False,
+                        error=j.get("error"),
+                    )
+                )
+                continue
             terminal = j["state"] in {"done", "failed", "cancelled"}
             previous_row = self._history_rows.get(j["id"])
             if terminal and previous_row and previous_row[0][0] != j["updated_at"]:
@@ -632,6 +715,8 @@ class Engine:
                     "settings": j["settings"],
                     "media": j["media"],
                     "error": j.get("error"),
+                    "source": j.get("source"),
+                    "unsupported_reason": (job_support_reason(j) if not terminal else None),
                     "estimate": (
                         estimate_job(j).to_dict()
                         if j["state"] != "preparing"
@@ -1036,7 +1121,7 @@ class Engine:
             raise ValueError("Invalid preset.")
         if settings["codec"] not in {"h264", "hevc", "av1"}:
             raise ValueError("Invalid codec.")
-        if settings["short_side"] not in {"keep", 1080, 1440, 2160}:
+        if settings["short_side"] not in {"keep", 1080, 1440}:
             raise ValueError("Invalid output short side.")
         if settings["fps"] not in {"off", "2x"}:
             raise ValueError("Invalid frame rate.")
@@ -1168,18 +1253,6 @@ class Engine:
         geometry = self.geometry_warning(media, settings)
         if geometry:
             warnings.append(geometry)
-        if settings["short_side"] != "keep" and min(
-            media.get("display_width") or media.get("width", 720),
-            media.get("display_height") or media.get("height", 1280),
-        ) > int(settings["short_side"]):
-            source_short = min(
-                media.get("display_width") or media["width"],
-                media.get("display_height") or media["height"],
-            )
-            warnings.append(
-                f"This video is larger than {settings['short_side']}p, so output keeps its size "
-                f"({source_short}p)."
-            )
         for location, copies in locations:
             required = int(output_bytes * copies * 1.1)
             available = shutil.disk_usage(location).free
@@ -1227,7 +1300,8 @@ class Engine:
             }
             estimate = estimate_job(virtual).to_dict()
             if virtual_jobs is not None:
-                virtual_jobs[preset].append(virtual)
+                if not warnings:
+                    virtual_jobs[preset].append(virtual)
                 plan = {"jobs": []}
             else:
                 plan = _jobs_plan(queue + [virtual], self.home, 120)
@@ -1251,11 +1325,7 @@ class Engine:
         now = datetime.now(UTC).isoformat()
         settings = {**read_settings(self.home), **value.get("settings", {})}
         check = self.estimate({**value, "file": str(source), "settings": settings})
-        blocking = [
-            warning
-            for warning in check["warnings"]
-            if not warning.startswith("This video is larger than")
-        ]
+        blocking = check["warnings"]
         if blocking:
             raise ValueError(blocking[0])
         if settings.get("codec") == "av1":
@@ -1337,6 +1407,11 @@ class Engine:
         import logging
 
         job = self.store.load(job_id)
+        if (
+            job_id in self.link_jobs.active
+            and self.link_jobs.active[job_id] is not threading.current_thread()
+        ):
+            raise ValueError("Cancel this download before removing its job.")
         directory = self.store.job_dir(job_id).resolve()
         if any(
             Path(path).resolve().is_relative_to(directory)
@@ -1371,19 +1446,25 @@ class Engine:
                 handler.close()
         with _manifest_lock(self.store.jobs_dir):
             shutil.rmtree(directory)
+        self.link_jobs.pending.pop(job_id, None)
+        self.link_jobs.cancelled.discard(job_id)
         return {"removed": job_id, "output_preserved": True}
 
     def cancel_job(self, job_id: str) -> dict[str, Any]:
         job = self.store.load(job_id)
         if job["state"] in {"done", "failed", "cancelled"}:
             raise ValueError("Cancel is available for unfinished videos only.")
-        busy = job["state"] in {"running", "preparing"} or any(
-            segment["state"] == "running" for segment in job["segments"]
+        busy = (
+            job["state"] in {"running", "preparing"}
+            or job_id in self.link_jobs.active
+            or any(segment["state"] == "running" for segment in job["segments"])
         )
         job["cancel_cleanup"] = True
         job["remove_on_cancel"] = not any(segment["state"] == "done" for segment in job["segments"])
         self.store.save(job)
         job = self.store.set_state(job_id, "cancelled")
+        if job_id in self.link_jobs.pending:
+            self.link_jobs.cancel(job_id)
         if not busy:
             return self._clean_cancelled(job)
         return job
@@ -1619,6 +1700,7 @@ class Engine:
                 thread.name == f"prepare-{job['id']}" and thread.is_alive()
                 for thread in self._preparations
             )
+            preparing = preparing or job["id"] in self.link_jobs.active
             if (
                 job.get("cancel_cleanup")
                 and not preparing
@@ -1640,6 +1722,11 @@ class Engine:
 
     def operation(self, kind: str, value: dict[str, Any]) -> dict[str, Any]:
         if kind in {"trial", "compare"}:
+            from videoenhancer.jobs.checks import source_warning
+
+            unsupported = source_warning(probe(Path(value["file"]), read_timeline=False).to_dict())
+            if unsupported:
+                raise ValueError(unsupported)
             if value.get("seconds", 5) not in {3, 5, 10}:
                 raise ValueError("Trial length must be 3, 5 or 10 seconds.")
             value = {**value, "settings": self.chosen(value.get("settings", {}))}
@@ -1791,6 +1878,146 @@ class Engine:
         process = self.processes.get(op_id)
         if process and process.poll() is None:
             _kill_process_tree(process.pid)
+        return op
+
+    def link_tools_operation(self, action: str, value: dict[str, Any]) -> dict[str, Any]:
+        if action not in {"check", "install", "uninstall"}:
+            raise ValueError("Unknown link-tool action.")
+        if action in {"install", "uninstall"} and (
+            self.link_jobs.active
+            or any(
+                o["kind"] == "link check" and o["state"] == "running"
+                for o in self.operations.values()
+            )
+        ):
+            raise ValueError(
+                "Wait for video downloads and link checks to stop before changing link tools."
+            )
+        if any(
+            o["kind"] == "link tools" and o["state"] == "running" for o in self.operations.values()
+        ):
+            raise ValueError("Wait for the current link-tool operation.")
+        op: dict[str, Any] = dict(
+            id=uuid.uuid4().hex,
+            kind="link tools",
+            state="running",
+            request={"_network_only": True},
+            phase="Checking releases" if action == "check" else "Starting",
+            created_at=datetime.now(UTC).isoformat(),
+        )
+        self.operations[op["id"]] = op
+        self._save_operation(op)
+
+        def run() -> None:
+            last_saved = 0.0
+
+            def progress(packet: dict[str, Any]) -> None:
+                nonlocal last_saved
+                op.update(packet)
+                if time.monotonic() - last_saved >= 0.25 or packet.get("percent") == 100:
+                    self._save_operation(op)
+                    last_saved = time.monotonic()
+
+            try:
+                channel = value.get("channel", "stable")
+                if action == "check":
+                    result = self.link_tools.check(channel)
+                elif action == "install":
+                    if value.get("consent") is not True:
+                        raise ValueError("Review the tool licences and download notice first.")
+                    result = self.link_tools.install(
+                        channel,
+                        value.get("plan_id", ""),
+                        progress,
+                        lambda: self.stop.is_set() or bool(op.get("cancel_requested")),
+                    )
+                else:
+                    result = self.link_tools.uninstall()
+                op.update(
+                    result=result,
+                    state="cancelled"
+                    if self.stop.is_set() or op.get("cancel_requested")
+                    else "done",
+                    phase="Complete",
+                )
+            except Exception as error:
+                op.update(
+                    state="cancelled"
+                    if self.stop.is_set() or op.get("cancel_requested")
+                    else "failed",
+                    error=str(error),
+                )
+            finally:
+                self._save_operation(op)
+
+        thread = threading.Thread(target=run, daemon=True, name="link-tools")
+        self.preview_threads[op["id"]] = thread
+        thread.start()
+        return op
+
+    def check_link(self, value: dict[str, Any]) -> dict[str, Any]:
+        from videoenhancer.service.video_links import video_url
+
+        url = video_url(value.get("url", ""))
+        settings = self.chosen(value.get("settings", {}))
+        if not self.link_tools.status()["available"]:
+            raise ValueError("Install link tools before checking a video link.")
+        op: dict[str, Any] = dict(
+            id=uuid.uuid4().hex,
+            kind="link check",
+            state="running",
+            request={"_network_only": True},
+            phase="Checking link",
+            created_at=datetime.now(UTC).isoformat(),
+        )
+        self.operations[op["id"]] = op
+        self._save_operation(op)
+
+        def run() -> None:
+            def child(process) -> None:
+                if process is None:
+                    self.processes.pop(op["id"], None)
+                else:
+                    self.processes[op["id"]] = process
+
+            def progress(packet) -> None:
+                op.update(packet)
+                self._save_operation(op)
+
+            try:
+                result = self.video_links.check(
+                    url,
+                    settings,
+                    lambda: self.stop.is_set() or bool(op.get("cancel_requested")),
+                    child,
+                    progress,
+                )
+                for row in result["raw_entries"]:
+                    reused = self.video_links.reusable(row["info"], self.store)
+                    if reused:
+                        next(card for card in result["entries"] if card["key"] == row["key"])[
+                            "reuse"
+                        ] = reused
+                safe = self.video_links.save_check(op["id"], result)
+                op.update(
+                    result=safe,
+                    state="cancelled" if op.get("cancel_requested") else "done",
+                    phase="Link checked",
+                )
+            except Exception as error:
+                op.update(
+                    state="cancelled"
+                    if self.stop.is_set() or op.get("cancel_requested")
+                    else "failed",
+                    error=str(error),
+                )
+            finally:
+                child(None)
+                self._save_operation(op)
+
+        thread = threading.Thread(target=run, name="link-check", daemon=True)
+        self.preview_threads[op["id"]] = thread
+        thread.start()
         return op
 
     def _auxiliary(self) -> None:
@@ -2119,6 +2346,8 @@ class Engine:
             "trial/thumbnails",
             "compare/range",
             "queue",
+            "links/queue",
+            "links/estimate",
         }:
             return self._dispatch(method, parts, value)
         with self._mutation_lock:
@@ -2150,6 +2379,47 @@ class Engine:
             and not (route == "storage/prepare" and value.get("cancel") is True)
         ):
             raise ValueError("App data is moving. Wait for it to finish.")
+        if route == "link-tools" and method == "GET":
+            return self.link_tools.status()
+        if len(parts) == 2 and parts[0] == "link-tools" and method == "POST":
+            return self.link_tools_operation(parts[1], value)
+        if route == "links/check" and method == "POST":
+            return self.check_link(value)
+        if route == "links/queue" and method == "POST":
+            return self.link_jobs.queue(value)
+        if route == "links/estimate" and method == "POST":
+            from videoenhancer.service.video_links import format_estimate
+
+            original, entry = self.video_links.metadata(
+                str(value.get("check_id", "")), str(value.get("entry_key", ""))
+            )
+            video, audio = self.video_links.selected(
+                original, entry, str(value.get("format_id", ""))
+            )
+            chosen = self.chosen(value.get("settings", {}))
+            estimates = {}
+            if value.get("all_formats") is True:
+                for item in entry["formats"]:
+                    if item.get("vcodec") == "none":
+                        continue
+                    try:
+                        selected, _ = self.video_links.selected(
+                            original, entry, str(item["format_id"])
+                        )
+                        estimates[str(item["format_id"])] = format_estimate(
+                            selected, chosen, self.home
+                        )
+                    except ValueError:
+                        estimates[str(item["format_id"])] = None
+            return {
+                "estimate": format_estimate(video, chosen, self.home),
+                "formats": estimates,
+                "bytes": sum(
+                    int(item.get("filesize") or item.get("filesize_approx") or 0)
+                    for item in [video] + ([audio] if audio else [])
+                )
+                or None,
+            }
         if route == "storage" and method == "GET":
             from videoenhancer.service.storage import storage_status
 
@@ -2170,6 +2440,11 @@ class Engine:
                 o["state"] in {"running", "waiting"} for o in self.operations.values()
             )
             busy = busy or any(t.is_alive() for t in self._history_threads)
+            busy = (
+                busy
+                or bool(self.link_jobs.active)
+                or (not self.paused and bool(self.link_jobs.pending))
+            )
             if busy:
                 raise ValueError("Pause processing first.")
             self._storage_previous_paused = self.paused
@@ -2187,6 +2462,11 @@ class Engine:
             self.last_error = None
             return {"dismissed": True}
         if method == "GET":
+            if len(parts) == 3 and parts[0] == "queue" and parts[2] == "source":
+                from videoenhancer.service.video_links import video_url
+
+                job = self.store.load(parts[1])
+                return {"url": video_url(job.get("source", {}).get("url", ""))}
             if route == "health":
                 return self.health()
             if route == "queue":
@@ -2416,10 +2696,15 @@ class Engine:
             if action == "retry":
                 if self.store.load(job_id)["state"] != "failed":
                     raise ValueError("Retry is available for failed videos only.")
+                retry_job = self.store.load(job_id)
+                if retry_job.get("source", {}).get("url") and retry_job.get("download"):
+                    return self.link_jobs.retry(job_id)
                 return self.store.set_state(job_id, "queued")
             if action in {"pause", "resume", "cancel"}:
                 if action == "cancel":
                     return self.cancel_job(job_id)
+                if self.store.load(job_id)["state"] == "downloading":
+                    raise ValueError("Use Pause all or Resume all for video downloads.")
                 if self.store.load(job_id)["state"] in {"done", "failed", "cancelled"}:
                     raise ValueError("Pause and Resume are available for unfinished videos only.")
                 return self.store.set_state(
@@ -2430,6 +2715,7 @@ class Engine:
             if type(value.get("paused")) is not bool:
                 raise ValueError("Paused must be on or off.")
             self.paused = value["paused"]
+            self.link_jobs.wake.set()
             return {"paused": self.paused, "paused_all": self.paused}
         if route == "settings" and method == "PUT":
             return save_settings(self.home, value)

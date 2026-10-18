@@ -66,7 +66,7 @@ export function Thumbnail({
   useEffect(() => {
     let alive = true,
       object: string | undefined;
-    if (api)
+    if (api && job.state !== "downloading")
       void api
         .blob(`queue/${job.id}/thumbnail`)
         .then((blob) => {
@@ -95,6 +95,18 @@ type Actions = {
   action(job: Job, name: string, data?: unknown): void;
   trial(job: Job): void;
 };
+function DownloadCard({ job, cancel }: { job: Job; cancel(): void }) {
+  const download = job.download;
+  return <article className="now-card"><div className="now-details">
+    <p className="muted">{download?.phase || "Downloading"}</p>
+    <h2>{job.source?.title || filename(job.input)}</h2>
+    <div className="now-percent">{download?.percent == null ? "Downloading" : `${download.percent.toFixed(0)}%`}</div>
+    <progress aria-label="Download progress" max="100" value={download?.percent ?? undefined} />
+    <p>{download?.bytes_per_second ? `${(download.bytes_per_second / 1e6).toFixed(1)} MB/s` : "Waiting for download speed"} · {download?.remaining_seconds != null ? `${duration(download.remaining_seconds)} left` : "Time left after download starts"}</p>
+    <p>Processing: {job.estimate_after_download ? "after download" : `${duration(job.estimate.seconds)} · Done ${when(job.eta)}`}</p>
+    <ActionButton onClick={cancel}>Cancel download</ActionButton>
+  </div></article>;
+}
 export function JobMenu({
   job,
   action,
@@ -116,6 +128,8 @@ export function JobMenu({
     document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
   }, [open]);
+  if (job.unsupported_reason) return <ActionButton onClick={() => action(job, "cancel")}>Remove</ActionButton>;
+  if (job.state === "downloading") return <ActionButton onClick={() => action(job, "cancel")}>Cancel download</ActionButton>;
   return (
     <div className="job-menu" ref={menu}>
       <ActionButton
@@ -248,9 +262,9 @@ export function HomePage({
     (j) => !["done", "failed", "cancelled"].includes(j.state),
   );
   const current =
-    active.find((j) => j.state === "running") ||
-    active.find((j) => ["queued", "paused"].includes(j.state)) ||
-    active[0];
+    active.find((j) => !j.unsupported_reason && j.state === "running") ||
+    active.find((j) => !j.unsupported_reason && ["queued", "paused"].includes(j.state)) ||
+    active.find((j) => !j.unsupported_reason);
   const next = active.filter((j) => j !== current);
   const failures = queue.jobs.filter(
     (j) => j.state === "failed" && !seenFailures.includes(j.id),
@@ -277,6 +291,7 @@ export function HomePage({
               ? `Working · ${current.fps?.toFixed(1) || "—"} fps${health?.next_change ? ` · pauses at ${when(health.next_change)}` : ""}`
               : current?.state === "preparing"
                 ? "Preparing…"
+                : current?.state === "downloading" ? "Downloading"
                 : current
                   ? `Waiting for your hours${health?.next_change ? ` · starts ${when(health.next_change)}` : ""}`
                   : "Idle · nothing to do";
@@ -299,7 +314,7 @@ export function HomePage({
           </ActionButton>
         </div>
         <div className="actions">
-          <ActionButton onClick={pauseAll} disabled={!health?.paused_all && !active.some(job => job.state === "running" || (job.state === "queued" && health?.engine_state !== "Waiting for your hours"))} title="Pause jobs running or ready to run now">
+          <ActionButton onClick={pauseAll} disabled={!health?.paused_all && !active.some(job => !job.unsupported_reason && (job.state === "downloading" || job.state === "running" || (job.state === "queued" && health?.engine_state !== "Waiting for your hours")))} title="Pause jobs running or ready to run now">
             {health?.paused_all ? "Resume all" : "Pause all"}
           </ActionButton>
           <ActionButton className="primary" onClick={() => add()}>
@@ -352,7 +367,7 @@ export function HomePage({
       {health?.deletion_notices?.filter(notice => !queue.jobs.some(job => job.id === notice.job_id)).map(notice => <div className="alert" role="status" key={notice.id}><p>{notice.result}</p><p>{notice.guard}</p><ActionButton onClick={() => window.desktop.reveal(notice.guard)}>Show in folder</ActionButton></div>)}
       <div className="home-columns">
         <div>
-          {current ? (
+          {current?.state === "downloading" ? <DownloadCard job={current} cancel={() => action(current, "cancel")} /> : current ? (
             <article className="now-card">
               <Thumbnail job={current} api={api} />
               <div className="now-details">
@@ -497,7 +512,7 @@ export function HomePage({
                       </p>
                     </div>
                     <div>
-                      {job.cancel_cleanup ? ("Cancelling…") : job.state === "preparing" ? (
+                      {job.state === "downloading" ? <><p>{job.download?.phase} · {job.download?.percent == null ? "" : `${job.download.percent.toFixed(0)}%`}</p><progress aria-label="Download progress" max="100" value={job.download?.percent ?? undefined} /><p>Processing: {job.estimate_after_download ? "after download" : duration(job.estimate.seconds)}</p></> : job.unsupported_reason ? `No longer supported: ${job.unsupported_reason}` : job.cancel_cleanup ? ("Cancelling…") : job.state === "preparing" ? (
                         "Preparing…"
                       ) : job.state === "paused" ? (
                         "Waits until you resume it"

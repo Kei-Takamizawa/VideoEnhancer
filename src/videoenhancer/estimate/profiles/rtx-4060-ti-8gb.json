@@ -12,10 +12,6 @@
         {
           "pixels": 2073600,
           "seconds_per_pixel_frame": 2.5921191808379733e-09
-        },
-        {
-          "pixels": 8294400,
-          "seconds_per_pixel_frame": 2.5221693753290355e-09
         }
       ]
     },
@@ -25,10 +21,6 @@
         {
           "pixels": 5068800,
           "seconds_per_pixel_frame": 3.993055558034158e-10
-        },
-        {
-          "pixels": 17510400,
-          "seconds_per_pixel_frame": 7.139471398481714e-10
         }
       ]
     },
@@ -38,10 +30,6 @@
         {
           "pixels": 2073600,
           "seconds_per_pixel_frame": 3.0686969497720035e-10
-        },
-        {
-          "pixels": 8294400,
-          "seconds_per_pixel_frame": 2.8405912431578373e-10
         }
       ]
     },
@@ -51,10 +39,6 @@
         {
           "pixels": 2073600,
           "seconds_per_pixel_frame": 1.765407989891465e-10
-        },
-        {
-          "pixels": 8294400,
-          "seconds_per_pixel_frame": 2.067961515608532e-10
         }
       ]
     }
@@ -126,10 +110,6 @@
         {
           "pixels": 2073600,
           "seconds_per_pixel_frame": 2.2567774642735504e-08
-        },
-        {
-          "pixels": 8294400,
-          "seconds_per_pixel_frame": 2.900010850693925e-08
         }
       ]
     },
@@ -250,34 +230,6 @@
         "sha256": "8b166c75831ea7f694d9058ee9c8df8148af8cc1d2b57e69e6581b15cab572f7",
         "manifest_sha256": "c10f3aedefd64265bbbe4a78bd351267a53bd9f838c6ae24f77f7e023430e9e6"
       }
-    },
-    "basicvsrpp-ntire21-decompress:medium:2160": {
-      "gpu": "NVIDIA GeForce RTX 4060 Ti",
-      "input": "720x1280 at 30 fps, 150 frames",
-      "output": "2160x3840 at 60 fps",
-      "mode": "standard",
-      "fps": 0.6113032514209255,
-      "seconds": 245.377396,
-      "identity": {
-        "id": "basicvsrpp-ntire21-decompress",
-        "version": "1",
-        "sha256": "6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a",
-        "manifest_sha256": "6f32e0e236f194a378a556aed2451ca24df581e2bfae1cf7c0f558274fa77c32"
-      }
-    },
-    "rife-4.25:medium:2160": {
-      "gpu": "NVIDIA GeForce RTX 4060 Ti",
-      "input": "720x1280 at 30 fps, 150 frames",
-      "output": "2160x3840 at 60 fps",
-      "mode": "fast",
-      "fps": 3.081944402010636,
-      "seconds": 48.670573,
-      "identity": {
-        "id": "rife-4.25",
-        "version": "1",
-        "sha256": "6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2",
-        "manifest_sha256": "c2a6267743fee7e6585fe279133a5d2d28d55c6f6bf75f788e71ba01b11b18d0"
-      }
     }
   },
   "finalization": {
@@ -370,7 +322,7 @@
     "standard": 4.4917327,
     "fast": 2.5475333
   },
-  "max_measured_output_pixels": 8294400,
+  "max_measured_output_pixels": 2073600,
   "pipeline_size_points": {
     "standard": [
       {
@@ -380,14 +332,6 @@
         "actual_seconds": 68.27405,
         "startup_seconds": 4.491732700029388,
         "net_seconds_per_source_frame": 0.42521544866647076
-      },
-      {
-        "pixels": 8294400,
-        "factor": 2.314076691291165,
-        "input_frames": 150,
-        "actual_seconds": 245.377396,
-        "startup_seconds": 4.818455899999208,
-        "net_seconds_per_source_frame": 1.6037262673333386
       }
     ],
     "fast": [
@@ -398,132 +342,8 @@
         "actual_seconds": 15.01194,
         "startup_seconds": 2.4032968999999866,
         "net_seconds_per_source_frame": 0.08405762066666675
-      },
-      {
-        "pixels": 8294400,
-        "factor": 1.0373299750573437,
-        "input_frames": 150,
-        "actual_seconds": 48.670573,
-        "startup_seconds": 2.338080599998648,
-        "net_seconds_per_source_frame": 0.30888328266667564
       }
     ]
-  },
-  "calibration_geometry_2160": {
-    "tensor_stages": {
-      "resize": {
-        "status": "measured",
-        "median_ms": 0.9083999993890757,
-        "p90_ms": 0.9203999998135259,
-        "iterations": 50,
-        "device": "cuda"
-      },
-      "color_nv12_to_rgb": {
-        "status": "measured",
-        "median_ms": 0.4622999986167997,
-        "p90_ms": 0.4934999997203704,
-        "iterations": 50,
-        "device": "cuda"
-      },
-      "color_rgb_to_nv12": {
-        "status": "measured",
-        "median_ms": 0.4533499995886814,
-        "p90_ms": 0.4745999995066086,
-        "iterations": 50,
-        "device": "cuda"
-      },
-      "color_rgb_to_nv12_2160p": {
-        "status": "measured",
-        "median_ms": 6.01959999949031,
-        "p90_ms": 6.406499998774962,
-        "iterations": 50,
-        "device": "cuda"
-      },
-      "resize_stage": {
-        "status": "measured",
-        "median_ms": 4.712200001449673,
-        "p90_ms": 5.026800001360243,
-        "iterations": 50,
-        "device": "cuda"
-      },
-      "blend2x": {
-        "status": "measured",
-        "median_ms": 3.4304999990126817,
-        "p90_ms": 3.6670999998023035,
-        "iterations": 50,
-        "device": "cuda"
-      },
-      "p0_test_end_to_end": {
-        "status": "measured",
-        "median_ms": 8.135299999594281,
-        "p90_ms": 8.658900000227732,
-        "iterations": 50,
-        "device": "cuda",
-        "output_frames_per_second": 491.68438781599764
-      }
-    },
-    "models": {
-      "basicvsrpp-ntire21-decompress": {
-        "task": "restore",
-        "backend": "cuda",
-        "status": "measured",
-        "identity": {
-          "id": "basicvsrpp-ntire21-decompress",
-          "version": "1",
-          "sha256": "6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a",
-          "manifest_sha256": "6f32e0e236f194a378a556aed2451ca24df581e2bfae1cf7c0f558274fa77c32"
-        },
-        "load_seconds": 1.7576649000002362,
-        "width": 720,
-        "height": 1280,
-        "batch_frames": 15,
-        "processed_frames_or_pairs": 15,
-        "clip_length": 15,
-        "clip_overlap": 2,
-        "single_frame": false,
-        "precision": "fp16",
-        "effective_precision": "fp16",
-        "seconds_samples": [
-          3.6597227999991446,
-          3.6530806999999186,
-          3.6531006999994133
-        ],
-        "median_seconds": 3.6531006999994133,
-        "processed_frames_or_pairs_per_second": 4.106100880274778,
-        "seconds_per_pixel_frame": 2.6425786313653164e-07,
-        "torch_reserved_peak_bytes": 2610954240
-      },
-      "rife-4.25": {
-        "task": "interpolate",
-        "backend": "cuda",
-        "status": "measured",
-        "identity": {
-          "id": "rife-4.25",
-          "version": "1",
-          "sha256": "6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2",
-          "manifest_sha256": "c2a6267743fee7e6585fe279133a5d2d28d55c6f6bf75f788e71ba01b11b18d0"
-        },
-        "load_seconds": 0.23091629999998986,
-        "width": 2160,
-        "height": 3840,
-        "batch_frames": 9,
-        "processed_frames_or_pairs": 8,
-        "clip_length": 3,
-        "clip_overlap": 1,
-        "single_frame": false,
-        "precision": "fp16",
-        "effective_precision": "fp16",
-        "seconds_samples": [
-          1.9243079999996553,
-          1.9254446000004464,
-          1.9238470000000234
-        ],
-        "median_seconds": 1.9243079999996553,
-        "processed_frames_or_pairs_per_second": 4.15733863809818,
-        "seconds_per_pixel_frame": 2.900010850693925e-08,
-        "torch_reserved_peak_bytes": 7033847808
-      }
-    }
   },
   "estimate_revision": "p1e2-stage-sizes2"
 }

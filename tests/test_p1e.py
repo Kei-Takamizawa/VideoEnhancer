@@ -186,7 +186,7 @@ def test_correct_bt2020_hdr_tags_reach_warning_probe(tmp_path, ffmpeg_run, trans
         "-f",
         "lavfi",
         "-i",
-        "color=size=3840x2160:rate=30",
+        "color=size=1920x1080:rate=30",
         "-frames:v",
         "3",
         "-c:v",

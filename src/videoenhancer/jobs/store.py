@@ -23,7 +23,16 @@ from .segments import plan_segments
 
 SCHEMA_VERSION = 1
 ANALYSIS_FIELDS = ("cfr_map", "source_pts", "keyframes", "scene_cuts", "motion_scores")
-JOB_STATES = {"preparing", "queued", "running", "paused", "cancelled", "failed", "done"}
+JOB_STATES = {
+    "downloading",
+    "preparing",
+    "queued",
+    "running",
+    "paused",
+    "cancelled",
+    "failed",
+    "done",
+}
 QUARANTINE_MESSAGE = (
     "Needs attention: this video's work files are locked by another program. "
     "Close that program, then Retry."
@@ -364,6 +373,11 @@ class JobStore:
         source = Path(job["input"]["path"])
         if input_identity(source) != job["input"]:
             raise ValueError("The original video changed. Add it again before processing.")
+        from videoenhancer.jobs.checks import source_warning
+
+        unsupported = source_warning(probe(source, read_timeline=False).to_dict())
+        if unsupported:
+            raise ValueError(f"No longer supported: {unsupported}")
         analysis = analyze(source, backend=job["settings"]["backend"])
         job.update({key: analysis.get(key, []) for key in ANALYSIS_FIELDS})
         job.pop("analysis_missing", None)
@@ -655,8 +669,12 @@ class JobStore:
         with self._lock(directory):
             job = self._load_unlocked(directory / "manifest.json")
             if state == "queued":
+                from videoenhancer.jobs.checks import job_support_reason
                 from videoenhancer.models.registry import validate_job_models
 
+                unsupported = job_support_reason(job)
+                if unsupported:
+                    raise ValueError(f"No longer supported: {unsupported}")
                 validate_job_models(job, self.home)
                 if not job.get("cfr_map") and not job.get("media", {}).get("frame_count"):
                     state = "preparing"
@@ -719,6 +737,7 @@ def add_job(
     disk_free: Callable[[Path], int] | int | None = None,
     target_segment_seconds: float = 180.0,
     job_id: str | None = None,
+    source_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Analyze an input and enqueue a durable, frame-exact conversion plan."""
     source = Path(path).expanduser().resolve(strict=True)
@@ -744,8 +763,8 @@ def add_job(
         chosen.update(settings)
     if not isinstance(chosen.get("delete_original_after", False), bool):
         raise ValueError("delete_original_after must be a boolean")
-    if chosen["short_side"] not in {"keep", 1080, 1440, 2160}:
-        raise ValueError("short_side must be keep, 1080, 1440 or 2160")
+    if chosen["short_side"] not in {"keep", 1080, 1440}:
+        raise ValueError("short_side must be keep, 1080 or 1440")
     if chosen["fps"] not in {"off", "2x"}:
         raise ValueError("fps must be off or 2x")
     if chosen["backend"] not in {"cpu", "cuda"}:
@@ -759,6 +778,11 @@ def add_job(
     require_disk_space(destination.parent, 1, disk_free)
     require_disk_space(store.home, 1, disk_free)
     preview_media = probe(source, read_timeline=False).to_dict()
+    from videoenhancer.jobs.checks import source_warning
+
+    unsupported = source_warning(preview_media)
+    if unsupported:
+        raise ValueError(unsupported)
     preview_bytes = estimated_output_size(identity["size"], preview_media, chosen)
     require_working_space(store.home, destination.parent, preview_bytes, disk_free)
     if any("Smart App Control" in str(job.get("error", "")) for job in store.list_jobs()):
@@ -840,6 +864,8 @@ def add_job(
             else []
         ),
     }
+    if source_info is not None:
+        manifest["source"] = source_info
     with _manifest_lock(store.jobs_dir):
         _require_unreserved_output(store, destination, job_id)
         manifest["position"] = len(store.list_jobs()) + 1

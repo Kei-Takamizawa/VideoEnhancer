@@ -1,8 +1,8 @@
 # Desktop development app
 
-## Tauri candidate
+## Tauri desktop
 
-P1t moves the existing React screens to a Windows 11 Tauri 2 shell with WebView2.
+The Windows 11 desktop uses a Tauri 2 shell with WebView2 and React screens.
 The native Windows title bar follows the app theme. The client area begins directly
 below it. Native file drops provide local paths; queue reordering uses pointer
 events and retains Alt+Arrow keyboard reordering.
@@ -52,9 +52,10 @@ Swipe has a draggable handle and zoom uses segmented buttons. First look comes
 from the actual preview render before encoding, without a second model run.
 Standalone Trial still uses the existing completed-video preview path.
 
-For isolated packaging while another package is open, set `VE_GUI_PACKAGE_OUT`
-to a fresh output folder before `npm run package`. Automated Electron tests use
-an isolated `--user-data-dir`; they do not close an existing owner instance.
+Set `VE_TAURI_PACKAGE_OUT` to `work/package/VideoEnhancer` before `npm run package`.
+The candidate folder contains one executable and its engine-location file.
+Automated Tauri tests use isolated engine homes and WebView2 profiles; they do
+not close an existing owner instance.
 
 This unsigned Windows 11 development app uses the existing Python engine. It is
 not a self-contained engine installer. No auto-update or telemetry is included.
@@ -79,13 +80,13 @@ npm run dev
 For the production renderer and unsigned Windows folder:
 
 ```powershell
-npm run build
+$env:VE_TAURI_PACKAGE_OUT = (Resolve-Path ..\..\package).Path + '\VideoEnhancer'
 npm run package
-.\release\VideoEnhancer-win32-x64\VideoEnhancer.exe
+& "$env:VE_TAURI_PACKAGE_OUT\VideoEnhancer.exe"
 ```
 
 The packaged app stores the current repository path in
-`resources/engine-location.json`. If the repository moves, update its `root` or
+`engine-location.json` beside the executable. If the repository moves, update its `root` or
 set `VE_ENGINE_ROOT` to its absolute path. `VE_PYTHON` overrides the default
 `<repository>/.venv/Scripts/python.exe`. `VE_HOME` overrides the default
 `%LOCALAPPDATA%/VideoEnhancer`. `VE_FFMPEG_DIR` may point to the folder containing
@@ -96,8 +97,8 @@ The main process attaches to an authenticated existing service, or starts
 `pythonw.exe -m videoenhancer.cli serve` on Windows, using the sibling of the
 configured Python executable. If that sibling is missing, it logs a fallback to
 console Python with hidden-window spawning. Connection discovery remains user-private;
-the renderer receives only the connection and a narrow preload bridge. Remote
-pages and renderer Node.js access are disabled. See [API.md](API.md).
+the renderer receives only the connection and the narrow `window.desktop` bridge.
+Remote pages and renderer Node.js access are disabled. See [API.md](API.md).
 
 ## Workflow
 
@@ -116,7 +117,7 @@ pages and renderer Node.js access are disabled. See [API.md](API.md).
    resumes queued work from validated segments. Closing/crashing the GUI alone
    does not stop the detached engine.
 5. Settings apply to new jobs. Start with Windows is off by default; when enabled
-   Electron registers the app to start hidden in the tray. Keep the installed
+   the Tauri shell registers the app to start hidden in the tray. Keep the installed
    folder and repository available for that startup entry.
 
 Trial runs between segments under the existing controller's worker lease. It
@@ -153,7 +154,7 @@ npm run build
 npm run test:e2e
 ```
 
-Electron e2e launches the actual service and adds synthetic footage through the
+Tauri e2e launches the actual service and adds synthetic footage through the
 GUI. Its network fixture selects the existing CPU passthrough preset, without
 production restoration weights. This verifies desktop/API/SSE integration, not
 GPU restoration quality. `VE_GUI_EVIDENCE` selects an external screenshot folder;
@@ -257,9 +258,10 @@ browser control and face/hair restoration remain outside this cycle.
 
 Add supports a mode switch and options on each file. The top controls apply to
 all files; the total follows the selected mix. Unreadable files have individual
-errors, and valid files remain addable. Standard cleanup of a 4K source is
-blocked on an 8 GiB GPU based on the measured working-set limit; Use Fast is
-available. BT.2020 non-constant-luminance SDR is supported; HDR processing remains blocked.
+errors, and valid files remain addable. Sources are limited to a displayed short
+side of 1080 pixels in both modes. Outputs offer Keep, 1080p and 1440p; older
+unsupported queued videos show a reason and Remove. Existing finished videos
+remain in History. BT.2020 non-constant-luminance SDR is supported; HDR processing remains blocked.
 
 Install starts downloading immediately and fills its button with measured
 progress. GPU qualification waits between parts with a live countdown. Persistent
@@ -300,3 +302,31 @@ Move preserves damaged nonessential log and journal records unchanged and lists 
 The Storage list can clean engine-owned part and joined files from failed or cancelled jobs. The History record stays; Retry starts from the beginning. Automatic cleanup is enabled by default seven days after failure or cancellation and runs while the desktop engine is active. The Add dialog offers **Open Storage settings** when admission detects insufficient free space.
 
 Development and evidence retention rules are in [WORKSPACE.md](WORKSPACE.md).
+
+## Videos from links
+
+Open Add videos and paste an HTTP or HTTPS link, or paste a link on Home. Press
+Check link to see the title, site, available qualities and processing estimate.
+For playlists, select the videos to add. HDR and sources larger than 1080p are
+unavailable. When a site omits size information and the header cannot be read,
+the card explains that size and HDR are checked after downloading; a refused
+download stays in the selected folder.
+
+The first download asks for a folder. Settings > Video links changes that folder
+and allows one to three simultaneous downloads (two by default). Downloads run
+outside processing hours; Pause all pauses them too. Ready local videos can run
+while another video is downloading. Retry resumes partial downloads when the
+site supports it. A previously downloaded, unchanged file can be reused.
+
+Link tools are optional. Install, check, update or uninstall them explicitly in
+Settings > Video links. Installation shows versions, sizes, licences and a usage
+notice before downloading verified official executables. No automatic update
+checks run. Sign-in, cookies, DRM and live streams are unsupported.
+
+The downloaded original is remuxed without encoding. The enhanced MP4 uses the
+same audio rule as local jobs: AAC, MP3, AC-3, E-AC-3 and ALAC are copied; other
+codecs, including Opus, become AAC at 256 kbps. History shows the source link and
+the downloaded file location.
+
+A site can still redirect a download from an HTTPS link to plain HTTP during
+transfer. The app refuses HTTP format URLs reported before an HTTPS download.

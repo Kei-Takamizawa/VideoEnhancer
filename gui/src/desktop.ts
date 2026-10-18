@@ -20,12 +20,12 @@ export function installDesktop() {
   startupHevc = probeHevc();
   const desktop: Desktop = {
     connection: async () => { const value = await call<Connection & {zoom_percent:number}>("connection"); zoom = value.zoom_percent; return value; }, reload: () => call("reload"), restartEngine: () => call("restartEngine"),
-    storageStatus: () => call("storageStatus"), moveStorage: folder => call("moveStorage", folder), removeOldStorage: () => call("removeOldStorage"),
+    storageStatus: verify => call("storageStatus", !!verify), moveStorage: folder => call("moveStorage", folder), removeOldStorage: () => call("removeOldStorage"),
     logRendererError: details => call("logRendererError", details), files: kind => call("files", kind),
     openFolder: folder => call("openFolder", folder), play: file => call("play", file), reveal: file => call("reveal", file),
     copy: text => call("copy", text), hide: () => call("hide"), zoom: percent => call("zoom", percent), theme: theme => call("theme", theme),
     onZoom: callback => subscribe("zoom-changed", callback), onTrayExplanation: callback => subscribe("tray-explanation", callback),
-    openExternal: url => call("openExternal", url), onFileDrop: callback => subscribe("native-file-drop", callback),
+    openExternal: url => call("openExternal", url), sourceLink: id => call("sourceLink", id), onFileDrop: callback => subscribe("native-file-drop", callback),
   };
   window.desktop = desktop;
   let playerOpen: boolean | undefined;

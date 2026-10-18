@@ -1,6 +1,6 @@
 import { desktop } from "../desktop";
 import { expect, test } from "@playwright/test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 test("unsigned owner folder finds the external engine and enforces renderer isolation", async () => {
@@ -18,6 +18,8 @@ test("unsigned owner folder finds the external engine and enforces renderer isol
   };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.VE_ENGINE_ROOT;
+  mkdirSync(env.VE_HOME, { recursive: true });
+  writeFileSync(path.join(env.VE_HOME, "settings.json"), JSON.stringify({ start_with_windows: false, tour_completed: true }));
   const app = await desktop.launch({
     executablePath: process.env.VE_TAURI_RELEASE_EXE!,
     args: [`--user-data-dir=${path.join(env.VE_HOME, "desktop")}`],
@@ -32,7 +34,7 @@ test("unsigned owner folder finds the external engine and enforces renderer isol
       .poll(() => existsSync(path.join(env.VE_HOME, "serve.json")), { timeout: 40000 })
       .toBe(true);
     expect(page.url()).toBe("http://tauri.localhost/");
-    await expect(app.command("state")).rejects.toThrow();
+    await expect(app.command("state")).rejects.toThrow(/desktop_test.*not found|not allowed|denied/i);
     expect(
       await page.evaluate(
         () => typeof (window as unknown as { require?: unknown }).require,

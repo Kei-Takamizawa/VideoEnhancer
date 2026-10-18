@@ -376,3 +376,53 @@ If any check fails, the model stays listed as "Not usable: <reason>", with Remov
 - Exact reproduction steps.
 
 Never report a test as passed if it did not run.
+
+## Designer decision on P1f T6 (2026-10-18)
+
+The T6 process rules in .ai/CURRENT_TASK.md are updated the same way.
+The rule "Redirects must stay on https, or on http only if the original link was http" is withdrawn. Your probe shows yt-dlp 2026.08.19 follows an HTTPS-to-HTTP redirect, and it has no option to refuse one. Do not add a proxy or a yt-dlp plugin.
+Instead:
+1. After the metadata check (-J), if the link is https and the chosen format's url, manifest_url or fragment_base_url in the metadata is http, refuse the download with: "This site would send the video without encryption, so VideoEnhancer won't download it."
+2. Redirects during the transfer follow yt-dlp's default. Record this accepted limit in one sentence in the docs: a site can still redirect a download from an https link to plain http.
+3. Tests: a local https link whose chosen format URL is http is refused. Keep t-redirect-probe.json as evidence of the documented limit.
+The other T6 process rules stay: an argument list with no shell, --ignore-config, no --exec, http/https links only, verified binaries, and killing the whole process tree on cancel.
+Resume the link work that you put on hold, in the existing order.
+
+## L2b. Designer decision on direct video links without size metadata (2026-10-18)
+
+yt-dlp's generic extractor gives no width, height, fps or duration for a direct file. Keep not guessing them. Add a header probe and a fallback.
+1. Header probe
+- For each format the user may pick whose width, height or duration is missing, run the app's existing ffprobe on that format's url from -J, before any download.
+- Argument list, no shell. Pass the format's http_headers.
+- -protocol_whitelist https,tls,tcp for an https link; add http only when the link itself is http.
+- Read timeout 10 s; kill the process tree after 20 s in total. Keep the probe and analyse limits small, and write nothing to disk.
+- Read width, height, rotation, frame rate, duration, codec and the colour transfer (to mark HDR).
+- Use the result for R1, the L3 default and the L5 estimate, exactly like yt-dlp metadata.
+2. HTTP refusal
+ When the probe fails because http is not on the whitelist for an https link, refuse with the T6 message.
+3. Any other probe failure or a timeout
+- Allow the link, and show on the card: "VideoEnhancer can't read this video's size before downloading. It is checked after the download. If it is larger than 1080p or HDR, the job stops and the downloaded file is kept."
+- The estimate reads "after download".
+- After the download, the normal probe applies R2 and the HDR rule, as L4 already says.
+4. G1 tests
+- a direct MP4 with its header at the start and Range support: size known before download;
+- a direct 1440p MP4: refused before download;
+- a rotated portrait MP4: R1 checked after rotation;
+- a direct MP4 on a server without Range and with its header at the end: the fallback path, then the check after download;
+- an https link whose file redirects to http: refused.
+Continue in the existing order.
+
+## Designer decision on P1f L3 audio (2026-10-18)
+
+The L3 audio rule in .ai/CURRENT_TASK.md is updated the same way.
+Keep the existing mux rule for every job, local and link alike:
+- codecs in MP4_AUDIO_CODECS are copied;
+- anything else, including Opus, becomes AAC 256 kbps in the MP4 output.
+Reason: the output is always MP4, and Opus inside MP4 often plays with no sound on iPhone and Safari (Apple supports Opus only in CAF, by a developer forum report). One rule for every job also keeps G5's default output unchanged.
+So:
+- do not add Opus to MP4_AUDIO_CODECS;
+- do not add a link-only audio rule;
+- keep the yt-dlp best-audio choice;
+- in the report, list which audio codecs reach the MP4 output untouched and which become AAC 256 kbps;
+- keep l-audio-container-probe.json (Opus and AAC copy into MP4 with matching packet hashes) as evidence for a possible later "keep original audio" option.
+Continue in the existing order.

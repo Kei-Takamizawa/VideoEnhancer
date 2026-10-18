@@ -163,6 +163,18 @@ export default function App() {
   const [models, setModels] = useState<Model[]>([]);
   const [generation, setGeneration] = useState(0);
   const [files, setFiles] = useState<string[]>();
+  const [linkUrl, setLinkUrl] = useState("");
+  useEffect(() => {
+    const paste = (event: ClipboardEvent) => {
+      if (page !== "Home" || document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      if (event.target instanceof Element && event.target.closest("input,textarea,[contenteditable=true]")) return;
+      const value = event.clipboardData?.getData("text/plain").trim() || "";
+      if (!/^https?:\/\//i.test(value)) return;
+      event.preventDefault(); setLinkUrl(value); setFiles([]);
+    };
+    document.addEventListener("paste", paste);
+    return () => document.removeEventListener("paste", paste);
+  }, [page]);
   const [trial, setTrial] = useState<{
     file: string;
     settings: Settings;
@@ -414,8 +426,8 @@ export default function App() {
   };
   const add = useCallback(async (paths?: string[]) => {
     try {
-      const selected = paths || (await window.desktop.files("videos"));
-      if (selected.length) setFiles(selected);
+      setLinkUrl("");
+      setFiles(paths || await window.desktop.files("videos"));
     } catch (e) {
       setActionError((e as Error).message);
     }
@@ -432,6 +444,12 @@ export default function App() {
   return (
     <div
       className="app"
+      onDragOver={event => { if (event.dataTransfer.types.some(type => ["text/uri-list", "text/plain"].includes(type))) event.preventDefault(); }}
+      onDrop={event => {
+        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+        const value = (event.dataTransfer.getData("text/uri-list") || event.dataTransfer.getData("text/plain")).split(/\r?\n/).find(line => /^https?:\/\//i.test(line.trim()));
+        if (value) { event.preventDefault(); setLinkUrl(value.trim()); setFiles([]); }
+      }}
     >
       {dropNotice && <div className="zoom-toast" role="status">{dropNotice}</div>}
       {!!dropCount && (
@@ -586,6 +604,7 @@ export default function App() {
       {files && api && settings && (
         <ErrorBoundary key={files.join("|")} scope="Add videos">
         <AddDialog
+          initialUrl={linkUrl}
           api={api}
           files={files}
           defaults={settings}

@@ -895,6 +895,17 @@ def run_queue(
                     jobs = [job for job in jobs if job["id"] in job_ids]
                 runnable = [job for job in jobs if job["state"] in {"queued", "running"}]
                 for job in runnable:
+                    from videoenhancer.jobs.checks import job_support_reason
+
+                    unsupported = job_support_reason(job)
+                    if unsupported:
+                        if job.get("unsupported_reason") != unsupported:
+                            job.update(
+                                unsupported_reason=unsupported,
+                                error=f"No longer supported: {unsupported}",
+                            )
+                            store.save(job)
+                        continue
                     if job.get("analysis_missing"):
                         try:
                             store.ensure_analysis(job)
@@ -904,7 +915,11 @@ def run_queue(
                                 error=f"Couldn't analyse the original again: {error}",
                             )
                             store.save(job)
-                runnable = [job for job in runnable if job["state"] in {"queued", "running"}]
+                runnable = [
+                    job
+                    for job in runnable
+                    if job["state"] in {"queued", "running"} and not job.get("unsupported_reason")
+                ]
                 if not runnable:
                     if any(job["state"] == "paused" for job in jobs):
                         timed_wait(

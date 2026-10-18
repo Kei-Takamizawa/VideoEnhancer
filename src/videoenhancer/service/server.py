@@ -238,6 +238,16 @@ class Handler(BaseHTTPRequestHandler):
                         remaining -= len(chunk)
                 return
             if (
+                len(parts) == 4
+                and parts[0] == "links"
+                and parts[2] == "thumbnail"
+                and self.command == "GET"
+            ):
+                mime, raw = self.server.engine.video_links.thumbnail(parts[1], parts[3])
+                self._headers(200, mime, len(raw))
+                self.wfile.write(raw)
+                return
+            if (
                 len(parts) == 3
                 and parts[0] == "queue"
                 and parts[2] == "thumbnail"

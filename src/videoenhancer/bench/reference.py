@@ -62,7 +62,7 @@ def calibrate_references(
         for strength in (
             ("light", "medium", "strong") if model.get("architecture") == "drunet" else ("medium",)
         )
-        for size in ((1080, 2160) if model["id"] in {C1, RIFE} else (1080,))
+        for size in ((1080, 1440) if model["id"] in {C1, RIFE} else (1080,))
     ]
     total = len(tasks)
     for model, strength, size in tasks:
@@ -131,7 +131,7 @@ def reference_size_points(profile: dict[str, Any]) -> dict[str, list[dict[str, f
     references = profile.get("reference_pipelines", {})
     bare = {**profile, "pipeline_size_points": {}, "startup_by_preset": {"standard": 0, "fast": 0}}
     for preset, model in (("standard", C1), ("fast", RIFE)):
-        for size in (1080, 2160):
+        for size in (1080, 1440):
             reference = references.get(f"{model}:medium" + (f":{size}" if size != 1080 else ""), {})
             if not reference.get("seconds") or not reference.get("stats"):
                 continue

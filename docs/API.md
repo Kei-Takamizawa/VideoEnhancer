@@ -82,8 +82,8 @@ reporting. Opening folders and copying details are desktop actions.
 | PUT settings | Validate/save partial or complete preferences; new jobs use defaults | `Invoke-VeApi 'settings' 'PUT' @{theme='dark'; preset='standard'; codec='hevc'; short_side=1080; fps='2x'; output_folder='C:\Video\enhanced'; start_with_windows=$false; log_folder='C:\Video\logs'; advanced=@{clip_length=15; clip_overlap=2; interpolation_safety_threshold=0.2}}` |
 
 Schedule timezone defaults to the host's IANA timezone; API clients can specify
-`timezone`. Exceptions use `windows='off'` or an array of `{start,end}`. Electron
-applies `start_with_windows` via login-item APIs; the service only persists it.
+`timezone`. Exceptions use `windows='off'` or an array of `{start,end}`. The Tauri
+shell applies `start_with_windows` through the Windows Run key; the service only persists it.
 Theme is system/dark/light. Folder preferences must be absolute. Advanced clip
 length/overlap and threshold validation returns plain-English errors.
 
@@ -355,16 +355,18 @@ or resume the remaining undo window. `POST history/undo` restores records only.
 exists, for terminal History jobs. The normal token, Host and Origin checks
 apply; there are no bearer tokens in media URLs. GET and HEAD support one byte
 range, including suffix and open-ended ranges (206), and reject unsatisfiable
-ranges (416). Electron forwards Range and the token through its app media
+ranges (416). Tauri forwards Range and the token through its bounded media
 protocol; the renderer uses a streaming URL without retrieving the whole file.
+The shell reports full Content-Length for HEAD. A GET without Range receives at
+most 1 MiB with status 206 and an explicit Content-Range when the file is larger.
 
 `GET models` includes `uninstall_reason` for defaults and unfinished-job use.
 Weight hashes are cached by size and modification time; explicit verification
 bypasses that cache. Operations expose `remaining_seconds`, a stage name and a
 determinate percentage, including calibration and weight transfer/verification.
 
-Settings add the validated boolean `tour_completed`. New homes choose AV1 after
-successful hardware qualification; existing stored codec choices are preserved.
+Settings add the validated boolean `tour_completed`. HEVC is the default;
+existing stored codec choices are preserved.
 Desktop IPC adds a validated `theme` choice for immediate native appearance.
 
 Completed manifests preserve `output_identity` and `output_bytes`. Legacy output
@@ -404,3 +406,30 @@ seconds, including the holding thread's stack.
 Download operations report byte-based transfer and hash phases; only their GPU
 test waits for a running part. `remaining_seconds` may be null until speed data
 is available. Compare results include per-model `model_progress`.
+
+## Optional video links
+
+All routes retain localhost token authentication. `GET link-tools` reads local
+installation status only. `POST link-tools/check` accepts `channel` (stable or
+nightly) and returns an operation with the exact release plan. Installation
+requires that plan's `plan_id`, its channel, and explicit `consent: true`.
+`POST link-tools/uninstall` removes only the optional tools.
+
+`POST links/check` accepts `url` and `settings` and returns an asynchronous
+operation. Its result contains sanitized entry cards, selectable format IDs,
+disabled reasons, estimates and eligible reuse records. Private downloader
+metadata remains in the engine home. `POST links/estimate` accepts `check_id`,
+`entry_key`, `format_id` and settings without another network check.
+`POST links/queue` accepts those fields and optionally `reuse_job_id`.
+The first actual download requires the saved `video_download_folder` preference.
+`video_download_limit` is an integer from one to three, default two.
+
+Queue rows in `downloading` state expose byte progress, speed, remaining seconds
+and predicted readiness when available. Unknown estimates stay unknown. The
+network scheduler is independent of GPU hours; Pause all and Quit interrupt its
+process trees. A failed download permits Retry. Source identity and download
+time are retained when the job becomes normal processing work.
+
+`GET queue/{id}/source` returns the stored HTTP(S) source URL. The desktop source
+link command accepts only a job ID, fetches this record and validates the URL
+before opening it. It does not broaden the general external-link allowlist.

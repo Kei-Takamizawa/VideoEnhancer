@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { Queue } from "../../src/types";
-const electron: string = (process.env.VE_TAURI_EXE || "");
+const executable: string = (process.env.VE_TAURI_EXE || "");
 
 test("owner GPU: trial waits, cancels, updates estimate, paired frames stay synchronized, startup preference toggles", async () => {
   test.skip(
@@ -45,7 +45,7 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
   };
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await desktop.launch({
-    executablePath: electron,
+    executablePath: executable,
     args: [".", `--user-data-dir=${path.join(env.VE_HOME, "desktop")}`],
     env,
   });
