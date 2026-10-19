@@ -14,7 +14,7 @@
 | R | COMPLETED | Source/output limits, legacy queue guard, migration, mixed batch and refusal tests PASS. |
 | L | COMPLETED | Link queue/reuse, strict decoder selection and approved refusal acceptance PASS. |
 | M | NOT RUN | Deferred by designer. |
-| G | PARTIAL | CPU 532 PASS/17 SKIP; GPU 101 PASS; links 54 PASS; GUI 52 units and 14 E2E PASS/13 SKIP. Final new-head CI pending. |
+| G | COMPLETED | CPU 532 PASS/17 SKIP; GPU 101 PASS; links 54 PASS; GUI 52 units and 14 E2E PASS/13 SKIP. Windows/Ubuntu CI PASS. |
 
 ## Start and constraints
 
@@ -487,13 +487,13 @@ the designer (revision 2). Paste, Home Ctrl+V and native file drop remain.
 | Archive H.264 | Keep NVDEC | PASS, all 292 labels match, including the last frame. |
 | Local VP9 alt-ref / AV1 | Report labels and selection | PASS, 640x360, 60 frames each; both whole timelines match and NVDEC is selected. |
 | Fast 1080 speed | FFmpeg no more than 10% slower | PASS for one paired run: NVDEC 24.9216 s, FFmpeg 24.7368 s, ratio 0.99258. This is one pair, not a statistical performance claim. |
-| Fake repeated/missing/unknown label and seek | First bad frame errors | PASS; duplicate [0,0,33,...] fails at frame 1, including before requested frame 2. |
+| Fake repeated/missing/unknown label and seek | First bad frame errors | PASS; duplicate fails at frame 1. CPU fake confirms old b38 silently returned pictures [0,2] for request [0,1]; l3-original-silent-skip.json. |
 | Runtime retry | Switch once, persist reason; second failure stops | PASS; controller/sequence/reuse bundle 36 PASS, 1 SKIP, 4.73 s; l3-controller.log. |
 | Generic real hosts and duration replacement | Different video.mp4 hosts or changed duration: no offer; unchanged: offer | PASS; 4 real local tests including MP4/HLS/DASH and packet-copy regression, 30.52 s; l2-reuse-real.log. |
 | Generic fallback | Unknown pre-download dimensions: no offer | PASS, real no-Range tail-header fallback, post-download check, 47.51 s; l2-reuse-fallback.log. |
 | Approved 1440p refusal | Header rejection, no downloads/jobs, delete fixture | PASS, two CPU-encoded 2560x1440 H.264 frames with faststart. yt-dlp -J plus ffprobe only, 0 downloaded files, 0 jobs; fixture deleted in finally. l2b-1440-refusal-final.log (4.00 s). |
 | Pre-change GPU suite | Record actual completed run | PASS, 101 tests, 517 deselected, 16434.42 s. This does not validate the new decoder; g5-gpu-suite2.log. |
-| b38f03c CI | Windows and Ubuntu | PASS, push 39104573096 and PR 39104576929. New-head CI remains pending. |
+| e194273 CI | Windows and Ubuntu | PASS, push 39208022622 and PR 39208026588; ci-e194273-final.json. |
 
 Failed attempts are retained: sandbox loopback denial on the first refusal run;
 its first unsandboxed test incorrectly expected a Lavf User-Agent even though
@@ -628,4 +628,8 @@ to this cleanup. disk-final.json/log records the measured endpoint.
 
 Local implementation/acceptance is finished. P2 cold start remains FAIL and the
 accepted historical P1t failures remain FAIL. No new designer decision is open.
-Only final branch publication and exact-head Windows/Ubuntu CI remain.
+Implementation e194273 is published. Both CI events passed on Windows/Ubuntu:
+Windows CPU 537 PASS/17 SKIP; Ubuntu 535 PASS/19 SKIP; GUI units 52 PASS.
+Windows E2E 13 PASS/14 SKIP (S9 opt-in skipped; local S9 PASS).
+Windows emitted one expected CPU-runner cudaErrorNotSupported warning.
+The final report-only commit follows; its CI is checked before handoff.
