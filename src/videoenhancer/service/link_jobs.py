@@ -90,6 +90,7 @@ class LinkJobs:
             url=video_url(entry.get("webpage_url") or original),
             request_url=original,
             extractor=entry.get("extractor") or entry.get("extractor_key") or "generic",
+            extractor_key=entry.get("extractor_key") or entry.get("extractor") or "Generic",
             id=str(entry.get("id")),
             format=str(video["format_id"]),
             title=entry.get("title") or title,
@@ -100,6 +101,7 @@ class LinkJobs:
                 format=previous["source"]["format"],
                 downloaded_at=previous["source"].get("downloaded_at", previous.get("created_at")),
                 reused_from_job=reuse_id,
+                timestamp=previous["source"].get("timestamp"),
             )
         with engine._mutation_lock:
             if engine.storage_moving:

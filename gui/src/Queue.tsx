@@ -151,7 +151,7 @@ export function AddDialog({
               <p>
                 {totals[mode]
                   ? totals[mode].unknown_models?.length ? "Speed unknown" : `${duration(totals[mode].seconds)} of work`
-                  : "Preparing…"}
+                  : items.length ? "Preparing…" : ""}
               </p>
               <p className="mode-finish">
                 {totals[mode]

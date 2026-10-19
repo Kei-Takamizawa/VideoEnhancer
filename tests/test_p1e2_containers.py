@@ -275,7 +275,7 @@ def _assert_nvdec_matches_cpu_nv12(source, job):
     count = job["media"]["source_frame_count"]
     selected = {0, count // 2, count - 1}
     retained = {}
-    decoder = IndexedDecoder(source, job["media"], "cuda", job)
+    decoder = IndexedDecoder(source, job["media"], "cuda", {**job, "decoder": "nvdec"})
     decoder._convert = lambda frame: frame.reshape(-1, frame.shape[-1])[
         : height * 3 // 2, :width
     ].clone()

@@ -25,28 +25,43 @@ JobStore(home).save(dict(schema_version=1,id='a'*32,state='downloading',input={'
       { id: "hdr", width: 320, height: 180, fps: 30, codec: "h264", dynamic_range: "HDR", disabled: "HDR is not supported yet" },
     ] }));
     await page.route(/\/v1\/link-tools$/, route => route.fulfill({ json: { installed: {}, available: true } }));
-    await page.route(/\/v1\/links\/check$/, route => route.fulfill({ json: { id: "b".repeat(32), state: "done", result: { entries } } }));
-    await page.route(/\/v1\/operations\/b{32}$/, route => route.fulfill({ json: { id: "b".repeat(32), state: "done", result: { entries } } }));
+    let checked = { id: "b".repeat(32), state: "done", result: { entries } };
+    let checkNumber = 0;
+    await page.route(/\/v1\/links\/check$/, route => {
+      checked = { id: (++checkNumber).toString(16).padStart(32, "0"), state: "done", result: { entries: route.request().postDataJSON().url.includes("playlist") ? entries : entries.slice(0, 1) } };
+      return route.fulfill({ json: checked });
+    });
+    await page.route(/\/v1\/operations\/[0-9a-f]{32}$/, route => route.fulfill({ json: checked }));
     await page.route(/\/v1\/links\/estimate$/, route => route.fulfill({ json: { estimate: { seconds: 60, low: 45, high: 75, calibrated: false } } }));
     for (const theme of ["dark", "light"]) {
-      await page.evaluate(async theme => { const c = await window.desktop.connection(); await fetch(`${c.base_url}/settings`, { method: "PUT", headers: { Authorization: `Bearer ${c.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ theme }) }); document.documentElement.dataset.theme = theme; }, theme);
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("combobox", { name: "Theme", exact: true }).selectOption(theme);
+      await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await page.getByRole("button", { name: "Home", exact: true }).click();
       for (const [width, height] of [[1280, 800], [1100, 700]]) {
         await app.setContentSize(width, height);
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         await expect(page.getByRole("progressbar", { name: "Download progress" })).toHaveAttribute("value", "42");
         await page.screenshot({ scale: "css", path: path.join(evidence, `links-home-${theme}-${width}.png`) });
         await app.files([]);
         await page.getByRole("button", { name: "Add videos", exact: true }).click();
+        await page.getByLabel("Paste a video link").fill("http://localhost/video.mp4");
+        await page.getByRole("button", { name: "Check", exact: true }).click();
+        await expect(page.getByRole("combobox", { name: "Quality", exact: true })).toHaveCount(1);
+        await page.getByRole("combobox", { name: "Quality", exact: true }).focus();
+        await assertPanelFits(page);
+        await page.screenshot({ scale: "css", path: path.join(evidence, `links-quality-${theme}-${width}.png`) });
         await page.getByLabel("Paste a video link").fill("http://localhost/playlist.html");
         await page.getByRole("button", { name: "Check", exact: true }).click();
         await expect(page.getByText("Synthetic playlist video 3", { exact: true })).toBeVisible();
         await assertPanelFits(page);
         await page.screenshot({ scale: "css", path: path.join(evidence, `links-playlist-${theme}-${width}.png`) });
-        await page.getByRole("combobox", { name: "Quality", exact: true }).first().focus();
-        await page.screenshot({ scale: "css", path: path.join(evidence, `links-quality-${theme}-${width}.png`) });
         await page.getByRole("button", { name: "Close", exact: true }).click();
         await page.getByRole("button", { name: "Settings", exact: true }).click();
         await page.getByRole("heading", { name: "Video links", exact: true }).scrollIntoViewIfNeeded();
         await expect(page.getByLabel("Simultaneous downloads")).toHaveValue("2");
+        await page.getByLabel("Simultaneous downloads").scrollIntoViewIfNeeded();
         await page.screenshot({ scale: "css", path: path.join(evidence, `links-settings-${theme}-${width}.png`) });
         await page.getByRole("button", { name: "Home", exact: true }).click();
       }

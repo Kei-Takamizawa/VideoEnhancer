@@ -286,10 +286,16 @@ The segment child and FFmpeg use Below Normal priority on Windows.
 
 
 The CUDA decoder uses NVDEC's packet API in display order, starting from a prior
-keyframe and checking every requested presentation timestamp against analysis.
+keyframe and checking every decoded presentation timestamp against analysis.
 It does not rely on the container's frame count. If seeking is unavailable, it
 decodes forward from an earlier keyframe. This avoids SimpleDecoder timestamp
 tags that were observed to track decode order on a fractional-rate B-frame MP4.
+Analysis scans the whole file with the same native decoder API. A timestamp
+mismatch selects FFmpeg decoding for that job; models still run on CUDA, and
+decoded samples move to CUDA before the same RGB conversion. A runtime NVDEC
+timestamp mismatch switches the job to FFmpeg and retries that segment once.
+Copy details includes the chosen decoder and reason. Timestamp labels are never
+corrected or guessed.
 
 ## Storage
 
@@ -317,6 +323,13 @@ and allows one to three simultaneous downloads (two by default). Downloads run
 outside processing hours; Pause all pauses them too. Ready local videos can run
 while another video is downloading. Retry resumes partial downloads when the
 site supports it. A previously downloaded, unchanged file can be reused.
+The offer includes its download date, resolution and frame rate; **Download
+again** remains available. Generic direct-file links additionally require the
+same link (scheme/host case and fragment ignored), matching known dimensions
+and duration (within 0.5 seconds), and matching Last-Modified when both checks
+provide it. Unknown-size links are downloaded again. A file replaced at the same
+link with the same size, duration and unchanged Last-Modified can still be offered.
+Site extractors use their extractor key and video ID.
 
 Link tools are optional. Install, check, update or uninstall them explicitly in
 Settings > Video links. Installation shows versions, sizes, licences and a usage

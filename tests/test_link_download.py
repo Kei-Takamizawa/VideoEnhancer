@@ -11,15 +11,184 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from videoenhancer.config import executable
+from videoenhancer.jobs.store import input_identity
 from videoenhancer.media.probe import probe
 from videoenhancer.service.engine import Engine
 from videoenhancer.service.link_tools import ToolManager
 from videoenhancer.service.settings import DEFAULTS, save_settings
 from videoenhancer.service.video_links import ENCRYPTION_ERROR, VideoLinks, header_probe
+
+
+def test_generic_reuse_local_hosts_replaced_duration_and_unchanged_file(tmp_path, ffmpeg_run):
+    installed = os.environ.get("VE_LINK_TEST_TOOLS_HOME")
+    if not installed:
+        pytest.skip("Explicit verified standalone link tools are required")
+    folders = [tmp_path / "host-a", tmp_path / "host-b"]
+    for folder, frames in zip(folders, [30, 60], strict=True):
+        folder.mkdir()
+        ffmpeg_run(
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x180:rate=30",
+            "-frames:v",
+            str(frames),
+            "-c:v",
+            "libx264",
+            "-threads",
+            "2",
+            "-movflags",
+            "+faststart",
+            str(folder / "video.mp4"),
+        )
+    servers = [
+        http.server.ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(folder)),
+        )
+        for folder in folders
+    ]
+    threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in servers]
+    for thread in threads:
+        thread.start()
+    links = VideoLinks(tmp_path / "home", ToolManager(Path(installed)))
+
+    def check(server):
+        return links.check(
+            f"http://127.0.0.1:{server.server_port}/video.mp4",
+            {**DEFAULTS, "backend": "cpu"},
+            lambda: False,
+            lambda _: None,
+            lambda _: None,
+        )
+
+    try:
+        first = check(servers[0])["raw_entries"][0]["info"]
+        saved = tmp_path / "downloaded.mp4"
+        shutil.copyfile(folders[0] / "video.mp4", saved)
+        job = dict(
+            id="saved",
+            input=input_identity(saved),
+            media=probe(saved).to_dict(),
+            source=dict(
+                extractor_key=first["extractor_key"],
+                id=str(first["id"]),
+                url=first["webpage_url"],
+                timestamp=first.get("timestamp"),
+            ),
+        )
+        store = SimpleNamespace(queue_jobs=lambda: [job])
+        assert links.reusable(check(servers[0])["raw_entries"][0]["info"], store)
+        assert not links.reusable(check(servers[1])["raw_entries"][0]["info"], store)
+        shutil.copyfile(folders[1] / "video.mp4", folders[0] / "video.mp4")
+        replaced = check(servers[0])["raw_entries"][0]["info"]
+        # Isolate the duration check from the independent Last-Modified check.
+        replaced["timestamp"] = first.get("timestamp")
+        assert not links.reusable(replaced, store)
+    finally:
+        for server in servers:
+            server.shutdown()
+            server.server_close()
+        for thread in threads:
+            thread.join(timeout=2)
+
+
+def test_1440p_direct_file_is_refused_by_header_without_download(tmp_path, ffmpeg_run, monkeypatch):
+    """Designer-approved two-frame CPU fixture; never submit it to a processing job."""
+    installed = os.environ.get("VE_LINK_TEST_TOOLS_HOME")
+    if not installed:
+        pytest.skip("Explicit verified standalone link tools are required")
+    fixture = tmp_path / "refusal-1440.mp4"
+    ffmpeg_run(
+        "-f",
+        "lavfi",
+        "-i",
+        "color=size=2560x1440:rate=30",
+        "-frames:v",
+        "2",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-threads",
+        "2",
+        "-movflags",
+        "+faststart",
+        str(fixture),
+    )
+    requests = []
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            requests.append(
+                dict(agent=self.headers.get("User-Agent"), range=self.headers.get("Range"))
+            )
+            super().do_GET()
+
+    server = http.server.ThreadingHTTPServer(
+        ("127.0.0.1", 0), functools.partial(Handler, directory=str(tmp_path))
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    engine = Engine(tmp_path / "home")
+    engine.video_links = VideoLinks(engine.home, ToolManager(Path(installed)))
+    commands = []
+    from videoenhancer.service import video_links as module
+
+    real_run = module.run_tool
+
+    def run(command, *args, **kwargs):
+        commands.append(command)
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(module, "run_tool", run)
+    folder = tmp_path / "downloads"
+    folder.mkdir()
+    save_settings(engine.home, {"video_download_folder": str(folder)})
+    try:
+        result = engine.video_links.check(
+            f"http://127.0.0.1:{server.server_port}/{fixture.name}",
+            {**DEFAULTS, "backend": "cpu"},
+            lambda: False,
+            lambda _: None,
+            lambda _: None,
+        )
+        card = result["entries"][0]
+        assert card["error"] == (
+            "This video is larger than 1080p (short side 1440 px). "
+            "VideoEnhancer processes videos up to 1080p."
+        )
+        assert card["selected"] is None
+        assert not list(folder.iterdir())
+        assert not engine.store.queue_jobs()
+        assert len(commands) == 2
+        assert "-J" in commands[0] and "--load-info-json" not in commands[0]
+        assert Path(commands[1][0]).stem == "ffprobe" and "-show_streams" in commands[1]
+        # ffprobe forwards the format's User-Agent, so identify its Range probe instead.
+        assert any(r["range"] == "bytes=0-" for r in requests), requests
+        print(
+            json.dumps(
+                dict(
+                    refused=card["error"],
+                    commands=[Path(c[0]).name for c in commands],
+                    requests=requests,
+                    downloads=0,
+                    jobs=0,
+                )
+            )
+        )
+    finally:
+        engine.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        fixture.unlink(missing_ok=True)
+    assert not fixture.exists()
 
 
 @pytest.mark.parametrize("kind", ["playlist", "sign-in", "live", "hdr", "rotated"])
@@ -339,6 +508,15 @@ def test_unreadable_no_range_header_falls_back_then_download_is_probed(tmp_path,
         links.download(job, lambda: False, lambda _: None, lambda _: None)
         media = probe(final)
         assert (media.width, media.height) == (320, 180)
+        previous = dict(
+            id="earlier",
+            input=input_identity(final),
+            media=media.to_dict(),
+            source=dict(
+                extractor_key=entry["extractor_key"], id=str(entry["id"]), url=entry["webpage_url"]
+            ),
+        )
+        assert links.reusable(entry, SimpleNamespace(queue_jobs=lambda: [previous])) is None
     finally:
         server.shutdown()
         server.server_close()
@@ -469,6 +647,8 @@ def test_direct_download_remux(tmp_path, video_factory, ffmpeg_run, kind, monkey
                 finished = engine.store.load(job["id"])
                 assert finished["state"] == "queued", finished.get("error")
                 assert finished["source"]["downloaded_at"]
+                assert "timestamp" in finished["source"]
+                assert finished["source"]["timestamp"] == entry.get("timestamp")
                 assert Path(finished["input"]["path"]).is_file()
                 assert engine.video_links.reusable(entry, engine.store)["job_id"] == job["id"]
                 Path(finished["input"]["path"]).write_bytes(b"Changed synthetic download")

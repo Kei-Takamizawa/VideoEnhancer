@@ -396,16 +396,47 @@ class VideoLinks:
         return video, audio
 
     def reusable(self, entry: dict[str, Any], store: JobStore) -> dict[str, Any] | None:
-        extractor = entry.get("extractor") or entry.get("extractor_key") or "generic"
+        extractor = entry.get("extractor_key") or entry.get("extractor") or "Generic"
         for job in reversed(store.queue_jobs()):
             source = job.get("source", {})
-            if source.get("extractor") != extractor or source.get("id") != str(entry.get("id")):
-                continue
-            # Generic IDs can be only a basename; a different URL is not proof of the same video.
-            if str(extractor).lower() == "generic" and source.get("url") != entry.get(
-                "webpage_url"
+            stored_extractor = source.get("extractor_key") or source.get("extractor", "")
+            if stored_extractor.lower() != str(extractor).lower() or source.get("id") != str(
+                entry.get("id")
             ):
                 continue
+            if str(extractor).lower() == "generic":
+
+                def normalized(value: str) -> str:
+                    parts = urlsplit(value)
+                    return urlunsplit(
+                        (parts.scheme.lower(), parts.netloc.lower(), parts.path, parts.query, "")
+                    )
+
+                if normalized(source.get("url", "")) != normalized(entry.get("webpage_url", "")):
+                    continue
+                if (
+                    entry.get("timestamp") is not None
+                    and source.get("timestamp") is not None
+                    and entry["timestamp"] != source["timestamp"]
+                ):
+                    continue
+                media = job.get("media", {})
+                formats = entry.get("formats") or [entry]
+                matched = False
+                for item in formats:
+                    duration = item.get("duration") or entry.get("duration")
+                    if not all(
+                        (item.get("width"), item.get("height"), duration, media.get("duration"))
+                    ):
+                        continue
+                    if (item["width"], item["height"]) == (
+                        media.get("display_width", media.get("width")),
+                        media.get("display_height", media.get("height")),
+                    ) and abs(float(duration or 0) - float(media["duration"])) <= 0.5:
+                        matched = True
+                        break
+                if not matched:
+                    continue
             try:
                 path = Path(job["input"]["path"])
                 if path.is_file() and input_identity(path) == job["input"]:
@@ -638,6 +669,7 @@ class VideoLinks:
         if final.exists():
             raise ValueError("A file now exists at the download destination. It was kept.")
         completed.rename(final)
+        source["timestamp"] = entry.get("timestamp")
         return final
 
     def check(

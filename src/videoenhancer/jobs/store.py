@@ -380,6 +380,7 @@ class JobStore:
             raise ValueError(f"No longer supported: {unsupported}")
         analysis = analyze(source, backend=job["settings"]["backend"])
         job.update({key: analysis.get(key, []) for key in ANALYSIS_FIELDS})
+        job.update(decoder=analysis.get("decoder"), decoder_reason=analysis.get("decoder_reason"))
         job.pop("analysis_missing", None)
         self.save(job)
         return self.load(job["id"])
@@ -848,6 +849,10 @@ def add_job(
         "keyframes": analysis.get("keyframes", []),
         "scene_cuts": analysis.get("scene_cuts", []),
         "analysis_seconds": analysis.get("analysis_seconds"),
+        "decoder": analysis.get(
+            "decoder", "nvdec" if analysis.get("backend") == "cuda" else "ffmpeg"
+        ),
+        "decoder_reason": analysis.get("decoder_reason"),
         "segments": segments,
         "state": "queued",
         "position": len(store.list_jobs()) + 1,

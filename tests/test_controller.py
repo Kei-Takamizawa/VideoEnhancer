@@ -307,6 +307,55 @@ def test_worker_retries_oom_with_one_frame_batch(tmp_path: Path, monkeypatch: An
     assert json.loads(schedule_path.read_text(encoding="utf-8"))["override_until"] is None
 
 
+@pytest.mark.parametrize("second_fails", [False, True])
+@pytest.mark.parametrize("before", [None, "oom", "stalled"])
+def test_timestamp_failure_switches_job_and_retries_segment_once(
+    tmp_path, monkeypatch, second_fails, before
+):
+    from videoenhancer.media import mux
+
+    store = JobStore(tmp_path / "home")
+    job = _job(store, tmp_path)
+    job["decoder"] = "nvdec"
+    store.save(job)
+    decoders = []
+    batches = []
+
+    class Executor:
+        def run(self, manifest, _segment, output, _abort, **_kwargs):
+            decoders.append(manifest["decoder"])
+            batches.append(_kwargs["batch_size"])
+            if before and len(decoders) == 1:
+                return controller.SegmentResult(
+                    "failed", error=before, oom=before == "oom", stalled=before == "stalled"
+                )
+            if manifest["decoder"] == "nvdec" or second_fails:
+                output.write_bytes(b"partial")
+                return controller.SegmentResult(
+                    "failed", error="duplicate stamp at frame 1", timestamp_mismatch=True
+                )
+            assert not output.exists()
+            output.write_bytes(b"complete")
+            return controller.SegmentResult("done", stats={"frames": 300})
+
+    monkeypatch.setattr(controller, "segment_file_valid", lambda *_: True)
+    monkeypatch.setattr(mux, "assemble", fixture_assemble)
+    controller.run_queue(
+        ignore_schedule=True,
+        home=store.home,
+        clock=FakeClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        executor=Executor(),
+        disk_free=1_000_000,
+    )
+    result = store.load("unit-job")
+    assert decoders == (["nvdec", "nvdec", "ffmpeg"] if before else ["nvdec", "ffmpeg"])
+    assert batches == ([2, 1, 1] if before == "oom" else [2] * len(decoders))
+    assert result["decoder"] == "ffmpeg"
+    assert "frame 1" in result["decoder_reason"]
+    assert len(result["decoder_events"]) == 1
+    assert result["state"] == ("failed" if second_fails else "done")
+
+
 def test_worker_aborts_at_window_end_and_resumes_next_window(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

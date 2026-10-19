@@ -444,12 +444,6 @@ export default function App() {
   return (
     <div
       className="app"
-      onDragOver={event => { if (event.dataTransfer.types.some(type => ["text/uri-list", "text/plain"].includes(type))) event.preventDefault(); }}
-      onDrop={event => {
-        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
-        const value = (event.dataTransfer.getData("text/uri-list") || event.dataTransfer.getData("text/plain")).split(/\r?\n/).find(line => /^https?:\/\//i.test(line.trim()));
-        if (value) { event.preventDefault(); setLinkUrl(value.trim()); setFiles([]); }
-      }}
     >
       {dropNotice && <div className="zoom-toast" role="status">{dropNotice}</div>}
       {!!dropCount && (

@@ -7,11 +7,17 @@ import { Notice } from "./Notice";
 import { VideoLinksCard } from "./VideoLinks";
 
 type Format = { id: string; width?: number; height?: number; fps?: number; codec: string; dynamic_range: string; bytes?: number; disabled?: string; unknown_size?: boolean; estimate?: Estimate };
-type Entry = { key: string; title: string; site?: string; uploader?: string; duration?: number; thumbnail?: boolean; selected?: string; formats?: Format[]; error?: string; reuse?: { job_id: string; date: string } };
+type Entry = { key: string; title: string; site?: string; uploader?: string; duration?: number; thumbnail?: boolean; selected?: string; formats?: Format[]; error?: string; reuse?: { job_id: string; date: string; media?: { display_width?: number; display_height?: number; width?: number; height?: number; cfr_fps?: string } } };
 type Checked = { entries: Entry[]; truncated?: boolean };
 type CheckOperation = { id: string; state: string; phase: string; error?: string; result?: Checked };
 export type LinkSelection = { check_id: string; entry_key: string; format_id: string; reuse_job_id?: string };
 const unknown = "VideoEnhancer can't read this video's size before downloading. It is checked after the download. If it is larger than 1080p or HDR, the job stops and the downloaded file is kept.";
+
+function frameRate(value?: string) {
+  const [n, d = "1"] = (value || "").split("/");
+  const rate = Number(n) / Number(d);
+  return rate > 0 ? Number(rate.toFixed(3)).toString() : "?";
+}
 
 function LinkThumbnail({ api, path }: { api: Api; path: string }) {
   const [url, setUrl] = useState("");
@@ -95,7 +101,7 @@ export function LinkPanel({ api, settings, initialUrl = "", changed }: { api: Ap
           {format?.unknown_size && <p>{unknown}</p>}
           <p>{format?.bytes ? `Download about ${(format.bytes / 1e6).toFixed(1)} MB` : "Download size reported during transfer"}</p>
           <p>{estimate ? `Processing about ${duration(estimate.seconds)}${estimate.unknown_models?.length ? " · Speed unknown" : ""}` : "Processing: after download"}</p>
-          {entry.reuse && <label className="check"><input type="checkbox" checked={!!reuse[entry.key]} onChange={event => setReuse(old => ({ ...old, [entry.key]: event.target.checked }))} />Use the file downloaded on {entry.reuse.date?.slice(0, 10)}</label>}
+          {entry.reuse && <><label className="check"><input type="checkbox" checked={!!reuse[entry.key]} onChange={event => setReuse(old => ({ ...old, [entry.key]: event.target.checked }))} />Use the file downloaded on {entry.reuse.date?.slice(0, 10)} ({entry.reuse.media?.display_width || entry.reuse.media?.width}x{entry.reuse.media?.display_height || entry.reuse.media?.height}, {frameRate(entry.reuse.media?.cfr_fps)} fps)</label><ActionButton onClick={() => setReuse(old => ({ ...old, [entry.key]: false }))}>Download again</ActionButton></>}
         </>}
       </article>;
     })}

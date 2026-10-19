@@ -1,19 +1,20 @@
 # VE-P1f revision 3 implementation and validation
 
 - Task ID / Cycle: VE-P1f, revision 3.
-- Status: PARTIAL (work in progress).
+- Status: PARTIAL (implementation/local acceptance complete; P2 cold-start gate FAIL).
 - Branch p1f-links starts at reviewed P1t cb085bc. No owner data is test data.
 - Complete designer instructions are preserved in CURRENT_TASK.md.
+- Earlier checkpoint sections retain interim statuses; the final results below supersede their pending statements.
 - P1t cold-start, warm-History, AV1 and repeat-memory failures remain historical FAIL; M1 1 MiB and Low memory target stay. HEVC remains the default.
 
 | Part | Status | Evidence |
 | --- | --- | --- |
 | P | PARTIAL | P1 implemented and locally checked. P2 measured; warm History PASS, cold start FAIL. P3 measured; P4 source cleanup complete. Cold gate remains FAIL. |
-| T | PARTIAL | Verified optional tool manager implemented. Stable installation and version execution PASS; remaining lifecycle/GUI integration checks follow. |
-| R | PARTIAL | Admission, legacy queue and default migration implemented; new size and mixed-batch tests PASS. Regression checks follow. |
-| L | PARTIAL | Link checking, selection, downloads, durable network queue and UI implemented; acceptance continues. |
+| T | COMPLETED | Verified stable/nightly install, check, update, uninstall and local tool integrations PASS. |
+| R | COMPLETED | Source/output limits, legacy queue guard, migration, mixed batch and refusal tests PASS. |
+| L | COMPLETED | Link queue/reuse, strict decoder selection and approved refusal acceptance PASS. |
 | M | NOT RUN | Deferred by designer. |
-| G | PARTIAL | Local media and GUI checks running; Archive real job PASS, Commons VP9 processing FAIL under review. |
+| G | PARTIAL | CPU 532 PASS/17 SKIP; GPU 101 PASS; links 54 PASS; GUI 52 units and 14 E2E PASS/13 SKIP. Final new-head CI pending. |
 
 ## Start and constraints
 
@@ -169,9 +170,8 @@ No owner folder is included.
 
 ## For the owner to delete
 
-- D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-win32-x64 (428412636 bytes).
-- D:\my-workspace\VideoEnhancer\work\cache\electron (empty; 0 bytes).
-
+None after the owner's explicit retry authorization: the old Electron package
+and empty Electron cache were successfully removed with the other listed artifacts.
 
 ## L and acceptance progress (2026-10-18)
 
@@ -234,42 +234,27 @@ No owner folder is included.
   An earlier collection/start was interrupted before any completed result was
   recorded; it is not a PASS.
 
-### Remaining decisions and rejected test
+### Superseded design checkpoint
 
-- Generic extractor IDs may be only a basename. Safe default: reuse additionally
-  requires the same stored source URL for generic; other extractors use ID.
-  Designer decision pending; a different URL is downloaded normally.
-- The requested 1440p direct-file fixture generation was rejected before any
-  execution by automatic approval review, citing the prior no-source-above-1080
-  instruction. It was removed from the executable test parameters. That real
-  fixture is NOT RUN; metadata-only oversized rejection tests remain PASS.
-  Do not retry or bypass the rejected generation without resolving the conflict.
-- Final e2e, package, D2, remaining G1 checks, GPU results, disk cleanup and final
-  Windows/Ubuntu CI are still pending. No final success claim, commit or push.
+Generic reuse and the oversized direct-file test initially awaited designer
+instructions. The first fixture generation was refused before execution under
+the old source limit. The later explicit approval and PASS are recorded below.
 
-
-## Latest completed checks
+## Additional completed checks
 
 | Check | Actual | Result / evidence |
 | --- | --- | --- |
-| Link acceptance (real local tools plus units) | 55 tests, 98.30 s | PASS; g1-link-acceptance.log |
-| Server disconnect and Range retry | 1 test, 13.53 s | PASS; g1-server-disconnect.log |
-| No-Range stalled tail-header fallback and post-download probe | 1 test, 48.69 s | PASS; g1-header-fallback2.log |
-| Trusted local TLS redirect to HTTP | 1 test, 2.07 s | PASS; g1-https-redirect2.log |
-| D2 plus current size boundaries | 25 tests, 4.51 s | PASS; g6-d2-sizes.log |
+| D2 plus size boundaries | 25 tests, 4.51 s | PASS; g6-d2-sizes.log |
 | Rust default/e2e clippy | Both, -D warnings | PASS |
 | Release command isolation | 1 test, 5.7 s | PASS; g6-release-isolation.log |
-| GUI E2E full default selection | 14 PASS, 13 SKIP, 2.2 min | g6-gui-e2e.log |
-| GUI units current | 49 tests, 7.74 s | PASS; g6-gui-unit.log |
-| Python static checks | Ruff, format (140 files), Pyright 0 errors | PASS |
-| Feature-free package | 1 min 17 s release compile | PASS; g6-package.log |
-| Feature-free normal startup | Healthy external engine, expected isolated home, no remote-debugging arg | PASS; g6-featurefree-smoke2.json/log |
 
-The initial feature-free smoke deliberately supplied WebView2's external debug
-argument and incorrectly expected the SDK to ignore it. That expectation FAILED;
-the SDK honors the explicit environment setting independently of our Cargo
-feature. No shipping behavior was changed to satisfy that experiment. The normal
-smoke removes that test-only argument and verifies actual default child args.
+Latest full link, GUI, static and package results are recorded below. Earlier
+successful repeats remain in g1-link-acceptance.log, g6-gui-e2e.log and
+g6-package.log; no measured P2/P3 gate or failed attempt was removed.
+
+An initial smoke FAILED because it explicitly set the SDK debugging argument
+while expecting no debugging. The SDK honors that override; the corrected
+normal startup smoke removes it and passes. No shipping behavior changed.
 
 The current package is work/package/VideoEnhancer. Latest compiled executable
 hash before the last label-only update is recorded in g6-featurefree-smoke.json;
@@ -281,14 +266,14 @@ The 13 GUI skips are opt-in fixture/physical-owner flows. The legacy 2160 speed
 calibration test is specifically NOT RUN (designer decision). Media memory and
 historical P1t timing gates are not relabelled by these GUI results.
 
-### L1 browser link drop
+### L1 browser link drop (resolved by designer)
 
 Tauri 2.12.4 webview_window.rs:1096 states that Windows HTML5 drag/drop requires
 disabling its native drop handler. The app retains dragDropEnabled=true for its
 existing native file drop; that notification contains paths, not browser text.
-Paste and Home Ctrl+V are implemented. Browser text/uri-list drop is BLOCKED on
-this documented conflict, not claimed as a physical PASS. Designer question
-pending; no native URL-drop implementation or disabling of file drop was chosen.
+Paste and Home Ctrl+V are implemented. Browser link drop was removed by the
+designer (revision 2), not a failure. Native file drop stays enabled. The inert
+DOM URL handlers were removed; no native URL-drop or COM handling was added.
 
 
 ## Candidate validation checkpoint
@@ -444,3 +429,203 @@ base p1t-tauri. Candidate 1c41f3886489ceb9a901ffcfaf3440266d78eb18 was pushed an
 verified by ls-remote. This is still the same unfinished P1f cycle.
 Final feature-free package startup PASS; executable SHA-256
 b9bc65eea6a326706789af9393760006d847701675cb557ec9a13e298bd407f0.
+
+Verified standalone test tools are cached once after use. Move inventory: D:\my-workspace\VideoEnhancer\work\scratch\P1f\verified-test-tools -> D:\my-workspace\VideoEnhancer\work\cache\link-tools\yt-2026.08.19-66674953-deno-2.9.7-e020f3e2; 115303731 logical bytes. Both resolved paths are inside development work. No bytes are deleted and no owner installation is changed. The recipe records the full published hashes in t-stable-installed.json and t-update-uninstall.json.
+
+
+## G4 visual QA correction
+
+The first screenshot script wrote the root theme directly, which could be reset
+by the app's actual preference. Functional assertions passed, but visual QA found
+that a dark-named screenshot was light: G4 theme evidence was not accepted.
+The corrected test selects Theme through Settings, waits for Saved, asserts the
+actual root theme, and separately captures a single-card quality picker and the
+three-entry playlist. Its first rerun timed out because getByLabel exact-match
+was wrong; trace/context are retained as g4-theme-timeout-* outside Git. Correct
+accessible-role targeting then PASSed in 10.8 s; dark output was visually checked.
+One diagnostic before-image is retained as g4-theme-race-before.png. Final images
+are evidence/P1f/gui-links-final/links-{home,quality,playlist,settings}-
+{dark,light}-{1280,1100}.png. Only the final set is acceptance evidence.
+
+Visual QA found and fixed the stale local-file Preparing label in link-only Add;
+the checked card keeps its current processing estimate.
+
+
+The NVIDIA public reference describes Flush, while the installed 2.2.3 binding
+has no such method. Reference for the designer:
+https://docs.nvidia.com/video-technologies/pynvvideocodec/pynvc-api-reference/decoder.html
+That checkpoint predates the approved decoder fix below. The original failure
+remains recorded; the current implementation selects FFmpeg without changing PTS.
+
+
+## Designer decisions and decoder acceptance, 2026-10-18
+
+The four complete decisions are appended to CURRENT_TASK.md. No pending design
+question remains from the previous checkpoint. Browser link drop is removed by
+the designer (revision 2). Paste, Home Ctrl+V and native file drop remain.
+
+- Generic reuse now normalizes scheme/host case and drops the fragment only;
+  path/query remain exact. It checks known pre-download dimensions and duration
+  (0.5 s tolerance), and Last-Modified when both timestamps exist. Completed
+  downloads save source.timestamp. Site extractors use extractor_key plus id.
+  Unknown-size generic links offer no reuse. The offer includes date, resolution
+  and fps, with Download again. Known limit: a file replaced at the same link
+  with the same resolution/duration and unchanged Last-Modified is still offered.
+- Strict native decoding validates every label, including frames before a seek
+  target. Whole-file analysis uses the same CreateDemuxer/CreateDecoder/Decode
+  calls, including the demuxer's empty EOF packet and Flush only when available.
+  A mismatch selects FFmpeg for the job; samples move to CUDA before the same
+  nv12_to_rgb conversion. Models remain CUDA. Decoder/reason are persisted and
+  included in Copy details. Runtime mismatch switches the job and retries that
+  segment once; a second failure is not retried. No timestamp is corrected.
+
+| Check | Expected | Actual / evidence |
+| --- | --- | --- |
+| H.264 converted frames | Maximum difference 0 | PASS, all 292 Archive frames, maximum 0; l3-h264-converted-equality.json/log. PSNR infinite (JSON null for exact equality). |
+| Commons VP9 | Fast 1080p completes, 131 output frames | PASS, FFmpeg selected at repeated stamp 0 on frame 1; 131 HEVC frames, 1440x1080, 30 fps, 7.684 s controller wall time; l3-decoder-acceptance.json/log. |
+| Commons pictures | Compare every native/FFmpeg frame hash | PASS, 131/131 SHA-256 hashes identical at corresponding ordinals. Labels are shifted; pictures are neither repeated nor missing in this file. Both decode the final picture. |
+| Archive H.264 | Keep NVDEC | PASS, all 292 labels match, including the last frame. |
+| Local VP9 alt-ref / AV1 | Report labels and selection | PASS, 640x360, 60 frames each; both whole timelines match and NVDEC is selected. |
+| Fast 1080 speed | FFmpeg no more than 10% slower | PASS for one paired run: NVDEC 24.9216 s, FFmpeg 24.7368 s, ratio 0.99258. This is one pair, not a statistical performance claim. |
+| Fake repeated/missing/unknown label and seek | First bad frame errors | PASS; duplicate [0,0,33,...] fails at frame 1, including before requested frame 2. |
+| Runtime retry | Switch once, persist reason; second failure stops | PASS; controller/sequence/reuse bundle 36 PASS, 1 SKIP, 4.73 s; l3-controller.log. |
+| Generic real hosts and duration replacement | Different video.mp4 hosts or changed duration: no offer; unchanged: offer | PASS; 4 real local tests including MP4/HLS/DASH and packet-copy regression, 30.52 s; l2-reuse-real.log. |
+| Generic fallback | Unknown pre-download dimensions: no offer | PASS, real no-Range tail-header fallback, post-download check, 47.51 s; l2-reuse-fallback.log. |
+| Approved 1440p refusal | Header rejection, no downloads/jobs, delete fixture | PASS, two CPU-encoded 2560x1440 H.264 frames with faststart. yt-dlp -J plus ffprobe only, 0 downloaded files, 0 jobs; fixture deleted in finally. l2b-1440-refusal-final.log (4.00 s). |
+| Pre-change GPU suite | Record actual completed run | PASS, 101 tests, 517 deselected, 16434.42 s. This does not validate the new decoder; g5-gpu-suite2.log. |
+| b38f03c CI | Windows and Ubuntu | PASS, push 39104573096 and PR 39104576929. New-head CI remains pending. |
+
+Failed attempts are retained: sandbox loopback denial on the first refusal run;
+its first unsandboxed test incorrectly expected a Lavf User-Agent even though
+format http_headers intentionally forward the browser User-Agent. The corrected
+assertion checks ffprobe's Range request. One yt-dlp metadata GET also occurs;
+there is no transfer-mode yt-dlp invocation. The first diagnostic job admission
+was sandbox-denied while resolving the scratch source; the escalated isolated
+run completed. No protected owner folder was used. Ruff and Pyright pass after
+fixing ordinary annotation/format issues. Full current CPU/GPU suites are running.
+
+
+### Current regression checkpoint
+
+- Full CPU suite: 532 PASS, 17 SKIP, 101 deselected, 781.00 s;
+  g5-cpu-suite-final.log. Link tools were not enabled in that general suite;
+  the separate final real-tool bundle runs those integrations explicitly.
+- Decoder/controller/reuse bundle after the retry-order audit: 40 PASS, 1 SKIP,
+  4.74 s; l3-final-unit.log. Native missing-timeline guard: 7 PASS, 4.27 s;
+  l3-strict-timeline-final.log. No ordinal timestamp guessing remains on NVDEC.
+- GUI lint/typecheck and 52 units PASS (8.53 s), including full reuse label,
+  selecting the earlier file and Download again. Default E2E: 14 PASS, 13 SKIP,
+  2.3 min; g6-gui-e2e-final.log. S9 move/relaunch/live-data test PASS (26.0 s).
+- G4 final screenshots: 1 PASS, 10.9 s, g4-links-final3.log. Settings controls
+  were scrolled into view before capture; no product layout changed. Visually
+  inspected the 1100 dark Add card and light Settings images. The 16 final PNGs
+  total 1129583 bytes before the final Settings recapture.
+- Feature-free package refreshed and isolated-copy smoke PASS. SHA-256:
+  30df88b7b340295dfe379069b21ebf17c8da999183c5b6598d09cd2acba00de4.
+  External engine healthy, expected scratch home, no default debugging argument;
+  g6-featurefree-smoke-decoder-final.json/log. Package path remains
+  D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer.
+- source.timestamp persistence and unchanged-file reuse: PASS, real local direct
+  transfer, 11.46 s; l2-timestamp-persist.log.
+- Current new files: tests/test_decoder_selection.py and tests/test_link_reuse.py.
+  Decoder, analysis, manifest store, controller, link service/jobs, LinkPanel,
+  App, HistoryDetail, Queue, tests, docs/GUI and both .ai files changed.
+- Final real-tool acceptance: 54 PASS, 127.73 s, including the trusted TLS
+  redirect refusal, interruption/resume, unknown header fallback, two-server
+  reuse checks, timestamp persistence and approved CPU 1440p refusal;
+  g1-link-acceptance-final.log. No third-party video site was used.
+- Final controller/strict-label/reuse bundle: 41 PASS, 1 SKIP, 4.80 s;
+  l3-final-unit2.log. An earlier OOM reduction to batch 1 remains in effect
+  during the one-time decoder retry. Ruff and Pyright PASS.
+- Original Archive output and both decoder speed-run outputs are byte-identical:
+  39152863 bytes, SHA-256
+  f724b96e32b316dca2289826775e79ca447f5c831d13203835850a993e2418af.
+  Commons output is 2331180 bytes, SHA-256
+  1cfa5192bdac29efc2e009c523432538194b151b2e3304e9519606bd4461c368.
+  l3-output-inventory.json preserves these before scratch cleanup.
+- Full GPU suite remains in progress. No GPU result is inferred from the
+  earlier 101-PASS run.
+
+
+## Final GPU result and cleanup inventory
+
+GPU suite3 completed: 101 PASS, 549 deselected, 15963.56 s (4:26:03),
+exit code 0. All selected GPU tests used allowed source/output dimensions.
+This validates the strict decode/media path; final controller retry branches
+were separately verified by the 41-PASS bundle. No GPU soak or legacy 2160
+calibration was run. g5-gpu-suite3.log preserves every case and duration.
+
+Before cleanup (logical lengths, 2026-10-19T02:27:26Z):
+- D:\my-workspace\VideoEnhancer\work\scratch: 115483916442 bytes, 31669 files.
+- D:\my-workspace\VideoEnhancer\work\evidence\P1e-2: 9139299 bytes, 288 files;
+  older than the three retained cycles. Reports remain in Git history.
+Both exact roots are ordinary directories inside work. Neither owner directory
+is included. Test media/output metadata, source/output hashes and essential logs
+have been retained under evidence/P1f before the cleanup attempt. The previously
+rejected Electron package/cache deletion is not retried.
+
+
+### Owner-authorized capacity reduction
+
+The owner explicitly authorized retrying the old Electron package deletion and
+asked to minimize remaining disk usage. The earlier refusal remains historical;
+it is superseded by this new authorization. Python/Node/Rust runtimes, the venv,
+verified link tools and model caches remain. These regenerable development
+artifacts have been inventoried before deletion; none is Git-tracked:
+
+| Exact path under D:\my-workspace\VideoEnhancer\work | Logical bytes |
+| --- | ---: |
+| D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-win32-x64 | 428412636 |
+| D:\my-workspace\VideoEnhancer\work\cache\electron | 0 |
+| D:\my-workspace\VideoEnhancer\work\cache\tauri-target | 4370274210 |
+| D:\my-workspace\VideoEnhancer\work\cache\uv | 3480500128 |
+| D:\my-workspace\VideoEnhancer\work\cache\npm | 57237453 |
+| D:\my-workspace\VideoEnhancer\work\cache\cargo\registry | 675485832 |
+| D:\my-workspace\VideoEnhancer\work\repo\gui\node_modules | 191885410 |
+| D:\my-workspace\VideoEnhancer\work\repo\gui\dist | 575709 |
+| D:\my-workspace\VideoEnhancer\work\repo\gui\test-results | 45 |
+
+Tool/model binaries and the current package are excluded. Local Rust/UI builds
+will require restoring the removed dependency caches before another rebuild.
+
+Post-cleanup smoke created 17152762 logical bytes in D:\my-workspace\VideoEnhancer\work\scratch;
+that exact temporary root is now scheduled for cleanup again.
+
+
+## Final local outcome and disk budget
+
+All inventoried cleanup candidates were removed. The first scratch attempt
+stopped on a lock held by an older failed GUI fixture. Only its venv test engine
+(VE_HOME under scratch/P1f, PID 29768 and child 30112) was terminated, then cleanup
+succeeded. That was a file lock, not an approval rejection. The later owner
+instruction authorized the previously rejected Electron cleanup; it succeeded.
+The 17152762-byte post-cleanup smoke home was also removed. No owner data or
+Recycle Bin was inspected or cleaned. P1e-2's report remains at Git dc02580.
+
+The retained package passed another isolated startup after cache removal;
+Python 3.12.15 / Torch 2.14.1+cu130 import, engine health and unchanged executable
+SHA-256 PASS. Evidence: g6-featurefree-smoke-after-cleanup.json/log. Final Ruff,
+format and Pyright PASS. GUI/Rust checks ran before their regenerable outputs
+were removed. No local rebuild is claimed after removing those dependencies.
+
+| Decimal GB | Start | End |
+| --- | ---: | ---: |
+| C:/ free | 309.799707 | 308.345725 |
+| D:/ free | 1004.175360 | 1009.745265 |
+| cache, logical | 10.641371 | 2.302191 |
+| scratch, logical | 0.000000 | 0.000000 |
+| package, logical | 0.434162 | 0.005771 |
+| evidence, logical | 0.207036 | 0.210749 |
+
+Persistent change across inventoried roots: -8.763859 GB (under the +1 GB gate).
+Current P1f evidence: 0.012852 GB, below 0.300 GB;
+retained cycles are P1e-2b, P1t and P1f. Cache is below 40 GB. Scratch has 0 files;
+package has only VideoEnhancer (2 files). Per-item removed logical bytes are in
+the two cleanup tables above; root rows overlap those tables and are not summed.
+Hard links make logical lengths differ from allocated space. C/D free-space
+changes include unrelated OS/application activity and are not attributed solely
+to this cleanup. disk-final.json/log records the measured endpoint.
+
+Local implementation/acceptance is finished. P2 cold start remains FAIL and the
+accepted historical P1t failures remain FAIL. No new designer decision is open.
+Only final branch publication and exact-head Windows/Ubuntu CI remain.

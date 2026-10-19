@@ -429,6 +429,17 @@ and predicted readiness when available. Unknown estimates stay unknown. The
 network scheduler is independent of GPU hours; Pause all and Quit interrupt its
 process trees. A failed download permits Retry. Source identity and download
 time are retained when the job becomes normal processing work.
+`source.extractor_key` and `source.id` identify a site video. A completed download
+also stores `source.timestamp` when yt-dlp provides Last-Modified. Generic reuse
+additionally checks the normalized source link and known pre-download dimensions
+and duration (within 0.5 seconds), and compares timestamps when both are known.
+Unknown-size generic entries have no eligible reuse record.
+
+Analysed manifests include `decoder` (`nvdec` or `ffmpeg`) and `decoder_reason`.
+The processing backend remains independent: FFmpeg-decoded samples move to CUDA
+before RGB conversion when models use CUDA. A runtime native timestamp mismatch
+records a `decoder_events` entry and retries that segment once with FFmpeg.
+These fields are included in Copy details.
 
 `GET queue/{id}/source` returns the stored HTTP(S) source URL. The desktop source
 link command accepts only a job ID, fetches this record and validates the URL

@@ -426,3 +426,64 @@ So:
 - in the report, list which audio codecs reach the MP4 output untouched and which become AAC 256 kbps;
 - keep l-audio-container-probe.json (Opus and AAC copy into MP4 with matching packet hashes) as evidence for a possible later "keep original audio" option.
 Continue in the existing order.
+
+## Designer decisions received 2026-10-18 (supersede earlier rows)
+
+### P1f L2 Already downloaded
+1. Keep your current rule: for the generic extractor, the normalized link must equal the stored source.url. Normalize only the case of the scheme and host and drop the fragment. Keep the path and query exactly. Signed links that change on every visit are then never reused, which is accepted.
+2. Add two checks for the generic extractor only:
+- When yt-dlp reports timestamp (the server's Last-Modified) now and one was stored at download, they must be equal. Store it as source.timestamp when the download finishes.
+- The width, height and duration known before the download (metadata or the L2b probe) must equal the stored file's probe, with the duration within 0.5 s. If any of them is unknown (the L2b fallback), do not offer the earlier file.
+- Otherwise download as usual, with no extra message.
+3. Site extractors keep extractor_key plus id only, the same key as yt-dlp's download archive. Do not add a link match there.
+4. For all links, the offer reads "Use the file downloaded on <date> (<width>x<height>, <fps> fps)", and "Download again" stays available.
+5. Write the known limit in the report: a file replaced at the same link with the same resolution and duration and an unchanged Last-Modified is still offered.
+6. Tests (G1): two different video.mp4 files on two local hosts give no offer; the same link with the file replaced by one of a different duration gives no offer; the same unchanged link gives the offer; the same link in the L2b fallback gives no offer.
+
+### P1f L3 Commons VP9 finding
+Designer decision: fix it in this cycle. Do not correct or guess timestamps.
+Why now: VP9 is common for link sources, and L3 already asks for it. Also, decode.py _cuda_frames skips a decoded stamp smaller than the expected one. So a repeated label is skipped silently, and a segment that does not reach the last frame can finish with frames shifted by one, without an error. This is inferred from the code; confirm it with a test.
+1. Make the check strict. After a seek, the first decoded stamp must be one of the analysed source_pts, and every following stamp must equal the next analysed entry. A repeated, missing or unknown stamp is an error at that frame.
+2. Choose the decoder per job, in analysis. Compare the NVDEC stamps of the whole file with the packet timeline, using the same NVDEC calls the segments use.
+- All stamps match: NVDEC as now.
+- Any stamp differs: the job uses the existing FFmpeg decode path. The models stay on CUDA, and decoded frames go to the GPU before the same nv12_to_rgb conversion.
+- Record the decoder and the reason in the manifest and in Copy details. Add no new UI.
+3. At run time, if check 1 fails in a segment on NVDEC, switch that job to FFmpeg decoding, retry the segment once, and record it.
+4. Call Flush() only if the binding has it. Otherwise rely on the demuxer's empty packet at the end of the file. Confirm that the last frame is decoded for H.264 and VP9.
+5. Tests:
+- The Commons VP9 file finishes in Fast with 131 output frames.
+- Archive H.264 keeps NVDEC.
+- A fake decoder returning [0, 0, 33, ...] fails at frame 1.
+- The same H.264 file decoded both ways gives identical converted frames (maximum difference 0). If not, report the maximum difference and the PSNR, and leave rule 3 out until I answer.
+- Make local VP9 (alt-ref) and AV1 files, at most 1080p, and report the NVDEC stamp result and the decoder chosen for each.
+- G5 strict equality still holds.
+6. Report:
+- For the Commons file, compare NVDEC and FFmpeg pictures by hash, frame by frame: are only the labels shifted, or is a picture repeated or missing?
+- Give the Fast 1080p speed ratio of FFmpeg decoding against NVDEC on the same H.264 file. If FFmpeg decoding is more than 10% slower, ask under "Questions for the designer".
+
+### P1f L1 browser link drop
+The browser link drop is out of this cycle. Revision 2 already removed it ("Changes to the parts below", L1: "Remove the drop of a link dragged from a browser", P1t decision 5). The original L1 line was not updated at the time, which was my mistake. It is now struck through in the task doc.
+- Keep dragDropEnabled = true and the native file drop unchanged.
+- Paste in Add and Ctrl+V on Home are the link entry points.
+- In the report, list the link drop as "removed by the designer (revision 2)", not as a failure.
+- Add no native URL drop handling and no WebView2 COM code in this cycle. A later cycle may try the HTML5 drop for both links and files, with file paths from WebView2's postMessageWithAdditionalObjects (CoreWebView2File), after a spike.
+
+### Approved oversized refusal fixtures: P1f L2b and G1
+The 1080p source limit is about processing, not about refusal tests. The task doc now says so under Constraints ("Test files above 1080p"). The P3 line now reads "The GPU job never uses a source above 1080 or an output above 1440."
+Approved run:
+- Make a 2-frame 2560x1440 H.264 MP4 with FFmpeg on the CPU, with -movflags +faststart.
+- Serve it from the local test server as a direct link.
+- Check:
+  - it is refused before download with the R2 message;
+  - only the header probe reads it;
+  - nothing is written to the downloads folder;
+  - no job is created.
+- Never pass it to a job, restoration, interpolation, output encoding or any GPU processing.
+- The test deletes the file afterwards (P6).
+The same rule covers the other small synthetic files above 1080p that R5, P3 and P5 already ask for.
+
+
+## Owner cleanup update after GPU acceptance
+
+Retry deletion of the previously rejected old Electron package as well.
+Finish the work with disk usage reduced as much as possible.
