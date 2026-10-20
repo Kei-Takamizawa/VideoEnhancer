@@ -347,7 +347,7 @@ pub async fn desktop_test(
             let size = window.inner_size().map_err(|e| e.to_string())?;
             let position = window.outer_position().map_err(|e| e.to_string())?;
             Ok(
-                json!({"visible":window.is_visible().map_err(|e|e.to_string())?,"fullscreen":window.is_fullscreen().map_err(|e|e.to_string())?,"media_peak":state.fetches.peak.load(Ordering::SeqCst),"media_total":state.fetches.total.load(Ordering::SeqCst),"width":size.width,"height":size.height,"x":position.x,"y":position.y}),
+                json!({"visible":window.is_visible().map_err(|e|e.to_string())?,"fullscreen":window.is_fullscreen().map_err(|e|e.to_string())?,"storage_busy":state.storage_busy.load(Ordering::SeqCst),"storage_moving":state.storage_moving.load(Ordering::SeqCst),"media_peak":state.fetches.peak.load(Ordering::SeqCst),"media_total":state.fetches.total.load(Ordering::SeqCst),"width":size.width,"height":size.height,"x":position.x,"y":position.y}),
             )
         }
         "fullscreen" => {

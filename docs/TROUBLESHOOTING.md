@@ -234,3 +234,17 @@ processing. Sources above 1080p or HDR stop with a reason; the file stays in the
 download folder. A site can still redirect a download from an HTTPS link to
 plain HTTP during transfer. HTTP format URLs known before an HTTPS download
 are refused.
+
+If a link is a list of lists, paste one list instead, for example the channel's
+Videos tab. A failed download with unknown size or frame rate stays in History
+and offers Retry. A damaged job record shows its reason and can be removed without
+discarding the other queue rows.
+
+"The download is incomplete (N s of M s). Retry the download." means the reported
+duration and downloaded file disagree. The partial file is kept until Retry,
+Cancel or removal of that unfinished download. Retry also discards an interrupted
+remux before rebuilding it. Completed downloaded originals are preserved.
+
+Missing thumbnails do not prevent downloading: private-network thumbnail URLs or
+redirects are refused. Link-tool caches follow the app-data folder, rather than
+the user profile on C. Uninstall removes the yt-dlp cache too.

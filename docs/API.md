@@ -444,3 +444,40 @@ These fields are included in Copy details.
 `GET queue/{id}/source` returns the stored HTTP(S) source URL. The desktop source
 link command accepts only a job ID, fetches this record and validates the URL
 before opening it. It does not broaden the general external-link allowlist.
+
+Before link analysis, unknown dimensions, frame rate, duration and frame count
+are null. P1f zero placeholders are read as unknown. These rows expose
+`link_unanalysed`, `link_estimate`/`estimate_after_download` and transfer status,
+including preparing, failed and cancelled states. A record projection failure
+returns a `record_error` row with its reason and a Remove action; other rows remain
+available and each affected job is logged once. Startup/core-record loading remains strict.
+Removal of syntactically invalid JSON still awaits a designer decision about
+the existing 10-second Undo contract.
+
+Each playlist entry is rechecked through its own URL with `--no-playlist` when
+available. The verified metadata's extractor key and ID must still match. Format
+and resolved fragment URLs are checked before check/queue/transfer. Only an exact
+HTTP protocol-whitelist refusal maps to the encryption message; other probe
+failures use the after-download fallback. Thumbnail connections and redirects
+allow only public resolved addresses and the permitted transport. Connections
+use the validated address set, preventing a second DNS lookup from bypassing it.
+
+Downloads abort unavailable fragments. Known duration may be short by at most
+max(1 second, 1 percent). An unfinished exact `.ve-<job id>.mkv` is removed before
+retry; Cancel/Remove discard only unfinished job-specific temporary files. The
+yt-dlp cache lives in `<engine home>/tools/yt-dlp/cache` and Uninstall removes it.
+Only a positive integer `downloader_options.http_chunk_size` survives sanitizing.
+Queue admission checks work/output/download drive budgets with one 10% margin.
+Link estimates reuse profiles keyed by backend, hardware/driver and installed
+model identities; changing one quality refreshes only that entry's GUI estimates.
+
+
+### Unreadable History records
+
+A record whose JSON cannot be parsed is shown independently of other queue rows.
+History removal moves its complete job folder to `jobs/.removing/<id>` inside the
+engine home, with the same 10-second Undo window. Undo restores the unchanged
+folder. Expiration, or the next engine start, deletes the staged folder. Video
+removal choices are unavailable for unreadable records; videos outside the job
+folder remain untouched. Copy details returns the parse error and manifest path.
+No damaged manifest is repaired or rewritten.

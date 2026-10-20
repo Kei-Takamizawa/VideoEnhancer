@@ -3,8 +3,35 @@ import { expect, it, vi } from "vitest";
 import { LinkPanel } from "../src/LinkPanel";
 import { AddDialog } from "../src/Queue";
 import { HistoryDetail } from "../src/HistoryDetail";
+import { HistoryPage } from "../src/Home";
 import type { Api } from "../src/api";
 import type { Job, Settings } from "../src/types";
+
+it("keeps an unknown-size failed link visible in History with Retry", () => {
+  const job = { id: "a".repeat(32), state: "failed", input: "D:/Synthetic/video.mkv", output: "D:/Synthetic/out.mp4", settings: { codec: "hevc", preset: "fast" }, media: { display_width: null, display_height: null }, estimate: { seconds: 0 }, error: "Synthetic download failed", source: { url: "http://localhost/video" } } as unknown as Job;
+  render(<HistoryPage queue={{ jobs: [job], operations: [], completion: null }} action={vi.fn()} trial={vi.fn()} />);
+  const card = screen.getByRole("button", { name: "video.mkv" });
+  expect(Number.parseFloat(card.style.width)).toBeGreaterThan(0);
+  fireEvent.click(card);
+  expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+});
+
+it("refreshes estimates only for the entry whose quality changed", async () => {
+  const entries = ["0", "1", "2"].map(key => ({ key, title: `Video ${key}`, selected: "small", formats: [{ id: "small", codec: "h264" }, { id: "large", codec: "h264" }] }));
+  const requests: string[] = [];
+  const call = vi.fn(async (route: string, _method?: string, body?: { entry_key: string }) => {
+    if (route === "link-tools") return { available: true };
+    if (route === "links/estimate") { requests.push(body!.entry_key); return { estimate: null }; }
+    return { id: "checked", state: "done", result: { entries } };
+  });
+  render(<LinkPanel api={{ call } as unknown as Api} settings={{ short_side: 1080 } as Settings} changed={vi.fn()} initialUrl="http://localhost/playlist" />);
+  await waitFor(() => expect((screen.getByRole("button", { name: "Check" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Check" }));
+  await waitFor(() => expect(requests).toEqual(["0", "1", "2"]));
+  requests.length = 0;
+  fireEvent.change(screen.getAllByRole("combobox", { name: "Quality" })[1], { target: { value: "large" } });
+  await waitFor(() => expect(requests).toEqual(["1"]));
+});
 
 it("shows the downloaded path and opens a stored source using only the job ID", async () => {
   const open = vi.fn(async () => {});
@@ -71,9 +98,8 @@ it("checks only on request, handles a completed check and disables HDR", async (
   await screen.findByText("VideoEnhancer can't read this video's size before downloading. It is checked after the download. If it is larger than 1080p or HDR, the job stops and the downloaded file is kept.");
   expect((screen.getByRole("option", { name: /HDR is not supported/ }) as HTMLOptionElement).disabled).toBe(true);
   expect((screen.getByRole("checkbox", { name: "Live fixture" }) as HTMLInputElement).disabled).toBe(true);
-  await waitFor(() => expect(changed).toHaveBeenLastCalledWith([{ check_id: "checked", entry_key: "0", format_id: "sdr", reuse_job_id: undefined }]));
-  fireEvent.click(screen.getByRole("checkbox", { name: "Use the file downloaded on 2026-10-18 (320x180, 29.97 fps)" }));
   await waitFor(() => expect(changed).toHaveBeenLastCalledWith([{ check_id: "checked", entry_key: "0", format_id: "sdr", reuse_job_id: "saved" }]));
+  expect((screen.getByRole("checkbox", { name: "Use the file downloaded on 2026-10-18 (320x180, 29.97 fps)" }) as HTMLInputElement).checked).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Download again" }));
   await waitFor(() => expect(changed).toHaveBeenLastCalledWith([{ check_id: "checked", entry_key: "0", format_id: "sdr", reuse_job_id: undefined }]));
   fireEvent.click(screen.getByRole("button", { name: "Select none" }));

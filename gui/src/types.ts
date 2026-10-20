@@ -43,6 +43,8 @@ export type Job = {
   source?: { url: string; title?: string; format?: string; downloaded_at?: string };
   download?: { phase: string; percent?: number | null; bytes?: number; total_bytes?: number | null; bytes_per_second?: number | null; remaining_seconds?: number | null; ready_at?: string | null };
   estimate_after_download?: boolean;
+  unreadable_record?: boolean; record_error?: boolean;
+  link_unanalysed?: boolean;
   unsupported_reason?: string | null;
   position?: number;
   part_seconds?: number;

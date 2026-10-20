@@ -6,7 +6,6 @@ import threading
 import time
 import uuid
 from datetime import UTC, datetime
-from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,12 +15,11 @@ from videoenhancer.jobs.store import (
     _require_unreserved_output,
     add_job,
     input_identity,
-    require_disk_space,
 )
 from videoenhancer.media.probe import probe, rational, target_rate
 from videoenhancer.schedule.controller import _kill_process_tree
 from videoenhancer.service.settings import read_settings
-from videoenhancer.service.video_links import format_estimate, safe_filename, video_url
+from videoenhancer.service.video_links import safe_filename, video_url
 
 if TYPE_CHECKING:
     from videoenhancer.service.engine import Engine
@@ -73,22 +71,24 @@ class LinkJobs:
         download_bytes = sum(
             int(item.get("filesize") or item.get("filesize_approx") or 0) for item in selected
         )
-        require_disk_space(folder, max(1, int(download_bytes * 2.2)))
-        estimate = format_estimate(video, settings, engine.home)
-        rate = target_rate(rational(video.get("fps"))) if video.get("fps") else Fraction(0)
+        estimate = engine.video_links.estimate(video, settings)
+        rate = target_rate(rational(video.get("fps"))) if video.get("fps") else None
         media = dict(
-            display_width=video.get("width") or 0,
-            display_height=video.get("height") or 0,
-            width=video.get("width") or 0,
-            height=video.get("height") or 0,
-            cfr_fps=str(rate),
-            duration=video.get("duration") or 0,
-            frame_count=round(float(rate) * float(video.get("duration") or 0)),
+            display_width=video.get("width") or None,
+            display_height=video.get("height") or None,
+            width=video.get("width") or None,
+            height=video.get("height") or None,
+            cfr_fps=str(rate) if rate else None,
+            duration=video.get("duration") or None,
+            frame_count=max(1, round(float(rate) * float(video["duration"])))
+            if rate and video.get("duration")
+            else None,
         )
         now = datetime.now(UTC).isoformat()
         source = dict(
             url=video_url(entry.get("webpage_url") or original),
             request_url=original,
+            entry_url=video_url(entry["webpage_url"]) if entry.get("webpage_url") else None,
             extractor=entry.get("extractor") or entry.get("extractor_key") or "generic",
             extractor_key=entry.get("extractor_key") or entry.get("extractor") or "Generic",
             id=str(entry.get("id")),
@@ -112,6 +112,22 @@ class LinkJobs:
             ):
                 source_path = folder / (title + f" [{job_id[:8]}].mkv")
             output = engine.output(source_path, value)
+            from videoenhancer.jobs import store as job_store
+
+            space_media = {key: val or 1 for key, val in media.items()}
+            input_bytes = source_path.stat().st_size if reused else download_bytes
+            estimated_bytes = job_store.estimated_output_size(
+                max(1, input_bytes),
+                space_media,
+                settings,
+            )
+            job_store.require_working_space(
+                engine.home,
+                output.parent,
+                estimated_bytes,
+                download_folder=folder,
+                download_bytes=0 if reused else download_bytes,
+            )
             job: dict[str, Any] = dict(
                 schema_version=1,
                 id=job_id,
@@ -128,6 +144,8 @@ class LinkJobs:
                 position=len(engine.store.queue_jobs()) + 1,
                 estimated_output_bytes=0,
                 link_estimate=estimate,
+                machine_profile=engine.video_links.profile(settings, media) if estimate else None,
+                link_unanalysed=True,
                 download=dict(
                     phase="Using the downloaded file" if reused else "Waiting to download",
                     bytes=0,

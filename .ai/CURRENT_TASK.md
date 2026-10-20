@@ -1,489 +1,311 @@
-# CURRENT_TASK: Cycle P1f (add videos from a link)
+# CURRENT_TASK: Cycle P1f-2 (fixes from the P1f review)
 
-- **Task ID:** VE-P1f, revision 3
-- **Date:** 2026-10-12 (revision 2: 2026-10-16; revision 3: 2026-10-18)
+- **Task ID:** VE-P1f-2
+- **Date:** 2026-10-19
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
-## Revision 3 (2026-10-18): after the P1t review
+## 1. Start
 
-This revision adds Part P and fixes the start commit. Revision 2 and revision 1 still apply where this section does not override them.
+- Continue on branch `p1f-links` from `05dbf72` (the P1f final commit). Keep draft PR #7 (base `p1t-tauri`). Do not open a new PR.
+- Replace `.ai/CURRENT_TASK.md` with this file. Write a new `.ai/LAST_REPORT.md` for this cycle. The P1f report stays in Git history at `05dbf72`.
+- **Restore the dependencies removed at the end of P1f** (Python environment and uv cache as needed, `npm ci` in `gui`, the Cargo registry, and the Rust target through a normal build).
+  - This restore does not count toward the 1 GB per-cycle growth limit in `docs/WORKSPACE.md`. Report its size on its own line.
+  - Every other workspace rule still applies.
 
-**Start condition:** create branch `p1f-links` from `p1t-tauri` at `cb085bc` (P1t final, reviewed). Draft PR to base `p1t-tauri`.
+## 2. Background
 
-**Order:** Part P → Part T → Part R → Part L → Part G.
+- P1f finished as PARTIAL at `05dbf72`. P2 cold start failed; everything else passed. Windows and Ubuntu CI passed.
+- The designer reviewed the P1f code by reading it, without running it. The review found the defects in Parts A and B below. Each one names its file and line at `05dbf72`.
+- For each item:
+  - first write a test that fails on `05dbf72` and record that failure;
+  - then fix it and show the same test passing.
+  - If a test shows that an item does not reproduce, report that with the evidence and do not change the code for it.
+- After this cycle, the owner checks P1e-2, P1t, P1f and P1f-2 together, then merges.
 
-**Designer decisions on P1t (2026-10-18):**
-- P1t is accepted as PARTIAL. Its failed gates stay FAIL in the record and are not relabelled: cold start (679.3 ms against 549.3 ms), warm History (134.65 ms against 100 ms), the AV1 memory gates and the repeat-memory gate.
-- The media path stays M1 with 1 MiB responses, with the Low memory target while no player is open. M3 stays out.
-- The AV1 and repeat-memory results become known issues for the owner check. Reading of the repeat test: the M1 total levels off (cycles 5-10 add 1.4 MB per cycle for AV1 and 0.7 MB for H.264, against 12.0 MB for Electron), so no fix is required in this cycle.
-- Electron is removed in this cycle (P4), after the P2 measurements. Git history keeps it.
+## 3. Designer decision on P2 (2026-10-19)
 
-### Part P: P1t follow-ups
+- **The P2 cold-start failure is accepted as a known issue.** P1f measured a G1 Home-ready median of 694.6 ms for Tauri, against 420.9 ms for Electron. Most of the gap is WebView2 start-up: the median window-to-navigation interval is 297.6 ms for Tauri and 16.8 ms for Electron.
+- Electron is removed, so the gate relative to Electron is retired. The P1f FAIL stays in the record.
+- **New gate, from this cycle on:** measure on the same G1 fixture (5 launches). The G1 Home-ready median must be at most 765 ms (694.6 ms + 10%), and the first-paint median at most 1.0 s.
+- In this cycle, run that measurement once at the end.
 
-**P1. Storage and shell fixes from the code review** (base `cb085bc`; line numbers are from that commit):
-1. **Remove and Move must never overlap.** `remove_old` (`gui/src-tauri/src/storage.rs:255-326`) does not take `storage_busy`, and the Storage card does not disable Move during Remove (`gui/src/Storage.tsx`). Because `remove_old` writes back the pointer it read at the start, a Move started during a slow Remove can be overwritten, and the next launch silently opens the old folder. Hold the same busy lock for the whole removal, disable Move and Remove while either runs, and re-read the pointer just before writing it.
-2. **No full verification on every status poll.** `storageStatus` runs `verify` every 500 ms (`Storage.tsx:22`, `storage.rs:197`). That is an engine health call, a full storage scan and a probe write with `sync_all`, each time. Polls must not overlap. Run the full verification only when the Storage card opens, after a Move finishes, and again inside Remove (as now). The progress poll stays cheap.
-3. **Remove counts and result.**
-   - The confirmation counts only the files that will really be deleted (not `protected_video` entries, and not entries already blocked by a damaged job manifest).
-   - If any manifest file in the old folder could not be removed (locked, changed, protected), keep `previous` and the remaining manifest entries in the pointer, so Remove can be offered again later, and say how many were kept and why.
-4. **Older pointer without a manifest.** A pointer written by the Electron app has `previous` but no `manifest`; this is the owner's real state. Remove stays disabled, which is correct, but say why: "This folder was moved by an earlier version, so the app can't check it before removing it. Keeping it is safe." Do not offer another way to delete it.
-5. **Start with Windows** (`gui/src-tauri/src/window.rs:248-254`, called every 3 s from `main.rs:309`): write the Run value only when it differs from the current one. Skip the Run-key sync in debug builds as well as in `e2e` builds.
-6. **Media protocol details** (`media.rs:146`, `169-178`): a HEAD reports the full file size as `Content-Length`. A GET without `Range` keeps the 1 MiB cap. Pick the most standard response that keeps the cap, and test both.
-7. **External links** (`commands.rs:129-136`): pass the parsed and normalized URL to the shell, not the raw string, as `on_new_window` already does. Add a test with a quote in the URL.
-8. **Release build check in CI:** run the check that `desktop_test` is absent from the release build on the Windows CI job, if the build time allows. If it doesn't, say so in the report.
+## 4. Part A: must fix
 
-**P2. Measure before removing Electron** (same CDP harness and fixture as P1t G1, Electron from the P1t baseline package):
-1. Warm History on Electron, median of 10.
-   - If Electron is also above 100 ms, report both numbers; the designer re-bases the budget.
-   - If Electron is at most 100 ms, find the Tauri-specific cause. Fix it if the fix stays in the renderer or the shell and changes no design; otherwise report the cause.
-2. Cold start split into phases, median of 5, Tauri and Electron: process start, window created, webview ready, first paint, engine healthy. Remove a wait only when one phase clearly causes it and the fix changes no design. The target stays at most 10% above Electron's median from the same run.
+### A1. A link job without known size or frame rate breaks Home and History
 
-**P3. GPU memory left by the player** (measurement only, no fix):
-- On the 1440p synthetic H.264 and AV1 fixtures (recreate them with the P1t recipe), record the dedicated GPU memory per app process, and the total from `nvidia-smi`:
-  - before playback;
-  - during 2 minutes of playback;
-  - 30 s and 5 minutes after the player closes.
-- Then start one allowed GPU job (source at most 1080, output at most 1440) with the player closed. Report the free GPU memory before it starts, and its speed against the same job with the app freshly started.
-- Never use a source above 1080 or an output above 1440.
+- **Where:**
+  - `service/link_jobs.py:78-87` stores `width`, `display_width`, `height` and `display_height` as `0`, and `cfr_fps` as `"0"`, when the metadata has no size or no frame rate. Internet Archive formats from yt-dlp have no frame rate. Many HLS formats have none either.
+  - After the download, the job enters `preparing` with these values (`link_jobs.py:241-254`). `add_job` replaces the media only later.
+  - The queue snapshot calls `estimate_job` (`service/engine.py:720-724`) and `job_progress` (`engine.py:758`). Both reach `estimate/model.py` `_geometry`, which raises "Media dimensions must be positive." or "Media frame rate must be positive."
+  - The snapshot has no per-row guard, so `GET /queue` fails and Home and History stop updating.
+  - If the job then fails, the failed row breaks every later snapshot until someone removes the manifest by hand. Ways the job can fail here:
+    - the download fails after its retries;
+    - R2 or HDR refuses it after the download;
+    - its preparation is interrupted.
+- **Required:**
+  1. Never store `0` or `"0"` for an unknown size, frame rate, duration or frame count. Store `null`.
+  2. Show a link job that has no analysed media with the link-style row, like the downloading row at `engine.py:~625-655`. Do not call `estimate_job` or `job_progress` for it. This covers the downloading, preparing, failed and cancelled states before analysis.
+     - Its estimate comes from `link_estimate`, or reads "after download".
+  3. **One bad record must never break the whole snapshot.** If building one row fails:
+     - log it once;
+     - show that job with "This job's record can't be shown: <reason>" and a Remove action;
+     - keep all the other rows.
+  4. Read the placeholders written by P1f builds (`0` and `"0"`) as unknown, so existing manifests load safely.
+- **Tests:**
+  - a format without a frame rate whose download fails after all retries: `GET /queue` and History still work, and the row shows the failure and Retry;
+  - the same with no size (the L2b fallback);
+  - the same with a 1440p file refused by R2 after the download;
+  - a snapshot taken during the preparing window;
+  - a manifest from a P1f build with `0`/`"0"` placeholders.
 
-**P4. Remove Electron** after P2:
-- Remove `gui/electron`, the Electron and `@electron/packager` dependencies, and the Electron-only scripts, tests and CI steps.
-- Update the docs so they describe only Tauri.
-- Keep the U1 and U2 reading of the old Electron pointer locations; that is migration, not Electron.
-- The package rule still holds: one package, `work\package\VideoEnhancer\`.
+### A2. A download with missing fragments counts as finished
 
-**P5. Default output codec:** HEVC stays the default (owner decision 2026-10-18). Do not change it. The M4 guidance stays.
+- **Where:** `service/video_links.py:632-657` passes `--fragment-retries 0` without `--abort-on-unavailable-fragments`.
+  - yt-dlp's default skips fragments it cannot fetch and still exits with 0.
+  - So an HLS or DASH download with one failed middle segment is renamed and processed with a gap.
+- **Required:**
+  - Add `--abort-on-unavailable-fragments`, so the app's own retry (the first attempt plus 3 retries) handles the failure. Keep resume working.
+  - **Check the duration after the download.** When the metadata duration is known and the file is shorter by more than max(1 s, 1%), fail with "The download is incomplete (N s of M s). Retry the download." Keep the file.
+- **Tests:** the local HLS server returns HTTP 500 for one middle segment:
+  - once: the retry succeeds and the file is complete;
+  - always: the job fails with the reason, after its retries.
 
-**Cleanup:** the owner will have emptied `work\scratch` by hand before this cycle. Keep the old Electron package `work\package\VideoEnhancer-win32-x64` until P2 is done. Then add it to "For the owner to delete" if your own delete is refused.
+### A3. A partial remux can be accepted when a download resumes
 
-## Revision 2 (2026-10-16): after the move to Tauri
+- **Where:** `service/video_links.py:639-671`.
+  - For a single stream that is not MKV (for example a direct MP4), yt-dlp's remuxer writes straight into `.ve-<id>.mkv`. In yt-dlp 2026.08.19, `FFmpegVideoConvertorPP.run` uses no temporary file, while the merger does.
+  - Pause all, Quit or a crash during that remux leaves a partial `.mkv`.
+  - On the next attempt, `--no-overwrites` can treat that partial file as already downloaded. It is then renamed and processed.
+- **Required:** before each attempt, remove a leftover `.ve-<job id>.mkv` unless the job has recorded a completed download for it. Alternatively, remux to a temporary name yourself and rename it.
+  - These are the app's own temporary files in the download folder, so removing them is allowed. Match the exact name pattern with the job id, and never touch any other file.
+- **Test:** stop the process during the remux, resume, and confirm the final file is complete (its frame count equals the source's).
 
-This revision overrides the parts it names. Everything else in this file still applies.
+## 5. Part B: should fix
 
-**What changed since revision 1:**
-- Cycle P1t replaced Electron with Tauri 2 (`.ai/CURRENT_TASK.md` of P1t, branch `p1t-tauri`). The desktop shell is now Rust (`gui/src-tauri`), and the renderer reaches it only through `window.desktop`.
-- All cycle work now lives in `D:\my-workspace\VideoEnhancer\work` under `docs/WORKSPACE.md`.
-- The owner checks P1e-2, P1t and P1f together after this cycle, and merges afterwards.
+### B1. Every playlist entry reads the whole playlist again
 
-**Decisions (2026-10-16):**
-1. **Video links only.** Part M (models from a link) and everything that belongs only to it are deferred to a later cycle. Do not build them. This covers M1 to M6, G2, the model items of G3 and G4, and `docs/ADDING_MODELS.md`.
-2. **Sign-in is still not supported** (owner decision 2026-10-16). Links that need sign-in are refused with the L2 message. Instagram links may often fail this way (a yt-dlp report from March 2026, cause not confirmed); report what the local tests can show, and nothing about real Instagram.
-3. **Sources up to 1080p only** (owner decision 2026-10-16). This replaces "4K sources are Fast-only". See Part R.
-4. **Output sizes: Keep, 1080 (default) and 1440.** 2160 is removed (owner decision 2026-10-16). See Part R.
+- **Where:** `video_links.py:507-513` re-checks `source["request_url"]`, which `link_jobs.py:91` sets to the playlist link. So every entry's download, and every retry, runs `-J` on the whole playlist, with up to 200 entries and their header probes. That can exceed the timeout and can trigger a site's rate limit.
+- **Required:** re-check with the entry's own link (`source.url`, from `webpage_url`) and `--no-playlist`, still matching `extractor_key` and `id`. If an entry has no link of its own, keep today's behaviour for it.
+- **Test:** a local 3-entry playlist. Each entry's download runs exactly one single-video check. Count the yt-dlp runs.
 
-**Start condition (overrides the one below):**
-- Create branch `p1f-links` from `p1t-tauri` at the commit the owner names when handing this file over (the designer will have reviewed it). Open a draft PR to base `p1t-tauri`. Do not push to `main`, `p1d-ui-v2` or `p1t-tauri`.
-- Save this file as `.ai/CURRENT_TASK.md` and commit it. At the end, write `.ai/LAST_REPORT.md` (English, UTF-8 written once, ASCII punctuation, under 40 KB), and update it after the final CI run.
-- **Deleting your own files:** first try the delete inside `work\` without asking for approval. If the auto-approval still refuses, list at most 3 folders with sizes under "For the owner to delete".
-- The owner's app data is `D:\my-workspace\VideoEnhancer\AppData`. `VE-check\` and `AppData\` are the owner's: never write, move, clean or open them. Every test uses an isolated `VE_HOME` under `work\scratch`.
+### B2. A list of lists makes the check fail
 
-**New Part R: size limits** (do it before Part L, because L3 depends on it)
+- **Where:** a channel's home page and its "Playlists" tab return entries with `_type: playlist`, which have no `formats` and no `url`.
+  - `video_links.py:213` reads `item["url"]` outside the `try` that starts at line 214.
+  - `check()` catches only `ValueError` (line 752).
+  - So the operation fails with the bare text `'url'`.
+- **Required:**
+  - Refuse such a link with: "This link is a list of lists. Paste the link of one list, for example a channel's Videos tab."
+  - Any entry without a usable URL gets a plain reason on its own card. It must not fail the whole check.
+- **Test:** a local fixture with nested playlists.
 
-*Why:* 4K sources ran out of GPU memory in Standard (P1e-2), and take about 9x as long as 720p. A 2160 output reserved 14.5 GB on the owner's 8 GB GPU and always spilled into shared memory. The owner's main material is 720p social video.
+### B3. The header probe gives the wrong "not encrypted" refusal
 
-- **R1. Which sources are supported:** a source is supported only if its short side is at most 1080 px.
-  - Examples: 1920x1080, 1080x1920 and 720x1280 are supported; 2560x1440 and 3840x2160 are not.
-  - Use the same displayed dimensions that the output-size and estimate code already use (after rotation).
-- **R2. Where the limit is enforced:**
-  - The engine's admission check refuses an unsupported source with a 400 response. The UI check is not the only guard.
-  - **Add:** an unsupported file is refused with "This video is larger than 1080p (short side N px). VideoEnhancer processes videos up to 1080p." Use the existing per-file blocking-warning layout; the other files in the same batch still add.
-  - **Compare on my video:** the same refusal.
-  - **Unfinished jobs already in a queue** with an unsupported source or a 2160 output never start. Each shows "No longer supported: <reason>" with Remove. Finished History items stay as they are, including their playback.
-- **R3. Output sizes:**
-  - The choices become Keep, 1080 (default) and 1440. Keep now means the source's own size, which is at most 1080.
-  - A saved default of 2160 in settings becomes 1440, and the change is logged.
-- **R4. Clean-up:**
-  - Remove the code paths that became unreachable: the 4K Fast-only guidance, and the 2160 estimate and calibration entries.
-  - Replace their tests with refusal tests. Do not leave dead branches.
-  - Keep the engine able to read and play existing larger outputs in History.
-- **R5. Tests:**
-  - sources of 1080x1920, 1920x1080, 1081x1920 and 1440x2560, plus a rotated 1920x1080 (rotation metadata);
-  - the API refusal;
-  - a mixed batch in Add;
-  - a queued job with a 4K source and one with a 2160 output;
-  - the settings migration from 2160.
+- **Where:** `video_links.py:255-260` tests `"http" in str(error)`. This is always true for a whitelist error, because FFmpeg's message includes the whitelist `'https,tls,tcp'`. So these are refused with the T6 message instead of falling back as L2b says:
+  - an AES-128 HLS link ("Protocol 'crypto' not on whitelist");
+  - a link opened through a proxy.
+- **Required:**
+  - Give the T6 refusal only when the error matches `Protocol 'http' not on whitelist` (case-insensitive). Every other probe failure uses the L2b fallback.
+  - You may add `crypto` to the whitelist for `https` links. It does not allow plain transport. Never add `http` for an `https` link.
+- **Tests:**
+  - AES-128 HLS over local TLS: the probe succeeds or falls back, and never shows the T6 message;
+  - an `https` link that redirects to `http`: still refused.
 
-**Changes to the parts below:**
-- **Order:** Part T → Part R → Part L → Part G.
-- **L1, entry points:**
-  - Keep the "Paste a video link" field in Add.
-  - Keep Ctrl+V on Home: when focus is not in a text field, a pasted `http`/`https` link opens Add with that link. Use the paste event, not a clipboard read permission.
-  - **Remove the drop of a link dragged from a browser.** In Tauri on Windows, the page cannot receive it while native file drops are on (P1t decision 5).
-- **L2, the link card thumbnail:** the engine fetches the thumbnail and serves it through its API. The renderer's Content Security Policy stays as strict as in P1t (no remote images).
-- **L3, quality (replaces the 4K rules below):**
-  - The picker lists only streams whose short side is at most 1080 (Part R).
-  - The default is the highest-quality SDR stream whose short side is at most the chosen output's short side, and never above 1080.
-  - "Best available" means the best stream up to 1080, so a 4K YouTube video can still be added at 1080p.
-  - If a link has no stream of 1080 or less, refuse it with the R2 message.
-  - The rest of L3 (fps, bitrate, HDR disabled, audio, MKV remux) stays.
-- **L4, the download folder:** the first link download asks for a download folder with the folder picker, and remembers it in Settings › Video links. Do not default silently to `%USERPROFILE%\Videos`, because the owner's drive C was full.
-- **L4, History "Source link":** add a shell command that opens a job's stored `source.url` in the default browser. It reads the URL from the engine by job id, allows only `http` and `https`, and never accepts a URL from the renderer. The P1t external-link allowlist stays unchanged for everything else.
-- **T1, tool versions:** on 2026-10-16 the latest stable yt-dlp was still 2026.08.19, and the latest nightly was 2026.09.27. yt-dlp deprecated Bun in May 2026 and recommends Deno. At implementation time, check yt-dlp's documented minimum Deno version and use that instead of the 2.3.0 written below.
-- **G4, screenshots:** all on the Tauri app, video-link screens only.
-- **G6:** add the P1t Rust checks and the CDP end-to-end tests.
-- **The package** for the owner's check is `work\package\VideoEnhancer\` (one-package rule).
+### B4. DASH fragments over http are not checked
 
----
+- **Where:** `check()` (around line 745) never checks `fragments`. `download()` (lines 564-567) only checks that each fragment's scheme is `http` or `https`.
+- **Required:** for an `https` link, refuse a format when any fragment URL is `http`, with the T6 message. Resolve each fragment as `urljoin(fragment_base_url or url, fragment path)`. Apply the same check in `check()`, in `links/queue` and again in `download()`.
+- **Test:** a local MPD with absolute `http://` `SegmentURL` values.
 
-*Revision 1 follows. Where it conflicts with revision 2, revision 2 wins.*
+### B5. The storage lock blocks the whole app
 
-**Start condition (revision 1, replaced above):**
-- Start from the latest `main` after PR #5 (P1d and P1e) is merged, on a new branch `p1f-links`.
-- If PR #5 is not merged yet, branch `p1f-links` from the head of `p1d-ui-v2` instead, and say so in the report.
-- Save this file as `.ai/CURRENT_TASK.md` and commit it. At the end, write `.ai/LAST_REPORT.md` (English, UTF-8 written once, ASCII punctuation, under 40 KB), and update it after the final CI run.
-- Open a draft PR to `main`. Do not push to `main`.
+- **Where:**
+  - `gui/src-tauri/src/storage.rs:204` (`refresh`, which runs when the Storage card opens) and `storage.rs:298` (`remove_old`, including its confirmation dialog) hold `storage_busy`.
+  - `State::connected` (`main.rs:53-58`) refuses every command while that flag is set. The media protocol returns 502 (`media.rs:137`), and tray Quit fails (`window.rs:274`). Pause, zoom, hide and `sourceLink` fail too.
+- **Required:**
+  - Use a separate lock to keep Move, Remove and refresh from overlapping.
+  - `connected()` refuses only during the Move phase that stops the engine.
+- **Test:** run Remove on a large synthetic old folder, and open the Storage card. While each runs, a video plays and tray Quit works.
 
-## Working rules
+### B6. The free-space check before a download
 
-1. Do not stop the cycle for one blocked item. Write the question under "Questions for the designer", choose the safest option, and continue.
-2. Order: Part T (tools) → Part L (video links) → Part M (model links) → Part G (acceptance).
-3. Never report a test as passed if it did not run. Report every run of a gated measurement.
-4. The owner's queue, settings, videos, models and Recycle Bin are not test data. Use a separate engine home for every test.
-5. **Network rules for tests:**
-   - **CI:** no third-party sites at all. Use a local HTTP test server with synthetic media.
-   - **Local real-network tests:** only sources that allow downloading, for example Wikimedia Commons and the Internet Archive.
-   - **Never download from YouTube, TikTok, Instagram or X in tests.** The owner tests those sites in their own check.
+- **Where:** `link_jobs.py:73-76` checks only the download folder. L4 says the free-space check (P1e B2) includes the download size. Today the output and working-space check runs first in `add_job`, after the download.
+- **Required:**
+  - At queue time, run the same working and output space check that `add_job` runs. Add the download size when the download folder is on the same drive.
+  - Apply one margin once. Today the margins multiply: 2.2 × 2 copies × 1.1, about 4.84× (`link_jobs.py:76`, `video_links.py:531` and `617`).
+- **Test:** a drive with room for the download but not for the output is refused at queue time, with the existing message.
 
-## 0. Goal and owner decisions (2026-10-12)
+### B7. External programs started on every refresh
 
-The owner wants to paste a link to an internet video and have it processed at the best quality available, and to add restoration models from a link such as GitHub or Hugging Face. The owner chose this cycle before P2 (faces, skin and hair). Control from another device comes after P2, on the same Wi-Fi only.
+- **Where:**
+  - `engine.py:315-331` calls `load_machine_profile` for each downloading job in every forecast. With the `cuda` backend, that calls `environment_info` (`logging.py:75`), which starts external programs each time.
+  - The same happens per format in `check()` (`video_links.py:318`) and in `links/estimate` with `all_formats`.
+  - `gui/src/LinkPanel.tsx:70-80` asks again for every entry's estimates whenever any quality changes.
+- **Required:**
+  - Load the machine profile once per engine start, and again only when the GPU, driver or installed models change. Pass it in.
+  - The GUI asks only for the entry whose quality changed.
+- **Report:** external process starts per minute with 20 queued downloads, before and after.
 
-**"Uncompressed" is not the goal.** The owner asked for videos "uncompressed, at the best quality". Every site delivers video that is already compressed (VP9, AV1 or H.264), and converting it to an uncompressed or lossless file adds no quality (raw 1080p30 is about 5.6 GB per minute). So:
-- download the best available video and audio streams;
-- merge them without re-encoding (remux only);
-- hand that file to the normal pipeline, which encodes once at the end.
+### B8. The yt-dlp cache is written to drive C
 
-The owner was told that some sites' terms (for example YouTube's Terms of Service, 15 Dec 2023) do not allow downloading without permission, and still wants the feature for personal use. Show that note once, in plain words, when the link tools are installed.
+- **Where:** `video_links.py:341-350` runs yt-dlp without `--cache-dir`. yt-dlp therefore writes to `%USERPROFILE%\.cache\yt-dlp` on drive C, and Uninstall leaves it there. The owner moved all app data off drive C because it is full.
+- **Required:**
+  - Pass `--cache-dir <engine home>/tools/yt-dlp/cache` on every yt-dlp run.
+  - Uninstall removes that folder.
+- **Test:** no file appears under the user profile's `.cache\yt-dlp` during the real-tool bundle.
 
-## 1. Part T: link tools (optional install, manual update)
+### B9. Reuse is off by default
 
-1. **What gets installed:**
-   - **yt-dlp:** use the official Windows executable `yt-dlp.exe`. The research found the latest stable release is 2026.08.19. Licence: Unlicense; the PyInstaller executable is a GPLv3+ combined work.
-   - **Deno:** a JavaScript runtime, which yt-dlp needs for YouTube. It must be version 2.3.0 or later. Licence: MIT.
-   - Do not add yt-dlp to the Python lock file. Run both as separate processes. This keeps the engine's dependencies fixed, and lets the update button use the executable's own updater (`-U`, `--update-to`), which does not work for pip installs.
-2. **Where:** `<engine home>/tools/yt-dlp/` and `<engine home>/tools/deno/`. FFmpeg is the existing one.
-3. **Install:** Settings › Video links › "Install link tools".
-   - The dialog shows the two tools, their sizes and their licences, and the plain note: "Only download videos you have the right to use. Some sites' terms do not allow downloading."
-   - Download from the official GitHub releases. Verify against the published SHA-256 checksums (yt-dlp publishes `SHA2-256SUMS`; check what Deno publishes).
-   - If no checksum is published, refuse and say why. Never run an unverified binary.
-   - Show determinate progress with time left (as in P1e Part Q).
-4. **Update:**
-   - Settings shows each tool's version and release date.
-   - "Check for updates" contacts GitHub only when pressed. "Update" installs the newer release with the same verification.
-   - Channel: Stable (default) or Nightly. YouTube fixes often reach Nightly first.
-   - There is no automatic check and no telemetry.
-   - When a link fails with a site or extractor error and yt-dlp is older than 60 days, the error suggests "Update link tools".
-5. **Uninstall** removes both folders. Jobs already downloaded are not affected.
-6. **Process rules:**
-   - Run the tools with an argument list, never through a shell.
-   - Use `--ignore-config`, so that no user or system config can add options. Never use `--exec`.
-   - Allow only `http` and `https` links.
-   - Redirects must stay on `https`, or on `http` only if the original link was `http`.
-   - Kill the whole process tree on cancel, as P1d-3 does for compare children.
+- **Where:** `LinkPanel.tsx:39` and `104`. The reuse checkbox starts unchecked, so the default is to download again. L2 says to offer the earlier file instead of downloading again.
+- **Required:**
+  - When an offer exists, select it by default. "Download again" switches to downloading.
+  - Keep the label "Use the file downloaded on <date> (<width>x<height>, <fps> fps)".
+- **Test:** a GUI unit test.
 
-## 2. Part L: add videos from a link
+### B10. YouTube chunk size is dropped
 
-### L1. Entry points
-- The Add dialog gets a "Paste a video link" field at the top, with a "Check" button.
-- Paste a link with Ctrl+V on Home, or drop a link dragged from a browser (`text/uri-list` or `text/plain`). Either one opens Add with that link.
-- If the link tools are not installed, the field offers "Install link tools" and nothing else.
+- **Where:** `video_links.py:532-553`. `safe_keys` drops `downloader_options`, so yt-dlp's `http_chunk_size` is lost. yt-dlp sets it because YouTube slows down large chunks.
+- **Required:** keep `downloader_options.http_chunk_size` in the info file, and accept only a positive integer.
+- **Test:** a unit test on the info file. Do not test against YouTube.
 
-### L2. Checking a link
-- Run yt-dlp in metadata mode (`-J`, without downloading). While it runs, show "Checking link…" with Cancel.
-- Show a link card with:
-  - the thumbnail, title, site, uploader and duration;
-  - a quality picker;
-  - the download size and the processing estimate for the chosen quality and mode.
-- **Playlists and channels:** list up to 200 entries with selection marks, all selected by default. Each selected entry becomes its own job.
-- **Refuse, with a plain reason:**
-  - live streams and upcoming premieres;
-  - content that needs sign-in: "This video needs you to sign in to the site. Sign-in is not supported yet.";
-  - DRM-protected formats;
-  - links that fail for other reasons, with yt-dlp's short reason and, if old, the update hint.
-- **Already downloaded:** if the same video (same extractor and video id) was downloaded before and the file still exists with its recorded identity, offer "Use the file downloaded on <date>" instead of downloading again.
+### B11. Analysis decodes every NVDEC video twice
 
-### L3. Choosing the quality
+- **Where:** in `media/analyze.py`, `verify_timestamps` (lines 112-122) decodes the whole file with NVDEC. Then `_thumbnails` (lines 130-132) decodes it again with `SimpleDecoder`.
+- **Required:**
+  - If the change stays inside `analyze.py`, make the thumbnails from the frames `verify_timestamps` already decodes.
+  - Otherwise, measure the extra time on a 10-minute 1080p30 synthetic file and report it.
+  - Scene cuts, analysis output and the pipeline output must not change (G5 strict equality).
 
-Restoration runs at the source resolution. A 4K source in Standard is about 9x slower than 720p (from the built-in profile, the review expects 4K Standard segments of only about 2 s; this is inferred, not measured), so the default must not silently pick the biggest stream.
-- **The quality picker** lists every video format with: resolution, fps, codec, dynamic range (SDR or HDR), size, and the processing estimate for the current mode.
-- **The default** is the highest-quality SDR stream whose short side is at most the chosen output short side.
-  - If none exists, use the smallest SDR stream above it.
-  - Among equal resolutions, prefer higher fps, then higher bitrate.
-  - The rule must match yt-dlp's notion of resolution (`res` is the smallest dimension). Verify this against the installed version.
-- **"Best available"** (the largest stream) is one choice in the picker, shown with its longer estimate.
-- **HDR** formats are shown but disabled, with "HDR is not supported yet", because the pipeline does not support HDR.
-- **Audio:** the best audio stream. Keep it without re-encoding unless the output container cannot hold it.
-  - Report which audio codecs reach the final output untouched for each output container.
-  - If a re-encode would be needed, ask under "Questions for the designer" before adding one.
-- **Merge:** remux video and audio into MKV (`--merge-output-format mkv`), with no re-encode. Confirm the pipeline reads MKV with VP9, AV1 and H.264 video and Opus or AAC audio, and fix it if not.
+### B12. HEVC playback with the owner's extension (missed in P1f)
 
-### L4. Downloading as part of the job
-- **The job starts in a new state "downloading"**, ahead of analysis. Its card shows percent, speed, time left and Cancel.
-  - Downloads do not use the GPU. They run at any time, even outside the operating hours.
-  - A setting caps simultaneous downloads (1–3, default 2).
-- **The GPU queue skips a job that is still downloading.** The planner treats a download as "ready at <estimated time>", using the size and the measured download speed. Until the first speed sample, treat it as ready when the download finishes.
-- **Files:**
-  - Download into a folder set in Settings › Video links. The default is `%USERPROFILE%\Videos\VideoEnhancer Downloads`.
-  - Use safe Windows file names: the title, trimmed to 120 characters, plus the video id.
-  - Write to a temporary name and rename only when the download is complete.
-  - The free-space check (P1e B2) includes the download size.
-- **After the download:**
-  - Probe the file normally. If it turns out to be HDR or otherwise unsupported, the job fails with the reason, and the downloaded file is kept.
-  - Record its identity like any original (P1d-3 S-M1), so History deletion and "Delete the original when it is done" work for it. Both go to the Recycle Bin behind the guard, as for local files.
-- **Interruptions:**
-  - Pause all and Quit stop downloads too. Resume continues partial downloads where yt-dlp supports it, and restarts them otherwise.
-  - A failed download retries up to 3 times with back-off, then fails with the reason and a "Retry" action.
-- **History:** the detail popup shows "Source link" (opens in the default browser) and the downloaded file's location. Store the link in the manifest (`source.url`, `source.extractor`, `source.id`, `source.format`). Never send it anywhere.
+- The task copy Codex received for P1f did not include this check.
+- The owner installed HEVC Video Extensions on 2026-10-18. Run the A3a HEVC check once in the packaged app:
+  - synthetic 1080 and 1440 files;
+  - the exact codec strings and `canPlayType`;
+  - real playback and seeking.
+- Change no code unless playback fails. If it fails, report it under "Questions for the designer".
 
-### L5. Estimates
-- Before the download, the estimate uses the format's width, height, fps and duration from the metadata, through the same estimate function as files.
-- After the download, the normal probe replaces it.
-- The Add card says "Download about X MB" and "Processing about H:MM:SS". The finish time includes the download once a speed sample exists.
+### B13. Link thumbnails can be fetched from the local network
 
-## 3. Part M: add models from a link
+- **Where:** `video_links.py:455-472` and `service/server.py:240-249`. The engine fetches any thumbnail URL from the metadata, including loopback, private and link-local addresses.
+- **Required:**
+  - Fetch only `https`, or `http` when the link itself is `http`.
+  - Resolve the host and refuse loopback, private, link-local, multicast and unspecified addresses.
+  - Follow no redirect to such an address.
+  - A refused thumbnail just shows no image.
+- **Tests:** a loopback thumbnail URL, a private-address thumbnail URL, and a redirect to loopback.
 
-### M1. Entry point
-Models › "Add a model from a link…", next to the existing "Add my own model…".
+### B14. Cancelling a download leaves large partial files
 
-### M2. Accepted links
-- **GitHub:**
-  - a release asset (`/releases/download/<tag>/<file>`);
-  - a raw file (`raw.githubusercontent.com`);
-  - a `blob` page, which is converted to the raw link and shown to the owner.
-- **Hugging Face:** `/resolve/<rev>/<file>`. A `/blob/` page is converted to `/resolve/`.
-- **Any other `https` link** to a single file.
-- **Repository or model pages** are refused with "Paste the link to the model file itself (.safetensors or .pth)."
-- **File types:**
-  - `.safetensors` (preferred);
-  - `.pth`, `.pt` and `.ckpt`, loaded with `torch.load(weights_only=True)`. The research notes that `weights_only` is not a sandbox (CVE-2025-32434 affected 2.5.1 and earlier), so show "A .safetensors file is safer than .pth" when the link is not safetensors;
-  - archives are refused in this cycle.
-- **Size:** files over 500 MB need a confirmation, and files over 2 GB are refused.
+- **Where:** `engine.py:1447-1448`. Cancel, and Remove of a failed download, delete only the job folder. The `.ve-<job id>.*` and `.part` files stay in the user's download folder, possibly several GB.
+- **Required:**
+  - On Cancel, and on Remove of a job that never finished downloading, delete that job's own temporary files in the download folder.
+  - Match the exact name pattern with the job id. Never touch any other file, and never touch a finished, renamed download.
+- **Test:** cancel during a download. The temporary files are gone, and an unrelated file in the same folder is untouched.
 
-### M3. Download and identify
-- Download with progress and time left. Compute SHA-256 and show it. When Hugging Face publishes a hash for the file, the two must match.
-- **Identify the architecture**, only with code already in the repository:
-  - **Spandrel models** (main `spandrel` package):
-    - scale 1 becomes a "cleanup" model;
-    - scale 2 or 4 becomes a "size" model;
-    - other scales are refused.
-  - **BasicVSR++ state dicts** that match C1's architecture are accepted as cleanup video models, for example the owner's future fine-tunes.
-  - **Face restoration architectures** (for example GFPGAN, CodeFormer, RestoreFormer) are refused with "Face models come in a later version."
-  - **Anything else** is refused with the reason.
-- Never import or run code from the link's repository.
+## 6. Not in this cycle
 
-### M4. Manifest and licence
-- Generate the manifest automatically:
-  - the id from the file name plus a short hash;
-  - category, architecture, scale and temporal flag;
-  - weights file name, SHA-256 and bytes;
-  - `source.url`.
+The designer keeps these for P1e-3. Do not change them now:
+- **Decoder:**
+  - the out-of-memory fallback after the decoder retry;
+  - re-analysis keeping a runtime FFmpeg choice;
+  - `p016le` for 12-bit sources.
+- **Storage:**
+  - Remove offered when nothing can be deleted;
+  - the "earlier version" message on a pointer this app recovered;
+  - the raw JSON in the result text;
+  - a disconnected drive clearing the pointer;
+  - the status line during Remove;
+  - a second Move overwriting `previous`;
+  - hashing twice in Remove.
+- **Links:**
+  - the downloaded tool's bytes being read again before install;
+  - the install/uninstall guard while checks or downloads run;
+  - one audio choice disabling every video format;
+  - Retry after a crash between the rename and the record, and collisions that differ only in letter case;
+  - Quit refused while a downloaded video is being analysed;
+  - odd-width reuse mismatches.
 
-  The title is editable and starts from the file name.
-- **Licence:**
-  - The owner must pick one before the model can be used: MIT, Apache-2.0, BSD, CC-BY, CC-BY-NC, Other (free text), or "Unknown".
-  - They must also tick "I may use this model".
-  - Record the licence and `commercial_use_allowed` from it. Unknown means not allowed.
-- The card summary says "A model you added from <host>".
+## 7. Do not change
 
-### M5. Qualification before use
-Use the same checks as catalog models:
-- load on the GPU;
-- run synthetic frames at the 1080 output size;
-- choose the largest tile among 512, 256 and 128 whose sampled process peak is at most 5.0 GB;
-- check the output shape and that there is no NaN or Inf;
-- measure the reference speed on the 5 s reference clip (P1d-3), so estimates are known.
+- The default pipeline output: G5 strict equality.
+- The P1f decoder decisions: the strict timestamp check, the per-job decoder choice and the single retry.
+- HEVC as the default output.
+- The M1 media path with 1 MiB responses.
+- The MP4 audio rule.
+- The Part R limits.
+- The T6 rules, except the tightening in B3 and B4.
+- The generic reuse rule from L2.
 
-If any check fails, the model stays listed as "Not usable: <reason>", with Remove. It is never offered in Add or Compare. Show the qualification as a determinate bar with time left.
+## 8. Working rules and constraints (unchanged from P1f)
 
-### M6. After qualification
-- The model appears in Models, Add and Compare like any custom model.
-- Uninstall works as in P1e Part M. The default model rules still apply.
-
-## 4. Part G: acceptance
-
-- **G1. Local server, in CI:**
-  - a direct MP4 link (generic extractor);
-  - an HLS stream;
-  - a DASH stream with separate video and audio;
-  - a playlist page of 3 entries;
-  - a link that needs sign-in (HTTP 403 with a login page);
-  - a live-stream marker;
-  - an HDR-tagged format;
-  - a server that stops halfway, so retry and resume are tested.
-
-  Check:
-  - the default quality rule for portrait and landscape at outputs 1080 and Keep;
-  - that HDR is disabled;
-  - the remux keeps stream bytes (compare packet hashes of video and audio with the served streams);
-  - cancel kills the process tree;
-  - pause and resume;
-  - the free-space check;
-  - "Use the file downloaded on <date>".
-- **G2. Model links, local server, in CI:**
-  - a safetensors cleanup model;
-  - a `.pth` size model;
-  - a GitHub `blob`-style URL rewrite;
-  - a Hugging Face `/blob/` rewrite;
-  - a repository page refusal;
-  - a face model refusal (a synthetic state dict with the right key names is enough);
-  - a non-model file refusal;
-  - a file over 2 GB refused from its headers, without downloading it.
-- **G3. Real network on the owner's PC** (allowed sources only):
-  - one Wikimedia Commons video and one Internet Archive video, downloaded, processed in Fast and checked;
-  - one permissively licensed real model from GitHub releases (for example a SwinIR classical super-resolution `.pth`, Apache-2.0) and one `.safetensors` model from Hugging Face with an MIT or Apache-2.0 licence, imported and qualified. Name the files, licences and SHA-256 values in the report.
-  - Install, check for updates, update and uninstall the link tools, with verified checksums.
-- **G4: screenshots** at 1280x800 and 1100x700, in dark and light:
-  - Add with a link card and the quality picker;
-  - a playlist;
-  - a downloading job on Home;
-  - Settings › Video links;
-  - the model link dialog with the licence step;
-  - qualification;
-  - a "Not usable" card.
-
-  Store them outside the repository and list their paths.
-- **G5:** all GPU-marked tests. The default pipeline output must not change; strict equality as before.
-- **G6:**
-  - `ruff`, `ruff format --check`, `pyright`, CPU tests and D2;
-  - GUI lint, typecheck, unit tests, build, e2e and package;
-  - Windows and Ubuntu CI green on the final commit.
-- **The owner's check:** build the package and give its path. I will write the checklist; it will include real sites the owner chooses.
-
-## 5. Constraints
-
-- Windows 11, no WSL. All code, comments, UI text and docs are in English.
+- Never report a test as passed if it did not run. Report every run of a gated measurement.
+- **Not test data:** the owner's queue, settings, videos, models, Recycle Bin, `D:\my-workspace\VideoEnhancer\AppData` and `D:\my-workspace\VideoEnhancer\VE-check`. Use a separate engine home for every test.
+- **Network:**
+  - CI uses no third-party site at all, only local servers with synthetic media.
+  - Local real-network tests may use only sources that allow downloading (Wikimedia Commons, Internet Archive).
+  - Never download from YouTube, TikTok, Instagram or X in tests.
+- **Size limits:**
+  - No source above 1080 and no output above 1440 is processed.
+  - Small CPU-made fixtures above 1080p are allowed only for refusal, probe and playback tests, as P1f section 5 says.
+- **Cleanup:**
+  - Tests remove their own files under `work\scratch`. Report the size of `work\scratch` at the end.
+  - Do not use a separate delete command to get around a refused delete. List what is left under "For the owner to delete".
 - **Never commit:**
-  - media, weights, downloaded tools, previews or generated videos;
+  - media, weights, downloaded tools or packages;
   - `node_modules` or build output;
   - screenshots;
-  - the owner's logs, links or private sample names.
-- **User videos**, including downloaded ones, are never deleted permanently. Only the deletion module may remove them, and only to the Recycle Bin, behind the guard.
-- No telemetry and no automatic update checks. Every network access starts from an owner action, except a download the owner queued.
-- Keep the service security model: localhost, token. The link and model endpoints require the token like every other endpoint.
-- No new catalog entries. Imported models are custom models.
-- New dependencies: open-source licences only, named in the report.
-- Update `docs/GUI.md`, `docs/API.md`, `docs/TROUBLESHOOTING.md` and `docs/ADDING_MODELS.md`.
+  - `local-env.ps1`;
+  - the owner's logs, links, paths or names.
+- No telemetry and no automatic update checks.
+- All code, comments, UI text and docs are in English. Update `docs/GUI.md`, `docs/API.md` and `docs/TROUBLESHOOTING.md` where behaviour changes.
 
-## 6. Report (`.ai/LAST_REPORT.md`)
+## 9. Acceptance
 
-- A table per part (T, L, M, G): done / partial / NOT RUN / BLOCKED, with evidence.
-- The tool versions and checksums installed.
-- The audio-codec table from L3.
-- The package path for the owner's check.
+- Every A and B item has a test that failed on `05dbf72` (or evidence that it does not reproduce) and passes now.
+- **Python:** `ruff`, `ruff format --check`, `pyright`, the CPU suite, and the local real-tool link bundle.
+- **GUI:** lint, typecheck, unit tests, build and e2e.
+- **Rust:** fmt, clippy (default and e2e) and unit tests.
+- **GPU:** the suite `-m "gpu and not soak"`.
+- **P2 cold start:** 5 launches against the new gate in section 3.
+- **Package:** rebuilt at `work\package\VideoEnhancer`, with an isolated startup smoke and its SHA-256.
+- **CI:** Windows and Ubuntu green on the final commit.
+
+## 10. GUI checks (screenshots outside the repository, 1280x800, dark and light)
+
+- Home and History keep updating with a failed link job that had no frame rate.
+- The record-error row from A1 (use a synthetic damaged manifest).
+- The reuse offer, selected by default.
+- The list-of-lists refusal.
+- A video playing while the Storage card is open.
+
+## 11. Report (`.ai/LAST_REPORT.md`)
+
+- A table with every item (P2 gate, A1-A3, B1-B14): done / partial / not reproduced / NOT RUN, with test names and evidence files.
+- The failing output on `05dbf72` and the passing output after, for each item.
+- **Numbers:** B7 process starts, B11 analysis time, the B12 HEVC result, and the P2 cold-start medians.
+- **Disk:**
+  - the dependency restore size;
+  - growth for the rest of the cycle;
+  - the size of `work\scratch` at the end;
+  - free space on C and D.
 - "Questions for the designer", each with the default you chose.
+- The package path and its SHA-256.
 - Exact reproduction steps.
 
-Never report a test as passed if it did not run.
 
-## Designer decision on P1f T6 (2026-10-18)
-
-The T6 process rules in .ai/CURRENT_TASK.md are updated the same way.
-The rule "Redirects must stay on https, or on http only if the original link was http" is withdrawn. Your probe shows yt-dlp 2026.08.19 follows an HTTPS-to-HTTP redirect, and it has no option to refuse one. Do not add a proxy or a yt-dlp plugin.
-Instead:
-1. After the metadata check (-J), if the link is https and the chosen format's url, manifest_url or fragment_base_url in the metadata is http, refuse the download with: "This site would send the video without encryption, so VideoEnhancer won't download it."
-2. Redirects during the transfer follow yt-dlp's default. Record this accepted limit in one sentence in the docs: a site can still redirect a download from an https link to plain http.
-3. Tests: a local https link whose chosen format URL is http is refused. Keep t-redirect-probe.json as evidence of the documented limit.
-The other T6 process rules stay: an argument list with no shell, --ignore-config, no --exec, http/https links only, verified binaries, and killing the whole process tree on cancel.
-Resume the link work that you put on hold, in the existing order.
-
-## L2b. Designer decision on direct video links without size metadata (2026-10-18)
-
-yt-dlp's generic extractor gives no width, height, fps or duration for a direct file. Keep not guessing them. Add a header probe and a fallback.
-1. Header probe
-- For each format the user may pick whose width, height or duration is missing, run the app's existing ffprobe on that format's url from -J, before any download.
-- Argument list, no shell. Pass the format's http_headers.
-- -protocol_whitelist https,tls,tcp for an https link; add http only when the link itself is http.
-- Read timeout 10 s; kill the process tree after 20 s in total. Keep the probe and analyse limits small, and write nothing to disk.
-- Read width, height, rotation, frame rate, duration, codec and the colour transfer (to mark HDR).
-- Use the result for R1, the L3 default and the L5 estimate, exactly like yt-dlp metadata.
-2. HTTP refusal
- When the probe fails because http is not on the whitelist for an https link, refuse with the T6 message.
-3. Any other probe failure or a timeout
-- Allow the link, and show on the card: "VideoEnhancer can't read this video's size before downloading. It is checked after the download. If it is larger than 1080p or HDR, the job stops and the downloaded file is kept."
-- The estimate reads "after download".
-- After the download, the normal probe applies R2 and the HDR rule, as L4 already says.
-4. G1 tests
-- a direct MP4 with its header at the start and Range support: size known before download;
-- a direct 1440p MP4: refused before download;
-- a rotated portrait MP4: R1 checked after rotation;
-- a direct MP4 on a server without Range and with its header at the end: the fallback path, then the check after download;
-- an https link whose file redirects to http: refused.
-Continue in the existing order.
-
-## Designer decision on P1f L3 audio (2026-10-18)
-
-The L3 audio rule in .ai/CURRENT_TASK.md is updated the same way.
-Keep the existing mux rule for every job, local and link alike:
-- codecs in MP4_AUDIO_CODECS are copied;
-- anything else, including Opus, becomes AAC 256 kbps in the MP4 output.
-Reason: the output is always MP4, and Opus inside MP4 often plays with no sound on iPhone and Safari (Apple supports Opus only in CAF, by a developer forum report). One rule for every job also keeps G5's default output unchanged.
-So:
-- do not add Opus to MP4_AUDIO_CODECS;
-- do not add a link-only audio rule;
-- keep the yt-dlp best-audio choice;
-- in the report, list which audio codecs reach the MP4 output untouched and which become AAC 256 kbps;
-- keep l-audio-container-probe.json (Opus and AAC copy into MP4 with matching packet hashes) as evidence for a possible later "keep original audio" option.
-Continue in the existing order.
-
-## Designer decisions received 2026-10-18 (supersede earlier rows)
-
-### P1f L2 Already downloaded
-1. Keep your current rule: for the generic extractor, the normalized link must equal the stored source.url. Normalize only the case of the scheme and host and drop the fragment. Keep the path and query exactly. Signed links that change on every visit are then never reused, which is accepted.
-2. Add two checks for the generic extractor only:
-- When yt-dlp reports timestamp (the server's Last-Modified) now and one was stored at download, they must be equal. Store it as source.timestamp when the download finishes.
-- The width, height and duration known before the download (metadata or the L2b probe) must equal the stored file's probe, with the duration within 0.5 s. If any of them is unknown (the L2b fallback), do not offer the earlier file.
-- Otherwise download as usual, with no extra message.
-3. Site extractors keep extractor_key plus id only, the same key as yt-dlp's download archive. Do not add a link match there.
-4. For all links, the offer reads "Use the file downloaded on <date> (<width>x<height>, <fps> fps)", and "Download again" stays available.
-5. Write the known limit in the report: a file replaced at the same link with the same resolution and duration and an unchanged Last-Modified is still offered.
-6. Tests (G1): two different video.mp4 files on two local hosts give no offer; the same link with the file replaced by one of a different duration gives no offer; the same unchanged link gives the offer; the same link in the L2b fallback gives no offer.
-
-### P1f L3 Commons VP9 finding
-Designer decision: fix it in this cycle. Do not correct or guess timestamps.
-Why now: VP9 is common for link sources, and L3 already asks for it. Also, decode.py _cuda_frames skips a decoded stamp smaller than the expected one. So a repeated label is skipped silently, and a segment that does not reach the last frame can finish with frames shifted by one, without an error. This is inferred from the code; confirm it with a test.
-1. Make the check strict. After a seek, the first decoded stamp must be one of the analysed source_pts, and every following stamp must equal the next analysed entry. A repeated, missing or unknown stamp is an error at that frame.
-2. Choose the decoder per job, in analysis. Compare the NVDEC stamps of the whole file with the packet timeline, using the same NVDEC calls the segments use.
-- All stamps match: NVDEC as now.
-- Any stamp differs: the job uses the existing FFmpeg decode path. The models stay on CUDA, and decoded frames go to the GPU before the same nv12_to_rgb conversion.
-- Record the decoder and the reason in the manifest and in Copy details. Add no new UI.
-3. At run time, if check 1 fails in a segment on NVDEC, switch that job to FFmpeg decoding, retry the segment once, and record it.
-4. Call Flush() only if the binding has it. Otherwise rely on the demuxer's empty packet at the end of the file. Confirm that the last frame is decoded for H.264 and VP9.
-5. Tests:
-- The Commons VP9 file finishes in Fast with 131 output frames.
-- Archive H.264 keeps NVDEC.
-- A fake decoder returning [0, 0, 33, ...] fails at frame 1.
-- The same H.264 file decoded both ways gives identical converted frames (maximum difference 0). If not, report the maximum difference and the PSNR, and leave rule 3 out until I answer.
-- Make local VP9 (alt-ref) and AV1 files, at most 1080p, and report the NVDEC stamp result and the decoder chosen for each.
-- G5 strict equality still holds.
-6. Report:
-- For the Commons file, compare NVDEC and FFmpeg pictures by hash, frame by frame: are only the labels shifted, or is a picture repeated or missing?
-- Give the Fast 1080p speed ratio of FFmpeg decoding against NVDEC on the same H.264 file. If FFmpeg decoding is more than 10% slower, ask under "Questions for the designer".
-
-### P1f L1 browser link drop
-The browser link drop is out of this cycle. Revision 2 already removed it ("Changes to the parts below", L1: "Remove the drop of a link dragged from a browser", P1t decision 5). The original L1 line was not updated at the time, which was my mistake. It is now struck through in the task doc.
-- Keep dragDropEnabled = true and the native file drop unchanged.
-- Paste in Add and Ctrl+V on Home are the link entry points.
-- In the report, list the link drop as "removed by the designer (revision 2)", not as a failure.
-- Add no native URL drop handling and no WebView2 COM code in this cycle. A later cycle may try the HTML5 drop for both links and files, with file paths from WebView2's postMessageWithAdditionalObjects (CoreWebView2File), after a spike.
-
-### Approved oversized refusal fixtures: P1f L2b and G1
-The 1080p source limit is about processing, not about refusal tests. The task doc now says so under Constraints ("Test files above 1080p"). The P3 line now reads "The GPU job never uses a source above 1080 or an output above 1440."
-Approved run:
-- Make a 2-frame 2560x1440 H.264 MP4 with FFmpeg on the CPU, with -movflags +faststart.
-- Serve it from the local test server as a direct link.
-- Check:
-  - it is refused before download with the R2 message;
-  - only the header probe reads it;
-  - nothing is written to the downloads folder;
-  - no job is created.
-- Never pass it to a job, restoration, interpolation, output encoding or any GPU processing.
-- The test deletes the file afterwards (P6).
-The same rule covers the other small synthetic files above 1080p that R5, P3 and P5 already ask for.
-
-
-## Owner cleanup update after GPU acceptance
-
-Retry deletion of the previously rejected old Electron package as well.
-Finish the work with disk usage reduced as much as possible.
+Designer decision (2026-10-19), P1f-2 A1. Added to the task doc as A1 item 5.
+Keep the same Remove with the 10-second Undo for every broken record, including one whose JSON does not parse.
+- Valid JSON with bad values: use the existing History removal and Undo.
+- JSON that does not parse:
+  - Remove moves the whole job folder aside, inside the engine home (for example jobs/.removing/<id>). Undo moves it back unchanged.
+  - After the Undo window, delete the moved folder. At engine start, delete any folder left in that place.
+- Never repair, rewrite or partly read the broken file.
+- Do not offer the video options (moving the finished video or the original to the Recycle Bin) for a record that can't be read, because the app can't tell which files belong to it. Show instead: "This record can't be read, so its videos stay where they are."
+- Copy details shows the parse error and the record's path.
+- Tests:
+  - Remove, then Undo, restores the folder byte for byte;
+  - Remove without Undo removes only that job folder;
+  - no file outside the job folder is touched.

@@ -19,6 +19,7 @@ function HistoryDetailContent({ job, close, action, compare }: {
   useEffect(() => {
     setUnsupported(false);
   }, [job.id]);
+  if (job.record_error) return <div className="modal-shade"><div className="dialog history-detail" role="dialog" aria-modal="true" aria-label="Video details"><h2>{filename(job.input)}</h2><p role="status">{job.error}</p><ActionButton onClick={() => action(job, "copy")}>Copy details</ActionButton><ActionButton onClick={() => { action(job, "remove"); close(); }}>Remove</ActionButton><ActionButton onClick={close}>Close</ActionButton></div></div>;
   const gone = job.original_state === "missing" || job.original_state === "recycled";
   const fileState = (state?: string) => state === "recycled" ? "Moved to the Recycle Bin" : state === "missing" ? "File not found" : "Present";
   return <div className="modal-shade"><div className="dialog history-detail" role="dialog" aria-modal="true" aria-label="Video details">

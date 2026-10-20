@@ -216,7 +216,7 @@ describe("Home and History", () => {
     render(<HistoryPage queue={queue} action={action} trial={vi.fn()} />);
     expect(screen.queryByText("synthetic.mp4")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "locked.mp4" }));
-    expect(screen.getByText(failed.error!)).toBeTruthy();
+    expect(screen.getAllByText(failed.error!).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(action).toHaveBeenCalledWith(failed, "retry");
     fireEvent.click(screen.getByRole("button", { name: "Close" }));

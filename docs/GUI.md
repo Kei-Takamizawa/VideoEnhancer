@@ -324,7 +324,7 @@ outside processing hours; Pause all pauses them too. Ready local videos can run
 while another video is downloading. Retry resumes partial downloads when the
 site supports it. A previously downloaded, unchanged file can be reused.
 The offer includes its download date, resolution and frame rate; **Download
-again** remains available. Generic direct-file links additionally require the
+again** remains available. The earlier file is selected by default. Generic direct-file links additionally require the
 same link (scheme/host case and fragment ignored), matching known dimensions
 and duration (within 0.5 seconds), and matching Last-Modified when both checks
 provide it. Unknown-size links are downloaded again. A file replaced at the same
@@ -343,3 +343,11 @@ the downloaded file location.
 
 A site can still redirect a download from an HTTPS link to plain HTTP during
 transfer. The app refuses HTTP format URLs reported before an HTTPS download.
+It also refuses reported HTTP fragments. Other unreadable header probes keep the
+after-download check. Nested lists ask for a single list, such as a channel's
+Videos tab. Missing metadata never hides a failed job or prevents History updates.
+
+Missing fragments and incomplete durations fail the download and allow Retry.
+Cancel and removal of an unfinished download delete only its own temporary files;
+completed downloaded originals remain. Videos and ordinary controls remain usable
+while Storage verifies or removes an old copy. Move temporarily stops the engine.

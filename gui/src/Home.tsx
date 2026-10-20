@@ -66,7 +66,7 @@ export function Thumbnail({
   useEffect(() => {
     let alive = true,
       object: string | undefined;
-    if (api && job.state !== "downloading")
+    if (api && job.state !== "downloading" && !job.link_unanalysed)
       void api
         .blob(`queue/${job.id}/thumbnail`)
         .then((blob) => {
@@ -128,6 +128,7 @@ export function JobMenu({
     document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
   }, [open]);
+  if (job.record_error) return <ActionButton onClick={() => action(job, "remove")}>Remove</ActionButton>;
   if (job.unsupported_reason) return <ActionButton onClick={() => action(job, "cancel")}>Remove</ActionButton>;
   if (job.state === "downloading") return <ActionButton onClick={() => action(job, "cancel")}>Cancel download</ActionButton>;
   return (
@@ -367,7 +368,7 @@ export function HomePage({
       {health?.deletion_notices?.filter(notice => !queue.jobs.some(job => job.id === notice.job_id)).map(notice => <div className="alert" role="status" key={notice.id}><p>{notice.result}</p><p>{notice.guard}</p><ActionButton onClick={() => window.desktop.reveal(notice.guard)}>Show in folder</ActionButton></div>)}
       <div className="home-columns">
         <div>
-          {current?.state === "downloading" ? <DownloadCard job={current} cancel={() => action(current, "cancel")} /> : current ? (
+          {current && (current.state === "downloading" || current.link_unanalysed) ? <DownloadCard job={current} cancel={() => action(current, "cancel")} /> : current ? (
             <article className="now-card">
               <Thumbnail job={current} api={api} />
               <div className="now-details">
@@ -512,7 +513,7 @@ export function HomePage({
                       </p>
                     </div>
                     <div>
-                      {job.state === "downloading" ? <><p>{job.download?.phase} · {job.download?.percent == null ? "" : `${job.download.percent.toFixed(0)}%`}</p><progress aria-label="Download progress" max="100" value={job.download?.percent ?? undefined} /><p>Processing: {job.estimate_after_download ? "after download" : duration(job.estimate.seconds)}</p></> : job.unsupported_reason ? `No longer supported: ${job.unsupported_reason}` : job.cancel_cleanup ? ("Cancelling…") : job.state === "preparing" ? (
+                      {(job.state === "downloading" || job.link_unanalysed) ? <><p>{job.download?.phase} · {job.download?.percent == null ? "" : `${job.download.percent.toFixed(0)}%`}</p><progress aria-label="Download progress" max="100" value={job.download?.percent ?? undefined} /><p>Processing: {job.estimate_after_download ? "after download" : duration(job.estimate.seconds)}</p></> : job.unsupported_reason ? `No longer supported: ${job.unsupported_reason}` : job.cancel_cleanup ? ("Cancelling…") : job.state === "preparing" ? (
                         "Preparing…"
                       ) : job.state === "paused" ? (
                         "Waits until you resume it"
@@ -586,6 +587,11 @@ export function HomePage({
   );
 }
 
+function historyAspect(job: Job) {
+  const width = job.media.display_width, height = job.media.display_height;
+  return width > 0 && height > 0 && Number.isFinite(width / height) ? width / height : 16 / 9;
+}
+
 export function HistoryPage({
   queue,
   api,
@@ -657,7 +663,7 @@ export function HistoryPage({
       height += rowHeight + 12; pending = []; aspectSum = 0;
     };
     for (const job of jobs) {
-      const aspect = job.media.display_width / Math.max(1, job.media.display_height);
+      const aspect = historyAspect(job);
       pending.push(job); aspectSum += aspect;
       if (aspectSum * 200 + (pending.length - 1) * 12 >= galleryWidth) flush();
     }
@@ -726,7 +732,7 @@ export function HistoryPage({
               data-failed={job.state === "failed"}
             >
               <button className="history-image" aria-label={selectMode ? `Select ${filename(job.input)}` : filename(job.input)}
-                style={{ width: (row.height - 12) * job.media.display_width / Math.max(1, job.media.display_height), height: row.height - 12 }}
+                style={{ width: (row.height - 12) * historyAspect(job), height: row.height - 12 }}
                 onClick={() => selectMode ? setSelected(old => old.includes(job.id) ? old.filter(id => id !== job.id) : [...old, job.id]) : setDetail(job.id)}>
                 <Thumbnail job={job} api={api} small />
                 {selectMode && <span className="history-select" aria-hidden="true">{selected.includes(job.id) && <Check size={16} strokeWidth={1.8} />}</span>}

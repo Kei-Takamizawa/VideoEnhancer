@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration } from "./api";
 import type { Estimate, Settings } from "./types";
@@ -37,6 +37,7 @@ export function LinkPanel({ api, settings, initialUrl = "", changed }: { api: Ap
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [formats, setFormats] = useState<Record<string, string>>({});
   const [reuse, setReuse] = useState<Record<string, boolean>>({});
+  const estimateKeys = useRef<Record<string, string>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [estimates, setEstimates] = useState<Record<string, Record<string, Estimate | null>>>({});
@@ -57,6 +58,7 @@ export function LinkPanel({ api, settings, initialUrl = "", changed }: { api: Ap
         else {
           setBusy(false);
           if (value.state === "done" && value.result) {
+            setReuse(Object.fromEntries(value.result.entries.map(entry => [entry.key, !!entry.reuse])));
             setEntries(value.result.entries);
             setSelected(Object.fromEntries(value.result.entries.map(entry => [entry.key, !entry.error])));
             setFormats(Object.fromEntries(value.result.entries.map(entry => [entry.key, entry.selected || ""])));
@@ -69,19 +71,22 @@ export function LinkPanel({ api, settings, initialUrl = "", changed }: { api: Ap
   }, [api, operation?.id]);
   useEffect(() => {
     if (!entries.length || !operation) return;
-    let active = true;
     const timer = setTimeout(() => {
-      void Promise.all(entries.filter(entry => formats[entry.key]).map(async entry => {
-        const value = await api.call<{ estimate: Estimate | null; formats?: Record<string, Estimate | null> }>("links/estimate", "POST", { check_id: operation.id, entry_key: entry.key, format_id: formats[entry.key], settings, all_formats: true });
-        return [entry.key, value.formats || { [formats[entry.key]]: value.estimate }] as const;
-      })).then(values => { if (active) setEstimates(Object.fromEntries(values)); }).catch(error => { if (active) setError(error.message); });
+      for (const entry of entries.filter(entry => formats[entry.key])) {
+        const key = JSON.stringify([operation.id, formats[entry.key], settings]);
+        if (estimateKeys.current[entry.key] === key) continue;
+        estimateKeys.current[entry.key] = key;
+        void api.call<{ estimate: Estimate | null; formats?: Record<string, Estimate | null> }>("links/estimate", "POST", { check_id: operation.id, entry_key: entry.key, format_id: formats[entry.key], settings, all_formats: true }).then(value => {
+          if (estimateKeys.current[entry.key] === key) setEstimates(old => ({ ...old, [entry.key]: value.formats || { [formats[entry.key]]: value.estimate } }));
+        }).catch(error => { if (estimateKeys.current[entry.key] === key) { delete estimateKeys.current[entry.key]; setError(error.message); } });
+      }
     }, 200);
-    return () => { active = false; clearTimeout(timer); };
+    return () => clearTimeout(timer);
   }, [api, entries, formats, settings, operation?.id]);
   return <section aria-label="Video link">
     <label>Paste a video link<input type="url" value={url} onChange={event => setUrl(event.target.value)} placeholder="https://…" /></label>
     {available === false ? <VideoLinksCard api={api} compact installed={() => setAvailable(true)} /> : <ActionButton disabled={!available || busy || !url.trim()} onClick={async () => {
-      setBusy(true); setError(""); setEntries([]); setSelected({}); setReuse({});
+      setBusy(true); setError(""); setEntries([]); setSelected({}); setReuse({}); setEstimates({}); estimateKeys.current = {};
       try { setOperation(await api.call<CheckOperation>("links/check", "POST", { url: url.trim(), settings })); }
       catch (error) { setError((error as Error).message); setBusy(false); }
     }}>Check</ActionButton>}

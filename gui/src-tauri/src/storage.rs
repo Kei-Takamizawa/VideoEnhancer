@@ -489,11 +489,13 @@ pub fn relocate(state: &State, target: &str) -> Result<Value> {
         .lock()
         .map_err(|e| e.to_string())? = Value::Null;
     let source = state.home.lock().map_err(|e| e.to_string())?.clone();
+    let mut _moving = None;
     let result = (|| {
         *state.storage_progress.lock().map_err(|e| e.to_string())? =
             json!({"phase":"Preparing the service"});
         let connection = state.connected_internal()?;
         engine::request(&connection, "storage/prepare", "POST", Some(&json!({})))?;
+        _moving = Some(BusyGuard::acquire(&state.storage_moving)?);
         engine::stop(&connection)?;
         let root = engine::root()?;
         *state.storage_progress.lock().map_err(|e| e.to_string())? =

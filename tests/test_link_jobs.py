@@ -35,11 +35,12 @@ def test_folder_and_disk_admission_fail_without_a_job(tmp_path, monkeypatch):
             engine.link_jobs.queue(value)
         save_settings(engine.home, {"video_download_folder": str(tmp_path / "downloads")})
 
-        def full(folder, required):
-            assert required == 2200000
+        def full(home, folder, required, **kwargs):
+            assert kwargs["download_bytes"] == 1000000
+            assert required > 0
             raise ValueError("Insufficient space")
 
-        monkeypatch.setattr("videoenhancer.service.link_jobs.require_disk_space", full)
+        monkeypatch.setattr("videoenhancer.jobs.store.require_working_space", full)
         with pytest.raises(ValueError, match="Insufficient space"):
             engine.link_jobs.queue(value)
         assert engine.store.list_jobs() == []
@@ -47,7 +48,8 @@ def test_folder_and_disk_admission_fail_without_a_job(tmp_path, monkeypatch):
         engine.close()
 
 
-def test_failed_transfer_retries_three_times_then_offers_retry(tmp_path, monkeypatch):
+@pytest.mark.parametrize("missing", [None, "fps", "width"])
+def test_failed_transfer_retries_three_times_then_offers_retry(tmp_path, monkeypatch, missing):
     monkeypatch.setattr("videoenhancer.service.engine.choose_backend", lambda _: "cpu")
     engine = Engine(tmp_path / "home")
     save_settings(engine.home, {"video_download_folder": str(tmp_path / "downloads")})
@@ -60,6 +62,8 @@ def test_failed_transfer_retries_three_times_then_offers_retry(tmp_path, monkeyp
         duration=2,
         vcodec="h264",
     )
+    if missing:
+        video.pop(missing)
     entry = dict(id="synthetic", title="Synthetic", extractor="generic", formats=[video])
     monkeypatch.setattr(engine.video_links, "metadata", lambda *args: (video["url"], entry))
     calls = []
@@ -83,6 +87,8 @@ def test_failed_transfer_retries_three_times_then_offers_retry(tmp_path, monkeyp
         assert len(calls) == 4
         assert failed["state"] == "failed"
         assert failed["error"] == "Server disconnected"
+        row = engine.queue()["jobs"][0]
+        assert row["error"] == "Server disconnected" and row["state"] == "failed"
         assert all(b - a >= delay for a, b, delay in zip(calls, calls[1:], [1, 2, 4], strict=False))
         retried = engine.link_jobs.retry(job["id"])
         assert retried["state"] == "downloading" and retried["download"]["retries"] == 0

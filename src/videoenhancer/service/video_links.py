@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
+import ipaddress
 import json
 import math
 import os
 import re
+import socket
 import subprocess
 import threading
 import time
@@ -69,6 +72,71 @@ def require_encrypted_format(original: str, selected: dict[str, Any]) -> None:
             target = video_url(selected[key])
             if urlsplit(original).scheme == "https" and urlsplit(target).scheme == "http":
                 raise ValueError(ENCRYPTION_ERROR)
+    base = selected.get("fragment_base_url") or selected.get("url") or original
+    for fragment in selected.get("fragments") or []:
+        path = fragment.get("url") or fragment.get("path")
+        if path:
+            target = video_url(urljoin(base, path))
+            if urlsplit(original).scheme == "https" and urlsplit(target).scheme == "http":
+                raise ValueError(ENCRYPTION_ERROR)
+
+
+def thumbnail_url(original: str, value: str) -> str:
+    target = video_url(value)
+    if urlsplit(target).scheme == "http" and urlsplit(original).scheme != "http":
+        raise ValueError("The thumbnail transport is not allowed.")
+    parts = urlsplit(target)
+    addresses = socket.getaddrinfo(
+        parts.hostname,
+        parts.port or (443 if parts.scheme == "https" else 80),
+        type=socket.SOCK_STREAM,
+    )
+    if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
+        raise ValueError("The thumbnail address is not public.")
+    return target
+
+
+def public_socket(address, timeout=None, source_address=None):
+    """Connect to the validated addresses, without a second hostname lookup."""
+    addresses = socket.getaddrinfo(*address, type=socket.SOCK_STREAM)
+    if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
+        raise ValueError("The thumbnail address is not public.")
+    last_error = None
+    for family, kind, protocol, _, target in addresses:
+        connection = socket.socket(family, kind, protocol)
+        try:
+            if isinstance(timeout, (int, float)) or timeout is None:
+                connection.settimeout(timeout)
+            if source_address:
+                connection.bind(source_address)
+            connection.connect(target)
+            return connection
+        except OSError as error:
+            last_error = error
+            connection.close()
+    raise OSError("Could not connect to the public thumbnail address.") from last_error
+
+
+def public_http(connection_type, host, **kwargs):
+    connection = connection_type(host, **kwargs)
+    connection._create_connection = public_socket
+    return connection
+
+
+class PublicHTTP(urllib.request.HTTPHandler):
+    def http_open(self, request):
+        return self.do_open(
+            lambda host, **kw: public_http(http.client.HTTPConnection, host, **kw), request
+        )
+
+
+class PublicHTTPS(urllib.request.HTTPSHandler):
+    def https_open(self, request):
+        return self.do_open(
+            lambda host, **kw: public_http(http.client.HTTPSConnection, host, **kw),
+            request,
+            context=getattr(self, "_context", None),
+        )
 
 
 def safe_filename(title: str, video_id: str) -> str:
@@ -253,8 +321,7 @@ def header_probe(
         raise
     except (ValueError, TimeoutError, KeyError, StopIteration, TypeError) as error:
         if (
-            "not on whitelist" in str(error).lower()
-            and "http" in str(error).lower()
+            re.search(r"Protocol\s+'http'\s+not on whitelist", str(error), re.I)
             and urlsplit(original).scheme == "https"
         ):
             raise ValueError(ENCRYPTION_ERROR) from error
@@ -294,7 +361,7 @@ def best_format(formats: list[dict[str, Any]], output: str | int) -> dict[str, A
 
 
 def format_estimate(
-    item: dict[str, Any], settings: dict[str, Any], home: Path
+    item: dict[str, Any], settings: dict[str, Any], home: Path, *, profile: Any = ...
 ) -> dict[str, Any] | None:
     if not all(item.get(k) for k in ("width", "height", "fps", "duration")):
         return None
@@ -315,7 +382,8 @@ def format_estimate(
             identities[task] = registry.snapshot(model_id, task, download=False)
         except ValueError:
             pass
-    profile = load_machine_profile(home, backend=settings["backend"], models=identities)
+    if profile is ...:
+        profile = load_machine_profile(home, backend=settings["backend"], models=identities)
     frames = media["frame_count"]
     per_frame = predict_segment(media, settings, frames, profile) / frames
     job = dict(
@@ -333,6 +401,58 @@ def format_estimate(
 class VideoLinks:
     def __init__(self, home: Path, tools: ToolManager):
         self.home, self.tools = home, tools
+        self.hardware: dict[str, Any] | None = None
+        self._profiles: dict[str, Any] = {}
+        self._profile_lock = threading.Lock()
+
+    def profile(self, settings: dict[str, Any], media: dict[str, Any]) -> Any:
+        with self._profile_lock:
+            if self.hardware is None:
+                from videoenhancer.logging import environment_info
+
+                self.hardware = environment_info()
+            registry = ModelRegistry(self.home)
+            identities = {}
+            for task, model_id in selected_models(settings, media).items():
+                try:
+                    identities[task] = registry.snapshot(model_id, task, download=False)
+                except ValueError:
+                    pass
+            key = json.dumps(
+                [
+                    settings["backend"],
+                    self.hardware.get("gpu"),
+                    self.hardware.get("driver"),
+                    identities,
+                ],
+                sort_keys=True,
+            )
+            if key not in self._profiles:
+                self._profiles[key] = load_machine_profile(
+                    self.home,
+                    backend=settings["backend"],
+                    gpu_name=self.hardware.get("gpu") or "",
+                    driver=self.hardware.get("driver") or "",
+                    models=identities,
+                )
+            return self._profiles[key]
+
+    def estimate(self, item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any] | None:
+        if not all(item.get(k) for k in ("width", "height", "fps", "duration")):
+            return None
+        media = dict(item, cfr_fps=str(target_rate(rational(item["fps"]))))
+        return format_estimate(item, settings, self.home, profile=self.profile(settings, media))
+
+    def cleanup_download(self, job: dict[str, Any]) -> None:
+        if not job.get("source") or job["source"].get("downloaded_at"):
+            return
+        if not re.fullmatch(r"[0-9a-f]{32}", job["id"]):
+            raise ValueError("Invalid download job ID.")
+        folder = Path(job["input"]["path"]).parent
+        prefix = f".ve-{job['id']}."
+        for path in folder.iterdir() if folder.is_dir() else []:
+            if path.name.startswith(prefix) and path.is_file() and not path.is_symlink():
+                path.unlink()
 
     def arguments(self) -> tuple[list[str], dict[str, str]]:
         downloader = self.tools.executable("yt-dlp")
@@ -341,6 +461,8 @@ class VideoLinks:
         return [
             str(downloader),
             "--ignore-config",
+            "--cache-dir",
+            str(self.home / "tools/yt-dlp/cache"),
             "--no-plugin-dirs",
             "--no-js-runtimes",
             "--js-runtimes",
@@ -451,8 +573,8 @@ class VideoLinks:
         return None
 
     def thumbnail(self, check_id: str, entry_key: str) -> tuple[str, bytes]:
-        _, entry = self.metadata(check_id, entry_key)
-        target = video_url(entry["thumbnail"])
+        original, entry = self.metadata(check_id, entry_key)
+        target = thumbnail_url(original, entry["thumbnail"])
         key = hashlib.sha256(target.encode()).hexdigest()
         folder = self.home / "cache/link-thumbnails"
         folder.mkdir(parents=True, exist_ok=True)
@@ -463,12 +585,14 @@ class VideoLinks:
 
             class HttpRedirect(urllib.request.HTTPRedirectHandler):
                 def redirect_request(self, req, fp, code, msg, headers, newurl):
-                    video_url(newurl)
+                    thumbnail_url(original, newurl)
                     return super().redirect_request(req, fp, code, msg, headers, newurl)
 
             request = urllib.request.Request(target, headers={"User-Agent": "VideoEnhancer"})
-            with urllib.request.build_opener(HttpRedirect()).open(request, timeout=10) as response:
-                video_url(response.url)
+            with urllib.request.build_opener(PublicHTTP(), PublicHTTPS(), HttpRedirect()).open(
+                request, timeout=10
+            ) as response:
+                thumbnail_url(original, response.url)
                 data = response.read(2_000_001)
             if len(data) > 2_000_000:
                 raise ValueError("The thumbnail is too large.")
@@ -496,6 +620,8 @@ class VideoLinks:
         process_changed: Callable[[proc.Popen | None], None],
         progress: Callable[[dict[str, Any]], None],
     ) -> Path:
+        if not re.fullmatch(r"[0-9a-f]{32}", job["id"]):
+            raise ValueError("Invalid download job ID.")
         source = job["source"]
         final = Path(job["input"]["path"])
         if (
@@ -504,20 +630,26 @@ class VideoLinks:
             and input_identity(final) == job["input"]
         ):
             return final
+        entry_url = source.get("entry_url") or (
+            source.get("url") if source.get("url") != source["request_url"] else None
+        )
         result = self.check(
-            source["request_url"],
+            entry_url or source["request_url"],
             job["settings"],
             cancelled,
             process_changed,
             lambda packet: progress({"phase": packet["phase"]}),
+            **({"single": True} if entry_url else {}),
         )
         entry = next(
             (
                 row["info"]
                 for row in result["raw_entries"]
                 if str(row["info"].get("id")) == source["id"]
-                and (row["info"].get("extractor") or row["info"].get("extractor_key") or "generic")
-                == source["extractor"]
+                and str(
+                    row["info"].get("extractor_key") or row["info"].get("extractor") or "generic"
+                ).lower()
+                == str(source.get("extractor_key") or source["extractor"]).lower()
             ),
             None,
         )
@@ -528,7 +660,7 @@ class VideoLinks:
         total_estimate = sum(
             float(item.get("filesize") or item.get("filesize_approx") or 0) for item in selected
         )
-        require_disk_space(final.parent, max(1, int(total_estimate * 2.2)))
+        require_disk_space(final.parent, max(1, int(total_estimate)), copies=2)
         safe_keys = {
             "url",
             "manifest_url",
@@ -557,6 +689,9 @@ class VideoLinks:
             components.append((audio, "audio"))
         for item, name in components:
             clean = {key: value for key, value in item.items() if key in safe_keys}
+            chunk = item.get("downloader_options", {}).get("http_chunk_size")
+            if type(chunk) is int and chunk > 0:
+                clean["downloader_options"] = {"http_chunk_size": chunk}
             clean["url"] = video_url(clean["url"])
             clean["format_id"] = name
             if not re.fullmatch(r"[A-Za-z0-9]{1,10}", str(clean.get("ext", ""))):
@@ -583,6 +718,8 @@ class VideoLinks:
             ),
         )
         temporary = final.parent / f".ve-{job['id']}"
+        completed = Path(str(temporary) + ".mkv")
+        completed.unlink(missing_ok=True)
         args, environment = self.arguments()
         template = (
             'download:VE_PROGRESS:{"downloaded_bytes":%(progress.downloaded_bytes|0)s,'
@@ -614,7 +751,7 @@ class VideoLinks:
             speed = float(item.get("speed") or 0)
             remaining = max(0, total - done) / speed if total and speed else None
             last_percent = max(last_percent, min(98, done / total * 98)) if total else last_percent
-            require_disk_space(final.parent, max(1, int(max(0, total - done) * 2.2)))
+            require_disk_space(final.parent, max(1, int(max(0, total - done))), copies=2)
             progress(
                 dict(
                     phase="Downloading",
@@ -654,6 +791,7 @@ class VideoLinks:
                 "0",
                 "--fragment-retries",
                 "0",
+                "--abort-on-unavailable-fragments",
             ],
             cancelled,
             process_changed,
@@ -666,6 +804,18 @@ class VideoLinks:
             raise InterruptedError("Video download paused.")
         if not completed.is_file():
             raise ValueError("The download did not produce its finished video.")
+        expected = video.get("duration") or entry.get("duration")
+        if expected:
+            from videoenhancer.media.probe import probe
+
+            actual = float(
+                probe(completed, allow_hdr=True, read_timeline=False).to_dict()["duration"]
+            )
+            if float(expected) - actual > max(1, float(expected) * 0.01):
+                raise ValueError(
+                    f"The download is incomplete ({actual:g} s of {float(expected):g} s). "
+                    "Retry the download."
+                )
         if final.exists():
             raise ValueError("A file now exists at the download destination. It was kept.")
         completed.rename(final)
@@ -679,12 +829,20 @@ class VideoLinks:
         cancelled: Callable[[], bool],
         process_changed: Callable[[proc.Popen | None], None],
         progress: Callable[[dict[str, Any]], None],
+        *,
+        single: bool = False,
     ) -> dict[str, Any]:
         url = video_url(value)
         args, environment = self.arguments()
         try:
             raw, _ = run_tool(
-                [*args, "-J", "--playlist-end", "200", "--", url],
+                [
+                    *args,
+                    "-J",
+                    *(["--no-playlist"] if single else ["--playlist-end", "200"]),
+                    "--",
+                    url,
+                ],
                 cancelled,
                 process_changed,
                 environment=environment,
@@ -718,6 +876,18 @@ class VideoLinks:
                 continue
             progress(dict(phase=f"Checking video {index + 1}", checked=index + 1))
             key = str(index)
+            if entry.get("_type") in {"playlist", "multi_video"}:
+                cards.append(
+                    dict(
+                        key=key,
+                        title=entry.get("title", "List"),
+                        error=(
+                            "This link is a list of lists. Paste the link of one list, "
+                            "for example a channel's Videos tab."
+                        ),
+                    )
+                )
+                continue
             if entry.get("is_live") or entry.get("live_status") in {
                 "is_live",
                 "is_upcoming",
@@ -742,6 +912,9 @@ class VideoLinks:
                 }
                 item.setdefault("format_id", "direct")
                 try:
+                    if not item.get("url"):
+                        raise ValueError("This video has no usable download URL.")
+                    video_url(item["url"])
                     require_encrypted_format(url, item)
                     if not all(
                         item.get(k) for k in ("width", "height", "duration")
@@ -795,7 +968,7 @@ class VideoLinks:
                         codec=item.get("vcodec") or "unknown",
                         dynamic_range=item.get("dynamic_range") or "SDR",
                         bytes=int(video_size) + audio_size if video_size else None,
-                        estimate=format_estimate(item, settings, self.home) if not reason else None,
+                        estimate=self.estimate(item, settings) if not reason else None,
                         disabled=reason,
                         unknown_size=not all(item.get(k) for k in ("width", "height", "duration")),
                     )
