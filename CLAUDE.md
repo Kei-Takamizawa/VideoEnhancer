@@ -17,12 +17,13 @@ This project uses two Claude roles and Codex. Read `AGENTS.md` for Codex's rules
 2. **Start Codex** from the work folder, with the approval mode the owner chose on 2026-10-21 (on request, reviewed automatically, as in the Codex desktop app):
 
    ```powershell
-   codex exec -C D:\my-workspace\VideoEnhancer\work -s workspace-write `
+   codex exec -C D:\my-workspace\VideoEnhancer\work --skip-git-repo-check -s workspace-write `
      -c 'approval_policy="on-request"' -c 'approvals_reviewer="guardian_subagent"' `
      "Follow work\repo\AGENTS.md and complete the task in work\repo\.ai\CURRENT_TASK.md."
    ```
 
    - Do not use the plugin's `/codex:rescue` for implementation: it runs Codex without approvals, so FFmpeg, network and Git fail. `/codex:review`, `/codex:status` and `/codex:result` are fine.
+   - `--skip-git-repo-check` is needed because `work\` itself is not a Git repository.
    - Never use `danger-full-access` or any bypass flag. Never edit `~/.codex/config.toml`.
    - Save Codex's output to `work\evidence\<Task ID>\codex-exec.log` and record its session ID, so the run can continue with `codex exec resume` after an interruption.
 3. **After Codex finishes:**
