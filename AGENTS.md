@@ -4,7 +4,7 @@ These rules apply to every Codex run in this repository. The current cycle's tas
 
 ## Roles
 
-- **Owner:** approves specs, runs owner checks, merges pull requests.
+- **Owner:** approves specs, runs owner checks. Pull requests are merged by the designer under the conditions in `CLAUDE.md`; any other merge needs the owner.
 - **Claude (designer and reviewer):** writes `.ai/CURRENT_TASK.md`, reviews your report, diff and CI.
 - **Claude on the Windows PC (operator):** starts you with `codex exec`, runs every Git command, commits and pushes your work.
 - **You (Codex, implementer and tester):** implement the task, run the tests and builds it asks for, and write `.ai/LAST_REPORT.md`.

@@ -17,7 +17,7 @@ VideoEnhancer is a Windows 11 desktop app for NVIDIA RTX GPUs. It restores strea
 
 | Role | Who | Responsibility |
 | --- | --- | --- |
-| Owner | The project owner | Approves specs, runs owner checks, merges PRs, deletes files Codex cannot delete |
+| Owner | The project owner | Approves specs, runs owner checks, deletes files Codex cannot delete |
 | Designer / reviewer | Claude (cloud project) | Specs, Codex task documents, reviews of diffs, reports and CI. Does not write product or test code |
 | Operator | Claude Code on the Windows machine, started from the cloud project through Remote Control | Starts Codex with `codex exec`, runs all Git commands (fetch, branch, commit, push), reports back. Does not write product or test code |
 | Implementer / tester | Codex on the Windows machine | Implements, builds, tests, writes `.ai/LAST_REPORT.md`. Runs no Git commands that change anything (since 2026-10-21) |
@@ -137,5 +137,5 @@ Each cycle starts with dependency restore: P1f-2 removed `node_modules`, the Car
 - **Sandbox-owned folders [verified]:** folders Python creates inside the sandbox with mode 0o700 (pytest temp folders, `mkdtemp`) can be opened only by the sandbox account. The owner's account cannot delete them. Keep `TEMP`, `TMP` and `--basetemp` under `work\scratch`, and clean them from inside the sandbox.
 - **Usage limits:** stop and record the state when a limit is reached; no retries in a loop; no extra billing. Do not enable the plugin's review gate (it can loop and drain limits).
 - **Long runs:** the GPU suite took about 4 h 16 min in P1f-2 **[reported]**. The machine must not sleep, and the Remote Control session must stay open.
-- **Git safety:** no force push, no reset, no history rewrite. Only the owner merges.
+- **Git safety:** no force push, no reset, no history rewrite. The designer merges only under the conditions in `CLAUDE.md` (owner decision, 2026-10-21).
 - **Public repository:** never commit media, weights, packages, screenshots, caches, `local-env.ps1`, device names, account names or private logs.
