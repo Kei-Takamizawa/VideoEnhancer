@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-const electron: string = (process.env.VE_TAURI_EXE || "");
+const executable: string = (process.env.VE_TAURI_EXE || "");
 
 test("owner GPU: Standard job survives close, second launch focuses, Quit checkpoints, next start resumes", async () => {
   test.skip(
@@ -24,7 +24,7 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
   delete env.ELECTRON_RUN_AS_NODE;
   const discovery = path.join(env.VE_HOME, "serve.json");
   let app = await desktop.launch({
-    executablePath: electron,
+    executablePath: executable,
     args: ["."],
     env,
   });
@@ -61,7 +61,7 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
       { headers: { Authorization: `Bearer ${connection.token}` } },
     );
     expect(health.ok).toBe(true);
-    const second = spawn(electron, ["."], {
+    const second = spawn(executable, ["."], {
       env: { ...env, APPDATA: path.join(env.VE_HOME, "desktop/roaming"), LOCALAPPDATA: path.join(env.VE_HOME, "desktop/local"), WEBVIEW2_USER_DATA_FOLDER: path.join(env.VE_HOME, "desktop") },
       windowsHide: true,
       stdio: "ignore",
@@ -97,7 +97,7 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
       ),
     ).toBe(true);
     app = await desktop.launch({
-      executablePath: electron,
+      executablePath: executable,
       args: ["."],
       env,
     });

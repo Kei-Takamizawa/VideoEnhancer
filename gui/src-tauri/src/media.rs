@@ -92,6 +92,30 @@ pub fn valid_id(id: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
+fn media_response(
+    head: bool,
+    requested: bool,
+    size: u64,
+    start: u64,
+    end: u64,
+    bytes: Vec<u8>,
+) -> engine::Result<Response<Vec<u8>>> {
+    let partial = !head && (requested || end + 1 < size);
+    let mut response = Response::builder()
+        .status(if partial { 206 } else { 200 })
+        .header("Content-Type", "video/mp4")
+        .header("Cache-Control", "no-store")
+        .header(
+            "Content-Length",
+            if head { size } else { end - start + 1 }.to_string(),
+        )
+        .header("Accept-Ranges", "bytes")
+        .header("Access-Control-Allow-Origin", "http://tauri.localhost");
+    if partial {
+        response = response.header("Content-Range", format!("bytes {start}-{end}/{size}"));
+    }
+    response.body(bytes).map_err(|e| e.to_string())
+}
 pub fn serve(
     app: tauri::AppHandle,
     request: Request<Vec<u8>>,
@@ -127,6 +151,9 @@ pub fn serve(
                     .and_then(|v| v.parse::<u64>().ok())
                     .ok_or("Invalid media length")?
             };
+            if request.method() == "HEAD" {
+                return media_response(true, false, size, 0, 0, vec![]);
+            }
             let requested = request
                 .headers()
                 .get("range")
@@ -143,7 +170,6 @@ pub fn serve(
                         .map_err(|e| e.to_string())
                 }
             };
-            let partial = requested.is_some() || end + 1 < size;
             let mut bytes = Vec::new();
             if request.method() == "GET" {
                 let _permit = state.fetches.acquire();
@@ -166,17 +192,7 @@ pub fn serve(
                     return Err("Invalid engine media length".into());
                 }
             }
-            let mut response = Response::builder()
-                .status(if partial { 206 } else { 200 })
-                .header("Content-Type", "video/mp4")
-                .header("Cache-Control", "no-store")
-                .header("Content-Length", (end - start + 1).to_string())
-                .header("Accept-Ranges", "bytes")
-                .header("Access-Control-Allow-Origin", "http://tauri.localhost");
-            if partial {
-                response = response.header("Content-Range", format!("bytes {start}-{end}/{size}"));
-            }
-            response.body(bytes).map_err(|e| e.to_string())
+            media_response(false, requested.is_some(), size, start, end, bytes)
         })()
         .unwrap_or_else(|error| {
             Response::builder()
@@ -190,6 +206,21 @@ pub fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn head_reports_the_complete_representation_and_unranged_get_stays_bounded() {
+        let size = 20_000_000;
+        let head = media_response(true, false, size, 0, 0, vec![]).unwrap();
+        assert_eq!(head.status(), 200);
+        assert_eq!(head.headers()["Content-Length"], "20000000");
+        assert!(!head.headers().contains_key("Content-Range"));
+        assert!(head.body().is_empty());
+        let (start, end) = range(None, size).unwrap();
+        let get = media_response(false, false, size, start, end, vec![0; CHUNK as usize]).unwrap();
+        assert_eq!(get.status(), 206);
+        assert_eq!(get.headers()["Content-Length"], "1048576");
+        assert_eq!(get.headers()["Content-Range"], "bytes 0-1048575/20000000");
+        assert_eq!(get.body().len(), CHUNK as usize);
+    }
     #[test]
     fn bounds() {
         assert_eq!(range(Some("bytes=2-"), 10).unwrap(), (2, 9));

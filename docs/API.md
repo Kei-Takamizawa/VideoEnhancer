@@ -82,8 +82,8 @@ reporting. Opening folders and copying details are desktop actions.
 | PUT settings | Validate/save partial or complete preferences; new jobs use defaults | `Invoke-VeApi 'settings' 'PUT' @{theme='dark'; preset='standard'; codec='hevc'; short_side=1080; fps='2x'; output_folder='C:\Video\enhanced'; start_with_windows=$false; log_folder='C:\Video\logs'; advanced=@{clip_length=15; clip_overlap=2; interpolation_safety_threshold=0.2}}` |
 
 Schedule timezone defaults to the host's IANA timezone; API clients can specify
-`timezone`. Exceptions use `windows='off'` or an array of `{start,end}`. Electron
-applies `start_with_windows` via login-item APIs; the service only persists it.
+`timezone`. Exceptions use `windows='off'` or an array of `{start,end}`. The Tauri
+shell applies `start_with_windows` through the Windows Run key; the service only persists it.
 Theme is system/dark/light. Folder preferences must be absolute. Advanced clip
 length/overlap and threshold validation returns plain-English errors.
 
@@ -355,16 +355,18 @@ or resume the remaining undo window. `POST history/undo` restores records only.
 exists, for terminal History jobs. The normal token, Host and Origin checks
 apply; there are no bearer tokens in media URLs. GET and HEAD support one byte
 range, including suffix and open-ended ranges (206), and reject unsatisfiable
-ranges (416). Electron forwards Range and the token through its app media
+ranges (416). Tauri forwards Range and the token through its bounded media
 protocol; the renderer uses a streaming URL without retrieving the whole file.
+The shell reports full Content-Length for HEAD. A GET without Range receives at
+most 1 MiB with status 206 and an explicit Content-Range when the file is larger.
 
 `GET models` includes `uninstall_reason` for defaults and unfinished-job use.
 Weight hashes are cached by size and modification time; explicit verification
 bypasses that cache. Operations expose `remaining_seconds`, a stage name and a
 determinate percentage, including calibration and weight transfer/verification.
 
-Settings add the validated boolean `tour_completed`. New homes choose AV1 after
-successful hardware qualification; existing stored codec choices are preserved.
+Settings add the validated boolean `tour_completed`. HEVC is the default;
+existing stored codec choices are preserved.
 Desktop IPC adds a validated `theme` choice for immediate native appearance.
 
 Completed manifests preserve `output_identity` and `output_bytes`. Legacy output
@@ -404,3 +406,78 @@ seconds, including the holding thread's stack.
 Download operations report byte-based transfer and hash phases; only their GPU
 test waits for a running part. `remaining_seconds` may be null until speed data
 is available. Compare results include per-model `model_progress`.
+
+## Optional video links
+
+All routes retain localhost token authentication. `GET link-tools` reads local
+installation status only. `POST link-tools/check` accepts `channel` (stable or
+nightly) and returns an operation with the exact release plan. Installation
+requires that plan's `plan_id`, its channel, and explicit `consent: true`.
+`POST link-tools/uninstall` removes only the optional tools.
+
+`POST links/check` accepts `url` and `settings` and returns an asynchronous
+operation. Its result contains sanitized entry cards, selectable format IDs,
+disabled reasons, estimates and eligible reuse records. Private downloader
+metadata remains in the engine home. `POST links/estimate` accepts `check_id`,
+`entry_key`, `format_id` and settings without another network check.
+`POST links/queue` accepts those fields and optionally `reuse_job_id`.
+The first actual download requires the saved `video_download_folder` preference.
+`video_download_limit` is an integer from one to three, default two.
+
+Queue rows in `downloading` state expose byte progress, speed, remaining seconds
+and predicted readiness when available. Unknown estimates stay unknown. The
+network scheduler is independent of GPU hours; Pause all and Quit interrupt its
+process trees. A failed download permits Retry. Source identity and download
+time are retained when the job becomes normal processing work.
+`source.extractor_key` and `source.id` identify a site video. A completed download
+also stores `source.timestamp` when yt-dlp provides Last-Modified. Generic reuse
+additionally checks the normalized source link and known pre-download dimensions
+and duration (within 0.5 seconds), and compares timestamps when both are known.
+Unknown-size generic entries have no eligible reuse record.
+
+Analysed manifests include `decoder` (`nvdec` or `ffmpeg`) and `decoder_reason`.
+The processing backend remains independent: FFmpeg-decoded samples move to CUDA
+before RGB conversion when models use CUDA. A runtime native timestamp mismatch
+records a `decoder_events` entry and retries that segment once with FFmpeg.
+These fields are included in Copy details.
+
+`GET queue/{id}/source` returns the stored HTTP(S) source URL. The desktop source
+link command accepts only a job ID, fetches this record and validates the URL
+before opening it. It does not broaden the general external-link allowlist.
+
+Before link analysis, unknown dimensions, frame rate, duration and frame count
+are null. P1f zero placeholders are read as unknown. These rows expose
+`link_unanalysed`, `link_estimate`/`estimate_after_download` and transfer status,
+including preparing, failed and cancelled states. A record projection failure
+returns a `record_error` row with its reason and a Remove action; other rows remain
+available and each affected job is logged once. Startup/core-record loading remains strict.
+Removal of syntactically invalid JSON still awaits a designer decision about
+the existing 10-second Undo contract.
+
+Each playlist entry is rechecked through its own URL with `--no-playlist` when
+available. The verified metadata's extractor key and ID must still match. Format
+and resolved fragment URLs are checked before check/queue/transfer. Only an exact
+HTTP protocol-whitelist refusal maps to the encryption message; other probe
+failures use the after-download fallback. Thumbnail connections and redirects
+allow only public resolved addresses and the permitted transport. Connections
+use the validated address set, preventing a second DNS lookup from bypassing it.
+
+Downloads abort unavailable fragments. Known duration may be short by at most
+max(1 second, 1 percent). An unfinished exact `.ve-<job id>.mkv` is removed before
+retry; Cancel/Remove discard only unfinished job-specific temporary files. The
+yt-dlp cache lives in `<engine home>/tools/yt-dlp/cache` and Uninstall removes it.
+Only a positive integer `downloader_options.http_chunk_size` survives sanitizing.
+Queue admission checks work/output/download drive budgets with one 10% margin.
+Link estimates reuse profiles keyed by backend, hardware/driver and installed
+model identities; changing one quality refreshes only that entry's GUI estimates.
+
+
+### Unreadable History records
+
+A record whose JSON cannot be parsed is shown independently of other queue rows.
+History removal moves its complete job folder to `jobs/.removing/<id>` inside the
+engine home, with the same 10-second Undo window. Undo restores the unchanged
+folder. Expiration, or the next engine start, deletes the staged folder. Video
+removal choices are unavailable for unreadable records; videos outside the job
+folder remain untouched. Copy details returns the parse error and manifest path.
+No damaged manifest is repaired or rewritten.

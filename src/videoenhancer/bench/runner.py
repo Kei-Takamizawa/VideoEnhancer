@@ -1210,13 +1210,13 @@ def run_bench(
 
         large_models = calibrate_models(
             backend=device,
-            interpolate_size=(2160, 3840),
+            interpolate_size=(1440, 2560),
             model_ids={RIFE},
             progress=lambda phase, percent: publish(phase, 55 + (percent - 40) * 0.4),
         )
         small = report["profile"]["models"].get(RIFE, {})
         large = large_models.get(RIFE, {})
-        report["part_a"]["models_2160"] = large_models
+        report["part_a"]["models_1440"] = large_models
         if small.get("status") == large.get("status") == "measured":
             small["size_points"] = [
                 {
@@ -1225,7 +1225,7 @@ def run_bench(
                 }
                 for entry in (small, large)
             ]
-            small["memory_2160"] = {
+            small["memory_1440"] = {
                 key: large[key]
                 for key in (
                     "torch_reserved_peak_bytes",
@@ -1233,13 +1233,13 @@ def run_bench(
                     "interpolation_fallbacks",
                 )
             }
-        publish("2160p stages", 60)
-        large_stages = _bench_tensor_stages(torch, device, (2160, 3840))
-        report["part_a"]["stages_2160"] = large_stages
+        publish("1440p stages", 60)
+        large_stages = _bench_tensor_stages(torch, device, (1440, 2560))
+        report["part_a"]["stages_1440"] = large_stages
         if device == "cuda":
-            publish("2160p encoder", 62)
-            large_encode = _bench_nvenc(torch, (2160, 3840))
-            report["part_a"]["encode_2160"] = large_encode
+            publish("1440p encoder", 62)
+            large_encode = _bench_nvenc(torch, (1440, 2560))
+            report["part_a"]["encode_1440"] = large_encode
             encoded = large_encode.get("hevc_main10", {})
             if encoded.get("fps") and "encode" in profile_components:
                 profile_components["encode"]["size_points"] = [
@@ -1250,8 +1250,8 @@ def run_bench(
                         ],
                     },
                     {
-                        "pixels": 2160 * 3840,
-                        "seconds_per_pixel_frame": 1 / (float(encoded["fps"]) * 2160 * 3840),
+                        "pixels": 1440 * 2560,
+                        "seconds_per_pixel_frame": 1 / (float(encoded["fps"]) * 1440 * 2560),
                     },
                 ]
         for component, stage_name in (("resize", "resize_stage"), ("blend2x", "blend2x")):
@@ -1265,13 +1265,13 @@ def run_bench(
                         ],
                     },
                     {
-                        "pixels": 2160 * 3840,
+                        "pixels": 1440 * 2560,
                         "seconds_per_pixel_frame": float(item["median_ms"])
                         / 1000
-                        / (2 * 2160 * 3840),
+                        / (2 * 1440 * 2560),
                     },
                 ]
-        large_color = large_stages.get("color_rgb_to_nv12_2160p", {}).get("median_ms")
+        large_color = large_stages.get("color_rgb_to_nv12_1440p", {}).get("median_ms")
         if color_in and large_color and "color" in profile_components:
             profile_components["color"]["size_points"] = [
                 {
@@ -1281,10 +1281,10 @@ def run_bench(
                     ],
                 },
                 {
-                    "pixels": input_pixels + 2 * 2160 * 3840,
+                    "pixels": input_pixels + 2 * 1440 * 2560,
                     "seconds_per_pixel_frame": (float(color_in) + 2 * float(large_color))
                     / 1000
-                    / (input_pixels + 2 * 2160 * 3840),
+                    / (input_pixels + 2 * 1440 * 2560),
                 },
             ]
         from videoenhancer.bench.reference import calibrate_references, reference_size_points
@@ -1295,9 +1295,9 @@ def run_bench(
         )
         report["profile"]["pipeline_size_points"] = reference_size_points(report["profile"])
         report["profile"]["max_measured_output_pixels"] = (
-            2160 * 3840
+            1440 * 2560
             if all(
-                any(point["pixels"] >= 2160 * 3840 for point in points)
+                any(point["pixels"] >= 1440 * 2560 for point in points)
                 for points in report["profile"]["pipeline_size_points"].values()
             )
             else 1080 * 1920

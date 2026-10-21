@@ -49,8 +49,12 @@ def process_segment(
     frame_observer: Callable[[torch.Tensor, int], None] | None = None,
     reference_measurement: bool = False,
 ) -> dict[str, Any]:
+    from videoenhancer.jobs.checks import job_support_reason
     from videoenhancer.models.registry import validate_job_models
 
+    unsupported = job_support_reason(manifest)
+    if unsupported:
+        raise ValueError(f"No longer supported: {unsupported}")
     verification_started = time.perf_counter()
     if progress:
         progress({"step": "Checking weights"})

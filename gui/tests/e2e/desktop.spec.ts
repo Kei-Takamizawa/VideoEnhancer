@@ -11,7 +11,7 @@ import {
 import path from "node:path";
 import { createRequire } from "node:module";
 import { assertPanelFits } from "./clipping";
-const electron: string = (process.env.VE_TAURI_EXE || "");
+const executable: string = (process.env.VE_TAURI_EXE || "");
 
 test("desktop starts real CPU service, adds synthetic footage, streams completion and survives window close", async () => {
   // This CPU/visual integration flow is separate from the unchanged perf budgets.
@@ -83,7 +83,7 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
   mkdirSync(env.VE_HOME, { recursive: true });
   writeFileSync(path.join(env.VE_HOME, "settings.json"), JSON.stringify({ tour_completed: true }));
   const app = await desktop.launch({
-    executablePath: electron,
+    executablePath: executable,
     args: [".", `--user-data-dir=${path.join(run, "desktop")}`],
     env,
   });
@@ -361,7 +361,7 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
         );
         expect(overflow).toBe(false);
       }
-      // Electron page zoom changes CDP screenshot clipping. Capture the physical
+      // WebView page zoom changes CDP screenshot clipping. Capture the physical
       // window only after the renderer has committed two animation frames.
       await page.evaluate(
         () =>
@@ -392,7 +392,7 @@ test("Schedule bar tooltips stay inside both window sizes and zoom levels", asyn
   fixture.plan.timezone = "UTC";
   fixture.plan.days = [{ date: "2026-10-12", windows: [], run_hours: 1, jobs: [] }];
   fixture.plan.timeline = [{ job_id: "synthetic-0", start: "2026-10-12T23:00:00Z", end: "2026-10-13T00:00:00Z", overrun_seconds: 45 }];
-  const app = await desktop.launch({ executablePath: electron, args: [".", `--user-data-dir=${path.join(home, "desktop")}`], env: { ...process.env, VE_HOME: home } });
+  const app = await desktop.launch({ executablePath: executable, args: [".", `--user-data-dir=${path.join(home, "desktop")}`], env: { ...process.env, VE_HOME: home } });
   try {
     const page = await app.firstWindow();
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();

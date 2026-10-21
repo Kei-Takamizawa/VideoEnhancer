@@ -32,12 +32,21 @@ DEFAULTS: dict[str, Any] = {
     "size_model": "",
     "restore_strength": "medium",
     "size_strength": 0.2,
+    "video_download_folder": "",
+    "video_download_limit": 2,
 }
 
 
 def read_settings(home: Path) -> dict[str, Any]:
     path = home / "settings.json"
-    return {**DEFAULTS, **(json.loads(path.read_text()) if path.exists() else {})}
+    saved = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if saved.get("short_side") == 2160:
+        saved["short_side"] = 1440
+        write_json(path, saved)
+        from videoenhancer.logging import get_logger
+
+        get_logger(home).info("Changed the saved default output size from 2160p to 1440p.")
+    return {**DEFAULTS, **saved}
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -60,10 +69,23 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Automatic cleanup must be on or off.")
     previous = read_settings(home)
     value = {**previous, **value}
+    if type(value["video_download_limit"]) is not int or value["video_download_limit"] not in {
+        1,
+        2,
+        3,
+    }:
+        raise ValueError("Simultaneous video downloads must be 1, 2 or 3.")
+    download_folder = value["video_download_folder"]
+    if (
+        not isinstance(download_folder, str)
+        or download_folder
+        and not Path(download_folder).is_absolute()
+    ):
+        raise ValueError("Choose an absolute video-download folder.")
     choices = {
         "preset": {"standard", "fast"},
         "codec": {"h264", "hevc", "av1"},
-        "short_side": {"keep", 1080, 1440, 2160},
+        "short_side": {"keep", 1080, 1440},
         "fps": {"off", "2x"},
         "theme": {"system", "dark", "light"},
         "zoom": {80, 90, 100, 110, 125, 150},

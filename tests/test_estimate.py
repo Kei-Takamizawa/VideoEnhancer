@@ -106,7 +106,7 @@ def test_range_narrows_with_consistent_observations():
 
 def test_pixel_count_and_output_rate_affect_cost():
     normal = predict_segment(MEDIA, SETTINGS, 100)
-    bigger = predict_segment(MEDIA, {**SETTINGS, "short_side": 2160}, 100)
+    bigger = predict_segment(MEDIA, {**SETTINGS, "short_side": 1440}, 100)
     single = predict_segment(MEDIA, {**SETTINGS, "fps": "off"}, 100)
     assert bigger > normal > single
     fast = {**MEDIA, "cfr_fps": "60"}

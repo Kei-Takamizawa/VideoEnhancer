@@ -33,7 +33,9 @@ pub struct State {
     zoom_percent: AtomicU64,
     connection: Mutex<Option<engine::Connection>>,
     storage_busy: AtomicBool,
+    storage_moving: AtomicBool,
     storage_progress: Mutex<Value>,
+    storage_verification: Mutex<Value>,
     quitting: AtomicBool,
     tray_explained: AtomicBool,
     publishers: Mutex<Vec<String>>,
@@ -50,7 +52,7 @@ pub struct State {
 #[cfg(windows)]
 impl State {
     pub fn connected(&self) -> engine::Result<engine::Connection> {
-        if self.storage_busy.load(Ordering::SeqCst) {
+        if self.storage_moving.load(Ordering::SeqCst) {
             return Err("App data is moving. Wait for it to finish.".into());
         }
         self.connected_internal()
@@ -64,6 +66,45 @@ impl State {
             )?);
         }
         Ok(current.as_ref().unwrap().clone())
+    }
+}
+
+#[cfg(all(test, windows))]
+mod connection_tests {
+    use super::*;
+
+    #[test]
+    fn storage_verification_and_removal_keep_commands_connected() {
+        let state = State {
+            home: Mutex::new(PathBuf::from("isolated-test")),
+            appearance: Mutex::new("dark".into()),
+            zoom_percent: AtomicU64::new(100),
+            connection: Mutex::new(Some(engine::Connection {
+                port: 1,
+                token: "test".into(),
+                pid: 1,
+                base_url: "http://127.0.0.1:1/v1".into(),
+            })),
+            storage_busy: AtomicBool::new(true),
+            storage_moving: AtomicBool::new(false),
+            storage_progress: Mutex::new(Value::Null),
+            storage_verification: Mutex::new(Value::Null),
+            quitting: AtomicBool::new(false),
+            tray_explained: AtomicBool::new(false),
+            publishers: Mutex::new(vec![]),
+            fetches: media::Fetches::default(),
+            #[cfg(feature = "e2e")]
+            dialog_files: Mutex::new(None),
+            #[cfg(feature = "e2e")]
+            storage_fixture: Mutex::new(None),
+            #[cfg(feature = "e2e")]
+            native_drop: Mutex::new(vec![]),
+            #[cfg(feature = "e2e")]
+            remove_confirmation: Mutex::new(None),
+        };
+        assert!(state.connected().is_ok());
+        state.storage_moving.store(true, Ordering::SeqCst);
+        assert!(state.connected().is_err());
     }
 }
 #[cfg(not(windows))]
@@ -100,7 +141,9 @@ fn initial_state() -> Option<(Arc<State>, Value)> {
         ),
         connection: Mutex::new(None),
         storage_busy: AtomicBool::new(false),
+        storage_moving: AtomicBool::new(false),
         storage_progress: Mutex::new(json!({"phase":"Idle"})),
+        storage_verification: Mutex::new(Value::Null),
         quitting: AtomicBool::new(false),
         tray_explained: AtomicBool::new(initial["tray_explained"] == true),
         publishers: Mutex::new(vec![]),
@@ -204,7 +247,7 @@ fn main() {
                         }
                         tauri::webview::NewWindowResponse::Deny
                     });
-            #[cfg(feature = "e2e")]
+            #[cfg(feature = "cdp")]
             let webview_builder = {
                 // Elevated CI hosts ignore environment-only WebView2 debugging flags.
                 let port = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")

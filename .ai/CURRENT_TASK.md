@@ -1,348 +1,311 @@
-# CURRENT_TASK: Cycle P1t (replace Electron with Tauri)
+# CURRENT_TASK: Cycle P1f-2 (fixes from the P1f review)
 
-## Designer decision on the P1t M2 results (2026-10-17; supersedes media selection below)
-
-Part M of .ai/CURRENT_TASK.md is updated the same way.
-Decision
-- M1 with 1 MiB responses is the P1t media path. Keep M3 out of the default build.
-- Report AV1 gates 1 and 2 as FAIL in the report. Do not relabel them as passed.
-- Reason: timing passes at every chunk size (1 MiB best), the 10-minute test passes, and H.264 passes. The AV1 extra memory barely changes with chunk size and sits in the WebView2 processes, not the shell (shell peak 20.5 MB at 1 MiB). So a different chunk size won't fix it. It is either WebView2's AV1 playback itself or the custom-scheme path, and the old M3 numbers (USS) can't tell which.
-Follow-up measurements (same harness, Private Bytes per process role)
-1. Repeat test: open the player, play 30 s with 3 seeks, close, wait 30 s. Do 10 cycles. Run AV1 on Tauri and on Electron, and H.264 on Tauri. Record the total and each role after every close. Gate: the total after cycle 10 is at most 50 MB above the total after cycle 1.
-2. AV1 residual detail: which process role holds it, and the total after 5 minutes idle with the player closed.
-3. Decoder in use, from the CDP Media domain (the video decoder name), for Tauri and Electron with H.264 and AV1.
-4. M3 on the same harness, in a local build with the developer flag on: AV1 only, test P 3 runs with the 30 s residual, and the repeat test once.
-5. Optional, one try: if WebView2's memory usage target level can be set from the shell without patching Tauri or wry, set it to Low while no player is open and Normal while one is. Keep it only if it lowers the AV1 residual and the timing gates still pass.
-Rules after the follow-up (no need to wait for the designer)
-- M1 passes the repeat test: keep M1. The AV1 extra memory becomes a known issue in the report and the owner check.
-- M1 fails the repeat test and M3 passes it: keep M1 for now and put both tables under "Questions for the designer". The designer decides.
-- Both fail: keep M1 and report it as a known issue.
-Continue the remaining parts in the existing order. Fit these measurements wherever they're convenient before Part G.
-
-## Designer decision on P1t S5 (2026-10-17; supersedes S5 below)
-
-The S5 row in .ai/CURRENT_TASK.md is updated the same way.
-Your safe handling is correct. Keep it. A Move whose new-folder start check fails is a failed Move: the pointer stays on the current folder, and nothing is repaired, rewritten or discarded. The S5 phrase "the move succeeds" was too broad and is narrowed:
-1. Damage only in files the engine does not need to start (JSONL logs and journals it already reads line by line): the move succeeds and its result lists how many damaged records were copied unchanged and in which files.
-2. Damage in a file the engine must read to start (for example previews/*/state.json, previews/*/request.json, a job manifest.json, settings.json): the move fails and the app keeps using the current folder. Message: "Move stopped. A file the app needs at start is damaged: <path relative to the app-data folder>. Your data stays in the current folder."
-3. Checking these files before the copy starts is preferred, so the user does not wait for a full copy. Keep the start check of the new folder as the final guard.
-4. Do not change how the engine reads damaged files in this cycle (engine._recover, JobStore._cached_jobs, read_settings). Making engine start survive a damaged file is planned for P1e-3.
-5. Test (after M2 is fine): a damaged previews/*/state.json makes Move fail with the message above, with the pointer and the old folder unchanged. Report it in the S table.
-Continue the remaining parts in the existing order.
-
-## Designer decision on the P1t M2 memory gate (2026-10-16; supersedes the old M2 memory gate)
-
-Part M of .ai/CURRENT_TASK.md is updated the same way; replace your copy with the designer's file or apply this text.
-
-The old gate is withdrawn. "The shell's private memory grows by at most 100 MB" was a designer number with no baseline. Your M3 prototype bypasses the shell and still grew about 140 MB, so most of the growth is WebView2's own playback memory. M1's extra 160-180 MB over M3 is real: find which process holds it and reduce it where possible. The timing gates do not change (play start at most 0.5 s, seek at most 0.3 s, median of 10).
-
-Measurement
-- Private Bytes of every process of the app instance: the shell and every WebView2 or Electron child (browser, renderer, GPU, utility or network). Sample every 1 s. Report each process and the total.
-- "Growth" is the peak total during a test minus the mean total over the 10 s before Play, with the player already open.
-
-Tests (for each codec used in M2, same file, same fixed-seed seek positions, Tauri and Electron run alternately, 3 runs each, median)
-- P: play 2 minutes with 20 seeks spread evenly.
-- R: 20 seeks 100 ms apart, then play 30 s.
-
-Gates for the Tauri build
-1. Growth in P and in R is at most Electron's growth in the same test plus 100 MB.
-2. 30 s after the player closes, the total is within 50 MB of the pre-play total. If Electron's own residual is above 50 MB, it must be no higher than Electron's.
-3. No steady growth: play 10 minutes with a seek every 30 s; the total at 10:00 is at most 50 MB above the total at 2:00. One run each for Tauri and Electron.
-
-Chunk size
-- Run P and R with 8, 2 and 1 MiB responses. Use the largest chunk that passes gates 1-3 and the timing gates.
-- Report a table: chunk, play start, seek, growth in P and R per process, the shell's own peak, and the peak number of engine fetches in flight. Say which process holds M1's extra memory; mark anything inferred as inferred.
-- If no chunk size passes: keep the best M1, put the table and the M3 numbers under "Questions for the designer", and continue. The designer then chooses between M1 and M3.
-
-M3: do not ship it unless the designer chooses it. Until then the engine must not issue or accept these URLs unless an explicit developer flag is set, and that flag is off in the package and in CI.
-Do not stop the cycle for this. Continue the remaining parts in the existing order.
-
-## Designer decision on P1t S1/S9 (2026-10-16; supersedes S1 validation below)
-
-Your point is correct; S1 as written was my error. The new folder is live data that the engine appends to and prunes, so never compare the move manifest with the new folder.
-1. Compare the manifest only with the OLD folder. S2 is unchanged: delete only old files that are in the manifest and still match their recorded size (and hash where recorded); keep everything else and report it.
-2. Enable Remove only when the new folder is healthy and in use: a. the engine is healthy and its reported home equals the pointer's active folder (resolved paths); b. a probe file can be written, read back and removed inside that folder; c. the engine's core records there exist and load (the same files the engine loads at start-up, such as settings, the job store and the model registry). Then show the S1 confirmation dialog, unchanged.
-3. S9: Move, Quit, relaunch on the new folder, then append to a log and remove a History item in the new folder. Remove must still be enabled and must delete only matching old files. Add tests where the probe fails or the core records do not load: Remove must stay disabled.
-The task file has the same change. Continue from where you are.
-
-## Designer update after owner stop (2026-10-16; supersedes size requirements below)
-
-The owner decided that VideoEnhancer accepts sources only up to 1080p (short side at most 1080), and that the largest output is 1440 (2160 is removed). That product change is built in the next cycle (P1f Part R), not in P1t. For P1t:
-
-1. Never process, generate or encode anything with a short side above 1440, and never use a source above 1080. Stop any such job, test or fixture generation that is still running, and do not resume it.
-2. A3a: test the codecs at 1080 and 1440, not 2160.
-3. M2: use a 1440p file of at least 2 GB. Make it with FFmpeg directly from synthetic content, in each codec that plays. Do not run the enhancement pipeline to produce it. The gates are unchanged.
-4. CPU tests that only use 2160 or 3840 metadata or tiny synthetic clips may still run; P1f will replace them. Do not run any GPU test that processes a source above 1080 or an output above 1440. List such tests as NOT RUN (designer decision) in the report.
-5. Delete the 4K and 2160 files you created for this run, under working rule 6. Report what was measured before the stop, then continue from where you stopped.
-
-The updated task file has the same changes (start condition and A3a, M2).
-
-Resume instruction from the owner (2026-10-16): Build Tools installed; resume from A1. Continue the complete cycle below on the existing p1t-tauri branch and draft PR #6.
-
-Designer decision on P1t M1 (2026-10-16): drop the requirement to abort the engine request when the webview cancels. Tauri's custom protocol API gives no cancellation signal, and the 8 MiB cap already limits the waste to one chunk per abandoned request.
-Instead:
-1. Keep every response at most 8 MiB. You may use a smaller chunk if it helps the M2 seek gate.
-2. Give each engine fetch a 10 s timeout. A response that arrives after the webview has given up is simply dropped.
-3. Add a test with 20 rapid seeks on the 2 GB file. The M2 gates must still pass (play start at most 0.5 s, seek at most 0.3 s, shell memory growth at most 100 MB). Report the peak number of engine fetches in flight at the same time.
-Do not switch to M3 for this reason. Continue with the rest of the task as written.
-
-- **Task ID:** VE-P1t
-- **Date:** 2026-10-16
+- **Task ID:** VE-P1f-2
+- **Date:** 2026-10-19
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
-**Start condition:**
-- Work in `D:\my-workspace\VideoEnhancer\work\repo` and follow `docs/WORKSPACE.md` (one package, scratch emptied, evidence at most 300 MB, cache cap 40 GB, disk table in the report).
-- Create branch `p1t-tauri` from `p1d-ui-v2` at `40755c0`. PR #5 (`p1d-ui-v2`) is still a draft and is not merged: the owner checks P1e-2, this cycle and the next one (P1f, video links) together, and merges afterwards.
-- Save this file as `.ai/CURRENT_TASK.md` and commit it. Open a draft PR from `p1t-tauri` to base `p1d-ui-v2`. Do not push to `main` or `p1d-ui-v2`.
-- At the end, write `.ai/LAST_REPORT.md` (English, UTF-8 written once, ASCII punctuation, under 40 KB), and update it after the final CI run.
-- Do not build any video-link feature in this cycle. That is P1f, which starts from this branch.
+## 1. Start
 
-## Working rules
+- Continue on branch `p1f-links` from `05dbf72` (the P1f final commit). Keep draft PR #7 (base `p1t-tauri`). Do not open a new PR.
+- Replace `.ai/CURRENT_TASK.md` with this file. Write a new `.ai/LAST_REPORT.md` for this cycle. The P1f report stays in Git history at `05dbf72`.
+- **Restore the dependencies removed at the end of P1f** (Python environment and uv cache as needed, `npm ci` in `gui`, the Cargo registry, and the Rust target through a normal build).
+  - This restore does not count toward the 1 GB per-cycle growth limit in `docs/WORKSPACE.md`. Report its size on its own line.
+  - Every other workspace rule still applies.
 
-1. Do not stop the cycle for one blocked item. Write the question under "Questions for the designer", choose the safest option, and continue. Exception: A2 below (a missing system build tool) is a stop.
-2. Order: Part A → Part T → Part M → Part D → Part U → Part S → Part X → Part G. Part A's numbers must be measured before Electron is removed.
-3. Never report a test as passed if it did not run. Report every run of a gated measurement.
-4. **The owner's data is not test data.** Never launch any build against the owner's real app data:
-   - the owner's app data is now `D:\my-workspace\VideoEnhancer\AppData` (moved with Settings › Storage › Move in the Electron app); the old copy `%LOCALAPPDATA%\VideoEnhancer` (about 2 GB) still exists;
-   - every launch, test and smoke test uses an isolated `VE_HOME` under `work\scratch`, and an isolated `%APPDATA%`/`%LOCALAPPDATA%` override where the test covers start-up location logic (Part U, Part S);
-   - read-only checks of the owner's real files are allowed only where this file says so (U1, A3a codec packages), and the report must not contain the owner's file names.
-5. `VE-check\` and `AppData\` beside `work\` belong to the owner. Never write, move, clean or open them.
-6. **Deleting your own files:** first try the delete inside `work\` without asking for approval. If the auto-approval still refuses, do not work around it: list at most 3 folders with sizes under "For the owner to delete".
-7. Do not change system or user settings: no system or user environment variables, no registry changes outside an isolated test value, no driver or Recycle Bin settings. Environment variables for one session or one command are fine.
+## 2. Background
 
-## 0. Goal and decisions
+- P1f finished as PARTIAL at `05dbf72`. P2 cold start failed; everything else passed. Windows and Ubuntu CI passed.
+- The designer reviewed the P1f code by reading it, without running it. The review found the defects in Parts A and B below. Each one names its file and line at `05dbf72`.
+- For each item:
+  - first write a test that fails on `05dbf72` and record that failure;
+  - then fix it and show the same test passing.
+  - If a test shows that an item does not reproduce, report that with the evidence and do not change the code for it.
+- After this cycle, the owner checks P1e-2, P1t, P1f and P1f-2 together, then merges.
 
-**Owner decision (2026-10-16):** replace Electron with Tauri 2 now, before the owner's check.
+## 3. Designer decision on P2 (2026-10-19)
 
-**What should get better:** the size of the desktop app. The Electron package is about 0.43 GB per copy (`P1e-2b` report: `package` was 0.86 GB with two copies). A Tauri shell is expected to be tens of MB (inferred, not measured).
+- **The P2 cold-start failure is accepted as a known issue.** P1f measured a G1 Home-ready median of 694.6 ms for Tauri, against 420.9 ms for Electron. Most of the gap is WebView2 start-up: the median window-to-navigation interval is 297.6 ms for Tauri and 16.8 ms for Electron.
+- Electron is removed, so the gate relative to Electron is retired. The P1f FAIL stays in the record.
+- **New gate, from this cycle on:** measure on the same G1 fixture (5 launches). The G1 Home-ready median must be at most 765 ms (694.6 ms + 10%), and the first-paint median at most 1.0 s.
+- In this cycle, run that measurement once at the end.
 
-**What is not expected to change:** processing speed (the GPU engine is untouched) and, roughly, memory (WebView2 is also Chromium). Measure both in Part A and Part G. Do not claim gains that were not measured.
+## 4. Part A: must fix
 
-**Designer decisions:**
-1. **Tauri 2, latest stable at the start of the cycle.** It was 2.12.3 on 2026-10-10. Pin exact versions of every crate and npm package. Use Rust stable at or above Tauri's minimum (1.90 for 2.12).
-2. **The renderer stays.** React, Vite and TypeScript, every screen and every UI string stay as they are, except the title bar (decision 4).
-   - The only seam is the `window.desktop` interface (`gui/src/types.ts`, today implemented by `gui/electron/preload.cjs`). Keep its shape and implement it with `@tauri-apps/api` in one module.
-   - Screen components must not import `@tauri-apps/*` directly.
-3. **The Python engine and its HTTP API stay.** The only engine change is the allowed `Origin` (T18), plus the Part S fixes in `storage.py`. Keep the localhost, token and Host checks.
-4. **Title bar:** use the native Windows title bar (window decorations on), coloured to the app theme with DWM (`DWMWA_CAPTION_COLOR` and `DWMWA_TEXT_COLOR`; this needs Windows 11, which the app already requires).
-   - Colours as today: dark `#1C1814` with text `#DCCFBD`, light `#F5EFE6` with text `#574A3F`. They follow the theme setting live.
-   - Remove the HTML `.title-bar` strip and its 138 px reserve. The app content starts at the top of the client area.
-   - Snap Layouts (hover on maximize) must work.
-   - Only if DWM colouring fails, use a frameless window instead, and report why.
-5. **Drag and drop:** native Tauri file drops (they give absolute paths). On Windows, native file drops disable HTML5 drag and drop inside the page, so queue reordering moves to pointer events (D2). Dropping links from a browser is not needed (P1f uses paste and a link field).
-6. **Video playback** goes through a custom protocol in the shell that forwards Range requests to the engine (Part M).
-7. **Storage findings 1 to 9** from the P1e-2b review are fixed here (Part S), because the Electron code they live in is being rewritten.
-8. **Package:** an unsigned, portable folder as today, with no installer and no updater. Build with `tauri build --no-bundle` or equivalent.
-9. **Remove Electron completely** at the end: dependencies, `gui/electron`, scripts, Playwright `_electron` use, CI steps, `ELECTRON_CACHE` in the workspace rules, and the Electron caches you created in `work\cache`. Do this only after Part G passes on Tauri.
+### A1. A link job without known size or frame rate breaks Home and History
 
-## Part A: baseline and feasibility (do first)
+- **Where:**
+  - `service/link_jobs.py:78-87` stores `width`, `display_width`, `height` and `display_height` as `0`, and `cfr_fps` as `"0"`, when the metadata has no size or no frame rate. Internet Archive formats from yt-dlp have no frame rate. Many HLS formats have none either.
+  - After the download, the job enters `preparing` with these values (`link_jobs.py:241-254`). `add_job` replaces the media only later.
+  - The queue snapshot calls `estimate_job` (`service/engine.py:720-724`) and `job_progress` (`engine.py:758`). Both reach `estimate/model.py` `_geometry`, which raises "Media dimensions must be positive." or "Media frame rate must be positive."
+  - The snapshot has no per-row guard, so `GET /queue` fails and Home and History stop updating.
+  - If the job then fails, the failed row breaks every later snapshot until someone removes the manifest by hand. Ways the job can fail here:
+    - the download fails after its retries;
+    - R2 or HDR refuses it after the download;
+    - its preparation is interrupted.
+- **Required:**
+  1. Never store `0` or `"0"` for an unknown size, frame rate, duration or frame count. Store `null`.
+  2. Show a link job that has no analysed media with the link-style row, like the downloading row at `engine.py:~625-655`. Do not call `estimate_job` or `job_progress` for it. This covers the downloading, preparing, failed and cancelled states before analysis.
+     - Its estimate comes from `link_estimate`, or reads "after download".
+  3. **One bad record must never break the whole snapshot.** If building one row fails:
+     - log it once;
+     - show that job with "This job's record can't be shown: <reason>" and a Remove action;
+     - keep all the other rows.
+  4. Read the placeholders written by P1f builds (`0` and `"0"`) as unknown, so existing manifests load safely.
+- **Tests:**
+  - a format without a frame rate whose download fails after all retries: `GET /queue` and History still work, and the row shows the failure and Retry;
+  - the same with no size (the L2b fallback);
+  - the same with a 1440p file refused by R2 after the download;
+  - a snapshot taken during the preparing window;
+  - a manifest from a P1f build with `0`/`"0"` placeholders.
 
-### A1. Electron baseline
+### A2. A download with missing fragments counts as finished
 
-Measure with the current package (`work\package\VideoEnhancer-win32-x64`) on an isolated home that holds the existing 1,000-item History fixture. Save JSON in `evidence\P1t\`.
-- Package size on disk: bytes and file count.
-- Cold start: from process start to the first paint of Home with data, median of 5 launches (each after all app processes have exited).
-- Idle memory after 5 minutes on Home: private working set summed over the app's own processes (all `VideoEnhancer.exe` processes). Report the Python engine separately; it is the same in both shells.
-- The existing perf suites (`gui/tests/perf/renderer.spec.ts`, `real-progress.spec.ts`) with their current budgets.
+- **Where:** `service/video_links.py:632-657` passes `--fragment-retries 0` without `--abort-on-unavailable-fragments`.
+  - yt-dlp's default skips fragments it cannot fetch and still exits with 0.
+  - So an HLS or DASH download with one failed middle segment is renamed and processed with a gap.
+- **Required:**
+  - Add `--abort-on-unavailable-fragments`, so the app's own retry (the first attempt plus 3 retries) handles the failure. Keep resume working.
+  - **Check the duration after the download.** When the metadata duration is known and the file is shorter by more than max(1 s, 1%), fail with "The download is incomplete (N s of M s). Retry the download." Keep the file.
+- **Tests:** the local HLS server returns HTTP 500 for one middle segment:
+  - once: the retry succeeds and the file is complete;
+  - always: the job fails with the reason, after its retries.
 
-### A2. Toolchain (stop if a system tool is missing)
+### A3. A partial remux can be accepted when a download resumes
 
-- Check for the MSVC build tools and a Windows SDK (`vswhere`), and the WebView2 Runtime version.
-- Install Rust with `rustup` into `work\cache` (`RUSTUP_HOME`, `CARGO_HOME` set for the session only). Put `CARGO_TARGET_DIR` under `work\cache` too.
-- **If the MSVC build tools are missing, stop the cycle here** and report the exact steps for the owner (which installer, which workload, roughly how much space on which drive). Installing system software is the owner's job.
+- **Where:** `service/video_links.py:639-671`.
+  - For a single stream that is not MKV (for example a direct MP4), yt-dlp's remuxer writes straight into `.ve-<id>.mkv`. In yt-dlp 2026.08.19, `FFmpegVideoConvertorPP.run` uses no temporary file, while the merger does.
+  - Pause all, Quit or a crash during that remux leaves a partial `.mkv`.
+  - On the next attempt, `--no-overwrites` can treat that partial file as already downloaded. It is then renamed and processed.
+- **Required:** before each attempt, remove a leftover `.ve-<job id>.mkv` unless the job has recorded a completed download for it. Alternatively, remux to a temporary name yourself and rename it.
+  - These are the app's own temporary files in the download folder, so removing them is allowed. Match the exact name pattern with the job id, and never touch any other file.
+- **Test:** stop the process during the remux, resume, and confirm the final file is complete (its frame count equals the source's).
 
-### A3. Feasibility spike
+## 5. Part B: should fix
 
-A throwaway, minimal Tauri 2 window in `work\scratch` (not committed). Report each result before porting.
-- **a. Playback codecs.** Encode short clips with the engine's own encoder: HEVC Main10 (the default output), H.264 and AV1, at 1080 and 1440.
-  - In the WebView2 page, report `MediaSource.isTypeSupported` and `canPlayType` with the exact codec strings of those files, and whether each file plays and seeks.
-  - Read-only, report which Microsoft Store codec packages are installed (`Get-AppxPackage *HEVC*`, `*AV1*`, `*VP9*`).
-  - Expect a risk here: Microsoft documents that Edge (and so WebView2, inferred) needs the HEVC Video Extensions for HEVC, while Electron decodes HEVC itself. If HEVC does not play, continue and build M4.
-  - Also report the codec of the engine's Compare previews (`previews/<op>/<name>-preview.mp4`).
-- **b. Range proxy:** play and seek a file of at least 2 GB through a custom protocol, as in Part M. Report play start, seek time and the shell's memory.
-- **c. Test harness:** Playwright `chromium.connectOverCDP` attaches to the Tauri window (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<port>`, with a separate `WEBVIEW2_USER_DATA_FOLDER` per test).
-- **d. File drops** give absolute paths for 1 file and 50 files, including non-ASCII names and paths longer than 200 characters.
-- **e. Title bar:** DWM caption colours apply, and the Snap Layouts flyout appears on the maximize button.
+### B1. Every playlist entry reads the whole playlist again
 
-## Part T: the Tauri shell, with feature parity
+- **Where:** `video_links.py:507-513` re-checks `source["request_url"]`, which `link_jobs.py:91` sets to the playlist link. So every entry's download, and every retry, runs `-J` on the whole playlist, with up to 200 entries and their header probes. That can exceed the timeout and can trigger a site's rate limit.
+- **Required:** re-check with the entry's own link (`source.url`, from `webpage_url`) and `--no-playlist`, still matching `extractor_key` and `id`. If an entry has no link of its own, keep today's behaviour for it.
+- **Test:** a local 3-entry playlist. Each entry's download runs exactly one single-video check. Count the yt-dlp runs.
 
-Layout: `gui/src-tauri/` (standard Tauri layout). Keep the Rust code split by concern (engine process, storage, media protocol, tray and window, commands).
+### B2. A list of lists makes the check fail
 
-Every row below must behave as the Electron app does today (`gui/electron/main.cjs`, `preload.cjs`, `storage.cjs`, `python.cjs`, `permissions.cjs`). The report lists every row with its evidence: a test name, or a screenshot for visual rows.
+- **Where:** a channel's home page and its "Playlists" tab return entries with `_type: playlist`, which have no `formats` and no `url`.
+  - `video_links.py:213` reads `item["url"]` outside the `try` that starts at line 214.
+  - `check()` catches only `ValueError` (line 752).
+  - So the operation fails with the bare text `'url'`.
+- **Required:**
+  - Refuse such a link with: "This link is a list of lists. Paste the link of one list, for example a channel's Videos tab."
+  - Any entry without a usable URL gets a plain reason on its own card. It must not fail the whole check.
+- **Test:** a local fixture with nested playlists.
 
-| # | Feature | Required behaviour |
-|---|---|---|
-| T1 | Single instance | A second launch focuses the existing window and exits. |
-| T2 | Window | 1280x800 client area at first launch, minimum 1100x700 client area. Start hidden and show after the first paint, with the theme background colour, so there is no white flash. `--hidden` starts in the tray. |
-| T3 | Close to tray | Closing hides the window. The first time, the renderer shows the existing tray explanation (`onTrayExplanation`), and its button calls `hide`, which saves `tray_explained`. |
-| T4 | Tray | Icon with tooltip "VideoEnhancer". Menu: Open VideoEnhancer, Pause processing / Resume processing (from `health.paused_all`, refreshed every 3 s as today), separator, Quit. Double-click opens. |
-| T5 | Quit | Graceful: call `shutdown`, wait up to 20 s for the engine's PID to exit, then quit. On failure, show the window and "The engine could not stop cleanly. Retry Quit." as today. |
-| T6 | Engine start | Same logic as `startService`: reuse a healthy `serve.json`; otherwise start `pythonw.exe` (fall back to `python.exe`) with `-m videoenhancer.cli serve`, hidden and detached, with `VE_HOME`; append to `service-start.log`; wait up to 30 s for `health`. `VE_PYTHON` and `VE_ENGINE_ROOT` overrides; `engine-location.json` beside the packaged exe. |
-| T7 | Start with Windows | Synced from the `start_with_windows` setting, starting with `--hidden`. See U4 for the old Electron entry. |
-| T8 | Zoom | Levels 80, 90, 100, 110, 125, 150. Ctrl + / - / 0 and the numpad keys step through them, save `zoom` to settings, and emit `zoom-changed`. WebView2's own zoom (Ctrl+wheel on the page, browser shortcuts, pinch on the page) must never change the page scale. |
-| T9 | Theme | system / dark / light, applied to the window background and the title bar colours (decision 4), live. |
-| T10 | Dialogs | Open videos (multiple, filter mp4 mkv mov avi webm m4v), open folder, error boxes, and the start-up "The app data folder was not found" dialog with Choose…, Use the previous folder and Quit. |
-| T11 | Files | `openFolder`, `reveal`, `play` (default app), with today's validation: absolute path, exists, no NUL. |
-| T12 | Clipboard | `copy`, at most 100,000 characters. |
-| T13 | External links | Only today's allowlist opens in the default browser: `https://github.com/Kei-Takamizawa/VideoEnhancer/blob/main/docs/...`, `.../pull/...`, and the built-in models' `publisher_url`s. Everything else is denied. The page can never navigate away from the app or open a new window. |
-| T14 | Renderer errors | `logRendererError` appends to `renderer-errors.log` in the home, at most 64,000 characters per entry. |
-| T15 | Reload, restart engine | As today. |
-| T16 | Player fullscreen | The fullscreen button and the video's own fullscreen fill the whole monitor (the window goes fullscreen), Esc and the button leave, and the window returns to its previous size and position (P1e-2 fixed this in Electron). |
-| T17 | Content Security Policy | As strict as today: no remote scripts, styles only from the app, `connect-src` only to the engine on `127.0.0.1` plus what Tauri's IPC needs, media only from the media protocol and `blob:`, no frames, no objects. Dev mode may add the Vite server. DevTools are off in release builds. |
-| T18 | Engine origin | The engine's `APP_ORIGIN` (`server.py`) becomes the exact origin the Tauri webview sends (expected `http://tauri.localhost`; verify it). Keep the dev origin, the token, the Host check and the `Sec-Fetch-Site` rule. Remove `app://videoenhancer` once nothing uses it. |
-| T19 | IPC security | Tauri capabilities grant commands only to the main window and only for the app's own origin. Grant no file system, shell or HTTP plugin scope to the renderer. Validate every command's arguments as `main.cjs` does today. |
-| T20 | Non-Windows | The shell shows "The desktop app requires Windows 11." and quits, as today. |
-| T21 | Storage commands | `storageStatus`, `moveStorage`, `removeOldStorage` with the same flow as today, plus the Part S fixes. |
-| T22 | Browser behaviour | No browser context menu anywhere (no Back, Reload, Print, Save as, Inspect). Text fields keep Cut, Copy, Paste and Select all. Browser accelerator keys are off (reload, find, print, DevTools, back and forward). |
+### B3. The header probe gives the wrong "not encrypted" refusal
 
-## Part M: video playback
+- **Where:** `video_links.py:255-260` tests `"http" in str(error)`. This is always true for a whitelist error, because FFmpeg's message includes the whitelist `'https,tls,tcp'`. So these are refused with the T6 message instead of falling back as L2b says:
+  - an AES-128 HLS link ("Protocol 'crypto' not on whitelist");
+  - a link opened through a proxy.
+- **Required:**
+  - Give the T6 refusal only when the error matches `Protocol 'http' not on whitelist` (case-insensitive). Every other probe failure uses the L2b fallback.
+  - You may add `crypto` to the whitelist for `https` links. It does not allow plain transport. Never add `http` for an `https` link.
+- **Tests:**
+  - AES-128 HLS over local TLS: the probe succeeds or falls back, and never shows the T6 message;
+  - an `https` link that redirects to `http`: still refused.
 
-**M1. Media protocol.**
-- A custom scheme handled in Rust replaces `app://videoenhancer/media/<job id>`. Update `HistoryDetail.tsx` and any other user of that URL.
-- GET and HEAD only. Validate the job id. Forward the `Range` header to `GET /v1/queue/<id>/video` with the token, and return 200 or 206 with correct `Content-Range`, `Content-Length`, `Content-Type` and `Accept-Ranges`.
-- **Never buffer a whole file.** Answer an open or large range with at most 8 MiB per response and a matching `Content-Range`; the media stack asks for the rest. Cancellation-based abort is withdrawn by the M1 decision above. Each engine fetch has a 10 s timeout; an abandoned response is dropped.
+### B4. DASH fragments over http are not checked
 
-**M2. Gates** on a 1440p file of at least 2 GB in each codec that plays (A3a), median of 10. Generate it directly with FFmpeg from synthetic content, with a source short side at most 1080; do not use the enhancement pipeline:
-- play start at most 0.5 s;
-- seek at most 0.3 s;
-- Memory follows the superseding designer M2 decision above: 1 s Private Bytes samples, a 10 s pre-Play mean, paired alternate Electron/Tauri P and R runs (three each), post-close residual and ten-minute stability gates. The old absolute 100 MB growth gate is withdrawn. Test 8, 2 and 1 MiB responses and select the largest passing chunk.
+- **Where:** `check()` (around line 745) never checks `fragments`. `download()` (lines 564-567) only checks that each fragment's scheme is `http` or `https`.
+- **Required:** for an `https` link, refuse a format when any fragment URL is `http`, with the T6 message. Resolve each fragment as `urljoin(fragment_base_url or url, fragment path)`. Apply the same check in `check()`, in `links/queue` and again in `download()`.
+- **Test:** a local MPD with absolute `http://` `SegmentURL` values.
 
-For reference, the Electron app measured 0.32 s and 0.12 s in P1e-2.
+### B5. The storage lock blocks the whole app
 
-**M3. Only if M1 cannot meet M2:** try a short-lived, read-only, per-job URL issued by the engine and loaded straight from `127.0.0.1`.
-- Use a random 128-bit value that expires after 10 minutes and serves only that one job's video.
-- Report both designs' numbers and the security trade-off under "Questions for the designer". Do not ship M3 if M1 passes.
-- Do not ship M3 without a designer choice. Prototype URL issuance/acceptance requires an explicit developer flag, off in the owner package and CI.
+- **Where:**
+  - `gui/src-tauri/src/storage.rs:204` (`refresh`, which runs when the Storage card opens) and `storage.rs:298` (`remove_old`, including its confirmation dialog) hold `storage_busy`.
+  - `State::connected` (`main.rs:53-58`) refuses every command while that flag is set. The media protocol returns 502 (`media.rs:137`), and tray Quit fails (`window.rs:274`). Pause, zoom, hide and `sourceLink` fail too.
+- **Required:**
+  - Use a separate lock to keep Move, Remove and refresh from overlapping.
+  - `connected()` refuses only during the Move phase that stops the engine.
+- **Test:** run Remove on a large synthetic old folder, and open the Storage card. While each runs, a video plays and tray Quit works.
 
-**M4. When HEVC does not play** (from A3a, checked again at start-up with the exact codec string of the app's HEVC output):
-- The player says: "This PC can't play HEVC videos inside the app. Install HEVC Video Extensions from the Microsoft Store, or open the video in your default player." It offers "Open Microsoft Store" (the HEVC Video Extensions page, through the opener with an allowlisted `ms-windows-store:` link) and "Open in default player".
-- In Add, the HEVC codec choice shows "Needs HEVC Video Extensions to play inside the app".
-- **Do not change the default output codec.** That is an owner decision; ask under "Questions for the designer", with the A3a facts.
+### B6. The free-space check before a download
 
-## Part D: input
+- **Where:** `link_jobs.py:73-76` checks only the download folder. L4 says the free-space check (P1e B2) includes the download size. Today the output and working-space check runs first in `add_job`, after the download.
+- **Required:**
+  - At queue time, run the same working and output space check that `add_job` runs. Add the download size when the download folder is on the same drive.
+  - Apply one margin once. Today the margins multiply: 2.2 × 2 copies × 1.1, about 4.84× (`link_jobs.py:76`, `video_links.py:531` and `617`).
+- **Test:** a drive with room for the download but not for the output is refused at queue time, with the existing message.
 
-- **D1. File drops.** Use native drag-and-drop events.
-  - The existing overlay "Drop to add N videos" takes N from the entering paths.
-  - A drop adds exactly as today: same filters, messages and Add flow.
-  - Remove the HTML5 file-drop code and `filePath` (`webUtils`).
-- **D2. Queue reordering** keeps today's look and behaviour, rebuilt with pointer events, because HTML5 drag and drop does not work on Windows while native drops are on.
-  - Keep keyboard reordering (Arrow keys, `Home.tsx`).
-  - Add a test that reorders by pointer and by keyboard.
-- **D3. Touchpad pinch and Ctrl+wheel in Compare** zoom the video exactly as the P1e-2 build does (P1e-2 O5), never the page.
+### B7. External programs started on every refresh
 
-## Part U: moving the owner's PC from Electron to Tauri
+- **Where:**
+  - `engine.py:315-331` calls `load_machine_profile` for each downloading job in every forecast. With the `cuda` backend, that calls `environment_info` (`logging.py:75`), which starts external programs each time.
+  - The same happens per format in `check()` (`video_links.py:318`) and in `links/estimate` with `all_formats`.
+  - `gui/src/LinkPanel.tsx:70-80` asks again for every entry's estimates whenever any quality changes.
+- **Required:**
+  - Load the machine profile once per engine start, and again only when the GPU, driver or installed models change. Pass it in.
+  - The GUI asks only for the entry whose quality changed.
+- **Report:** external process starts per minute with 20 queued downloads, before and after.
 
-**Background:**
-- The owner moved the app data with the Electron app's Storage › Move to `D:\my-workspace\VideoEnhancer\AppData`.
-- The engine reads the pointer from `%APPDATA%\VideoEnhancer\storage-location.json` (`config.py`).
-- The Electron shell wrote it to its `userData` folder. That may be the same folder or `%APPDATA%\videoenhancer-desktop` (P1e-2b review finding 4, inferred).
-- **The danger:** if the new shell misses the pointer, it silently starts on the old `%LOCALAPPDATA%\VideoEnhancer`, shows old History and settings, and splits new jobs from the real data.
+### B8. The yt-dlp cache is written to drive C
 
-**Do:**
-- **U1. Find the pointer** on the owner's PC, read-only: check both folders above for `storage-location.json`, and report which exist and whether `active` points to a folder that exists. Do not report other contents.
-- **U2. One pointer file:** `%APPDATA%\VideoEnhancer\storage-location.json`, shared by the shell and the engine (this fixes finding 4, so CLI runs follow a move too).
-  - At start-up, if it is missing but the Electron pointer exists in the other folder, copy it with an atomic write and log that.
-  - If any pointer exists but its `active` folder is missing, show the "not found" dialog (T10). Never fall back to the default folder silently.
-- **U3. Test U2** with isolated `%APPDATA%` and `%LOCALAPPDATA%`:
-  - the Electron pointer in each possible folder;
-  - a stale default folder holding different History.
+- **Where:** `video_links.py:341-350` runs yt-dlp without `--cache-dir`. yt-dlp therefore writes to `%USERPROFILE%\.cache\yt-dlp` on drive C, and Uninstall leaves it there. The owner moved all app data off drive C because it is full.
+- **Required:**
+  - Pass `--cache-dir <engine home>/tools/yt-dlp/cache` on every yt-dlp run.
+  - Uninstall removes that folder.
+- **Test:** no file appears under the user profile's `.cache\yt-dlp` during the real-tool bundle.
 
-  Assert that the app opens the pointer's folder with the expected History count. The owner checks the real PC.
-- **U4. Start with Windows.** If the setting is on, register the Tauri app (`--hidden`) and remove the old Electron entry, but only an entry whose command points to the old Electron package's `VideoEnhancer.exe`.
-  - Unit-test this with a fake registry or an isolated test value.
-  - Do not change the owner's real `Run` key during development.
-- **U5. Leftovers.** Read-only, list Electron's own leftover profile folders on the owner's PC (cache and similar) with sizes, as at most 3 items under "For the owner to delete later".
-  - Never list or touch the pointer file, the app data, or `%LOCALAPPDATA%\VideoEnhancer`.
-  - The old Electron package is replaced under the one-package rule once the Tauri package passes its smoke test.
+### B9. Reuse is off by default
 
-## Part S: Storage fixes (P1e-2b review, 2026-10-16)
+- **Where:** `LinkPanel.tsx:39` and `104`. The reuse checkbox starts unchecked, so the default is to download again. L2 says to offer the earlier file instead of downloading again.
+- **Required:**
+  - When an offer exists, select it by default. "Download again" switches to downloading.
+  - Keep the label "Use the file downloaded on <date> (<width>x<height>, <fps> fps)".
+- **Test:** a GUI unit test.
 
-| # | Finding | Fix |
-|---|---|---|
-| S1 | "Remove the old folder" does not check that the new folder exists and works, and has no confirmation (finding 1). | Enable it only when the healthy engine's resolved home equals the pointer's resolved `active`, a probe can be written/read back/removed there, and startup core records exist and load. Never compare the move manifest with the live new folder. Compare it only with the old folder under S2. Then show a confirmation dialog: "Remove the old app data folder? `<path>` · `<N>` files · `<size>`. This permanently deletes the app's old copy. Your videos are not in this folder." with Remove and Cancel (Cancel is the default). |
-| S2 | It deletes the whole folder recursively (finding 2). | Keep a manifest of the move: relative path, size, and SHA-256 where hashed. Delete only the old files that are in it and still match its size (and hash where recorded). Then remove the folders that became empty. Never follow links. Refuse a drive root, the active folder, or any folder that contains it. Result: "Removed X files (Y GB). Kept Z files that were not part of the move." with the folder. |
-| S3 | Move works while `VE_HOME` is set, and the next start then ignores the move (finding 3). | When `VE_HOME` is set, disable Move and Remove with "App data is set by VE_HOME. Unset it to use Move." |
-| S4 | The shell's and the engine's pointer locations may differ (finding 4). | U2. |
-| S5 | One torn or invalid JSON or JSONL line stops the whole move (finding 5). | Copy every file's bytes first and rebase only records that parse. Damage limited to non-startup logs/journals is copied unchanged and reported. Damaged startup core records fail Move with the specified relative-path message, retaining the current pointer and folder without repair or discard. Prefer checking before copying and keep the new-folder start check. Engine corruption recovery remains unchanged until P1e-3. |
-| S6 | A failure during `storage/prepare` leaves "App data is moving" until a restart (finding 6). | Any failure before the copy starts resets the moving state and resumes normal operation without a restart. Add a test. |
-| S7 | Opening Storage during processing can fail when temporary files vanish (finding 7). | The status scan skips files that vanish or are locked during the scan. Add a test with concurrent file churn. |
-| S8 | The Clean up list shows internal job ids (finding 8). | Show the video's file name, the state, the date and the size. Show the id only in details or a tooltip. |
-| S9 | No end-to-end test of the real restart path (finding 9). | Without `VE_HOME`, in isolated `%APPDATA%` and `%LOCALAPPDATA%`: Move → Quit → relaunch uses the new folder with History intact → append a log and remove a History item in the new folder → Remove remains enabled and deletes only matching old files through the dialog → relaunch is still fine. Probe failure or unreadable core records must disable Remove. Also cover the missing-folder dialog at start-up. |
+### B10. YouTube chunk size is dropped
 
-## Part X: tests and CI
+- **Where:** `video_links.py:532-553`. `safe_keys` drops `downloader_options`, so yt-dlp's `http_chunk_size` is lost. yt-dlp sets it because YouTube slows down large chunks.
+- **Required:** keep `downloader_options.http_chunk_size` in the info file, and accept only a positive integer.
+- **Test:** a unit test on the info file. Do not test against YouTube.
 
-- **X1. New end-to-end harness.** Build the app once per run, launch it per test with an isolated home and WebView2 data folder, and connect Playwright over CDP.
-  - Replace every `app.evaluate` (Electron main process) with renderer-level checks or test-only commands.
-  - Test-only commands are compiled only with a cargo feature (for example `e2e`) for dialog stubs and window queries. The owner's package is built without it, and a test proves those commands are absent from the release build.
-- **X2. Port every existing end-to-end spec** (12 files in `gui/tests/e2e`, including the GPU-marked ones) and both perf suites. The report maps each old test to its new test. None is dropped silently.
-- **X3. Rust:** `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test`. Cover at least: pointer migration, storage manifest deletion rules, the engine start and `serve.json` parsing, the Range math, the link allowlist, and argument validation.
-- **X4. Frontend unit tests** keep running under Vitest, with `window.desktop` mocked as today or with `@tauri-apps/api/mocks`.
-- **X5. CI:**
-  - The Windows job adds the Rust toolchain (cached), the Rust checks, a Tauri build and the CDP end-to-end tests.
-  - The Ubuntu job keeps the Python checks and the frontend lint, typecheck, unit tests and build. It does not need to build the Windows-only shell.
-  - Both must be green on the final commit.
+### B11. Analysis decodes every NVDEC video twice
 
-## Part G: acceptance
+- **Where:** in `media/analyze.py`, `verify_timestamps` (lines 112-122) decodes the whole file with NVDEC. Then `_thumbnails` (lines 130-132) decodes it again with `SimpleDecoder`.
+- **Required:**
+  - If the change stays inside `analyze.py`, make the thumbnails from the frames `verify_timestamps` already decodes.
+  - Otherwise, measure the extra time on a 10-minute 1080p30 synthetic file and report it.
+  - Scene cuts, analysis output and the pipeline output must not change (G5 strict equality).
 
-- **G1. Before and after**, Electron (A1) against Tauri, on the same PC and fixture:
+### B12. HEVC playback with the owner's extension (missed in P1f)
 
-  | Measure | Gate |
-  |---|---|
-  | Package size | Tauri shell at most 50 MB, without the engine checkout. Report both numbers. |
-  | Cold start, median of 5 | Not more than 10% slower than Electron |
-  | Idle memory after 5 min | Report only. Sum the app's own processes, including the `msedgewebview2.exe` processes that belong to it, and say how you attributed them. |
-  | Perf suites | All existing budgets pass |
-  | Media | M2 |
+- The task copy Codex received for P1f did not include this check.
+- The owner installed HEVC Video Extensions on 2026-10-18. Run the A3a HEVC check once in the packaged app:
+  - synthetic 1080 and 1440 files;
+  - the exact codec strings and `canPlayType`;
+  - real playback and seeking.
+- Change no code unless playback fails. If it fails, report it under "Questions for the designer".
 
-- **G2.** Every row of the Part T table with evidence.
-- **G3.** The codec table from A3a, and M4 if HEVC does not play.
-- **G4.** Part S: tests S1 to S9.
-- **G5.** Part U: the U1 finding and tests U2 to U4.
-- **G6. Screenshots** at 1280x800 and 1100x700, in dark and light:
-  - Home with a queue;
-  - Add;
-  - History and the player, including fullscreen;
-  - Compare;
-  - Models;
-  - Schedule;
-  - Settings with the Storage card and the remove confirmation.
+### B13. Link thumbnails can be fetched from the local network
 
-  Compare them with the last Electron screenshots (`work\evidence\P1e-2`) and list every visible difference other than the title bar. Store them outside the repository.
-- **G7.** All GPU-marked tests. The default pipeline output must not change: strict equality, as before.
-- **G8.** `ruff`, `ruff format --check`, `pyright`, CPU tests, the Rust checks, and GUI lint, typecheck, unit tests, build, end-to-end and package. Windows and Ubuntu CI green on the final commit.
-- **G9. Package for the owner's check:**
-  - `work\package\VideoEnhancer\` with `VideoEnhancer.exe` and `engine-location.json` (give the exact path);
-  - smoke-tested with an isolated home;
-  - then the old Electron package removed under the one-package rule.
-- **G10. The disk table.** The Rust toolchain and build cache are a one-time bootstrap exception to the 1 GB gate: report their sizes. Keep `CARGO_TARGET_DIR` within the 40 GB cache cap, and say how you limit it.
+- **Where:** `video_links.py:455-472` and `service/server.py:240-249`. The engine fetches any thumbnail URL from the metadata, including loopback, private and link-local addresses.
+- **Required:**
+  - Fetch only `https`, or `http` when the link itself is `http`.
+  - Resolve the host and refuse loopback, private, link-local, multicast and unspecified addresses.
+  - Follow no redirect to such an address.
+  - A refused thumbnail just shows no image.
+- **Tests:** a loopback thumbnail URL, a private-address thumbnail URL, and a redirect to loopback.
 
-## Constraints
+### B14. Cancelling a download leaves large partial files
 
-- Windows 11, no WSL. All code, comments, UI text and docs are in English.
+- **Where:** `engine.py:1447-1448`. Cancel, and Remove of a failed download, delete only the job folder. The `.ve-<job id>.*` and `.part` files stay in the user's download folder, possibly several GB.
+- **Required:**
+  - On Cancel, and on Remove of a job that never finished downloading, delete that job's own temporary files in the download folder.
+  - Match the exact name pattern with the job id. Never touch any other file, and never touch a finished, renamed download.
+- **Test:** cancel during a download. The temporary files are gone, and an unrelated file in the same folder is untouched.
+
+## 6. Not in this cycle
+
+The designer keeps these for P1e-3. Do not change them now:
+- **Decoder:**
+  - the out-of-memory fallback after the decoder retry;
+  - re-analysis keeping a runtime FFmpeg choice;
+  - `p016le` for 12-bit sources.
+- **Storage:**
+  - Remove offered when nothing can be deleted;
+  - the "earlier version" message on a pointer this app recovered;
+  - the raw JSON in the result text;
+  - a disconnected drive clearing the pointer;
+  - the status line during Remove;
+  - a second Move overwriting `previous`;
+  - hashing twice in Remove.
+- **Links:**
+  - the downloaded tool's bytes being read again before install;
+  - the install/uninstall guard while checks or downloads run;
+  - one audio choice disabling every video format;
+  - Retry after a crash between the rename and the record, and collisions that differ only in letter case;
+  - Quit refused while a downloaded video is being analysed;
+  - odd-width reuse mismatches.
+
+## 7. Do not change
+
+- The default pipeline output: G5 strict equality.
+- The P1f decoder decisions: the strict timestamp check, the per-job decoder choice and the single retry.
+- HEVC as the default output.
+- The M1 media path with 1 MiB responses.
+- The MP4 audio rule.
+- The Part R limits.
+- The T6 rules, except the tightening in B3 and B4.
+- The generic reuse rule from L2.
+
+## 8. Working rules and constraints (unchanged from P1f)
+
+- Never report a test as passed if it did not run. Report every run of a gated measurement.
+- **Not test data:** the owner's queue, settings, videos, models, Recycle Bin, `D:\my-workspace\VideoEnhancer\AppData` and `D:\my-workspace\VideoEnhancer\VE-check`. Use a separate engine home for every test.
+- **Network:**
+  - CI uses no third-party site at all, only local servers with synthetic media.
+  - Local real-network tests may use only sources that allow downloading (Wikimedia Commons, Internet Archive).
+  - Never download from YouTube, TikTok, Instagram or X in tests.
+- **Size limits:**
+  - No source above 1080 and no output above 1440 is processed.
+  - Small CPU-made fixtures above 1080p are allowed only for refusal, probe and playback tests, as P1f section 5 says.
+- **Cleanup:**
+  - Tests remove their own files under `work\scratch`. Report the size of `work\scratch` at the end.
+  - Do not use a separate delete command to get around a refused delete. List what is left under "For the owner to delete".
 - **Never commit:**
-  - media, weights, packages, screenshots or previews;
-  - `node_modules`, `target` or other build output;
+  - media, weights, downloaded tools or packages;
+  - `node_modules` or build output;
+  - screenshots;
   - `local-env.ps1`;
-  - the owner's logs, paths or private names.
-- **New dependencies:** open-source licences only. Name every crate, Tauri plugin and npm package added, with its licence, in the report.
-- No telemetry, no auto-update, no update checks. The shell makes no network access except to the local engine.
-- **User videos are never deleted permanently.** Only the deletion module may remove them, and only to the Recycle Bin, behind the guard. Part S deletes only the app's own old data, as specified.
-- The default pipeline output must not change.
-- **Update the docs:** `docs/ARCHITECTURE.md`, `docs/GUI.md`, `docs/DEVELOPMENT.md`, `docs/API.md` (origin), `docs/TROUBLESHOOTING.md` (WebView2 missing, HEVC playback) and `docs/WORKSPACE.md` (Rust paths and package layout). `README.md` does not mention Electron; change it only if something it says becomes untrue.
+  - the owner's logs, links, paths or names.
+- No telemetry and no automatic update checks.
+- All code, comments, UI text and docs are in English. Update `docs/GUI.md`, `docs/API.md` and `docs/TROUBLESHOOTING.md` where behaviour changes.
 
-## Report (`.ai/LAST_REPORT.md`)
+## 9. Acceptance
 
-- A table per part (A, T, M, D, U, S, X, G): done / partial / NOT RUN / BLOCKED, with evidence.
-- The A1 and G1 numbers side by side.
-- The A3 feasibility results, including the codec table.
-- The Part T parity table with evidence per row.
-- The old-to-new test map (X2).
-- Dependencies with licences.
-- The disk table, and "For the owner to delete" if anything was refused.
-- The package path for the owner's check.
+- Every A and B item has a test that failed on `05dbf72` (or evidence that it does not reproduce) and passes now.
+- **Python:** `ruff`, `ruff format --check`, `pyright`, the CPU suite, and the local real-tool link bundle.
+- **GUI:** lint, typecheck, unit tests, build and e2e.
+- **Rust:** fmt, clippy (default and e2e) and unit tests.
+- **GPU:** the suite `-m "gpu and not soak"`.
+- **P2 cold start:** 5 launches against the new gate in section 3.
+- **Package:** rebuilt at `work\package\VideoEnhancer`, with an isolated startup smoke and its SHA-256.
+- **CI:** Windows and Ubuntu green on the final commit.
+
+## 10. GUI checks (screenshots outside the repository, 1280x800, dark and light)
+
+- Home and History keep updating with a failed link job that had no frame rate.
+- The record-error row from A1 (use a synthetic damaged manifest).
+- The reuse offer, selected by default.
+- The list-of-lists refusal.
+- A video playing while the Storage card is open.
+
+## 11. Report (`.ai/LAST_REPORT.md`)
+
+- A table with every item (P2 gate, A1-A3, B1-B14): done / partial / not reproduced / NOT RUN, with test names and evidence files.
+- The failing output on `05dbf72` and the passing output after, for each item.
+- **Numbers:** B7 process starts, B11 analysis time, the B12 HEVC result, and the P2 cold-start medians.
+- **Disk:**
+  - the dependency restore size;
+  - growth for the rest of the cycle;
+  - the size of `work\scratch` at the end;
+  - free space on C and D.
 - "Questions for the designer", each with the default you chose.
+- The package path and its SHA-256.
 - Exact reproduction steps.
 
-Never report a test as passed if it did not run.
+
+Designer decision (2026-10-19), P1f-2 A1. Added to the task doc as A1 item 5.
+Keep the same Remove with the 10-second Undo for every broken record, including one whose JSON does not parse.
+- Valid JSON with bad values: use the existing History removal and Undo.
+- JSON that does not parse:
+  - Remove moves the whole job folder aside, inside the engine home (for example jobs/.removing/<id>). Undo moves it back unchanged.
+  - After the Undo window, delete the moved folder. At engine start, delete any folder left in that place.
+- Never repair, rewrite or partly read the broken file.
+- Do not offer the video options (moving the finished video or the original to the Recycle Bin) for a record that can't be read, because the app can't tell which files belong to it. Show instead: "This record can't be read, so its videos stay where they are."
+- Copy details shows the parse error and the record's path.
+- Tests:
+  - Remove, then Undo, restores the folder byte for byte;
+  - Remove without Undo removes only that job folder;
+  - no file outside the job folder is touched.

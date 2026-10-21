@@ -1,41 +1,15 @@
 # Development
 
-## P1t media memory qualification
+## Playback measurements
 
-Run `node scripts/media-matrix.mjs` from `gui` only on the isolated Windows test
-machine. Set `VE_M2_SCRATCH`, `VE_M2_EVIDENCE`, `VE_M2_MEDIA`,
-`VE_M2_TAURI_EXE`, `VE_M2_ELECTRON_EXE`, `VE_M2_TEMPLATE`, and `VE_PYTHON`. The media directory must
-contain the FFmpeg-only 1440p H.264 and AV1 fixtures of at least 2 GB, plus the
-1080p source fixtures. Never use owner media or the owner app-data folders.
-Use an isolated copy of the old Electron executable so its startup-registration
-check cannot match the owner's installed executable path.
-`VE_M2_TEMPLATE` points to a genuinely finished synthetic job manifest. Each run
-starts the production Python engine and uses its unchanged authenticated Range
-handler. The comparison service alone can opt into a process-local legacy Origin
-override for the old Electron package; the production server policy is unchanged.
-The 1440p fixture is never sent through the enhancement pipeline. A small synthetic
-thumbnail is seeded so the thumbnail generator does not decode it as a new source.
-For a long matrix, `VE_M2_ENGINE_SNAPSHOT` can point to a frozen scratch copy
-containing `src/` and `gui/scripts/{media-service.py,private-bytes.py}`. Save its
-source hashes with the evidence before starting, and keep the measurement binary
-unchanged throughout the matrix.
+Historical comparative measurements and their exact recipes are retained in the
+external cycle evidence and Git history. New measurements use the Tauri shell,
+isolated synthetic media and process-role samples. Never use owner media or the
+owner app-data folders. A generated playback fixture is not an enhancement input.
+The bounded media protocol uses 1 MiB responses; no unauthenticated media URLs are
+exposed by the production engine. Known acceptance failures remain in the report.
 
-Build the Tauri measurement executable with release optimization and the `e2e`
-feature. Only that feature accepts `VE_TEST_MEDIA_CHUNK_MIB` (8, 2 or 1) and
-exposes diagnostic counters. The owner package has neither test capability.
-The driver alternates Electron and Tauri, records timing medians of ten, runs
-three P/R repetitions with fixed-seed seeks, records thirty-second residuals,
-and samples each process's Windows Private Bytes every second. Raw per-process
-samples, recipe, progress, and completed-run checkpoints go to external evidence.
-An interrupted matrix resumes completed runs; do not replace failed evidence.
-This long measurement is opt-in and does not run in CPU CI.
-
-The old absolute 100 MB memory-growth gate was withdrawn by the designer.
-Compare P/R growth against Electron plus 100 MB, check the specified residual
-limit, and check the ten-minute stability gate before selecting a response size.
-No unauthenticated M3 media URL is exposed by the production engine.
-
-## Tauri desktop candidate
+## Tauri desktop
 
 On Windows 11, install MSVC C++ Build Tools, a Windows SDK and the WebView2 Runtime.
 Use Rust 1.99.1 with rustfmt and Clippy. Keep `RUSTUP_HOME`, `CARGO_HOME` and
@@ -48,13 +22,13 @@ For local tests, build the renderer, then run
 `cargo build --manifest-path src-tauri/Cargo.toml --features e2e` once before Playwright.
 Every desktop test uses an isolated home under scratch, isolated roaming/local
 app-data roots and a separate WebView2 data directory, and attaches over CDP.
-Owner packages must omit `e2e`; their test-command denial is verified separately.
+Owner packages must omit both `e2e` and `cdp`; their test-command denial is verified separately.
 The Windows CI job checks for the WebView2 Runtime and installs Microsoft's
 Evergreen Runtime on the hosted runner when missing. It passes the resolved
 runtime folder explicitly so isolated local app-data paths do not hide a
 per-user runtime. This does not install software on the developer's PC.
 Elevated hosted runners can ignore environment-only WebView2 debugging flags.
-The `e2e` feature forwards only the validated CDP port through Tauri's browser
+The `cdp` feature (also enabled by `e2e`) forwards only the validated CDP port through Tauri's browser
 arguments API; feature-free owner builds do not include this test configuration.
 
 The owner package is an executable and `engine-location.json` in one folder.

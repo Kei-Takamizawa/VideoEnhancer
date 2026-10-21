@@ -2,7 +2,10 @@ use crate::{engine, State};
 use engine::Result;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::os::windows::{fs::MetadataExt, process::CommandExt};
+use std::os::windows::{
+    fs::{MetadataExt, OpenOptionsExt},
+    process::CommandExt,
+};
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
@@ -182,8 +185,45 @@ fn no_links(root: &Path, path: &Path) -> Result<()> {
     }
     Ok(())
 }
+pub struct BusyGuard<'a>(&'a std::sync::atomic::AtomicBool);
+impl<'a> BusyGuard<'a> {
+    fn acquire(busy: &'a std::sync::atomic::AtomicBool) -> Result<Self> {
+        busy.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .map_err(|_| {
+                "App data is busy. Wait for the current operation to finish.".to_string()
+            })?;
+        Ok(Self(busy))
+    }
+}
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+pub fn refresh(state: &State) -> Result<()> {
+    let _busy = BusyGuard::acquire(&state.storage_busy)?;
+    let saved = read(&pointer()?)?;
+    let checked = verify(state, &saved);
+    *state
+        .storage_verification
+        .lock()
+        .map_err(|e| e.to_string())? = json!({
+        "pointer": saved, "can_remove": checked.is_ok(),
+        "reason": checked.err().unwrap_or_default()
+    });
+    Ok(())
+}
 pub fn status(state: &State) -> Result<Value> {
     let mut value = read(&pointer()?)?;
+    let verified = state
+        .storage_verification
+        .lock()
+        .map_err(|e| e.to_string())?;
+    let busy = state.storage_busy.load(Ordering::SeqCst);
+    value["can_remove"] =
+        json!(!busy && verified["pointer"] == value && verified["can_remove"] == true);
+    value["remove_reason"] = verified["reason"].clone();
+    value["busy"] = json!(busy);
     value["folder"] = json!(*state.home.lock().map_err(|e| e.to_string())?);
     let progress = state
         .storage_progress
@@ -194,7 +234,9 @@ pub fn status(state: &State) -> Result<Value> {
         value[key] = progress[key].clone();
     }
     value["disabled"] = json!(std::env::var_os("VE_HOME").is_some());
-    value["can_remove"] = json!(verify(state, &value).is_ok());
+    if value["previous"].is_string() && !value["manifest"].is_array() {
+        value["remove_reason"] = json!("This folder was moved by an earlier version, so the app can't check it before removing it. Keeping it is safe.");
+    }
     value["manifest"] = Value::Null;
     Ok(value)
 }
@@ -211,7 +253,7 @@ fn verify(state: &State, saved: &Value) -> Result<(PathBuf, Vec<Value>)> {
     let a = active.canonicalize().map_err(|e| e.to_string())?;
     let o = old.canonicalize().map_err(|e| e.to_string())?;
     safe_old_folder(&a, &o)?;
-    let health = engine::request(&state.connected()?, "health", "GET", None)?;
+    let health = engine::request(&state.connected_internal()?, "health", "GET", None)?;
     if !engine::reported_home_matches(&health, &a) {
         return Err("The engine is not using the verified active folder.".into());
     }
@@ -219,7 +261,7 @@ fn verify(state: &State, saved: &Value) -> Result<(PathBuf, Vec<Value>)> {
         .as_array()
         .ok_or("No verified move manifest")?
         .clone();
-    let records = engine::request(&state.connected()?, "storage", "GET", None)?;
+    let records = engine::request(&state.connected_internal()?, "storage", "GET", None)?;
     if records["core_records_load"] != true {
         return Err("The active folder's core records could not be loaded.".into());
     }
@@ -253,11 +295,16 @@ fn probe(active: &Path) -> Result<()> {
     result.and(cleanup)
 }
 pub fn remove_old(state: &State, parent: &tauri::WebviewWindow) -> Result<Value> {
+    let _busy = BusyGuard::acquire(&state.storage_busy)?;
     let file = pointer()?;
-    let mut saved = read(&file)?;
+    let saved = read(&file)?;
     let (old, entries) = verify(state, &saved)?;
-    let bytes: u64 = entries.iter().filter_map(|e| e["size"].as_u64()).sum();
-    let message=format!("Remove the old app data folder?\n{} · {} files · {:.2} GB\nThis permanently deletes the app's old copy. Your videos are not in this folder.",old.display(),entries.len(),bytes as f64/1e9);
+    let deletable: Vec<_> = entries
+        .iter()
+        .filter(|entry| removable_size(&old, entry).is_some())
+        .collect();
+    let bytes: u64 = deletable.iter().filter_map(|e| e["size"].as_u64()).sum();
+    let message=format!("Remove the old app data folder?\n{} · {} files · {:.2} GB\nThis permanently deletes the app's old copy. Your videos are not in this folder.",old.display(),deletable.len(),bytes as f64/1e9);
     // The first custom button is the default. Cancel must be first.
     let confirm = || {
         rfd::MessageDialog::new()
@@ -287,47 +334,99 @@ pub fn remove_old(state: &State, parent: &tauri::WebviewWindow) -> Result<Value>
         return Ok(json!({"cancelled":true}));
     }
     verify(state, &saved)?;
-    let mut removed = 0;
-    let mut removed_bytes = 0;
-    for entry in &entries {
-        if entry["protected_video"] == true {
-            continue;
-        }
-        let rel = relative(entry["path"].as_str().ok_or("Invalid move manifest")?)?;
-        if no_links(&old, &rel).is_err() {
-            continue;
-        }
-        let path = old.join(&rel);
-        let Some(size) = matching_old_size(&path, entry) else {
-            continue;
-        };
-        if fs::remove_file(&path).is_ok() {
-            removed += 1;
-            removed_bytes += size;
-            let mut parent = path.parent();
-            while let Some(folder) = parent {
-                if folder == old {
-                    break;
-                }
-                if fs::remove_dir(folder).is_err() {
-                    break;
-                }
-                parent = folder.parent();
-            }
-        }
-    }
-    let kept = count_files(&old)?;
+    let outcome = remove_entries(&old, &entries);
+    let latest = finish_removal(&file, &saved, &outcome.remaining)?;
+    *state
+        .storage_verification
+        .lock()
+        .map_err(|e| e.to_string())? =
+        json!({"pointer":latest,"can_remove":!outcome.remaining.is_empty(),"reason":""});
+    let kept = count_files(&old).ok();
     let _ = fs::remove_dir(&old);
-    saved
-        .as_object_mut()
-        .ok_or("Invalid pointer")?
-        .remove("previous");
-    saved.as_object_mut().unwrap().remove("manifest");
-    write(&file, &saved)?;
     Ok(
-        json!({"removed_files":removed,"removed_bytes":removed_bytes,"kept_files":kept,"folder":old,"message":format!("Removed {removed} files ({:.2} GB). Kept {kept} files that were not part of the move.\n{}",removed_bytes as f64/1e9,old.display())}),
+        json!({"removed_files":outcome.files,"removed_bytes":outcome.bytes,"kept_files":kept,"kept_manifest_files":outcome.remaining.len(),"kept_reasons":outcome.reasons,"folder":old,
+        "message":format!("Removed {} files ({:.2} GB). Kept {} move-manifest files: {}. Other unlisted files are kept.\n{}",outcome.files,outcome.bytes as f64/1e9,outcome.remaining.len(),outcome.reasons,old.display())}),
     )
 }
+fn finish_removal(file: &Path, saved: &Value, remaining: &[Value]) -> Result<Value> {
+    let mut latest = read(file)?;
+    if latest["active"] != saved["active"]
+        || latest["previous"] != saved["previous"]
+        || latest["manifest"] != saved["manifest"]
+    {
+        return Err("The storage pointer changed during removal. Its new value was kept.".into());
+    }
+    if remaining.is_empty() {
+        latest
+            .as_object_mut()
+            .ok_or("Invalid pointer")?
+            .remove("previous");
+        latest.as_object_mut().unwrap().remove("manifest");
+    } else {
+        latest["manifest"] = json!(remaining);
+    }
+    write(file, &latest)?;
+    Ok(latest)
+}
+fn removable_size(old: &Path, entry: &Value) -> Option<u64> {
+    let rel = relative(entry["path"].as_str()?).ok()?;
+    no_links(old, &rel).ok()?;
+    let path = old.join(rel);
+    let size = matching_old_size(&path, entry)?;
+    // Check current delete access without modifying the file; check again after confirmation.
+    fs::OpenOptions::new()
+        .access_mode(0x10000)
+        .share_mode(7)
+        .open(path)
+        .ok()?;
+    Some(size)
+}
+struct Removal {
+    files: usize,
+    bytes: u64,
+    remaining: Vec<Value>,
+    reasons: Value,
+}
+fn remove_entries(old: &Path, entries: &[Value]) -> Removal {
+    let mut result = Removal {
+        files: 0,
+        bytes: 0,
+        remaining: vec![],
+        reasons: json!({}),
+    };
+    for entry in entries {
+        let rel = entry["path"].as_str().and_then(|p| relative(p).ok());
+        let path = rel.as_ref().map(|p| old.join(p));
+        if path.as_ref().is_some_and(|p| matches!(fs::symlink_metadata(p), Err(e) if e.kind() == std::io::ErrorKind::NotFound)) { continue; }
+        let reason = if entry["protected_video"] == true {
+            Some("protected or blocked by a damaged manifest")
+        } else if let Some(size) = removable_size(old, entry) {
+            if let Some(path) = path.as_ref().filter(|p| fs::remove_file(p).is_ok()) {
+                result.files += 1;
+                result.bytes += size;
+                let mut parent = path.parent();
+                while let Some(folder) = parent {
+                    if folder == old || fs::remove_dir(folder).is_err() {
+                        break;
+                    }
+                    parent = folder.parent();
+                }
+                None
+            } else {
+                Some("locked or inaccessible")
+            }
+        } else {
+            Some("changed, locked, linked or inaccessible")
+        };
+        if let Some(reason) = reason {
+            let count = result.reasons[reason].as_u64().unwrap_or(0);
+            result.reasons[reason] = json!(count + 1);
+            result.remaining.push(entry.clone());
+        }
+    }
+    result
+}
+
 fn matching_old_size(path: &Path, entry: &Value) -> Option<u64> {
     let meta = fs::symlink_metadata(path).ok()?;
     if entry["protected_video"] == true
@@ -384,15 +483,19 @@ pub fn relocate(state: &State, target: &str) -> Result<Value> {
     {
         return Err("The target must be new or empty.".into());
     }
-    if state.storage_busy.swap(true, Ordering::SeqCst) {
-        return Err("App data is already moving.".into());
-    }
+    let _busy = BusyGuard::acquire(&state.storage_busy)?;
+    *state
+        .storage_verification
+        .lock()
+        .map_err(|e| e.to_string())? = Value::Null;
     let source = state.home.lock().map_err(|e| e.to_string())?.clone();
+    let mut _moving = None;
     let result = (|| {
         *state.storage_progress.lock().map_err(|e| e.to_string())? =
             json!({"phase":"Preparing the service"});
         let connection = state.connected_internal()?;
         engine::request(&connection, "storage/prepare", "POST", Some(&json!({})))?;
+        _moving = Some(BusyGuard::acquire(&state.storage_moving)?);
         engine::stop(&connection)?;
         let root = engine::root()?;
         *state.storage_progress.lock().map_err(|e| e.to_string())? =
@@ -475,13 +578,87 @@ pub fn relocate(state: &State, target: &str) -> Result<Value> {
         *state.storage_progress.lock().map_err(|e| e.to_string())? =
             json!({"phase":"Move failed; the previous folder is still in use"});
     }
-    state.storage_busy.store(false, Ordering::SeqCst);
     result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pointer_write_rechecks_active_folder_and_keeps_remaining_manifest_for_retry() {
+        let root = std::env::temp_dir().join(format!("ve-p1f-pointer-{}", std::process::id()));
+        let file = root.join("pointer.json");
+        let saved = json!({"active":"D:\\scratch\\new","previous":"D:\\scratch\\old","manifest":[{"path":"kept","size":4}],"extra":"preserved"});
+        write(&file, &saved).unwrap();
+        let kept = finish_removal(&file, &saved, saved["manifest"].as_array().unwrap()).unwrap();
+        assert_eq!(kept["previous"], saved["previous"]);
+        assert_eq!(kept["extra"], "preserved");
+        let changed = json!({"active":"D:\\scratch\\other","previous":"D:\\scratch\\new"});
+        write(&file, &changed).unwrap();
+        assert!(finish_removal(&file, &saved, &[]).is_err());
+        assert_eq!(read(&file).unwrap(), changed);
+        write(&file, &saved).unwrap();
+        let done = finish_removal(&file, &saved, &[]).unwrap();
+        assert!(done["previous"].is_null() && done["manifest"].is_null());
+        fs::remove_file(file).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
+    #[test]
+    fn one_busy_guard_excludes_move_remove_and_verification_and_releases_on_error() {
+        let busy = std::sync::atomic::AtomicBool::new(false);
+        let first = BusyGuard::acquire(&busy).unwrap();
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| assert!(BusyGuard::acquire(&busy).is_err()))
+                .join()
+                .unwrap();
+        });
+        drop(first);
+        let fails = || -> Result<()> {
+            let _guard = BusyGuard::acquire(&busy)?;
+            Err("fixture error".into())
+        };
+        assert!(fails().is_err());
+        assert!(BusyGuard::acquire(&busy).is_ok());
+    }
+    #[test]
+    fn retained_manifest_can_retry_changed_and_locked_files_without_touching_protected_or_unknown_files(
+    ) {
+        let root = std::env::temp_dir().join(format!("ve-p1f-remove-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        for name in ["good", "changed", "locked", "protected", "unknown"] {
+            fs::write(root.join(name), b"first").unwrap();
+        }
+        let entries: Vec<Value> = ["good","changed","locked","protected"].into_iter().map(|name| json!({"path":name,"size":5,"sha256":format!("{:x}",Sha256::digest(b"first")),"protected_video":name=="protected"})).collect();
+        fs::write(root.join("changed"), b"other").unwrap();
+        let locked = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(root.join("locked"))
+            .unwrap();
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|e| removable_size(&root, e).is_some())
+                .count(),
+            1
+        );
+        let first = remove_entries(&root, &entries);
+        assert_eq!(first.files, 1);
+        assert_eq!(first.bytes, 5);
+        assert_eq!(first.remaining.len(), 3);
+        assert!(root.join("unknown").is_file());
+        drop(locked);
+        fs::write(root.join("changed"), b"first").unwrap();
+        let retried = remove_entries(&root, &first.remaining);
+        assert_eq!(retried.files, 2);
+        assert_eq!(retried.remaining.len(), 1);
+        assert_eq!(fs::read(root.join("protected")).unwrap(), b"first");
+        for name in ["protected", "unknown"] {
+            fs::remove_file(root.join(name)).unwrap();
+        }
+        fs::remove_dir(root).unwrap();
+    }
     #[test]
     fn old_file_manifest_matches_size_hash_and_video_protection() {
         let file = std::env::temp_dir().join(format!("ve-old-manifest-{}.txt", std::process::id()));

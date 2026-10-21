@@ -255,6 +255,22 @@ it("keeps a failed first file visible and uses the next valid file for the outpu
   expect(call.mock.calls.some(args => args[0] === "queue" && (args[2] as {file?: string}).file === "C:\\bad.mp4")).toBe(false);
 });
 
+it("blocks an oversized file in a mixed batch and queues the supported file", async () => {
+  const estimate = { seconds: 100, low: 75, high: 125, calibrated: false };
+  const warning = "This video is larger than 1080p (short side 1081 px). VideoEnhancer processes videos up to 1080p.";
+  const row = { media: { display_width: 1080, display_height: 1920, cfr_fps: "30" }, presets: { standard: estimate, fast: estimate }, output: "C:\\output.mp4" };
+  const call = vi.fn().mockResolvedValue({ files: {
+    "C:\\large.mp4": { ...row, media: { ...row.media, display_width: 1081 }, warnings: [warning] },
+    "C:\\good.mp4": { ...row, warnings: [] },
+  }, presets: { standard: estimate, fast: estimate } });
+  render(<AddDialog api={{ call } as unknown as Api} files={["C:\\large.mp4", "C:\\good.mp4"]} defaults={settings} models={[]} close={vi.fn()} saved={vi.fn()} trial={vi.fn()} />);
+  await screen.findByText(warning);
+  fireEvent.click(screen.getByRole("button", { name: "Add to queue" }));
+  await waitFor(() => expect(call).toHaveBeenCalledWith("queue", "POST", expect.objectContaining({ file: "C:\\good.mp4" })));
+  expect(call.mock.calls.some(args => args[0] === "queue" && args[2].file === "C:\\large.mp4")).toBe(false);
+  expect(screen.queryByRole("button", { name: "Use Fast" })).toBeNull();
+});
+
 it("Add distinguishes a chosen model with unknown speed from an uncalibrated GPU", async () => {
   const known = { seconds: 50, low: 40, high: 60, calibrated: true };
   const unknown = { ...known, calibrated: false, unknown_models: ["fixture-without-reference"], profile_source: "builtin" };

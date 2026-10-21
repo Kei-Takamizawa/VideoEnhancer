@@ -156,6 +156,14 @@ pub fn external_allowed(raw: &str, publishers: &[String]) -> bool {
                             .is_some_and(|part| part.bytes().all(|b| b.is_ascii_digit()))
                 }))
 }
+pub fn external_target(raw: &str, publishers: &[String]) -> Result<String> {
+    if !external_allowed(raw, publishers) {
+        return Err("External link denied.".into());
+    }
+    reqwest::Url::parse(raw)
+        .map(|url| url.to_string())
+        .map_err(|e| e.to_string())
+}
 pub fn open(raw: &str, reveal: bool) -> Result<()> {
     if reveal {
         let status = std::process::Command::new("explorer.exe")
@@ -184,7 +192,7 @@ pub fn open(raw: &str, reveal: bool) -> Result<()> {
 }
 pub fn startup(settings: &Value) -> Result<()> {
     // Test builds never alter the owner's Run key.
-    if cfg!(feature = "e2e") {
+    if cfg!(any(debug_assertions, feature = "e2e")) {
         return Ok(());
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -251,7 +259,9 @@ pub fn startup_changes(
                 changes.push((name.clone(), None));
             }
         }
-        changes.push(("VideoEnhancer".into(), Some(command.into())));
+        if entries.get("VideoEnhancer").map(String::as_str) != Some(command) {
+            changes.push(("VideoEnhancer".into(), Some(command.into())));
+        }
     } else if entries.get("VideoEnhancer").map(String::as_str) == Some(command) {
         changes.push(("VideoEnhancer".into(), None));
     }
@@ -281,6 +291,20 @@ pub fn quit(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn external_target_percent_encodes_quotes_before_shell_open() {
+        let raw = "https://github.com/Kei-Takamizawa/VideoEnhancer/blob/main/docs/a\"b.md";
+        let normalized = external_target(raw, &[]).unwrap();
+        assert!(normalized.ends_with("a%22b.md"));
+        assert!(!normalized.contains('"'));
+        assert!(external_target("https://example.test/a", &[]).is_err());
+    }
+    #[test]
+    fn matching_run_value_does_not_produce_another_write() {
+        let command = "\"D:\\isolated\\VideoEnhancer.exe\" --hidden";
+        let entries = std::collections::BTreeMap::from([("VideoEnhancer".into(), command.into())]);
+        assert!(startup_changes(&entries, command, Path::new("D:\\old.exe"), true).is_empty());
+    }
     #[test]
     fn links() {
         assert!(external_allowed(

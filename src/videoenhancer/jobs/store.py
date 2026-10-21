@@ -23,7 +23,16 @@ from .segments import plan_segments
 
 SCHEMA_VERSION = 1
 ANALYSIS_FIELDS = ("cfr_map", "source_pts", "keyframes", "scene_cuts", "motion_scores")
-JOB_STATES = {"preparing", "queued", "running", "paused", "cancelled", "failed", "done"}
+JOB_STATES = {
+    "downloading",
+    "preparing",
+    "queued",
+    "running",
+    "paused",
+    "cancelled",
+    "failed",
+    "done",
+}
 QUARANTINE_MESSAGE = (
     "Needs attention: this video's work files are locked by another program. "
     "Close that program, then Retry."
@@ -171,9 +180,29 @@ def require_working_space(
     output_folder: Path,
     estimated_bytes: int,
     disk_free: Callable[[Path], int] | int | None = None,
+    *,
+    download_folder: Path | None = None,
+    download_bytes: int = 0,
 ) -> None:
-    for location, copies in working_space_locations(home, output_folder):
-        require_disk_space(location, estimated_bytes, disk_free, copies=copies)
+    budgets = [
+        (location, estimated_bytes * copies)
+        for location, copies in working_space_locations(home, output_folder)
+    ]
+    if download_folder is not None and download_bytes:
+
+        def device(path: Path) -> int:
+            while not path.exists() and path != path.parent:
+                path = path.parent
+            return path.stat().st_dev
+
+        for index, (location, amount) in enumerate(budgets):
+            if device(location) == device(download_folder):
+                budgets[index] = (location, amount + download_bytes * 2)
+                break
+        else:
+            budgets.append((download_folder, download_bytes * 2))
+    for location, amount in budgets:
+        require_disk_space(location, amount, disk_free, copies=1)
 
 
 def _require_unreserved_output(
@@ -364,8 +393,14 @@ class JobStore:
         source = Path(job["input"]["path"])
         if input_identity(source) != job["input"]:
             raise ValueError("The original video changed. Add it again before processing.")
+        from videoenhancer.jobs.checks import source_warning
+
+        unsupported = source_warning(probe(source, read_timeline=False).to_dict())
+        if unsupported:
+            raise ValueError(f"No longer supported: {unsupported}")
         analysis = analyze(source, backend=job["settings"]["backend"])
         job.update({key: analysis.get(key, []) for key in ANALYSIS_FIELDS})
+        job.update(decoder=analysis.get("decoder"), decoder_reason=analysis.get("decoder_reason"))
         job.pop("analysis_missing", None)
         self.save(job)
         return self.load(job["id"])
@@ -472,7 +507,7 @@ class JobStore:
             temporary.unlink(missing_ok=True)
 
     def _cached_jobs(
-        self, *, check_quarantine: bool = True
+        self, *, check_quarantine: bool = True, snapshot: bool = False
     ) -> list[tuple[Any, dict[str, Any], str]]:
         records = []
         for directory in os.scandir(self.jobs_dir):
@@ -492,6 +527,8 @@ class JobStore:
                 )
                 if cached is None or cached[0] != key:
                     job = self.load(directory.name)
+                    if job.get("id") != directory.name:
+                        raise ValueError("Job record ID does not match its folder.")
                     content = {
                         k: v
                         for k, v in job.items()
@@ -505,58 +542,111 @@ class JobStore:
                 records.append(cached)
             except (FileNotFoundError, NotADirectoryError):
                 self._manifest_cache.pop(directory.name, None)
+            except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+                if not snapshot:
+                    raise
+                stamp = ("record-error", str(error))
+                records.append((stamp, self._record_error(directory.name, error), str(stamp)))
         return records
+
+    @staticmethod
+    def _record_error(job_id: str, error: Exception, job=None) -> dict[str, Any]:
+        job = job if isinstance(job, dict) else {}
+        source = (job.get("input") or {}) if isinstance(job.get("input"), dict) else {}
+        return dict(
+            id=job_id,
+            schema_version=SCHEMA_VERSION,
+            state="failed",
+            position=job.get("position") if isinstance(job.get("position"), int) else 10**9,
+            input={"path": source.get("path") if isinstance(source.get("path"), str) else job_id},
+            output=job.get("output") if isinstance(job.get("output"), str) else "",
+            settings={
+                "preset": str((job.get("settings") or {}).get("preset") or "fast"),
+                "codec": "hevc",
+            }
+            if isinstance(job.get("settings") or {}, dict)
+            else {"preset": "fast", "codec": "hevc"},
+            media={},
+            segments=[],
+            finished_at=job.get("finished_at") if isinstance(job.get("finished_at"), str) else None,
+            record_error=True,
+            unreadable_record=isinstance(error, (json.JSONDecodeError, UnicodeDecodeError))
+            or bool(job.get("unreadable_record")),
+            error=str(error),
+            created_at=job.get("created_at") if isinstance(job.get("created_at"), str) else "",
+            updated_at=job.get("updated_at") if isinstance(job.get("updated_at"), str) else "",
+        )
 
     def queue_jobs(self) -> list[dict[str, Any]]:
         """Cache compact terminal projections; keep full probes private to per-job actions."""
         if not hasattr(self, "_queue_cache"):
             self._queue_cache: dict[str, tuple[Any, dict[str, Any]]] = {}
         rows = []
-        for key, job, _revision in self._cached_jobs():
+        for key, job, _revision in self._cached_jobs(snapshot=True):
             cached = self._queue_cache.get(job["id"])
             if cached is None or cached[0] != key:
-                excluded = {"cfr_map", "source_pts", "keyframes", "motion_scores", "scene_cuts"}
-                row = {k: v for k, v in job.items() if k not in excluded}
-                row["segments"] = [
-                    {k: v for k, v in segment.items() if k != "stats"}
-                    | {"stats": {"fps": segment.get("stats", {}).get("fps")}}
-                    for segment in job["segments"]
-                ]
-                if job["state"] in {"done", "failed", "cancelled"}:
-                    row["machine_profile"] = None
-                    row["timing"] = {
-                        "events": [
-                            e
-                            for e in job.get("timing", {}).get("events", [])
-                            if e.get("step") == "aggregating"
-                        ]
-                    }
-                    row["media"] = {
-                        k: job["media"].get(k)
-                        for k in (
-                            "display_width",
-                            "display_height",
-                            "cfr_fps",
-                            "frame_count",
-                            "duration",
-                        )
-                    }
-                self._queue_cache[job["id"]] = (key, row)
-                cached = self._queue_cache[job["id"]]
+                try:
+                    if not isinstance(job.get("created_at"), str) or not isinstance(
+                        job.get("position", 0), int
+                    ):
+                        raise ValueError("Invalid job date or queue position.")
+                    if job["state"] not in JOB_STATES or any(
+                        not isinstance(job.get(field), dict)
+                        for field in ("media", "input", "settings")
+                    ):
+                        raise ValueError("Invalid job state, media, input or settings.")
+                    if job.get("source") is not None and not isinstance(job["source"], dict):
+                        raise ValueError("Invalid job source.")
+                    excluded = {"cfr_map", "source_pts", "keyframes", "motion_scores", "scene_cuts"}
+                    row = {k: v for k, v in job.items() if k not in excluded}
+                    row["segments"] = [
+                        {k: v for k, v in segment.items() if k != "stats"}
+                        | {"stats": {"fps": segment.get("stats", {}).get("fps")}}
+                        for segment in job["segments"]
+                    ]
+                    if job["state"] in {"done", "failed", "cancelled"}:
+                        row["machine_profile"] = None
+                        row["timing"] = {
+                            "events": [
+                                e
+                                for e in job.get("timing", {}).get("events", [])
+                                if e.get("step") == "aggregating"
+                            ]
+                        }
+                        row["media"] = {
+                            k: job["media"].get(k)
+                            for k in (
+                                "display_width",
+                                "display_height",
+                                "cfr_fps",
+                                "frame_count",
+                                "duration",
+                            )
+                        }
+                    self._queue_cache[job["id"]] = (key, row)
+                    cached = self._queue_cache[job["id"]]
+                except (ValueError, KeyError, TypeError, AttributeError) as error:
+                    row = self._record_error(job["id"], error, job)
+                    self._queue_cache[job["id"]] = (key, row)
+                    cached = self._queue_cache[job["id"]]
             rows.append(cached[1])
         return sorted(rows, key=lambda row: (row.get("position", 10**9), row["created_at"]))
 
     def event_state(self) -> tuple[list[tuple[str, str]], list[dict[str, Any]]]:
         """Copy only immutable revisions and small health fields for idle SSE work."""
         # Notifications invalidate changed manifests; idle clients compare cached keys.
-        records = self._cached_jobs(check_quarantine=False)
+        records = self._cached_jobs(check_quarantine=False, snapshot=True)
         revisions = sorted((job["id"], revision) for _, job, revision in records)
         health = [
             dict(
                 id=job["id"],
-                state=job["state"],
+                state=job.get("state") if isinstance(job.get("state"), str) else "failed",
                 error=job.get("error"),
-                progress=dict(phase=job.get("progress", {}).get("phase")),
+                progress=dict(
+                    phase=(job.get("progress") or {}).get("phase")
+                    if isinstance(job.get("progress") or {}, dict)
+                    else None
+                ),
             )
             for _, job, _ in records
         ]
@@ -655,8 +745,12 @@ class JobStore:
         with self._lock(directory):
             job = self._load_unlocked(directory / "manifest.json")
             if state == "queued":
+                from videoenhancer.jobs.checks import job_support_reason
                 from videoenhancer.models.registry import validate_job_models
 
+                unsupported = job_support_reason(job)
+                if unsupported:
+                    raise ValueError(f"No longer supported: {unsupported}")
                 validate_job_models(job, self.home)
                 if not job.get("cfr_map") and not job.get("media", {}).get("frame_count"):
                     state = "preparing"
@@ -719,6 +813,7 @@ def add_job(
     disk_free: Callable[[Path], int] | int | None = None,
     target_segment_seconds: float = 180.0,
     job_id: str | None = None,
+    source_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Analyze an input and enqueue a durable, frame-exact conversion plan."""
     source = Path(path).expanduser().resolve(strict=True)
@@ -744,8 +839,8 @@ def add_job(
         chosen.update(settings)
     if not isinstance(chosen.get("delete_original_after", False), bool):
         raise ValueError("delete_original_after must be a boolean")
-    if chosen["short_side"] not in {"keep", 1080, 1440, 2160}:
-        raise ValueError("short_side must be keep, 1080, 1440 or 2160")
+    if chosen["short_side"] not in {"keep", 1080, 1440}:
+        raise ValueError("short_side must be keep, 1080 or 1440")
     if chosen["fps"] not in {"off", "2x"}:
         raise ValueError("fps must be off or 2x")
     if chosen["backend"] not in {"cpu", "cuda"}:
@@ -759,6 +854,11 @@ def add_job(
     require_disk_space(destination.parent, 1, disk_free)
     require_disk_space(store.home, 1, disk_free)
     preview_media = probe(source, read_timeline=False).to_dict()
+    from videoenhancer.jobs.checks import source_warning
+
+    unsupported = source_warning(preview_media)
+    if unsupported:
+        raise ValueError(unsupported)
     preview_bytes = estimated_output_size(identity["size"], preview_media, chosen)
     require_working_space(store.home, destination.parent, preview_bytes, disk_free)
     if any("Smart App Control" in str(job.get("error", "")) for job in store.list_jobs()):
@@ -824,6 +924,10 @@ def add_job(
         "keyframes": analysis.get("keyframes", []),
         "scene_cuts": analysis.get("scene_cuts", []),
         "analysis_seconds": analysis.get("analysis_seconds"),
+        "decoder": analysis.get(
+            "decoder", "nvdec" if analysis.get("backend") == "cuda" else "ffmpeg"
+        ),
+        "decoder_reason": analysis.get("decoder_reason"),
         "segments": segments,
         "state": "queued",
         "position": len(store.list_jobs()) + 1,
@@ -840,6 +944,8 @@ def add_job(
             else []
         ),
     }
+    if source_info is not None:
+        manifest["source"] = source_info
     with _manifest_lock(store.jobs_dir):
         _require_unreserved_output(store, destination, job_id)
         manifest["position"] = len(store.list_jobs()) + 1

@@ -1,396 +1,304 @@
-# VE-P1t implementation and validation
+# VE-P1f-2 review fixes
 
-- Task ID / Cycle: VE-P1t, P1t.
-- Status: PARTIAL. Implementation/local validation and source Windows/Ubuntu CI complete. Cold start, History switching, AV1 and repeat-memory gates failed; cleanup was refused.
-- Branch: p1t-tauri, base p1d-ui-v2 at 40755c0. Draft PR #6.
-- CURRENT_TASK.md preserves the complete task and designer decisions.
-- All media is synthetic and all application homes/profiles are isolated under work/scratch. The owner queue was not used. Product source/output limits are deferred to P1f Part R as instructed; no new product limit is introduced here.
-- External evidence root: work/evidence/P1t. No media, weights, packages, screenshots, caches or owner logs belong in Git.
+Status: COMPLETED — implementation, local acceptance, packaging and cleanup.
+Final-head CI is the post-push delivery gate: its actual run outcome is recorded on PR #7 and in the closing response, after this report is committed.
+Cycle: VE-P1f-2, 2026-10-19. Start: 05dbf72bebef3fd24929dae2ea6131c6fdd7a51f.
+Branch: p1f-links. Existing draft [PR #7](https://github.com/Kei-Takamizawa/VideoEnhancer/pull/7), base p1t-tauri.
+Private evidence: D:\my-workspace\VideoEnhancer\work\evidence\P1f-2.
+No owner queue, media, model installation, AppData, VE-check or Recycle Bin was used.
 
-## Implementation and changed files
+## Changes and item-by-item evidence
 
-Added gui/src-tauri (engine/media/storage/window/commands), the renderer bridge and CDP harness. Existing screens retain native title bar/drop events, pointer/keyboard reorder, HEVC guidance and Storage fixes. Updated six documents and CI. Electron removal remains conditional on acceptance.
+The baseline archive was extracted from Git 05dbf72 and imported from its own
+absolute src path. review-isolated-05dbf72-actual.log reports 30 FAIL / 6 PASS.
+The six passes include five pre-existing invalid chunk rejections and the
+pre-existing all-formats estimate case; they do not establish the positive
+chunk preservation behavior. Earlier source-replay and GUI/Rust baseline logs
+remain available. review-isolated-05dbf72.log accidentally tested current code
+after archive extraction failed: INVALID as baseline evidence.
 
-The M1 protocol bounds every response, limits simultaneous upstream fetches to two, uses a 10-second engine-fetch timeout and checks the exact returned body length. Cancellation notification is unavailable and the designer waived engine cancellation. M3 is not in the production engine; the private prototype requires VE_DEV_M3_MEDIA=1.
-
-Storage uses one canonical roaming pointer, migrates a legacy pointer atomically, verifies the active engine home and writable/readable probe, and checks startup core records before enabling Remove. Only matching manifest-listed OLD files may be removed; the live NEW folder is never compared with the manifest. Malformed non-core JSON/JSONL bytes are retained. Damaged job manifests conservatively protect all old files because their source/output paths cannot be established.
-
-## Part status
-
-| Part | Status | Evidence / limitation |
-| --- | --- | --- |
-| A | PARTIAL | Baseline and feasibility measured; historical renderer budgets failed. |
-| T | PARTIAL | Final enabled E2E cases passed across full and targeted runs. Native confirmation, missing-folder recovery/Quit, Explorer selection, default player and browser checked; tray and physical checks remain NOT RUN. |
-| M | PARTIAL | All 96 production measurements complete. Designer selects 1 MiB M1; AV1 growth/residual FAIL remains. Follow-ups complete: M1 and M3 repeat FAIL; M1 retained per designer. Low-target trial reduces residual, timing PASS. |
-| D | PARTIAL | Pointer/keyboard and trusted wheel tests passed; physical pinch/native OS drops NOT RUN. |
-| U | PARTIAL | Read-only pointer/cache checks and two stale-default isolation tests passed, including final10 E2E. Owner cache deletion intentionally not attempted. |
-| S | PARTIAL | Expanded S9 and exact S5 UI refusal PASS. Startup damage safely fails Move; recovery deferred to P1e-3 by designer. |
-| X | DONE | Local checks and Windows/Ubuntu source CI PASS. |
-| G | PARTIAL | Package/visuals/local checks complete; cold start, renderer and media gates FAIL. Old package and scratch cleanup refused; source CI PASS. |
-
-## Baseline and feasibility
-
-| Measure | Electron A1 | Tauri final |
-| --- | --- | --- |
-| Package logical bytes | 428,412,636 (74 files) | 5,749,307 (2 files); PASS <=50 MB |
-| Five cold starts, ms | 1267.2931, 499.346, 574.3591, 431.2788, 487.5167; median 499.346 | 736.5263, 668.9520, 679.2962, 660.3506, 681.8362; median 679.2962; FAIL limit 549.2806 |
-| Five-minute app private working set | 130,490,368 bytes | 101,498,880 bytes |
-| Renderer interaction p98, ms | Runs 2/3/4: 259.36 / 243.36 / 211.36; FAIL against 200 | 72 observed; suite FAIL warm History 134.65 >100 ms |
-| Real CUDA progress | PASS; backend median .957652% of one core; renderer .93326 Hz | PASS final14; backend1.00806%, renderer.96657 Hz, job done |
-
-A1 renderer run 1 aborted because the environment was loaded from the wrong directory. Runs 2/3 had concurrent resource activity; serial run 4 still failed. All failures remain reported. The baseline idle fixture has 1,000 History records and a Node fixture server; separate Python engine memory was NOT RUN in that baseline. Production M2 records Python-engine memory separately and excludes it from app-process totals.
-
-Build environment: Build Tools 18.11.12306.390, SDK 10.0.26100.0, Rust 1.99.1 and WebView2 155.0.4283.45. The native DWM caption/text calls returned HRESULT 0 for dark/light; Snap Layouts were observed. The actual app origin is http://tauri.localhost. AV1 extension 2.0.35.0 and VP9 extension 1.2.20.0 were present; HEVC extension absent.
-
-| Codec | 1080 exact string | 1440 exact string | MSE / canPlayType, both sizes | Actual playback/seek |
-| --- | --- | --- | --- | --- |
-| H.264 | avc1.640028 | avc1.640032 | true / probably | PASS both |
-| AV1 | av01.0.08M.10 | av01.0.12M.10 | true / probably | PASS both |
-| HEVC | hev1.2.4.L120.90 | hev1.2.4.L150.90 | false / empty | FAIL both; error 4 |
-
-M4 keeps HEVC as the default and offers the exact compatibility message, Store link and default-player action. H.264 Compare uses the existing CPU encoder. Store installation was NOT RUN. The native default-player action opened the isolated H.264 clip in Media Player; its first frame was visible, paused at 0 s (no autoplay claim).
-
-## Historical media runs, not final qualification
-
-Before the owner stopped the run, a 2160 file of 2,461,695,636 bytes gave start 126.35 ms, seek 2757.70 ms and sampled warm-baseline USS growth 191,807,488 bytes: FAIL seek. These are historical results only. Five own 4K/2160 files totaling 2,710,532,061 bytes were deleted after the size update; exact before/result inventories are retained. No prohibited GPU job was resumed.
-
-The final 1440 fixtures are H.264 2,032,330,077 bytes and AV1 2,032,855,414 bytes. FFmpeg generated 1920x1080 synthetic content, scaled it to 2560x1440, encoded NVENC p4 constqp18 GOP15 samples and stream-copied repetitions; no enhancement pipeline, padding or owner media. Recipe and ffprobe results are retained.
-
-| Run | Status and measurements |
-| --- | --- |
-| M1 media-run1 | SETUP FAIL: HEAD fetch to custom media scheme blocked by strict connect-src; fixture obtained size externally. |
-| M1 media-run2, 2 MiB | Timing H.264 78.8/60 ms, AV1 63.75/80.7 ms. Memory INVALID: Python descendants included (1,103,085,568 / 861,855,744 bytes). |
-| M1 media-run3 | Build failed from missing Emitter import; command incorrectly continued with stale 2 MiB binary. H.264 66.25/54.9 ms, AV1 61.85/76 ms; corrected app attribution USS growth 210,038,784 / 236,216,320. Not a 512 KiB qualification. |
-| M1 media-run4, actual 512 KiB | H.264 74.1/75.65 ms, 298,684,416 bytes; AV1 32.85/122.25 ms, 323,600,384 bytes. Client fetch peak 2. FAIL withdrawn absolute USS gate. |
-| M3 runs 1/2/3 | SETUP FAIL: token-route 404, then CSP mistakes. Private tokens redacted. |
-| M3 run4, unbounded HTTP | H.264 41.85/18.4 ms, 138,612,736 USS bytes; AV1 36.95/24.2 ms, 142,442,496 bytes. Fetch peak 2. FAIL withdrawn gate. |
-| M3 run5, HTTP cap 256 KiB | H.264 100.95/96.8 ms, 323,911,680 USS bytes; AV1 125.05/122.7 ms, 356,532,224 bytes. FAIL withdrawn gate. |
-| Node-fixture new-gate attempt | Exploratory only, intentionally stopped to use the production Python Range handler. Completed 8 MiB H.264 timing/P/R; Electron steady completed; Tauri steady aborted. No qualification from this attempt. |
-
-Historical M1 versus M3 simultaneous-peak attribution: H.264 shell .041/.287 MB and WebView2 298.643/138.326 MB; AV1 shell -1.270/.254 MB and WebView2 324.870/142.189 MB. The extra160-181 MB was in WebView2. Old child roles were not recorded, so renderer/GPU attribution from those old logs is inference. Historical USS is not comparable with the revised Private Bytes metric. Raw PIDs/increments remain in historical-m1-m3-attribution.json. New M2 records every PID/role.
-
-## Revised production M2
-
-All 96 runs completed. M2 FAIL: no chunk passes both codecs. Every timing and steady-growth gate passes; every AV1 P-growth and P/R residual comparison fails. Post-steady residuals remain observational; only the specified ten-minute growth comparison is a steady-test gate. The corrected evaluator reports H.264 at 1 and 2 MiB PASS, AV1 FAIL at every chunk.
-
-T/E means Tauri/Electron. Timing is the median of ten; P/R growth and residual are medians of three. MB are decimal. Shell peaks are maximum individual shell Private Bytes over the three repetitions, not growth. Per-process peaks are not simultaneous.
-
-| MiB | Codec | Start / seek ms, T | P growth MB, T/E | R growth MB, T/E |
-| --- | --- | --- | --- | --- |
-| 8 | h264 | 104.60 / 80.15 | 427.2/405.0 | 235.0/391.7 |
-| 8 | av1 | 119.20 / 78.10 | 371.7/229.3 | 296.1/449.3 |
-| 2 | h264 | 48.15 / 49.80 | 361.0/419.5 | 213.0/395.4 |
-| 2 | av1 | 49.80 / 49.55 | 357.7/222.7 | 245.9/469.1 |
-| 1 | h264 | 32.85 / 38.15 | 319.3/416.7 | 169.5/401.5 |
-| 1 | av1 | 33.55 / 49.70 | 362.8/220.3 | 242.0/461.8 |
-
-| MiB | Codec | P residual MB, T/E | R residual MB, T/E | Steady 2-10 min MB, T/E | Shell P/R peak MB, T | Engine P/R peak |
-| --- | --- | --- | --- | --- | --- | --- |
-| 8 | h264 | 235.5/276.1 | 193.5/185.3 | 11.2/71.3 | 92.6/74.7 | 1/2 |
-| 8 | av1 | 271.9/27.9 | 229.4/214.0 | 10.4/109.1 | 93.1/85.5 | 1/2 |
-| 2 | h264 | 228.4/286.5 | 177.9/182.5 | 6.7/63.5 | 30.1/30.7 | 1/2 |
-| 2 | av1 | 270.2/30.7 | 236.4/223.7 | 15.7/142.4 | 16.4/26.2 | 2/2 |
-| 1 | h264 | 233.5/274.5 | 155.5/185.2 | 16.7/76.2 | 19.6/16.4 | 2/2 |
-| 1 | av1 | 279.2/24.1 | 235.7/213.5 | 16.3/100.2 | 18.8/20.5 | 2/2 |
-
-Every PID/role/baseline/peak/growth is in m2-production/per-process.csv; raw JSONL holds 1 s observations and concurrent totals. The role table is the median of three per-PID peak-growth aggregates (P/R MB, absent roles zero). Role peaks need not coincide; do not sum them into a total.
-
-| MiB / codec | Role | P growth MB | R growth MB |
+| Item | Status / implementation | Failing baseline or permitted alternative | After / evidence |
 | --- | --- | --- | --- |
-| 8 / h264 | browser-helper | 2.1 | 1.0 |
-| 8 / h264 | crashpad-handler | 0.9 | 0.9 |
-| 8 / h264 | gpu-process | 85.0 | 97.9 |
-| 8 / h264 | renderer | 276.9 | 236.3 |
-| 8 / h264 | shell | 84.8 | 9.1 |
-| 8 / h264 | utility:network.mojom.NetworkService | 0.0 | 0.0 |
-| 8 / h264 | utility:storage.mojom.StorageService | 0.0 | 0.0 |
-| 8 / av1 | browser-helper | 8.5 | 25.7 |
-| 8 / av1 | crashpad-handler | 0.9 | 0.9 |
-| 8 / av1 | gpu-process | 63.4 | 82.0 |
-| 8 / av1 | renderer | 307.2 | 267.0 |
-| 8 / av1 | shell | 67.3 | 69.0 |
-| 8 / av1 | utility:network.mojom.NetworkService | 0.0 | 0.0 |
-| 8 / av1 | utility:storage.mojom.StorageService | 0.0 | 0.0 |
-| 2 / h264 | browser-helper | 5.0 | 1.2 |
-| 2 / h264 | crashpad-handler | 0.9 | 0.9 |
-| 2 / h264 | gpu-process | 81.2 | 86.9 |
-| 2 / h264 | renderer | 277.2 | 223.2 |
-| 2 / h264 | shell | 20.3 | 20.5 |
-| 2 / h264 | utility:network.mojom.NetworkService | 0.0 | 0.0 |
-| 2 / h264 | utility:storage.mojom.StorageService | 0.0 | 0.0 |
-| 2 / h264 | utility:unzip.mojom.Unzipper | 0.0 | 0.0 |
-| 2 / av1 | browser-helper | 2.1 | 1.1 |
-| 2 / av1 | crashpad-handler | 0.9 | 0.9 |
-| 2 / av1 | gpu-process | 46.4 | 61.6 |
-| 2 / av1 | renderer | 308.8 | 270.0 |
-| 2 / av1 | shell | 4.1 | 14.0 |
-| 2 / av1 | utility:network.mojom.NetworkService | 0.0 | 0.0 |
-| 2 / av1 | utility:storage.mojom.StorageService | 0.0 | 0.0 |
-| 1 / h264 | browser-helper | 5.7 | 0.8 |
-| 1 / h264 | crashpad-handler | 0.9 | 0.9 |
-| 1 / h264 | gpu-process | 39.6 | 57.3 |
-| 1 / h264 | renderer | 281.9 | 207.5 |
-| 1 / h264 | shell | 3.6 | 4.6 |
-| 1 / h264 | utility:network.mojom.NetworkService | 0.0 | 0.0 |
-| 1 / h264 | utility:storage.mojom.StorageService | 0.0 | 0.0 |
-| 1 / h264 | utility:unzip.mojom.Unzipper | 0.0 | 0.0 |
-| 1 / av1 | browser-helper | 6.2 | 1.1 |
-| 1 / av1 | crashpad-handler | 0.9 | 0.9 |
-| 1 / av1 | gpu-process | 48.4 | 29.9 |
-| 1 / av1 | renderer | 311.9 | 262.0 |
-| 1 / av1 | shell | 11.2 | 11.5 |
-| 1 / av1 | utility:network.mojom.NetworkService | 0.1 | 0.0 |
-| 1 / av1 | utility:storage.mojom.StorageService | 0.0 | 0.0 |
+| P2 | Done / PASS, exactly one five-launch measurement | Historical P1f Home-ready 694.6 ms vs Electron 420.9 ms remains FAIL. Relative gate retired by designer. | Home-ready median 718.287 ms <=765; first paint median 720.128 ms <=1000. p2-five-launches.json; all five processes/children exited. |
+| A1 | Done: null unknown media, legacy zero interpretation, pre-analysis link rows, per-record isolation/log once; bad JSON uses whole-folder staging plus 10-second Undo. | test_a1_legacy_placeholders_and_bad_record_isolation, test_a1_bad_projection_or_json_keeps_other_rows_and_safe_removal and GUI History zero-width baseline FAIL. | test_a1_unknown_media_snapshots; real HTTP R2 refusal retains file and GET queue 200 (http-r2.log); unreadable-tests6.log 42 PASS. Raw invalid JSON and invalid UTF-8: byte-identical Undo, expiry, startup cleanup, outside video untouched, file-choice refusal, parse/path details. |
+| A2 | Done: abort missing fragments; compare known duration, keep incomplete file. | test_a2_fragment_abort_flag and test_a2_incomplete_duration_is_kept_and_refused FAIL. | real-hls2.log 2 PASS: once-failed middle segment retries to complete 180 frames; persistent HTTP 500 exhausts four attempts. Unit duration test PASS. |
+| A3 | Done: exact unfinished job MKV removed before each attempt. | test_a3_partial_remux_removed_before_attempt FAIL. | real-remux.log 1 PASS: actual FFmpeg remux suspended/killed, resumed to complete 240-frame file. |
+| B1 | Done: entry URL plus --no-playlist, identity still checked. | test_b1_entry_rechecked_once FAIL. | real-playlist.log PASS: three real local direct-file checks embedded in playlist fixture; three single-video checks and three transfers, no whole-playlist recheck. |
+| B2 | Done: nested/missing-URL cards have plain reasons. | test_b2_nested_or_missing_url_gets_plain_reason FAIL. | Unit and actual GUI nested-list card PASS. |
+| B3 | Done: only exact HTTP-whitelist failure gets encryption refusal. | test_b3_non_http_whitelist_failure_falls_back FAIL. | real-tls2.log PASS: AES-128 HLS crypto failure follows fallback. Proxy whitelist unit PASS. |
+| B4 | Done: format and fragment URL/path/base encryption checks, including relative URL resolution. | test_b4_http_fragments_refused FAIL. | real-tls2.log PASS: HTTPS metadata with HTTP MPD fragments refused before transfer. |
+| B5 | Done: storage_busy excludes storage mutations; storage_moving alone disconnects engine commands until recovery finishes. | b5-baseline-actual.log: old connected condition fails connected().is_ok(). | Rust 20 PASS; real GUI video/play/seek and shared tray Quit handler during long verification/removal PASS, gui-e2e-final.log and storage screenshots. Physical tray click NOT RUN. |
+| B6 | Done: queue and transfer reserve work/output/download/remux space with one 10% margin per volume. | test_b6_queue_checks_working_space and same-drive boundary FAIL. | Unit insufficient output disk PASS; output 1000 B/download 500 B: 4399 B fails, 4400 B passes. Unknown download sizes cannot be reserved exactly. |
+| B7 | Done: hardware/profile cache, shared engine hardware data, job profiles, changed-entry-only estimate requests. | test_b7_estimates_do_not_reprobe_hardware FAIL; old LinkPanel request test FAIL. | b7-process-starts.json: 20 jobs, first 60 s actual starts 1137 -> 0; GUI unit request isolation PASS. |
+| B8 | Done: --cache-dir inside engine home/tools/yt-dlp/cache. | test_b8_cache_is_inside_engine_home FAIL. | Real 99-test bundle PASS; USERPROFILE/.cache/yt-dlp before/after files 0/0, new/changed 0/0 (b8-profile-cache-guard.json). |
+| B9 | Done: reuse selected initially; Download again remains available. | Old LinkPanel default-reuse unit FAIL. | LinkPanel unit and actual GUI both themes PASS. |
+| B10 | Done: preserve only positive integer http_chunk_size, excluding bool. | test_b10_preserves_only_positive_chunk_size FAIL; invalid values already rejected. | Positive preservation and five invalid-value cases PASS. Real YouTube NOT RUN (prohibited). |
+| B11 | Done by permitted measurement; no decoder/pipeline change. | Second decode observed directly, no defect claim requiring behavior change. | 10-minute synthetic 1080p30, 18000 frames: NVDEC verification 16.034 s; second thumbnail decode 17.416 s; full analysis 40.701 s, b11-analysis-time.json. |
+| B12 | Not reproduced; no HEVC playback code change. | Same existing codec support code tested after owner's extension installation. | HEVC Video Extensions 2.5.48.0; actual packaged M1 playback/seek PASS at 1080 and 1440, b12-hevc-playback.json. |
+| B13 | Done: HTTP only for original HTTP, public IP validation for every redirect and pinned public address connection to prevent DNS rebind. | Private thumbnail and redirect tests FAIL. | Loopback/private/redirect/rebind refusal tests PASS before network connection. |
+| B14 | Done: Cancel removes only unfinished exact .ve-<id>. files; Pause retains resumable partials. | test_b14_cancel_removes_only_own_partial_files FAIL. | real-cancel.log PASS with actual throttled transfer; unrelated similar prefix remains. Finished source never removed. |
 
-Designer-selected P1t path: 1 MiB M1 (decision 2026-10-17). AV1 gates 1 and 2 remain FAIL. It reduces the maximum shell P/R peak from 93.1 MB at 8 MiB to 20.5 MB, gives the lowest H.264 P/R growth and fast starts/seeks. The requested repeat, idle, decoder and M3 follow-ups are complete below; M1 remains the selected path. This is parameter tuning, not a switch to M3. Native fetch permits and actual engine logs both observed a maximum of two concurrent fetches. The largest new-run playback growth is in WebView2 renderer/GPU processes; the exact historical renderer/GPU attribution remains inferred because those old roles were not captured.
+The designer's A1 decision is appended verbatim to CURRENT_TASK.md. Existing completion timestamps are retained in pre-analysis/error History rows. No damaged
+manifest is repaired, rewritten or partially interpreted. Valid JSON with bad
+values follows the existing History removal workflow. Unparseable records move
+inside the engine home and restore unchanged; video options are hidden with the
+specified message. Copy details includes parse error and path. Windows job-log
+handlers are closed before staging, as already done by normal permanent removal.
 
-Method: 1 s Private Bytes sampling of all app descendants; 10 s pre-Play baseline, concurrent peak and 30 s residual. Alternate T/E three times with seed0x51eecafe; ten-minute stability seeks every30 s. The actual paused Python Engine/LocalServer serves Range; only the comparison service permits the legacy Origin. Production policy is unchanged. Frozen binary SHA-256 1a4f803c7739933e55c416ae2a0befe820641dc2ece925cad51f04b882989ce9; source/build provenance and complete PID exports are retained in m2-production-source.json, m2-production-build.json and the matrix output.
+B7's measured baseline made 29 refreshes in 61.141 s and started 569 nvidia-smi
+plus 568 FFmpeg processes in the first 60 s. The fixed code made 60 refreshes in
+60 s and started no processes during refresh. Startup hardware initialization is
+excluded from both counts. These are actual launches, not a theoretical count.
 
-## Tests already executed, before final edits
+B11 is one observation under concurrent local validation, not an isolated speed
+gate. The generated source was deleted by the measurement recipe. No scene-cut
+or decoder architecture was changed.
 
-| Check | Result | Evidence |
-| --- | --- | --- |
-| GPU-marked Python | PASS 101, 449 deselected, 15707.09 s; strict equality included | gpu-final.log |
-| CPU Python final | PASS 458, SKIP 3, deselected 101, 754.02 s | cpu-final3.log |
-| Targeted storage/service | PASS 35, 29.47 s | storage-service-final.log |
-| Rust unit | PASS 12 after native Explorer fix | rust-test-final12.log |
-| Rust clippy default / e2e | PASS default final12 and e2e final13 | clippy-default-final12.log / clippy-e2e-final13.log |
-| GUI unit | PASS 47 across 10 files, 6.48 s; HEVC disabled-play and Low/Normal player lifecycle | gui-test-final13.log |
-| GUI lint/typecheck/build | PASS final13 lint/typecheck, final10 frontend build; Vite chunk-size warning | gui-*-final13.log / package-build-final12.log |
-| Initial default E2E | 5 PASS, 9 SKIP, 1 FAIL pinch test; corrected p1e run 4 PASS | e2e-all-run1.log / e2e-p1e-run3.log |
-| Expanded default E2E | 6 PASS, 11 SKIP, 1 FAIL S9 profile locked inside moved home | e2e-final.log |
-| S9 corrected profile location | PASS 1, 20.3 s | e2e-s9-run2.log |
-| Current default E2E | 10 PASS, 11 SKIP, 1 FAIL Esc fullscreen | e2e-current.log |
-| Esc/fullscreen restoration fix | PASS 1 | parity-run2.log |
-| Pointer folder versus stale History | PASS 2 | u3-run1.log |
-| Visual suites | PASS 4, 2.1 min; first attempt 3 PASS, 1 timeout from obsolete title-bar locator | visual-final.log / visual-run1.log |
-| First unsigned package smoke | PASS 1, 9.3 s; test-only command rejected, require undefined, external engine found | package-smoke-run1.log |
+B12 actual canPlayType was "probably" at both sizes. 1080 codec
+hvc1.1.6.L120.90: first frame 119.6 ms, seek 58.3 ms. 1440 codec
+hvc1.1.6.L150.90: first frame 58.6 ms, seek 46.6 ms. These are single functional
+observations, not ten-run medians. The app's existing hev1 probe was also
+"probably". CDP was enabled only in the instrumentation build.
 
-Final enabled E2E coverage: final10 ran 20 PASS, 1 FAIL, 5 SKIP (6.8 min). The failure was an ambiguous Standard button in the Windows-flow test. The targeted final11 completed the flows but failed a window-monitor assertion: two internal layered helper windows have a 14x14 outer rectangle and 0x0 client area. The monitor now records them as non-display windows by geometry/style, without class-name whitelisting. Targeted final12 PASS (1.7 min): 1,012 polls, 101.188 s, unexpected=[]. Thus all 21 enabled cases passed across the full and targeted runs; a single full 21-pass rerun is not claimed. See e2e-final10.log, windows-flows-final11.log, windows-flows-final12.log and native-window-geometry. Earlier final9: 17 PASS, 4 FAIL, 5 SKIP (stale labels, a fixture outside scratch and required HTTPS validation); all were corrected without relaxing production validation. Earlier final8: 14 PASS, 12 SKIP. Historical aborted/setup runs remain in evidence.
+## Validation
 
-GPU GUI trial and resume passed on allowed synthetic inputs. The trial's before/after estimate was unchanged at 51.6347; no speed-gain claim. Windows flows exercised all seven flows with local HTTPS weights, session-only CA trust and no system certificate-store change. Temporary test-environment dependencies: cryptography 50.0.2 (Apache-2.0 OR BSD-3-Clause), cffi 2.1.1 (MIT-0), pycparser 3.11 (BSD-3-Clause); not product dependencies.
-
-Physical touchpad pinch, real Explorer drops of 1/50 files, cross-volume C-D-C move, actual tray-menu interaction, native video/folder picker selection, Store installation and reboot remain NOT RUN. The legacy GPU GUI speed-calibration test with 2160 output is NOT RUN (designer decision). CPU-only legacy 2160/3840 metadata or tiny synthetic tests were allowed. No prohibited GPU processing was resumed.
-
-## Storage findings
-
-| Finding | Implementation and evidence |
+| Check | Result |
 | --- | --- |
-| S1 | Healthy resolved active home, write/read/remove probe and startup records gate Remove. Original expanded core/probe unit cases passed; expanded S9 probe/core negative checks PASS (e2e-final8). Native confirmation inspected at both sizes/themes. Enter/Esc cancel preserved the old file; explicit Remove deleted the matching old file and retained the active folder/pointer (native-final/remove-result.json). |
-| S2 | Old-only size/hash manifest deletion, no links/root/active ancestor, unknown/changed/video files retained. Rust matching/protection tests passed; expanded S9 changed-size/hash/unknown-file cases PASS (e2e-final8). |
-| S3 | VE_HOME disables Move and Remove with the specified message; storage visual and final10 E2E coverage PASS. |
-| S4 | Shared canonical roaming pointer; two pointer locations beat stale-default History in U3 (2 PASS). |
-| S5 | Designer narrowing implemented: preflight refuses damaged startup records with the exact relative-path message, retains current pointer/home, and keeps the new-folder start guard. Non-core damaged bytes/record counts retained. All eight new CPU cases and expanded S9 PASS, including the exact displayed refusal message; recovery functions unchanged. |
-| S6 | Preparation errors reset moving/previous pause state; test_prepare_failure_restores_normal_operation passed in targeted suite. |
-| S7 | Status scan skips disappearing/locked files; concurrent-churn test passed. |
-| S8 | Cleanup rows use filename/state/date/size; id remains tooltip/detail. Final Storage visual comparison completed; evidence retained. |
-| S9 | Actual Move/Quit/relaunch passed with profiles outside home. Final expanded sequence includes live log append, History deletion, probe/core failures, cancellation and matching-old-file removal, plus S5 preflight refusal; PASS 20.8 s in e2e-final8. Cross-volume C-D-C remains NOT RUN. |
+| Python Ruff / format / Pyright | PASS, ruff-final.log, ruff-format-final.log, pyright-final.log (0 errors/warnings). |
+| GUI lint / typecheck / build | PASS; existing >500 kB bundle warning remains. |
+| GUI unit | 56 PASS, gui-unit-final5.log; includes hidden video-choice rejection for unreadable records in both dialog modes. |
+| Rust fmt / clippy default and e2e / units | PASS; 20 unit tests, rust-*-final.log. |
+| Real verified tools bundle | 99 PASS in 218.54 s, real-bundle-final.log; synthetic loopback media only. |
+| Latest A1 scoped unit suite | 42 PASS in 34.82 s, unreadable-tests6.log. |
+| CPU complete suite | PASS: 582 PASS / 24 SKIP / 101 deselected, 801.34 s, cpu-final3.log. Previous position regression fixed; previous restart test omitted startup recovery and was corrected. |
+| GPU suite | PASS: 101 tests, 583 deselected, 15354.82 s (4:15:54), gpu-suite.log. |
+| Actual GUI suite | PASS: 16 PASS / 13 SKIP, gui-e2e-final2.log (2.7 min). Corrected locator and final GUI guard included. |
+| Feature-free package smoke | PASS: final candidate and again after cache deletion, featurefree-smoke-final.json / featurefree-smoke-after-cleanup.json. Expected isolated engine home and no remote-debugging argument. |
+| P2 five-launch measurement | PASS: 718.287 ms Home-ready / 720.128 ms first paint medians; one measurement, all other suites finished. |
+| Final-head Windows / Ubuntu CI | Post-push gate, required green before delivery; live results and run IDs on existing draft PR #7. No pre-push result is claimed. |
 
-## T parity evidence
+Failures and warnings are retained, not erased:
+- The first baseline's missing basetemp parent was an execution error, not a product failure.
+- Initial real HLS fixture requested missing interpolation model after transfer;
+  corrected to FPS off/keep, both real HLS tests then passed.
+- Initial TLS tests skipped because OpenSSL was unavailable. A local certificate
+  was generated for the successful tests; no certificate dependency added to the project.
+- Early focused tests included sandbox process-tree permission errors, an outdated
+  hardware-probe expectation and an obsolete disk mock. Scoped reruns are recorded.
+- Broken-JSON staging initially failed because Windows log handles were open.
+  Closing those handles fixed folder rename. A restart unit initially omitted
+  Engine.start/_recover; corrected to invoke the exact startup recovery method.
+- A full GUI attempt used an ambiguous Copy details locator (health notice and
+  dialog). The test was scoped to the Video details dialog; no UX workaround.
+- One preliminary A1 test used full Engine.start, leaving a hardware-probe
+  temporary file locked at interpreter exit. It passed 42 assertions but emitted
+  cleanup warnings. The final focused test calls startup recovery directly and
+  avoids unrelated background hardware probes.
+- NO_COLOR/FORCE_COLOR and the existing JS bundle-size warnings are informational.
+- Dependency restoration had sandbox network/OUT_DIR and launcher-cache errors.
+  Retried normal installs/builds under reviewed escalation. Locked all-extras uv
+  sync restored exact dependency versions; no lockfile or dependency spec changed.
 
-| Row | Evidence and present limit |
-| --- | --- |
-| T1 | Single-instance/focus E2E PASS in final10; isolated GPU resume also PASS. |
-| T2 | Hidden-startup E2E PASS final10. Client-area screenshots at both sizes/themes PASS; white-flash absence is not established by still images. |
-| T3 | Close-to-tray and reopen E2E PASS final10. |
-| T4 | Implemented native menu, 3-second pause refresh and double-click; native interaction NOT RUN. |
-| T5 | Graceful Quit/relaunch S9 and refused-shutdown Retry Quit E2E PASS final10. Native missing-folder Quit exited and preserved the pointer. |
-| T6 | Real-service desktop and package smoke passed; serve.json/health parsing Rust tests passed. |
-| T7 | Fake-registry migration unit passed; owner Run key writes intentionally NOT RUN. |
-| T8 | Keyboard/numpad, saved zoom and trusted Ctrl+wheel no-page-zoom passed in parity-run2. Physical pinch NOT RUN. |
-| T9 | Final size/theme inventory and comparison completed. DWM calls HRESULT 0, Snap observed; native confirmation screenshots captured at all four size/theme combinations. |
-| T10 | Dialog seam E2E PASS. Real three-button missing-folder dialog inspected; Use previous recovered the healthy home, Quit preserved the pointer. Native video/folder chooser selection NOT RUN. |
-| T11 | Path validation PASS. Native Open folder and Media Player PASS. Explorer reveal initially opened Desktop; corrected Windows command-line quoting and feature-free package retest selected the space/Unicode/comma filename correctly (native-final/reveal-fixed.jpg). |
-| T12 | Clipboard limits/readback passed in parity-run2. |
-| T13 | URL allowlist unit PASS. Native allowed documentation link opened in Brave; app stayed on http://tauri.localhost/. Only the newly opened tab was closed. |
-| T14 | 64,000-character error-log boundary passed in parity-run2. |
-| T15 | Reload/error recovery and restart real-service E2E PASS final10. |
-| T16 | Compare fullscreen/Esc restores bounds PASS. Actual H.264 History fullscreen/Esc test PASS with eight screenshots at both sizes/themes. |
-| T17 | Release strict CSP configured and enforced by initial blocked custom-scheme fetch; owner smoke has no require/test command. Full security audit not claimed. |
-| T18 | Actual CDP origin http://tauri.localhost; service tests reject old origin and retain auth/Host/Sec-Fetch checks. |
-| T19 | Local-main capability only, no FS/shell/HTTP scope; command validation Rust tests and release test-command denial passed. |
-| T20 | Non-Windows refusal stub PASS in Ubuntu source CI. |
-| T21 | Expanded S9 Move/Quit/relaunch, live log append, History removal, probe/core failures, cancellation, old-only matching removal and exact S5 refusal PASS final10. |
-| T22 | Browser accelerators, zoom/pinch controls and context-menu interception implemented; native menu/text editing interaction not fully verified. |
+## GUI operations and visual evidence
 
-## X2 old-to-new test map
-
-All original filenames remain and now import tests/desktop.ts instead of Electron. No existing spec was silently removed. The old main-process app.evaluate calls became renderer checks or feature-gated desktop_test queries/stubs.
-
-| Old file | New file / validation |
-| --- | --- |
-| e2e/desktop.spec.ts | Same filename; real CPU service, close/restart, zoom and schedule tooltips. |
-| e2e/gpu.spec.ts | Same filename; trial/paired-frames/estimate/startup preference, opt-in GPU. |
-| e2e/p1d3-changed.spec.ts | Same filename; visual and interaction acceptance. |
-| e2e/p1e-visual.spec.ts | Same filename; matching two-size/two-theme screenshot inventory. |
-| e2e/p1e.spec.ts | Same filename; retained P1e checks plus new P1t parity and queue-reorder cases. |
-| e2e/packaged.spec.ts | Same filename; owner feature-free package isolation smoke. |
-| e2e/resume.spec.ts | Same filename; isolated synthetic GPU resume/single instance. |
-| e2e/storage-visual.spec.ts | Same filename; Storage progress/result screenshots. |
-| e2e/storage.spec.ts | Same filename; original cross-volume C-D-C test retained, opt-in. |
-| e2e/visual-states.spec.ts | Same filename; design board inventory. |
-| e2e/windows-flows.spec.ts | Same filename; isolated packaged GPU/console-window checks. |
-| e2e/clipping.ts | Same helper filename; client-area top boundary replaces removed HTML title-bar boundary. |
-| perf/renderer.spec.ts | Same filename; ten independent cold launches and unchanged budgets. |
-| perf/real-progress.spec.ts | Same filename; actual CUDA backend/renderer cadence. |
-
-New coverage: pointer.spec.ts (both pointer locations), storage-restart.spec.ts (S9 and S5), media.spec.ts (bounded timing), history-player.spec.ts (real H.264 video fullscreen). Full Private Bytes qualification is the separately opt-in scripts/media-matrix.mjs, not CPU CI.
-
-## Added exact dependencies and licenses
-
-| Dependency | Version | License |
-| --- | --- | --- |
-| tauri | 2.12.4 | MIT OR Apache-2.0 |
-| tauri-build | 2.7.3 | MIT OR Apache-2.0 |
-| tauri-plugin-single-instance | 2.5.4 | MIT OR Apache-2.0 |
-| serde | 1.0.229 | MIT OR Apache-2.0 |
-| serde_json | 1.0.154 | MIT OR Apache-2.0 |
-| reqwest | 0.13.5 | MIT OR Apache-2.0 |
-| rfd | 0.17.2 | MIT |
-| arboard | 3.7.0 | MIT OR Apache-2.0 |
-| winreg | 0.56.0 | MIT |
-| sha2 | 0.10.9 | MIT OR Apache-2.0 |
-| webview2-com | 0.39.1 | MIT |
-| windows | 0.62.2 | MIT OR Apache-2.0 |
-| @tauri-apps/api | 2.12.4 | MIT OR Apache-2.0 |
-| @tauri-apps/cli | 2.12.3 | MIT OR Apache-2.0 |
-
-Versions are locked; installed crate/npm license evidence is in dependency-licenses.json. No updater or telemetry added.
-
-## Completed M2 follow-ups
-
-All figures below are decimal MB of Private Bytes. The 1 MiB M1 is retained under the designer's both-fail rule. M3 is not shipped. Original AV1 gates 1/2 remain FAIL; no timing or steady-growth result was relabelled.
-
-| Repeat test | Cycle 1 after close | Cycle 10 after close | Growth | Gate <=50 MB | Five minutes after close |
-| --- | ---: | ---: | ---: | --- | ---: |
-| M1 Tauri AV1 | 646.0 | 703.6 | 57.7 | FAIL | 704.4 |
-| Electron AV1 | 417.8 | 571.9 | 154.2 | FAIL | 413.6 |
-| M1 Tauri H264 | 552.2 | 643.0 | 90.8 | FAIL | NOT RUN (not requested) |
-| M3 Tauri AV1 | 485.7 | 630.8 | 145.1 | FAIL | 609.4 |
-
-Each cycle plays 30 s with seeks at 5/15/25 s, then closes for 30 s. The same instance remains alive for ten cycles; every PID and role is recorded at 1 s. Per-cycle role totals are in media-followup-roles.csv; raw cycles and baseline role means are in media-followup-summary.json. All three requested M1/Electron repeat runs and the M3 repeat completed; baseline sample counts are verified >=9.
-
-| Cycle | M1 Tauri AV1 | Electron AV1 | M1 Tauri H.264 | M3 Tauri AV1 |
-| --- | ---: | ---: | ---: | ---: |
-| 1 | 646.0 | 417.8 | 552.2 | 485.7 |
-| 2 | 676.5 | 449.4 | 622.3 | 505.3 |
-| 3 | 692.0 | 490.7 | 634.8 | 559.4 |
-| 4 | 691.5 | 501.4 | 635.1 | 582.0 |
-| 5 | 696.7 | 512.1 | 639.5 | 600.1 |
-| 6 | 697.2 | 527.4 | 640.4 | 629.3 |
-| 7 | 699.8 | 534.3 | 640.0 | 634.9 |
-| 8 | 697.4 | 547.1 | 645.3 | 629.1 |
-| 9 | 703.9 | 559.2 | 644.4 | 627.1 |
-| 10 | 703.6 | 571.9 | 643.0 | 630.8 |
-
-AV1 residual detail (absolute per-role totals at five minutes; these are not growth):
-
-| Role | M1 Tauri | Electron | M3 Tauri |
-| --- | ---: | ---: | ---: |
-| browser-helper | 44.7 | 0.0 | 43.9 |
-| crashpad-handler | 3.1 | 0.0 | 3.1 |
-| gpu-process | 238.7 | 124.4 | 239.9 |
-| renderer | 387.1 | 182.4 | 294.5 |
-| shell | 9.3 | 94.0 | 7.0 |
-| utility:network.mojom.NetworkService | 13.4 | 12.8 | 12.7 |
-| utility:storage.mojom.StorageService | 8.0 | 0.0 | 8.2 |
-
-The sampler labels descendants without a --type argument as browser-helper; named renderer/GPU/utility roles come from the process command line. The app root is shell. The Electron shell also contains its browser process, while WebView2 has a separate browser/helper process.
-
-CDP Media.playerPropertiesChanged reports kVideoDecoderName=D3D11VideoDecoder and kIsPlatformVideoDecoder=true for both H.264 and AV1 in both Tauri and Electron. These are exact reported names/flags, not an independent hardware-decoder audit.
-
-M3 uses the same production Engine/LocalServer/Range implementation and measurement harness, with a developer-only 128-bit, per-open, 10-minute media capability. A separate local CSP build permits loopback media. No M1 native fetch occurred in any M3 run (asserted counters=0). It streams the requested HTTP Range without the M1 response cap; the historical filename's 1MiB component is not an M3 cap.
-
-| M3 AV1 P run | Peak growth | Residual after 30 s | Shell peak | Peak engine fetches |
-| --- | ---: | ---: | ---: | ---: |
-| 1 | 199.1 | 85.4 | 7.4 | 2 |
-| 2 | 206.3 | 87.5 | 7.5 | 2 |
-| 3 | 209.2 | 100.6 | 7.1 | 2 |
-
-M3 P median growth/residual: 206.3/87.5 MB. Its P growth passes the Electron+100 MB comparison, but its residual exceeds 50 MB and its repeat test fails. New comparable P growth is 362.8 MB for M1 versus 206.3 MB for M3. The renderer's median per-process peak growth is 311.9 versus 154.0 MB; the shell is 11.2 versus 0.1 MB, GPU 48.4 versus 55.2 MB. Thus the measured extra is chiefly in the WebView2 renderer. Per-process peaks need not coincide, so these role peaks are not summed into the concurrent total. A custom-scheme retention mechanism is inferred; WebView2's internal allocation cause is not established.
-
-Optional single Low-target trial: start 33.25 ms, seek 49.80 ms (both PASS); P residual 248.1 MB versus the normal M1 P median 279.2 MB, a 31.1 MB reduction. Keep Low while no player is open and Normal while one is, as explicitly authorized. This one trial does not turn the original memory failures into PASS. The implemented lifecycle has separate bridge/GUI validation; the complete 96-run matrix was not repeated after this optional optimization.
-
-Both M1 and M3 fail the repeat gate. The designer explicitly directs retaining M1 and reporting a known issue, so no new M1/M3 choice is requested in this cycle. Owner check must include repeated opening/closing of H.264 and AV1 and retained memory. M3 remains absent from the default package and its developer flag is explicitly off in CI.
-
-## Questions for the designer
-
-1. S5 resolved by designer decision 2026-10-17: malformed startup core records must fail Move, preserve the pointer/current folder, and use the specified relative-path message. Preflight before copying plus post-copy record validation are implemented; engine corruption recovery is unchanged and deferred to P1e-3. New CPU and S9 GUI tests PASS (cpu-final3 and e2e-final8). Evidence s5-core-repro.json records the original source/target JSONDecodeError and preserved bytes. Non-core damaged records remain copyable and reported.
-2. Designer selected 1 MiB M1 on 2026-10-17; M3 stays out of the default build. AV1 gates 1 and 2 remain FAIL. All follow-ups completed. M1 and M3 repeat FAIL, so retain M1 with a known issue under the designer's rule; no further media choice is required here.
-3. HEVC extensions are absent. The output default remains unchanged as required; any default-codec product decision belongs to the designer/owner.
-
-## Cleanup and disk
-
-Both automatic approval reviews rejected deletion as "blocked by policy". Neither command was bypassed or retried. Zero bytes were removed by these two attempts; the one-package and empty-scratch gates are unmet.
-
-For the owner to delete (two development folders):
-
-- D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-win32-x64: 428,412,636 logical / 428,572,856 allocated bytes, 74 files.
-- D:\my-workspace\VideoEnhancer\work\scratch: 70,456,005,439 logical bytes, 118,460 files. Includes generated 1440p media and temporary profiles/binaries; all owned jobs/apps were stopped before the rejected attempt.
-
-For the owner to delete later (read-only U5 inventory under %APPDATA%/VideoEnhancer): Cache856,456 bytes/7 files; Code Cache13,636/9; GPUCache1,642,864/5. Only these three cache subfolders were inspected; no owner app-data/pointer folder is a deletion candidate.
-
-Owner package: D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer, exactly VideoEnhancer.exe and engine-location.json. Logical5,749,307 / allocated5,750,848 bytes, two files. Feature-free final22 build and byte-identical copy smoke PASS (7.9 s); hashes in owner-release-final22-hashes.json. External engine checkout/.venv are not bundled.
-
-| Disk item | Start GB | Local-final GB |
-| --- | ---: | ---: |
-| C free | 332.084830208 | 308.733317120 |
-| D free | 1010.481532928 | 933.641998336 |
-| Cache logical | 4.193152357 | 10.641370786 |
-| Scratch logical | not inventoried | 70.456005439 |
-| P1t evidence logical | not inventoried | 0.181551217 |
-| Tauri / old package logical | 0 / .428413 | .005749 / .428413 |
-
-Rust target 4.241259126 GB (debug/release recorded separately in disk-final27.json), cargo .853716 GB, rustup1.314835 GB are the explicit one-time bootstrap exception. CARGO_BUILD_JOBS=2, session-only paths, complete cache 10.641370786 GB <40 GB. Cache increase is 6.448218429 GB; drive-free deltas are not attributed to this project. Evidence retains exactly P1e-2/P1e-2b/P1t at .009139/.015587/0.181551217 GB, each below300 MB. Inventory errors: none. Full persistent-growth <=1 GB cannot be claimed with scratch cleanup blocked and incomplete starting root inventories. See disk-final27.json; logical lengths are not allocated sizes or drive-wide free changes.
-
-## Visual comparison and native checks
-
-Compared P1e-2 against all required screens at both sizes/themes. Differences: removing the HTML title bar moves content up about32 CSS px and increases Compare height; Settings adds Storage; unsupported HEVC adds notice/actions and disables Play. Native caption/dialog styles, font antialiasing and checkbox rendering differ. Times/progress/paths follow fixtures/clocks. No other layout change observed; no pixel-identity claim. Evidence: visual-p1e-final10, visual-player-final10, visual-storage-final10, visual-comparison-final10, native-final.
-
-Native custom labels initially fell back to standard labels: rfd lacked common-controls-v6. Enabled it using Tauri's existing manifest, rebuilt, and verified Cancel/Remove and recovery dialogs. The interactive launcher used Normal visibility to expose the startup modal. All homes were isolated; no owner Run registration was changed.
-
-## D and U evidence
-
-| Item | Result / evidence |
-| --- | --- |
-| D1 | Native Tauri path events replace HTML5 file drops and webUtils. Drop/Add seam E2E PASS; actual OS 1/50-file drops including long/non-ASCII paths NOT RUN after Computer Use rejected the drag endpoints. No workaround attempted. |
-| D2 | Pointer capture and Alt+Arrow queue reorder PASS final10. |
-| D3 | Compare wheel/pinch-event behavior and page-zoom prevention PASS; physical touchpad pinch NOT RUN. |
-| U1 | Read-only: canonical VideoEnhancer pointer exists and active folder exists; legacy videoenhancer-desktop pointer absent. No owner names/contents reported (owner-pointer-readonly.json). |
-| U2/U3 | Atomic legacy migration and both pointer locations beat stale default History: Rust unit and two final10 E2E cases PASS. Missing active folder uses explicit recovery, never silent fallback. |
-| U4 | Fake-registry migration and unrelated-entry preservation unit PASS; real owner Run writes intentionally NOT RUN. |
-| U5 | Three exact cache folders inventoried read-only below; no deletion attempted. |
+The actual Tauri app was opened at 1280x800, switched between dark/light themes,
+and exercised Home unknown media, failed History, bad-record details, reuse,
+nested lists, Remove/Undo, and storage verification/removal while video and seek
+continued. Screenshots remain private under evidence/P1f-2/gui (not Git).
+The shared tray Quit command handler was called through the test API; a physical
+notification-area click is not claimed. B12 actual playback screenshots are
+under evidence/P1f-2/hevc.
 
 ## Reproduction
 
-Load ignored local-env.ps1. External recipes/checks-final13.ps1 and g-perf-final13.ps1 record exact commands/environment. M2 uses media-matrix.mjs, saved FFmpeg recipes/seed and docs/DEVELOPMENT.md. Use isolated homes; never substitute USS for Private Bytes. Package with package-tauri.mjs and smoke a fresh copy. Historical hashes identify measured builds.
+Run from D:\my-workspace\VideoEnhancer\work\repo and dot-source local-env.ps1.
+All homes, APPDATA/LOCALAPPDATA and WebView profiles must be isolated under scratch.
+Use .venv/Scripts/python.exe explicitly (the system Python alias is unavailable).
 
-## G1 final performance
+1. Restore with uv sync --locked --all-extras and npm ci in gui.
+2. Run Ruff, Ruff format --check, python -m pyright; pytest -m "not gpu".
+3. Run pytest -m "gpu and not soak" with VE_GPU_TEST_MODEL_HOME under work/cache.
+   No owner home is allowed. Legacy >1080 source/>1440 output GPU tests stay excluded.
+4. Prepare verified optional tools using scripts/prepare_link_test_tools.py.
+   Run the real link bundle with VE_LINK_TEST_TOOLS_HOME and local TLS cert/key;
+   recipes/real-bundle.py records the external cache guard.
+5. In gui, run lint/typecheck/test/build; cargo fmt, clippy, tests and e2e build.
+   npm run test:e2e launches isolated real Tauri instances.
+6. Build release CDP only for package isolation/HEVC/P2 instrumentation.
+   recipes/hevc-playback.mjs and recipes/p2-five-launches.mjs contain exact fixtures.
+7. Build feature-free release, smoke the candidate before replacing the prior package.
 
-The matched Electron repeat (same new CDP harness and Node 1,000-History fixture) measured 877.1665/414.1345/483.2428/587.0664/581.9381 ms, median 581.9381. Tauri's median is 36.0% slower than original A1 and 16.7% slower than this repeat. The original 549.2806 ms limit is retained: FAIL. Each launch used a fresh profile and verified every recorded app PID/creation-time pair had exited before the next launch. Five-minute app Private Working Set/Private Bytes: Electron 132,771,840/263,524,352 bytes; Tauri 101,498,880/245,747,712. Attribution is root plus recursive descendants, including all WebView2 children; raw PIDs are in g-baseline-*-final13.json. Python idle memory in this common Node fixture is NOT RUN, as in A1.
+## Scope and unresolved issues
 
-Renderer final13 completed all ten independent launches in 5.6 min. Suite FAIL at warm History median 134.65 ms (limit100). Other captured medians: Schedule28.80, Models36.40, Settings45.65, Home78.45 ms; cold History141.10; theme light/dark/system36.80/35.45/34.90; key-paint28.25; preview457.85 ms; idle renderer0.7242% of one core; progress0.99942 Hz, shortest gap997.9 ms. Interaction p98=72 ms, maximum input delay4.2 ms. These other observed values are within their stated budgets, but assertions after the first failed assertion did not run; no suite PASS is claimed. Raw samples and failure trace are in g-renderer-final13 and g-renderer-final13-failure.
+Questions for the designer: none after the A1 decision. No independent product,
+architecture or decoder changes were made. B11 used the explicitly permitted
+measurement alternative. HEVC default, M1 1 MiB responses, MP4 audio rules,
+strict decoder selection/retry, and Part R are unchanged. M3 remains disabled.
 
-## Final local checks and cleanup preflight
+Intentionally NOT RUN: designer-deferred Part 6 work, real YouTube or prohibited
+sites, physical OS tray click, owner acceptance/reboot checks, legacy GPU tests
+using sources above 1080 or outputs above 1440. CPU oversized refusal metadata
+fixtures remain permitted. Historical AV1 memory failures and retired P2
+Electron-relative failure remain historical; this cycle does not relabel them.
 
-Final13 Python/Rust/frontend static checks and47 GUI units PASS; S9 PASS23.6 s. Final22 default Rust fmt/clippy/unit12 and feature-free package/smoke PASS7.9 s. Final23 GUI lint/typecheck and five startup repeats PASS7.3 s; final24 default E2E13 PASS/13 SKIP,1.9 min. Vite531.11 KB, NO_COLOR and Node DEP0190 warnings are nonfatal.
+## Package, disk and cleanup
 
-Real CUDA final13: cadence PASS, but the test teardown stopped the external fixture, leaving its job queued; completion FAIL. Fixed the test to set VE_KEEP_TEST_ENGINE=1. Fresh final14: cadence PASS, job done, all three segments complete. Backend median1.00806%, p90 1.33064% of one core; 5,000-History diagnostic retained. Display0.96657 Hz, shortest999.5 ms, good SSE-gap fraction1.0. Both runs, including the interruption, are preserved under g-real-final13/14.
+Final package: D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer (2 files, 5771327 B).
+Executable SHA-256: b000b13204770842f51d7b4ba1df5e812ac822ccd3c88b82f63a0cf1e22ebd9a.
+Both final candidate and post-cache-cleanup smoke passed.
 
-## Remaining acceptance and Git
+Start (disk-start.json):
+C free 307950469120 B (307.950 GB); D free 1009745002496 B (1009.745 GB).
+Cache 2302190682 B; package 5770811 B; repo 3540169703 logical B; scratch 0 B.
 
-G1 FAIL cold start/History; G2 PARTIAL manual tray/pickers/physical checks; G3 codec/M4 complete; G4 S1-S9 PASS except cross-volume manual NOT RUN; G5 U checks complete with owner Run writes intentionally NOT RUN; G6 screenshots reviewed; G7 allowed GPU101 PASS, prohibited2160 GUI calibration NOT RUN (designer decision); G8 local checks/source CI PASS except perf; G9 smoke PASS/old package removal refused; G10 cache/evidence caps PASS, empty scratch/growth not qualified. Electron removal remains conditional on G passing and is intentionally deferred. No merge or main/base-branch push.
+Restored dependency directories measured at dependency-restore-inventory.json:
+uv 350049003 B; npm 44801706 B; Cargo registry 354978876 B; Rust target
+3308300845 B; node_modules 191885182 B; GUI dist 576436 B. These were absent
+after P1f cleanup. First measured dependency restore: 4250592048 B (4.250592 GB). Final regenerated dependency/build directories before cleanup: 4292760393 B (4.292760 GB); do not count
+the entire pre-existing .venv as new restoration. Hard links mean logical file
+lengths are not allocated disk space, and drive free-space differences are not
+attributable exclusively to this cycle.
 
-Changed files: six docs, .ai task/report, workflow/ignore rules; gui package/lock, src-tauri modules/config/locks/icons, desktop bridge and existing App/Home/Queue/HistoryDetail/Storage/main/style/types; desktop test harness/unit contracts and the mapped E2E/perf files above; window_monitor.py and desktop_startup_diagnostics.py; service engine/server/storage and their tests. Exact inventory: changed-files-final.txt outside Git.
+For the owner to delete: none. All listed cleanup candidates were inventoried by exact path and bytes before deletion, and all were removed. No automatic approval-review rejection occurred.
+The old Electron package and empty Electron cache were already successfully
+removed after the owner's retry authorization in P1f (05dbf72 report); they are
+not restored by this cycle.
 
-Questions for designer: cold-start and warm-History budgets remain unmet; current implementation retained without a design change. The media choice is already resolved by the both-fail rule. Native/physical gaps and memory failures remain on the owner check. Source push verified; report-only head verification follows its push.
+## Changed files
 
-CI history: a710b21 push39026277983/PR39026280367 and 194135c push39028150187/PR39028152936: Ubuntu PASS; Windows FAIL (12 CDP timeouts,14 SKIP). Runtime154.0.4258.62 already existed. Diagnostic8845b0a push39032412952/PR39032415568: Ubuntu PASS; Windows early startup FAIL1; CPU/full E2E NOT RUN on that head. Native diagnostics show completed setup and live WebView2 children, but no CDP port in browser arguments. Microsoft's elevated-host documentation explains ignored environment overrides (learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security). E2E-only fix forwards the validated port through Tauri's API; package has no test port. Local clippy/build/startup PASS (2.0 s); hosted startup subsequently PASS. Local runtime later auto-updated to155.0.4283.60 versus A2's155.0.4283.45; no exact runtime version was captured per M2 run, and M2 was not repeated after the update.
+Only this cycle's code, tests, docs, CURRENT_TASK and this report are committed; no media, caches, packages or private screenshots.
 
-13a2603: push startup PASS; PR39033258141 startup FAIL because CDP connected before the page target existed. Runner elevated=True confirms ignored environment flags. Harness now awaits the page event; lint/typecheck and five local startup repeats PASS (7.3 s). Earlier packaging commands used a nonexistent npm script and wrong env-file path; corrected script/build/smoke PASS. Subsequent source CI PASS.
+- .ai/CURRENT_TASK.md
+- .ai/LAST_REPORT.md
+- docs/API.md
+- docs/GUI.md
+- docs/TROUBLESHOOTING.md
+- gui/src-tauri/src/commands.rs
+- gui/src-tauri/src/main.rs
+- gui/src-tauri/src/storage.rs
+- gui/src/HistoryDetail.tsx
+- gui/src/HistoryRemoval.tsx
+- gui/src/Home.tsx
+- gui/src/LinkPanel.tsx
+- gui/src/history.ts
+- gui/src/types.ts
+- gui/tests/e2e/p1f2-review.spec.ts
+- gui/tests/history-removal.test.tsx
+- gui/tests/home-schedule.test.tsx
+- gui/tests/link-panel.test.tsx
+- src/videoenhancer/jobs/store.py
+- src/videoenhancer/service/engine.py
+- src/videoenhancer/service/link_jobs.py
+- src/videoenhancer/service/video_links.py
+- tests/p1f2_gui_seed.py
+- tests/test_link_jobs.py
+- tests/test_p1f2_real_links.py
+- tests/test_p1f2_review.py
+- tests/test_service.py
 
-## CI and Git result
 
-Source4941a28: [Windows/Ubuntu push CI PASS](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/39033561280). Python Windows457 PASS/4 SKIP; Ubuntu456/5; GUI47 and Rust12 PASS; Windows CDP12 PASS/14 SKIP. Source SHA matches origin. Only the functional test timeout/report change afterward; final-head checks are verified after push. Draft PR6 stays unmerged.
+Package replacement inventory before cleanup (candidate smoke PASS):
+- D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer: 5770811 B; 2 files. Old current will be deleted; candidate renamed to current.
+- D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-candidate: 5771327 B; 2 files. Old current will be deleted; candidate renamed to current.
+Package replacement PASS: removed old 5770811 B after candidate smoke; current package 5771327 B (2 files), SHA-256 d7750517c0f74d8d8776268bec0ef021d3ed2e1e325786c2426d8dc4991881d5.
 
-ac3375d: PR CI PASS; push11 PASS/1 FAIL/14 SKIP (CPU/visual integration exceeded150 s). Raised only its overall timeout to300 s; assertions/perf budgets unchanged. Lint and local targeted1 PASS (1.2 min). Failure: ci-final-push-failed.log. New head verified after push.
+Retention cleanup candidate, measured before deletion: D:\my-workspace\VideoEnhancer\work\evidence\P1e-2b: 15587115 B; 265 files. Its report remains in Git dc02580; retaining P1t, P1f and P1f-2 only.
+Retention cleanup PASS: removed the inventoried P1e-2b evidence, 15587115 B. Its historical report remains at dc02580.
+
+Final package replacement inventory before cleanup (new guard unit PASS, candidate smoke PASS):
+- D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer: 5771327 B; 2 files.
+- D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-candidate: 5771327 B; 2 files.
+Final replacement PASS: removed the prior intermediate package (5771327 B) after final candidate smoke. Current package 5771327 B, SHA-256 b000b13204770842f51d7b4ba1df5e812ac822ccd3c88b82f63a0cf1e22ebd9a.
+
+Final cleanup inventory, measured before any deletion (logical bytes):
+- D:\my-workspace\VideoEnhancer\work\scratch: 57052604858 B; 105538 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\uv: 350049003 B; 7939 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\npm: 44801511 B; 400 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\cargo\registry: 354978876 B; 12504 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\tauri-target: 3350469054 B; 7856 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\node_modules: 191885251 B; 10814 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\dist: 576698 B; 3 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\test-results: 3985542 B; 39 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\.pytest_cache: 65990 B; 5 files; read errors 0.
+First scratch cleanup stopped on an open log in an older failed GUI fixture. Authenticated health verified PID 14264 used scratch/P1f-2/gui/records-1792449277161/home; its normal shutdown returned stopped=true. Other live discoveries were checked only inside scratch and stopped only after exact reported-home verification; see stale-engines.json. No approval-review rejection occurred.
+
+Final cleanup inventory, measured before any deletion (logical bytes):
+- D:\my-workspace\VideoEnhancer\work\scratch: 1523970391 B; 89292 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\uv: 350049003 B; 7939 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\npm: 44801511 B; 400 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\cargo\registry: 354978876 B; 12504 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\tauri-target: 3350469054 B; 7856 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\node_modules: 191885251 B; 10814 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\dist: 576698 B; 3 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\test-results: 3985542 B; 39 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\.pytest_cache: 65990 B; 5 files; read errors 0.
+Scratch retry cleanup PASS: removed the remaining inventoried 1523970391 B after verified test-engine shutdown. Initial scratch snapshot was 57052604858 B; final scratch 0 B. Do not sum the overlapping initial and retry snapshots. Log writes between snapshots are not attributed as additional removed bytes.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\cache\uv; 350049003 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\cache\npm; 44801511 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\cache\cargo\registry; 354978876 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\cache\tauri-target; 3350469054 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\repo\gui\node_modules; 191885251 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\repo\gui\dist; 576698 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\repo\gui\test-results; 3985542 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\repo\.pytest_cache; 65990 inventoried B removed.
+Post-cache-cleanup smoke PASS (featurefree-smoke-after-cleanup.json); final SHA-256 b000b13204770842f51d7b4ba1df5e812ac822ccd3c88b82f63a0cf1e22ebd9a. New scratch cleanup candidate: D:\my-workspace\VideoEnhancer\work\scratch; 17153327 B; 186 files, measured before deletion.
+Post-cleanup smoke fixture cleanup PASS: removed 17153327 B; scratch is empty again. No further build or test is claimed after deleting regeneration dependencies; the final package smoke after cache removal passed.
+
+
+## Final acceptance and disk summary
+
+P2 Home-ready runs (ms): 855.228, 713.317, 738.832, 718.287, 712.720.
+The specified gate uses the median, 718.287 ms (PASS); the first launch is retained,
+not discarded. First-paint median 720.128 ms (PASS). The prestarted Node G1
+fixture has 1000 History records; this is the same shell measurement, not a cold
+Python engine launch. Instrumentation uses the release CDP build; the delivered
+package has neither CDP nor e2e features. No second P2 run was made.
+
+The final GUI unit addition first reproduced a hidden file-choice bug in the
+files-only removal dialog (55 PASS / 1 FAIL). The unreadable-record selection
+initialization was fixed; 56 PASS followed. The final full GUI E2E passed.
+An attempted final package smoke while the full GUI suite was still running
+exited immediately; a single-instance interaction is inferred, not proven.
+After the GUI suite ended, final candidate and post-cache-cleanup smoke passed.
+
+The media, pipeline and decoder implementation files are unchanged from 05dbf72.
+The GPU suite passed. A separate before/after default-output hash benchmark was
+NOT RUN in this cycle; P1f's measured strict equality remains historical evidence,
+not a new measurement claimed here. No decoder/scene-cut optimization was made.
+
+The initial scratch snapshot was 57052604858 B; an open log caused a partial
+cleanup, then its verified isolated engine was shut down and the remaining
+1523970391 B were removed. These are overlapping snapshots, not additive.
+Post-cleanup smoke created another 17153327 B, inventoried and removed afterwards.
+Regeneration caches/build outputs removed: 4296811925 B. Replaced package copies
+removed: 5770811 B and 5771327 B. Retired P1e-2b evidence removed: 15587115 B.
+Total initial inventoried development files removed across non-overlapping cleanup
+items: 61393699363 B (61.393699 GB logical). Logs could change between snapshots;
+no extra log bytes or allocated disk reclamation are inferred from that sum.
+
+Dependencies were restored for verification, then regenerable caches were removed
+again to honor the owner's space-minimization request. The .venv, managed Python,
+Node/Rust runtimes, verified optional test tools and isolated GPU model cache are
+retained. Another rebuild requires restoring npm/Cargo/uv caches normally. No
+post-cleanup build is claimed; the package startup after cleanup was tested.
+
+| Decimal GB / logical unless drive free | Start | End |
+| --- | ---: | ---: |
+| C free | 307.950469 | 307.803292 |
+| D free | 1009.745002 | 1009.771368 |
+| cache | 2.302191 | 2.302191 |
+| package | 0.005771 | 0.005771 |
+| scratch | 0.000000 | 0.000000 |
+| repo | 3.540170 | 3.525380 |
+| evidence\P1t | — | 0.182310 |
+| evidence\P1f | — | 0.012832 |
+| evidence\P1f-2 | — | 0.001887 |
+
+Persistent ordinary growth from the independently measured roots, including this
+cycle's evidence and the removed retired evidence: -28488882.0 B (-0.028489 GB),
+PASS against <=1 GB. This is the pre-commit inventory; later Git/CI/report metadata
+is not included. All inventory reads completed without errors. Cache is 2.302 GB,
+below 40 GB; each retained evidence cycle is below 300 MB, exactly three cycles
+remain; scratch is 0 B. Drive-wide free-space changes include unrelated host and
+Windows-managed activity and are not equated with the logical cleanup totals.
+No owner directory or Recycle Bin was inspected or cleaned.

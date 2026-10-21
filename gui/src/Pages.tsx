@@ -1,4 +1,5 @@
 import { StorageCard } from "./Storage";
+import { VideoLinksCard } from "./VideoLinks";
 import { Notice } from "./Notice";
 import { Check } from "lucide-react";
 import { ActionButton } from "./ActionButton";
@@ -403,7 +404,7 @@ export function SettingsPage({
             <label>Save to<div className="input-button"><input aria-label="Default output folder" value={draft.output_folder} placeholder="Next to the original, in enhanced" onChange={event => change("output_folder", event.target.value)} /><ActionButton onClick={async () => { const folder = (await window.desktop.files("folder"))[0]; if (folder) change("output_folder", folder); }}>Choose…</ActionButton></div></label>
             <div className="form-grid">
               <label>Default mode<select value={draft.preset} onChange={event => change("preset", event.target.value)}><option value="standard">Standard</option><option value="fast">Fast</option></select></label>
-              <label>Default size<select value={draft.short_side} onChange={event => change("short_side", event.target.value === "keep" ? "keep" : Number(event.target.value))}><option value="keep">Keep</option>{[1080,1440,2160].map(size => <option key={size} value={size}>{size}p</option>)}</select></label>
+              <label>Default size<select value={draft.short_side} onChange={event => change("short_side", event.target.value === "keep" ? "keep" : Number(event.target.value))}><option value="keep">Keep</option>{[1080,1440].map(size => <option key={size} value={size}>{size}p</option>)}</select></label>
               <label>Default frame rate<select value={draft.fps} onChange={event => change("fps", event.target.value)}><option value="off">Keep</option><option value="2x">2×</option></select></label>
               <label>Default codec<select value={draft.codec} onChange={event => change("codec", event.target.value)}><option value="h264">H.264</option><option value="hevc">HEVC</option><option value="av1" disabled={health?.av1_supported !== true}>AV1</option></select></label>
             </div>
@@ -422,6 +423,7 @@ export function SettingsPage({
           </article>
           <article className="card"><h2>Diagnostics</h2><label>Log folder<div className="input-button"><input value={draft.log_folder} placeholder={health?.home || "Engine home"} onChange={event => change("log_folder", event.target.value)} /><ActionButton aria-label="Open log folder" onClick={() => window.desktop.openFolder(draft.log_folder || health?.home || "").catch(error => setError(error.message))}>Open</ActionButton></div></label><div className="toolbar"><ActionButton onClick={calibrate} disabled={operation?.state === "running" || operation?.state === "waiting"}>Run speed calibration{health?.speed_profile?.calibration_minutes ? ` (about ${health.speed_profile.calibration_minutes} min)` : ""}</ActionButton><ActionButton onClick={() => window.desktop.copy(JSON.stringify({ health, settings: draft }, null, 2)).then(() => setMessage("Diagnostics copied."))}>Copy diagnostics</ActionButton></div>{health?.speed_profile && <p>{health.speed_profile.source === "builtin" ? "Using the built-in speed profile." : health.speed_profile.source === "measured" ? "Using this PC’s measured speed profile." : "No speed profile for this GPU. Estimates are uncalibrated."}</p>}{health?.speed_profile?.driver_note && <p>{health.speed_profile.driver_note}</p>}{operation && <OperationStatus operation={operation} cancel={["running", "waiting"].includes(operation.state) ? () => api.call(`operations/${operation.id}/cancel`, "POST").catch(error => setError(error.message)) : undefined} />}</article>
           <StorageCard api={api} automatic={draft.cleanup_working_files !== false} change={value => change("cleanup_working_files", value)} />
+          <VideoLinksCard api={api} />
           <article className="card"><h2>About</h2><p>VideoEnhancer {health?.version || "0.1.0"} · Windows 11 · MIT licence</p><p>{health?.gpu || "Detecting GPU…"} · Driver {health?.driver || "unknown"}{health?.vram_bytes ? ` · ${(health.vram_bytes / 1e9).toFixed(1)} GB VRAM` : ""}</p>
             {health?.software_decoders && <p>FFmpeg software decoding: VP9 {health.software_decoders.vp9 ? "available" : "unavailable"}, AV1 {health.software_decoders.av1 ? "available" : "unavailable"}</p>}
             <p className="muted">Your videos stay on this computer. No telemetry or automatic updates. Models have their own licences.</p></article>

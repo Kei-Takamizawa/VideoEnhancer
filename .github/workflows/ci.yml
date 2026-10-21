@@ -108,6 +108,23 @@ jobs:
       - name: Build Tauri test shell
         if: runner.os == 'Windows'
         run: cargo build --manifest-path gui/src-tauri/Cargo.toml --features e2e
+      - name: Build release without test commands
+        if: runner.os == 'Windows'
+        run: cargo build --release --manifest-path gui/src-tauri/Cargo.toml --features cdp
+      - name: Release command isolation over CDP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $folder = Join-Path $env:RUNNER_TEMP 'scratch/ve-release-bin'
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          Copy-Item -LiteralPath 'gui/src-tauri/target/release/VideoEnhancer.exe' -Destination $folder
+          @{root=$env:GITHUB_WORKSPACE} | ConvertTo-Json | Set-Content (Join-Path $folder 'engine-location.json')
+          $env:VE_TAURI_RELEASE_EXE = Join-Path $folder 'VideoEnhancer.exe'
+          Push-Location gui
+          npm run test:e2e -- tests/e2e/packaged.spec.ts
+          exit $LASTEXITCODE
+        env:
+          VE_GUI_TEST_ROOT: ${{ runner.temp }}/scratch/ve-release
       - name: Tauri startup smoke over CDP
         if: runner.os == 'Windows'
         run: npm run test:e2e -- tests/e2e/p1e.spec.ts -g "hidden startup"
@@ -120,6 +137,15 @@ jobs:
         run: uv run pytest -m "not gpu and not soak" --basetemp=.venv/testtmp
         env:
           VE_HOME: ${{ runner.temp }}/ve-home
+      - name: Prepare verified optional tools for local media tests
+        if: runner.os == 'Windows'
+        run: uv run python scripts/prepare_link_test_tools.py "${{ runner.temp }}/ve-link-tools"
+      - name: Local synthetic link media acceptance
+        if: runner.os == 'Windows'
+        run: uv run pytest tests/test_link_download.py -q --basetemp=.venv/link-testtmp
+        env:
+          VE_LINK_TEST_TOOLS_HOME: ${{ runner.temp }}/ve-link-tools
+          VE_HOME: ${{ runner.temp }}/ve-link-test-home
       - name: Tauri CPU end-to-end over CDP
         if: runner.os == 'Windows'
         run: npm run test:e2e
