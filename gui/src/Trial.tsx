@@ -1,8 +1,12 @@
+import { Notice } from "./Notice";
+import { ErrorBoundary } from "./ErrorBoundary";
+import { ActionButton } from "./ActionButton";
+import { Check, Download, Layers } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createFile } from "mp4box";
 import type { Sample } from "mp4box";
 import type { Api } from "./api";
-import { filename } from "./api";
+import { duration, filename } from "./api";
 import type { Media, Model, Operation, Settings } from "./types";
 import { OperationStatus } from "./Pages";
 
@@ -159,6 +163,11 @@ export function Compare({
   operation: Operation;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const viewport = useRef<HTMLDivElement>(null);
+  const [full, setFull] = useState(false);
+  const [solo, setSolo] = useState<number | null>(null);
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const gesture = useRef<{ distance: number; x: number; y: number } | null>(null);
   const readers = useRef<FrameReader[]>([]);
   const clock = useRef({ frame: 0, playing: false, anchor: 0, anchorFrame: 0 });
   const [count, setCount] = useState(0);
@@ -166,7 +175,8 @@ export function Compare({
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [split, setSplit] = useState(50);
-  const [side, setSide] = useState(!!operation.result?.items);
+  const [side, setSide] = useState(true);
+  const [resultOnly, setResultOnly] = useState(false);
   const [loop, setLoop] = useState(true);
   const [left, setLeft] = useState(0),
     [right, setRight] = useState(1);
@@ -188,8 +198,24 @@ export function Compare({
         ...operation.result.items.map((item) => item.name || item.id),
       ]
     : ["Original", "Enhanced"];
-  const drawing = useRef({ split, side, left, right, loop, labels });
-  drawing.current = { split, side, left, right, loop, labels };
+  const drawing = useRef({ split, side, left, right, loop, labels, resultOnly, solo });
+  drawing.current = { split, side, left, right, loop, labels, resultOnly, solo };
+  const interaction = useRef({ zoom, side, solo }); interaction.current = { zoom, side, solo };
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault(); event.stopPropagation();
+      if (event.ctrlKey) {
+        const box = element.getBoundingClientRect(), x = event.clientX - box.left - box.width / 2, y = event.clientY - box.top - box.height / 2;
+        const old = interaction.current.zoom, next = Math.max(100, Math.min(800, old * Math.exp(-event.deltaY * .01))), ratio = next / old;
+        setPan(p => ({ x: x - (x - p.x) * ratio, y: y - (y - p.y) * ratio })); interaction.current.zoom = next; setZoom(next);
+      } else if (interaction.current.zoom > 100) setPan(p => ({ x: p.x - event.deltaX, y: p.y - event.deltaY }));
+      else if (!interaction.current.side) setSplit(old => Math.max(0, Math.min(100, old + event.deltaX / element.clientWidth * 100)));
+    };
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => element.removeEventListener("wheel", wheel);
+  }, []);
   const pathKey = paths.join("|");
   useEffect(() => {
     let alive = true;
@@ -251,17 +277,25 @@ export function Compare({
             const width = a.displayWidth,
               height = a.displayHeight;
             const mode = drawing.current;
-            const columns = mode.side
-              ? width > height
-                ? Math.min(2, pair.length)
-                : pair.length
-              : 1;
+            const shown = mode.solo === null ? pair : [pair[mode.solo]!];
+            const box = viewport.current?.getBoundingClientRect();
+            let columns = 1, best = 0;
+            if (mode.side && !mode.resultOnly && mode.solo === null) {
+              for (let candidate = 1; candidate <= shown.length; candidate++) {
+                const rows = Math.ceil(shown.length / candidate);
+                const scale = Math.min((box?.width || 1200) / (candidate * width), (box?.height || 600) / (rows * height));
+                if (scale > best) { best = scale; columns = candidate; }
+              }
+            }
             element.width = width * columns;
-            element.height =
-              height * (mode.side ? Math.ceil(pair.length / columns) : 1);
+            element.height = height * (mode.side && !mode.resultOnly ? Math.ceil(shown.length / columns) : 1);
+            element.dataset.columns = String(columns);
+            element.dataset.rows = String(element.height / height);
             const ctx = element.getContext("2d")!;
             ctx.drawImage(a, 0, 0, width, height);
-            if (mode.side)
+            if (mode.solo !== null) ctx.drawImage(pair[mode.solo]!, 0, 0, width, height);
+            else if (mode.resultOnly) ctx.drawImage(b, 0, 0, width, height);
+            else if (mode.side)
               pair.forEach((picture, i) =>
                 ctx.drawImage(
                   picture!,
@@ -278,22 +312,6 @@ export function Compare({
               ctx.clip();
               ctx.drawImage(b, 0, 0, width, height);
               ctx.restore();
-            }
-            if (mode.side) {
-              ctx.font = "24px Segoe UI";
-              pair.forEach((_, i) => {
-                const x = (i % columns) * width,
-                  y = Math.floor(i / columns) * height;
-                ctx.fillStyle = "rgba(0,0,0,0.7)";
-                ctx.fillRect(
-                  x,
-                  y,
-                  Math.min(width, ctx.measureText(mode.labels[i]).width + 20),
-                  34,
-                );
-                ctx.fillStyle = "white";
-                ctx.fillText(mode.labels[i], x + 10, y + 25);
-              });
             }
             element.dataset.frame = String(state.frame);
             element.dataset.syncDelta = String(
@@ -332,9 +350,11 @@ export function Compare({
   };
   return (
     <div
-      className="compare"
+      className={`compare ${full ? "is-full-window" : ""}`}
       tabIndex={0}
       onKeyDown={(e) => {
+        if (e.key.toLowerCase() === "f" && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement)) { e.preventDefault(); setFull(old => !old); }
+        if (e.key === "Escape" && (full || solo !== null)) { e.preventDefault(); e.stopPropagation(); setFull(false); setSolo(null); }
         if (e.code === "Space" && !(e.target instanceof HTMLInputElement)) {
           e.preventDefault();
           e.currentTarget
@@ -359,11 +379,25 @@ export function Compare({
         ))}
       </div>
       <div
-        className="canvas-viewport"
+        className="canvas-viewport" ref={viewport}
+        onDoubleClick={event => { const element = canvas.current!; const box = element.getBoundingClientRect(); const columns = Number(element.dataset.columns || 1), rows = Number(element.dataset.rows || 1); const index = Math.floor((event.clientY - box.top) / box.height * rows) * columns + Math.floor((event.clientX - box.left) / box.width * columns); setSolo(old => old === null ? Math.max(0, Math.min(labels.length - 1, index)) : null); setZoom(100); setPan({ x: 0, y: 0 }); }}
+        onPointerUp={event => { pointers.current.delete(event.pointerId); gesture.current = null; }}
+        onPointerCancel={event => { pointers.current.delete(event.pointerId); gesture.current = null; }}
         onPointerDown={(e) => {
-          if (zoom > 100) e.currentTarget.setPointerCapture(e.pointerId);
+          pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
+          if (e.pointerType === "touch") {
+            pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            const points = [...pointers.current.values()];
+            if (points.length === 2) {
+              const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y), x = (points[0].x + points[1].x) / 2, y = (points[0].y + points[1].y) / 2;
+              const previous = gesture.current;
+              if (previous) { setZoom(old => Math.max(100, Math.min(800, old * distance / Math.max(1, previous.distance)))); setPan(p => ({ x: p.x + x - previous.x, y: p.y + y - previous.y })); }
+              gesture.current = { distance, x, y }; return;
+            }
+          }
           if (zoom > 100 && e.buttons === 1)
             setPan((p) => ({ x: p.x + e.movementX, y: p.y + e.movementY }));
         }}
@@ -376,8 +410,9 @@ export function Compare({
             imageRendering: zoom > 100 ? "pixelated" : "auto",
           }}
         />
+
       </div>
-      {!side && (
+      {!side && !resultOnly && (
         <label>
           Comparison split
           <input
@@ -400,7 +435,9 @@ export function Compare({
         />
       </label>
       <div className="toolbar">
-        <button
+        <ActionButton onClick={() => setFull(old => !old)}>Full window</ActionButton>
+        {solo !== null && <ActionButton onClick={() => setSolo(null)}>All panes</ActionButton>}
+        <ActionButton
           className="preview-play"
           disabled={!count}
           onClick={() => {
@@ -415,14 +452,14 @@ export function Compare({
           }}
         >
           {playing ? "Pause preview" : "Play preview"}
-        </button>
-        <button disabled={!count} onClick={() => seek(frame - 1)}>
+        </ActionButton>
+        <ActionButton disabled={!count} onClick={() => seek(frame - 1)}>
           Previous frame
-        </button>
-        <button disabled={!count} onClick={() => seek(frame + 1)}>
+        </ActionButton>
+        <ActionButton disabled={!count} onClick={() => seek(frame + 1)}>
           Next frame
-        </button>
-        <span>
+        </ActionButton>
+        <span className="preview-counter">
           Frame {frame + 1}/{count} ·{" "}
           {((operation.result?.start_seconds || 0) + frame / fps).toFixed(1)} /{" "}
           {((operation.result?.start_seconds || 0) + count / fps).toFixed(1)} s
@@ -432,6 +469,8 @@ export function Compare({
             type="checkbox"
             checked={side}
             onChange={(e) => {
+              interaction.current.side = e.target.checked;
+              interaction.current.zoom = e.target.checked ? 100 : 200;
               setSide(e.target.checked);
               setZoom(e.target.checked ? 100 : 200);
               setPan({ x: 0, y: 0 });
@@ -439,6 +478,7 @@ export function Compare({
           />
           Side by side
         </label>
+        {!operation.result?.items && <label className="check"><input type="checkbox" checked={resultOnly} onChange={event => setResultOnly(event.target.checked)} />Result only</label>}
         <label className="check">
           <input
             type="checkbox"
@@ -471,35 +511,34 @@ export function Compare({
             ))}
           </>
         )}
-        <label>
-          Zoom
-          <select
-            value={zoom}
-            onChange={(e) => {
-              setZoom(Number(e.target.value));
-              setPan({ x: 0, y: 0 });
-            }}
-          >
-            {[100, 200, 300, 400].map((n) => (
-              <option key={n} value={n}>
-                {n}%
-              </option>
-            ))}
-          </select>
-        </label>
+        <div role="group" aria-label="Zoom" className="zoom-segments">
+          <ActionButton aria-label="Zoom out" title="Zoom out" disabled={zoom <= 100} onClick={() => { const next = Math.max(100, zoom / 1.25); interaction.current.zoom = next; setZoom(next); }} />
+          <ActionButton aria-label="Reset zoom" title="Reset zoom to 100%" className="zoom-reset" onClick={() => { interaction.current.zoom = 100; setZoom(100); setPan({ x: 0, y: 0 }); }}>{Math.round(zoom)}%</ActionButton>
+          <ActionButton aria-label="Zoom in" title="Zoom in" disabled={zoom >= 800} onClick={() => { const next = Math.min(800, zoom * 1.25); interaction.current.zoom = next; setZoom(next); }} />
+        </div>
       </div>
       <p className="muted">
         Arrow keys step one frame. Drag the zoomed picture to pan.
       </p>
       {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
+        <Notice identity={error} dismiss={() => setError("")}>{error}</Notice>
       )}
     </div>
   );
 }
-export function TrialDialog({
+function FirstLook({ api, image, name }: { api: Api; image: string; name: string }) {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    let alive = true, owned: string | undefined;
+    void api.blob(image.replace(/^\/v1\//, "")).then(blob => {
+      if (alive) { owned = URL.createObjectURL(blob); setUrl(owned); }
+    }).catch(() => {});
+    return () => { alive = false; if (owned) URL.revokeObjectURL(owned); };
+  }, [api, image]);
+  return <figure className="first-look">{url && <img src={url} alt={`${name} first look`} />}<figcaption>{name} · First look</figcaption></figure>;
+}
+
+function TrialDialogContent({
   api,
   value,
   operations,
@@ -507,6 +546,7 @@ export function TrialDialog({
   models = [],
   useModel,
   started = false,
+  switchStandard,
 }: {
   api: Api;
   value: { file: string; settings: Settings; media?: Media; job_id?: string };
@@ -514,10 +554,11 @@ export function TrialDialog({
   close(): void;
   models?: Model[];
   useModel?(
-    key: "restore_model" | "interp_model",
+    key: "restore_model" | "interp_model" | "size_model",
     id: string,
   ): Promise<void> | void;
   started?: boolean;
+  switchStandard?(): Promise<void> | void;
 }) {
   const previous = operations.findLast(
     (o) =>
@@ -538,9 +579,9 @@ export function TrialDialog({
   const [category, setCategory] = useState(
     value.settings.preset === "standard" ? "cleanup" : "motion",
   );
-  const key = category === "cleanup" ? "restore_model" : "interp_model";
+  const key = category === "cleanup" ? "restore_model" : category === "size" ? "size_model" : "interp_model";
   const candidates = models.filter(
-    (m) => m.task === (category === "cleanup" ? "restore" : "interpolate"),
+    (m) => m.task === (category === "cleanup" ? "restore" : category === "size" ? "size" : "interpolate"),
   );
   const [selected, setSelected] = useState<string[]>([
     value.settings.preset === "standard"
@@ -549,6 +590,33 @@ export function TrialDialog({
   ]);
   const [chosen, setChosen] = useState(value.settings[key] || selected[0]);
   const [consent, setConsent] = useState<Model>();
+  const [installing, setInstalling] = useState<string>();
+  const [accepted, setAccepted] = useState(false);
+  const [rangeReady, setRangeReady] = useState(false);
+  const selectedKey = selected.join("|");
+  const verifiedSelection = selected.every(id => models.some(model => model.id === id && model.weights_verified));
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  useEffect(() => setAccepted(false), [consent]);
+  useEffect(() => {
+    if (!installing || !models.some(model => model.id === installing && model.weights_verified)) return;
+    setSelected(old => old.includes(installing) ? old : [...old.slice(0, 2), installing]);
+    setInstalling(undefined);
+  }, [installing, models]);
+  useEffect(() => {
+    if (!rangeReady || !total || !selectedKey || !verifiedSelection) return;
+    const abort = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const op = await api.call<Operation>("compare", "POST", {
+          ...valueRef.current, start: Math.min(start, Math.max(0, total - length)),
+          seconds: length, models: selectedKey.split("|"),
+        }, abort.signal);
+        if (!abort.signal.aborted) { setId(op.id); setInitial(op); setError(""); }
+      } catch (error) { if (!abort.signal.aborted) setError((error as Error).message); }
+    }, 800);
+    return () => { clearTimeout(timer); abort.abort(); };
+  }, [api, start, length, selectedKey, total, rangeReady, verifiedSelection]);
   const operation = operations.find((o) => o.id === id) || initial;
   useEffect(() => {
     let alive = true;
@@ -562,7 +630,9 @@ export function TrialDialog({
         if (alive) {
           setThumbnails(r.thumbnails);
           setTotal(r.duration);
-          setStart(Math.max(0, r.duration / 2 - 2.5));
+          void api.call<{ start: number }>("compare/range", "POST", { file: value.file, job_id: value.job_id })
+            .then(range => { if (alive) { setStart(range.start); setRangeReady(true); } })
+            .catch(error => { if (alive) setError(error.message); });
         }
       })
       .catch((e) => {
@@ -573,7 +643,7 @@ export function TrialDialog({
     };
   }, [api, value.file]);
   return (
-    <div className="modal-shade">
+    <div className="modal-shade compare-full-window">
       <div
         className="dialog trial-dialog"
         role="dialog"
@@ -582,20 +652,24 @@ export function TrialDialog({
       >
         <div className="page-heading">
           <h2 id="trial-title">Compare models — {filename(value.file)}</h2>
-          <button
+          <ActionButton
             onClick={async () => {
               close();
             }}
           >
             Back
-          </button>
+          </ActionButton>
         </div>
-        <div className="thumbnails">
+        {value.settings.preset === "fast" && <div className="card fast-panel"><h3>Fast does not clean up.</h3><ActionButton disabled={started || !switchStandard} onClick={async () => { try { await switchStandard?.(); setCategory("cleanup"); setSelected(["basicvsrpp-ntire21-decompress"]); } catch (error) { setError((error as Error).message); } }}>Switch to Standard</ActionButton><ActionButton onClick={() => { setCategory("motion"); setSelected([value.settings.interp_model || "rife-4.25"]); }}>Compare smoother motion instead</ActionButton></div>}
+        <details className="compare-controls" open={!operation?.result?.original}><summary>Models and preview range</summary>
+        <div className="thumbnails range-track" onKeyDown={event => { if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); setStart(old => Math.max(0, Math.min(total-length, old + (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 5 : 1)))); } }} tabIndex={0} aria-label="Preview range">
+          <span className="range-box" aria-hidden="true" style={{ left: `${total ? start / total * 100 : 0}%`, width: `${total ? Math.min(length, total) / total * 100 : 100}%` }} />
           {thumbnails.map((src, i) => (
             <img
               src={src}
               key={i}
               alt={`Preview at ${((i * total) / 7).toFixed(1)} seconds`}
+              onClick={() => setStart(Math.min(Math.max(0, total - length), i * total / 7))}
             />
           ))}
         </div>
@@ -608,6 +682,11 @@ export function TrialDialog({
             step="0.1"
             value={Math.min(start, Math.max(0, total - length))}
             onChange={(e) => setStart(Number(e.target.value))}
+            onKeyDown={event => {
+              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+              event.preventDefault();
+              setStart(old => Math.max(0, Math.min(total - length, old + (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 5 : 1))));
+            }}
           />
         </label>
         <div className="filter-pills">
@@ -621,14 +700,14 @@ export function TrialDialog({
                 const model = models.find(
                   (m) =>
                     m.weights_verified &&
-                    m.task === (next === "cleanup" ? "restore" : "interpolate"),
+                    m.task === (next === "cleanup" ? "restore" : next === "size" ? "size" : "interpolate"),
                 );
                 setSelected(model ? [model.id] : []);
                 setChosen(
                   next === "cleanup"
                     ? value.settings.restore_model ||
                         "basicvsrpp-ntire21-decompress"
-                    : value.settings.interp_model || "rife-4.25",
+                    : next === "size" ? value.settings.size_model || model?.id || "" : value.settings.interp_model || "rife-4.25",
                 );
               }}
             >
@@ -639,39 +718,31 @@ export function TrialDialog({
                 Cleanup
               </option>
               <option value="motion">Smoother motion</option>
-              <option value="size" disabled>
-                Bigger picture · Standard resize
+              <option value="size" disabled={!models.some(model => model.task === "size" && model.weights_verified)}>
+                Bigger picture
               </option>
             </select>
           </label>
           <span className="badge">Original</span>
           {candidates.map((m) => (
-            <button
+            <ActionButton
               key={m.id}
+              icon={m.weights_verified ? selected.includes(m.id) ? Check : Layers : Download}
+              title={m.catalog?.title || m.display_name}
               aria-pressed={selected.includes(m.id)}
-              disabled={
-                m.weights_verified &&
-                !selected.includes(m.id) &&
-                selected.length >= 3
-              }
               onClick={() =>
                 m.weights_verified
                   ? setSelected((old) =>
                       old.includes(m.id)
                         ? old.filter((id) => id !== m.id)
-                        : [...old, m.id],
+                      : [...old.slice(0, 2), m.id],
                     )
                   : setConsent(m)
               }
             >
-              {m.weights_verified
-                ? selected.includes(m.id)
-                  ? "✓ "
-                  : ""
-                : "+ "}
               {m.catalog?.title || m.display_name}
               {m.weights_verified ? "" : " · installs model weights"}
-            </button>
+            </ActionButton>
           ))}
         </div>
         <div className="toolbar">
@@ -688,11 +759,9 @@ export function TrialDialog({
               ))}
             </select>
           </label>
-          <button
+          {operation?.state === "failed" && <ActionButton
             className="primary"
             disabled={
-              operation?.state === "waiting" ||
-              operation?.state === "running" ||
               !total ||
               !selected.length ||
               selected.some(
@@ -715,13 +784,14 @@ export function TrialDialog({
               }
             }}
           >
-            Compare selected models
-          </button>
+            Try again
+          </ActionButton>}
         </div>
         <p className="muted">
           A busy engine starts this after its current step, including outside
           your hours.
         </p>
+        </details>
         {operation && operation.state !== "done" && (
           <OperationStatus
             operation={operation}
@@ -729,23 +799,28 @@ export function TrialDialog({
           />
         )}
         {operation?.state === "done" && <p className="muted">Compare: done</p>}
+        {operation?.state !== "done" && <div className="first-looks">
+          {operation?.result?.first_looks?.map(look => <FirstLook key={look.id} api={api} image={look.image} name={look.id === "original" ? "Original" : models.find(model => model.id === look.id)?.catalog?.title || look.id} />)}
+        </div>}
         {operation?.result?.original && (
           <Compare api={api} operation={operation} />
         )}
-        <div className="model-grid">
+        <details className="compare-choice"><summary>Use a model</summary><div className="model-grid">
           {selected.map((id) => {
             const model = models.find((m) => m.id === id);
             const item = operation?.result?.items?.find((m) => m.id === id);
+            const modelProgress = operation?.result?.model_progress?.[id];
             return (
               <article className="card" key={id}>
                 <h3>{model?.catalog?.title || model?.display_name || id}</h3>
-                <p>{model?.catalog?.description}</p>
+                <p>{model?.catalog?.description || model?.catalog?.summary}</p>
+                <p role="status">{item ? "Ready" : operation?.state === "waiting" ? operation.phase : operation?.state === "failed" ? "Problem" : modelProgress ? `Making preview ${Math.round(modelProgress.percent)}% · ${duration(modelProgress.remaining_seconds)} left` : "Waiting"}</p>
                 <p>
-                  {item
-                    ? `About ${Math.floor(item.projected_whole_file_seconds / 3600)} h ${Math.round((item.projected_whole_file_seconds % 3600) / 60)} m for this video · ${item.fps.toFixed(2)} fps`
+                  {item?.projected_whole_file_seconds === null ? `Speed unknown for this video · ${item.fps.toFixed(2)} fps` : item
+                    ? `About ${duration(item.projected_whole_file_seconds)} for this video · ${item.fps.toFixed(2)} fps`
                     : "Measuring speed…"}
                 </p>
-                <button
+                <ActionButton
                   disabled={started || !useModel || !item || chosen === id}
                   title={
                     started
@@ -762,8 +837,8 @@ export function TrialDialog({
                   }}
                 >
                   {chosen === id ? "Chosen" : "Use this"}
-                </button>
-                <button
+                </ActionButton>
+                <ActionButton
                   onClick={async () => {
                     try {
                       await api.call("settings", "PUT", { [key]: id });
@@ -773,25 +848,29 @@ export function TrialDialog({
                   }}
                 >
                   Make it my default
-                </button>
+                </ActionButton>
               </article>
             );
           })}
-        </div>
+        </div></details>
         {consent && (
           <div className="modal-shade">
             <div className="dialog" role="dialog" aria-modal="true">
               <h3>Install {consent.catalog?.title || consent.display_name}?</h3>
               <p>Licence: {consent.licence}</p>
               <p className="break">Source: {consent.weights.url}</p>
-              <button onClick={() => setConsent(undefined)}>Cancel</button>
-              <button
+              {consent.publisher_url && <a href={consent.publisher_url} target="_blank" rel="noreferrer">Model publisher’s page</a>}
+              <label className="check"><input type="checkbox" checked={accepted} onChange={event => setAccepted(event.target.checked)} />I accept this licence</label>
+              <ActionButton onClick={() => setConsent(undefined)}>Cancel</ActionButton>
+              <ActionButton
+                disabled={!accepted}
                 onClick={async () => {
                   try {
                     await api.call(`models/${consent.id}/download`, "POST", {
                       agree: true,
                       licence: consent.licence,
                     });
+                    setInstalling(consent.id);
                     setConsent(undefined);
                   } catch (e) {
                     setError((e as Error).message);
@@ -799,16 +878,20 @@ export function TrialDialog({
                 }}
               >
                 Accept licence and download
-              </button>
+              </ActionButton>
             </div>
           </div>
         )}
         {error && (
-          <p role="alert" className="error">
+          <Notice identity={error} dismiss={() => setError("")}>
             {error}
-          </p>
+          </Notice>
         )}
       </div>
     </div>
   );
+}
+
+export function TrialDialog(props: Parameters<typeof TrialDialogContent>[0]) {
+  return <ErrorBoundary scope="Compare"><TrialDialogContent {...props} /></ErrorBoundary>;
 }

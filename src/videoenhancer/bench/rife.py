@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import statistics
 import sys
 import time
-import urllib.request
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -24,55 +23,29 @@ WEIGHT_SHA256 = "6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    from videoenhancer.models.registry import sha256
+
+    return sha256(path)
 
 
-def _download_drive(path: Path) -> None:
-    try:
-        import gdown  # pyright: ignore[reportMissingImports]
-    except ImportError as exc:
-        raise RuntimeError(
-            "Install the optional gdown package to fetch the official Google Drive model."
-        ) from exc
-    temporary = path.with_suffix(path.suffix + ".download")
-    try:
-        downloaded = gdown.download(
-            id="1ZKjcbmt1hypiFprJPIKW0Tt0lr_2i7bg", output=str(temporary), quiet=True
-        )
-        if not downloaded:
-            raise RuntimeError("Google Drive did not return the Practical-RIFE 4.25 archive.")
-        actual = _sha256(temporary)
-        if actual != WEIGHTS_ARCHIVE_SHA256:
-            raise RuntimeError(f"Practical-RIFE archive SHA-256 mismatch: {actual}")
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
+def _download_drive(path: Path, progress: Callable[[str, float], None] | None = None) -> None:
+    from videoenhancer.models.download import drive_archive
+
+    drive_archive(
+        path, "1ZKjcbmt1hypiFprJPIKW0Tt0lr_2i7bg", WEIGHTS_ARCHIVE_SHA256, 22919050, progress
+    )
 
 
-def _prepare_files(*, prepare_weights: bool = True) -> tuple[Path, Path]:
+def _prepare_files(
+    *, prepare_weights: bool = True, progress: Callable[[str, float], None] | None = None
+) -> tuple[Path, Path]:
     models = get_home() / "models"
     models.mkdir(parents=True, exist_ok=True)
     cache = source_cache(("practical-rife-source.zip", "RIFEv4.25_0919.zip"))
     source_archive = source_path(cache, cache / "practical-rife-source.zip")
-    if not source_archive.is_file() or _sha256(source_archive) != SOURCE_SHA256:
-        source_archive.unlink(missing_ok=True)
-        temporary = source_archive.with_suffix(".zip.download")
-        try:
-            with (
-                urllib.request.urlopen(SOURCE_URL, timeout=90) as response,
-                temporary.open("wb") as sink,
-            ):
-                while chunk := response.read(1024 * 1024):
-                    sink.write(chunk)
-            if _sha256(temporary) != SOURCE_SHA256:
-                raise RuntimeError("Practical-RIFE source archive SHA-256 mismatch.")
-            temporary.replace(source_archive)
-        finally:
-            temporary.unlink(missing_ok=True)
+    from videoenhancer.bench.basicvsr import _verified_download
+
+    _verified_download(source_archive, SOURCE_URL, SOURCE_SHA256, progress, 3027414)
     source_root = cache / f"Practical-RIFE-{SOURCE_COMMIT}"
     # Check every executable source against the hash-verified pinned archive.
     with zipfile.ZipFile(source_archive) as archive:
@@ -94,7 +67,7 @@ def _prepare_files(*, prepare_weights: bool = True) -> tuple[Path, Path]:
     weight_archive = source_path(cache, cache / "RIFEv4.25_0919.zip")
     if not weight_archive.is_file() or _sha256(weight_archive) != WEIGHTS_ARCHIVE_SHA256:
         weight_archive.unlink(missing_ok=True)
-        _download_drive(weight_archive)
+        _download_drive(weight_archive, progress)
     if not checkpoint.is_file() or _sha256(checkpoint) != WEIGHT_SHA256:
         with zipfile.ZipFile(weight_archive) as archive:
             temporary = checkpoint.with_suffix(".pkl.extracting")

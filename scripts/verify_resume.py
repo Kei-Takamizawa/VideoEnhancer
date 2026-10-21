@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import random
+import shutil
 import subprocess
 import sys
 import time
@@ -19,7 +20,7 @@ import numpy as np
 import psutil
 
 from videoenhancer.config import executable
-from videoenhancer.jobs.store import JobStore, add_job
+from videoenhancer.jobs.store import JobStore, add_job, input_identity
 from videoenhancer.media.decode import read_exact
 from videoenhancer.media.probe import probe
 
@@ -258,7 +259,10 @@ def main() -> int:
     }
     active: subprocess.Popen | None = None
     try:
-        source = run_dir / "three_minutes.mp4"
+        baseline_home, resumed_home = run_dir / "baseline_home", run_dir / "resumed_home"
+        baseline_home.mkdir(parents=True)
+        resumed_home.mkdir(parents=True)
+        source = baseline_home / "three_minutes.mp4"
         _generate(source)
         source_info = probe(source, count_frames=True)
         if source_info.frame_count != 5400:
@@ -272,11 +276,16 @@ def main() -> int:
             "lossless": True,
             "keep_segments": False,
         }
-        baseline_home, resumed_home = run_dir / "baseline_home", run_dir / "resumed_home"
-        baseline = add_job(source, settings, run_dir / "baseline.mp4", home=baseline_home)
+        baseline = add_job(source, settings, baseline_home / "baseline.mp4", home=baseline_home)
         initial = copy.deepcopy(baseline)
         store = JobStore(resumed_home)
-        initial.update(id=uuid.uuid4().hex, output=str(run_dir / "resumed.mp4"))
+        resumed_source = resumed_home / "three_minutes.mp4"
+        shutil.copy2(source, resumed_source)
+        initial.update(
+            id=uuid.uuid4().hex,
+            output=str(resumed_home / "resumed.mp4"),
+            input=input_identity(resumed_source),
+        )
         store.save(initial)
         if len(initial["segments"]) < 3:
             raise AssertionError("The 3-minute input must contain at least 3 segments.")

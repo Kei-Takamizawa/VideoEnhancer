@@ -34,6 +34,21 @@ def schedule(start="22:00", end="00:00"):
     )
 
 
+def test_download_readiness_does_not_block_ready_work():
+    now = datetime(2026, 10, 5, 22, tzinfo=ZONE)
+    downloading = job("download", 60, state="downloading")
+    downloading.update(
+        download={"ready_at": "2026-10-05T22:10:00+00:00"}, link_estimate={"seconds": 60}
+    )
+    ready = job("local", 120)
+    plan = build_plan([downloading, ready], schedule(), now, 1, PROFILE)
+    assert [step["job_id"] for step in plan["timeline"]] == ["local", "download"]
+    assert plan["timeline"][1]["start"] == "2026-10-05T22:10:00+00:00"
+    downloading["download"]["ready_at"] = None
+    plan = build_plan([downloading, ready], schedule(), now, 1, PROFILE)
+    assert [step["job_id"] for step in plan["timeline"]] == ["local"]
+
+
 def test_multi_day_queue_and_midnight_summary():
     now = datetime(2026, 10, 5, 21, tzinfo=ZONE)
     plan = build_plan([job("A", 3600, 2), job("B", 1800)], schedule(), now, 3, PROFILE)

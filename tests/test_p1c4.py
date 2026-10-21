@@ -166,7 +166,7 @@ def test_archive_download_verifies_extracted_checkpoint(tmp_path, monkeypatch):
     (registry.folder(C1) / "model.json").write_text(json.dumps(model))
     expected = []
 
-    def download(target, url, digest):
+    def download(target, url, digest, progress=None, expected_bytes=0):
         expected.append(digest)
         with zipfile.ZipFile(target, "w") as archive:
             archive.writestr("checkpoint.pth", content)

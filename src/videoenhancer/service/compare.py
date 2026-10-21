@@ -53,14 +53,23 @@ def suggested_range(
     if scores:
         # Score each source frame once, then map it to the existing CFR grid.
         by_source = {s["frame"]: max(0, float(s["delta"])) for s in scores}
-        values = [by_source.get(frame, 0) for frame in index["cfr_map"]]
+        # Scene cuts are CFR frame indices; motion scores refer to source frames.
+        excluded = {
+            frame
+            for cut in (analysis or {}).get("scene_cuts", [])
+            for frame in range(max(0, cut - 2), min(count, cut + 3))
+        }
+        values = [
+            0 if i in excluded else by_source.get(frame, 0)
+            for i, frame in enumerate(index["cfr_map"])
+        ]
         total = sum(values[:width])
         best, start = total, 0
         for first in range(1, count - width + 1):
             total += values[first + width - 1] - values[first - 1]
             if total > best:
                 best, start = total, first
-        reason = "Most motion in the available analysis."
+        reason = "Most motion in the available analysis, excluding scene cuts."
     else:
         start = max(0, (count - width) // 2)
         reason = "Middle of the video; motion analysis is unavailable."
@@ -132,6 +141,20 @@ def reuse_preview(folder: Path, key: str, name: str) -> dict[str, Any] | None:
     return None
 
 
+def discard_incomplete(folder: Path) -> None:
+    """Keep only previews committed to the cache after encoding completed."""
+    try:
+        records = json.loads((folder / "cache.json").read_text(encoding="utf-8"))
+        completed = {record["filename"] for record in records.values()}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        completed = set()
+    for path in folder.glob("*.mp4"):
+        if path.name not in completed:
+            path.unlink(missing_ok=True)
+    for path in folder.glob("*.copying"):
+        path.unlink(missing_ok=True)
+
+
 def compare_input(value: dict[str, Any]) -> tuple[Path, dict[str, Any], dict[str, Any], int, int]:
     from videoenhancer.jobs.store import JobStore
 
@@ -149,6 +172,11 @@ def compare_input(value: dict[str, Any]) -> tuple[Path, dict[str, Any], dict[str
             None,
         )
     index = source_index(source, analysis)
+    from videoenhancer.jobs.checks import job_support_reason
+
+    unsupported = job_support_reason({"media": index["media"], "settings": settings})
+    if unsupported:
+        raise ValueError(unsupported)
     rate = float(Fraction(index["media"]["cfr_fps"]))
     seconds = value.get("seconds", 5)
     start = value.get("start")
@@ -205,7 +233,7 @@ def prime_cached(value: dict[str, Any], folder: Path) -> dict[str, Any] | None:
                     name=model.get("catalog", {}).get("title", model["display_name"]),
                     preview=url,
                     fps=record["fps"],
-                    projected_whole_file_seconds=len(index["cfr_map"]) / record["fps"],
+                    projected_whole_file_seconds=whole_file_estimate(index, chosen),
                     reused=True,
                 )
             )
@@ -215,8 +243,32 @@ def prime_cached(value: dict[str, Any], folder: Path) -> dict[str, Any] | None:
     return None
 
 
+def whole_file_estimate(index: dict[str, Any], settings: dict[str, Any]) -> float | None:
+    from videoenhancer.estimate import estimate_job
+    from videoenhancer.jobs.store import load_machine_profile
+
+    registry = ModelRegistry()
+    identities = {}
+    for task, model_id in selected_models(settings, index["media"]).items():
+        try:
+            identities[task] = registry.snapshot(model_id, task, download=False)
+        except ValueError:
+            pass
+    estimate = estimate_job(
+        {
+            "media": index["media"],
+            "settings": settings,
+            "segments": [{"start": 0, "end": len(index["cfr_map"])}],
+            "machine_profile": load_machine_profile(
+                get_home(), backend=settings["backend"], models=identities
+            ),
+        }
+    )
+    return None if estimate.unknown_models else estimate.seconds
+
+
 def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
-    started = time.perf_counter()
+    started = float(value.get("_gpu_admitted_at", time.perf_counter()))
     source, settings, index, first, last = compare_input(value)
     registry = ModelRegistry()
     rate = Fraction(index["media"]["cfr_fps"])
@@ -243,6 +295,7 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
         seconds=(last - first) / float(rate),
         output_fps=float(output_fps),
         items=[],
+        model_progress={},
     )
     cache: dict[str, Any] = {}
 
@@ -285,6 +338,37 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
             decoder.close()
     result["original"] = url("original")
     result["original_reused"] = reused is not None
+    look_frame = min(7, last - first - 1) * int(output_fps / rate)
+
+    def first_look(video: Path, name: str) -> dict[str, Any]:
+        target = folder / f"{name}-first-look.png"
+        run(
+            [
+                executable("ffmpeg"),
+                "-v",
+                "error",
+                "-nostdin",
+                "-y",
+                "-i",
+                str(video),
+                "-vf",
+                f"select=eq(n\\,{look_frame})",
+                "-frames:v",
+                "1",
+                str(target),
+            ],
+            capture_output=True,
+            check=True,
+            timeout=120,
+        )
+        return {
+            "id": name,
+            "image": f"/v1/operations/{folder.name}/stills/{name}",
+            "seconds": time.perf_counter() - started,
+            "frame": first + min(7, last - first - 1),
+        }
+
+    result["first_looks"] = [first_look(original, "original")]
     result["time_to_first_tile_seconds"] = time.perf_counter() - started
     remember(original_key, "original")
     publish("Original ready", 0)
@@ -306,11 +390,30 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
             "models": record_models(chosen, get_home(), analysis["media"]),
         }
         segment = dict(index=0, start=first, end=last)
+        from videoenhancer.estimate import predict_segment
+        from videoenhancer.jobs.store import load_machine_profile
+
+        expected_seconds = predict_segment(
+            analysis["media"], chosen, last - first, load_machine_profile(get_home())
+        )
 
         def progress(
-            data: dict[str, Any], model: dict[str, Any] = model, position: int = position
+            data: dict[str, Any],
+            model: dict[str, Any] = model,
+            position: int = position,
+            expected_seconds: float = expected_seconds,
         ) -> None:
             fraction = data.get("frames_done", 0) / (last - first)
+            elapsed = float(data.get("elapsed_seconds", 0))
+            result["model_progress"][model["id"]] = dict(
+                percent=min(100, 100 * fraction),
+                remaining_seconds=max(
+                    0,
+                    elapsed * (1 - fraction) / fraction
+                    if fraction > 0 and elapsed > 0
+                    else expected_seconds,
+                ),
+            )
             publish(
                 f"Making {model.get('catalog', {}).get('title', model['display_name'])}",
                 100 * (position + fraction) / len(value["models"]),
@@ -320,7 +423,65 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
             stats = {"fps": reused_model["fps"]}
         else:
             raw = folder / f"{model_id}-raw.mp4"
-            stats = process_segment(job, segment, raw, lambda: False, progress=progress)
+            published = False
+
+            def observe(
+                frame: torch.Tensor, index: int, model_id: str = model_id, position: int = position
+            ) -> None:
+                nonlocal published
+                if published or index != first * int(output_fps / rate) + look_frame:
+                    return
+                target = folder / f"{model_id}-first-look.png"
+                rgb = (
+                    frame.detach()
+                    .float()
+                    .clamp(0, 1)
+                    .mul(255)
+                    .round()
+                    .to(torch.uint8)
+                    .permute(1, 2, 0)
+                    .contiguous()
+                    .cpu()
+                    .numpy()
+                )
+                run(
+                    [
+                        executable("ffmpeg"),
+                        "-v",
+                        "error",
+                        "-nostdin",
+                        "-y",
+                        "-f",
+                        "rawvideo",
+                        "-pix_fmt",
+                        "rgb24",
+                        "-s:v",
+                        f"{rgb.shape[1]}x{rgb.shape[0]}",
+                        "-i",
+                        "pipe:0",
+                        "-frames:v",
+                        "1",
+                        str(target),
+                    ],
+                    input=rgb.tobytes(),
+                    capture_output=True,
+                    check=True,
+                    timeout=120,
+                )
+                result["first_looks"].append(
+                    dict(
+                        id=model_id,
+                        image=f"/v1/operations/{folder.name}/stills/{model_id}",
+                        seconds=time.perf_counter() - started,
+                        frame=first + min(7, last - first - 1),
+                    )
+                )
+                published = True
+                publish("First look", 100 * position / len(value["models"]))
+
+            stats = process_segment(
+                job, segment, raw, lambda: False, progress=progress, frame_observer=observe
+            )
             target = folder / f"{model_id}-preview.mp4"
             run(
                 [
@@ -354,10 +515,11 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
                 fps=stats["fps"],
                 reused=reused_model is not None,
                 ready_seconds=time.perf_counter() - started,
-                projected_whole_file_seconds=len(index["cfr_map"]) / stats["fps"],
+                projected_whole_file_seconds=whole_file_estimate(index, chosen),
             )
         )
         remember(model_key, model_id, stats["fps"])
+        result["model_progress"][model_id] = dict(percent=100, remaining_seconds=0)
         publish("Preview ready", 100 * (position + 1) / len(value["models"]))
     result["total_seconds"] = time.perf_counter() - started
     return result

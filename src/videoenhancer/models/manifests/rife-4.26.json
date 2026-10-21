@@ -45,6 +45,10 @@
       "tile_overlap": null,
       "mode": "fast",
       "seconds": 5
+    },
+    "download_sizes": {
+      "practical-rife-source.zip": 3027414,
+      "rife-4.26.zip": 22867954
     }
   }
 }

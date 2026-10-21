@@ -8,6 +8,8 @@ import math
 import re
 import shutil
 import tempfile
+import threading
+import time
 import zipfile
 from collections.abc import Callable
 from fractions import Fraction
@@ -23,6 +25,8 @@ RIFE = "rife-4.25"
 BUILTINS = {path.stem for path in (Path(__file__).parent / "manifests").glob("*.json")}
 AdapterFactory = Callable[[dict[str, Any], Path, dict[str, Any], Fraction, set[int]], Stage]
 ADAPTERS: dict[str, tuple[str, AdapterFactory]] = {}
+_hash_cache: dict[Path, tuple[tuple[int, int], str]] = {}
+_hash_lock = threading.Lock()
 
 
 def register_adapter(name: str, task: str, factory: AdapterFactory) -> None:
@@ -34,9 +38,44 @@ def register_adapter(name: str, task: str, factory: AdapterFactory) -> None:
     ADAPTERS[name] = (task, factory)
 
 
-def sha256(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+def sha256(path: Path, progress: Callable[[str, float], None] | None = None) -> str:
+    with _hash_lock:
+        info = path.stat()
+        key = (info.st_size, info.st_mtime_ns)
+        cached = _hash_cache.get(path)
+        if cached and cached[0] == key:
+            if progress:
+                progress(f"Checking {path.name}: {info.st_size} / {info.st_size} bytes", 99)
+            return cached[1]
+        with path.open("rb") as stream:
+            if progress:
+                hasher = hashlib.sha256()
+                received, published = 0, 0.0
+                while chunk := stream.read(1024 * 1024):
+                    hasher.update(chunk)
+                    received += len(chunk)
+                    now = time.monotonic()
+                    if now - published >= 0.2 or received == info.st_size:
+                        percent = received / max(1, info.st_size) * 100
+                        progress(
+                            f"Checking {path.name}: {received:,} / {info.st_size:,} bytes",
+                            min(99, 90 + percent * 0.09),
+                        )
+                        published = now
+                digest = hasher.hexdigest()
+            else:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        if path.stat().st_mtime_ns != info.st_mtime_ns:
+            raise ValueError("Model weights changed during verification.")
+        _hash_cache[path] = (key, digest)
+        return digest
+
+
+def remember_verified_hash(path: Path, digest: str, key: tuple[int, int]) -> None:
+    info = path.stat()
+    if (info.st_size, info.st_mtime_ns) == key:
+        with _hash_lock:
+            _hash_cache[path] = (key, digest)
 
 
 def _id(value: Any) -> str:
@@ -275,7 +314,14 @@ class ModelRegistry:
                 value["catalog"] = shipped["catalog"]
         return value
 
-    def weights(self, model: dict[str, Any], *, download: bool = False) -> Path:
+    def weights(
+        self,
+        model: dict[str, Any],
+        *,
+        download: bool = False,
+        progress: Callable[[str, float], None] | None = None,
+        force_verify: bool = False,
+    ) -> Path:
         path = self.folder(model["id"]) / model["weights"]["filename"]
         if path.is_symlink():
             raise ValueError("Model weights cannot be a symbolic link.")
@@ -296,14 +342,14 @@ class ModelRegistry:
                     raise ValueError(
                         "Set VE_HOME to this registry before downloading built-in RIFE."
                     )
-                _, legacy = _prepare_files()
+                _, legacy = _prepare_files(progress=progress)
                 shutil.copyfile(legacy, path)
             elif model["architecture"] == "rife" and model["architecture_params"].get("variant"):
                 from videoenhancer.models.rife_variants import prepare_variant
 
                 if self.home.resolve() != get_home().resolve():
                     raise ValueError("Set VE_HOME to this registry before downloading RIFE.")
-                _, checkpoint = prepare_variant(model["architecture_params"]["variant"])
+                _, checkpoint = prepare_variant(model["architecture_params"]["variant"], progress)
                 shutil.copyfile(checkpoint, path)
             elif "url" in model["weights"] and model["weights"].get("archive"):
                 from videoenhancer.bench.basicvsr import _verified_download
@@ -311,7 +357,13 @@ class ModelRegistry:
                 bundle = path.with_suffix(".publisher.zip")
                 archive = model["weights"]["archive"]
                 try:
-                    _verified_download(bundle, model["weights"]["url"], archive["sha256"])
+                    _verified_download(
+                        bundle,
+                        model["weights"]["url"],
+                        archive["sha256"],
+                        progress,
+                        archive.get("bytes", 0),
+                    )
                     with (
                         zipfile.ZipFile(bundle) as zipped,
                         zipped.open(archive["member"]) as source,
@@ -323,10 +375,22 @@ class ModelRegistry:
             elif "url" in model["weights"]:
                 from videoenhancer.bench.basicvsr import _verified_download
 
-                _verified_download(path, model["weights"]["url"], expected)
+                if progress:
+                    _verified_download(
+                        path,
+                        model["weights"]["url"],
+                        expected,
+                        progress,
+                        model["weights"].get("bytes", 0),
+                    )
+                else:
+                    _verified_download(path, model["weights"]["url"], expected)
         if not path.is_file():
             raise ValueError(f"Model {model['id']} weights missing: {path.name}")
-        if sha256(path) != expected:
+        if force_verify:
+            with _hash_lock:
+                _hash_cache.pop(path, None)
+        if sha256(path, progress) != expected:
             raise ValueError(f"Model {model['id']} weights SHA-256 mismatch; refusing to load.")
         blend = model["weights"].get("blend")
         if blend:
@@ -336,7 +400,9 @@ class ModelRegistry:
             if not secondary.exists() and download:
                 from videoenhancer.bench.basicvsr import _verified_download
 
-                _verified_download(secondary, blend["url"], blend["sha256"])
+                _verified_download(
+                    secondary, blend["url"], blend["sha256"], progress, blend.get("bytes", 0)
+                )
             if not secondary.is_file() or sha256(secondary) != blend["sha256"]:
                 raise ValueError("Blend weights missing or SHA-256 mismatch.")
         return path
@@ -373,6 +439,18 @@ class ModelRegistry:
                     "bytes": shipped["weights"].get("bytes", model["weights"].get("bytes", 0)),
                 },
             }
+            if model["architecture"] == "basicvsrpp":
+                publisher = "https://github.com/ckkelvinchan/BasicVSR_PlusPlus"
+            elif model["architecture"] == "rife":
+                publisher = "https://github.com/hzwer/Practical-RIFE"
+            else:
+                publisher = {
+                    "scunet-real-psnr": "https://github.com/cszn/SCUNet",
+                    "drunet-deblock": "https://github.com/cszn/DPIR",
+                    "fbcnn-color": "https://github.com/jiaxi-jiang/FBCNN",
+                    "span-liveaction-2x": "https://github.com/jcj83429/upscaling/tree/main/2xLiveActionV1_SPAN",
+                }.get(model_id)
+            model = {**model, "publisher_url": publisher}
         return model
 
     def add(self, folder: Path) -> dict[str, Any]:
@@ -468,10 +546,6 @@ def selected_models(
         eligible &= output_rate(settings, media) == Fraction(media["cfr_fps"]) * 2
     if eligible:
         selected["interpolate"] = settings.get("interp_model") or RIFE
-    elif settings.get("interp_model"):
-        raise ValueError(
-            "--interp-model requires active 2x interpolation for this preset and input rate."
-        )
     if settings.get("size_model"):
         selected["size"] = settings["size_model"]
     return selected

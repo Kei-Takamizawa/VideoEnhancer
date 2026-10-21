@@ -1,4 +1,7 @@
 export type Settings = {
+  video_download_folder?: string;
+  video_download_limit?: number;
+  cleanup_working_files?: boolean;
   preset: string;
   codec: string;
   short_side: string | number;
@@ -6,6 +9,10 @@ export type Settings = {
   output_folder: string;
   start_with_windows: boolean;
   theme: string;
+  zoom?: number;
+  tray_explained?: boolean;
+  tour_completed?: boolean;
+  delete_original_after?: boolean;
   log_folder: string;
   advanced: Record<string, number>;
   backend?: string;
@@ -28,9 +35,19 @@ export type Estimate = {
   low: number;
   high: number;
   calibrated: boolean;
+  unknown_models?: string[];
+  profile_source?: string;
   finish?: string | null;
 };
 export type Job = {
+  source?: { url: string; title?: string; format?: string; downloaded_at?: string };
+  download?: { phase: string; percent?: number | null; bytes?: number; total_bytes?: number | null; bytes_per_second?: number | null; remaining_seconds?: number | null; ready_at?: string | null };
+  estimate_after_download?: boolean;
+  unreadable_record?: boolean; record_error?: boolean;
+  link_unanalysed?: boolean;
+  unsupported_reason?: string | null;
+  position?: number;
+  part_seconds?: number;
   id: string;
   state: string;
   input: string;
@@ -45,6 +62,7 @@ export type Job = {
   step: string;
   step_percent: number;
   segment: number;
+  completed_segments?: number;
   segments: number;
   fps?: number;
   log: string;
@@ -53,10 +71,29 @@ export type Job = {
   started_at?: string;
   took_seconds?: number;
   output_bytes?: number;
+  mode?: string;
+  original_bytes?: number;
+  output_folder?: string;
+  failure_reason?: string;
+  output_changed?: boolean;
+  file_removal_warnings?: string[];
+  interpolation_fallback_parts?: number;
+  original_state?: "present" | "missing" | "recycled";
+  output_state?: "present" | "missing" | "recycled";
   starts?: string;
   preview_ready?: boolean;
+  original_delete_result?: string;
+  video_deletions?: Record<string, string>;
+  deletion_notices?: { id: string; guard: string; result: string }[];
+  cancel_cleanup?: boolean;
 };
 export type Operation = {
+  completed_at?: string;
+  completed_files?: number;
+  total_files?: number;
+  current_file?: { id: string; kind: string; outcome: string };
+  created_at?: string;
+  remaining_seconds?: number | null;
   id: string;
   kind: string;
   state: string;
@@ -66,6 +103,10 @@ export type Operation = {
   job_id?: string;
   request?: { file?: string; model_id?: string };
   result?: {
+    ids?: string[];
+    undo_seconds?: number;
+    files?: { moved: number; not_found: number; kept: number };
+    kept?: { id: string; reason: string }[];
     pipeline?: { fps: number };
     output_fps?: number;
     preview?: { original: string; enhanced: string };
@@ -74,21 +115,30 @@ export type Operation = {
     weights_verified?: boolean;
     original?: string;
     start_seconds?: number;
+    first_looks?: { id: string; image: string; seconds: number; frame: number }[];
     items?: {
       id: string;
       name?: string;
       preview: string;
       fps: number;
-      projected_whole_file_seconds: number;
+      projected_whole_file_seconds: number | null;
     }[];
+    model_progress?: Record<string, { percent: number; remaining_seconds: number }>;
   };
 };
+export type Progress = { id: string; percent: number; work_left: number; finish_time: string; fps?: number; phase: string; step: string };
 export type Queue = {
+  history_revision?: string;
   jobs: Job[];
   completion: string | null;
   operations: Operation[];
 };
 export type Health = {
+  software_decoders?: { vp9: boolean; av1: boolean };
+  speed_profile?: { source: string; driver_note?: string | null; calibration_minutes: number; profile_path?: string };
+  deletion_notices?: { id: string; job_id?: string; path: string; guard: string; result: string }[];
+  paused_all?: boolean;
+  waiting_count?: number;
   version: string;
   gpu?: string;
   driver?: string;
@@ -135,6 +185,8 @@ export type Plan = {
   jobs: { job_id: string; completion: string | null }[];
 };
 export type Model = {
+  uninstall_reason?: string;
+  publisher_url?: string;
   id: string;
   display_name: string;
   task: string;
@@ -172,12 +224,26 @@ export type Model = {
 };
 export type Connection = { base_url: string; token: string };
 export interface Desktop {
+  storageStatus?(verify?: boolean): Promise<{ phase?: string; previous?: string; copied_bytes?: number; total_bytes?: number }>;
+  moveStorage?(folder: string): Promise<unknown>;
+  removeOldStorage?(): Promise<unknown>;
+  reload?(): Promise<void>;
+  reveal(file: string): Promise<void>;
+  hide(): Promise<void>;
+  onTrayExplanation(callback: () => void): () => void;
   connection(): Promise<Connection>;
+  restartEngine?(): Promise<Connection>;
   files(kind: "videos" | "folder"): Promise<string[]>;
   openFolder(folder: string): Promise<void>;
   play(file: string): Promise<void>;
   copy(text: string): Promise<void>;
-  filePath(file: File): string;
+  logRendererError?(details: string): Promise<void>;
+  openExternal?(url: string): Promise<void>;
+  sourceLink?(jobId: string): Promise<void>;
+  onFileDrop?(callback: (event: { type: "enter" | "drop" | "leave"; paths: string[] }) => void): () => void;
+  zoom(percent: number): Promise<number>;
+  theme?(theme: string): Promise<void>;
+  onZoom(callback: (percent: number) => void): () => void;
 }
 declare global {
   interface Window {

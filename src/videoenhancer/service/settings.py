@@ -12,6 +12,7 @@ from typing import Any
 from videoenhancer.files import retry_permission
 
 DEFAULTS: dict[str, Any] = {
+    "cleanup_working_files": True,
     "output_folder": "",
     "preset": "standard",
     "codec": "hevc",
@@ -19,6 +20,10 @@ DEFAULTS: dict[str, Any] = {
     "fps": "2x",
     "start_with_windows": False,
     "theme": "system",
+    "zoom": 100,
+    "tray_explained": False,
+    "tour_completed": False,
+    "delete_original_after": False,
     "log_folder": "",
     "advanced": {},
     "seen_failures": [],
@@ -27,12 +32,21 @@ DEFAULTS: dict[str, Any] = {
     "size_model": "",
     "restore_strength": "medium",
     "size_strength": 0.2,
+    "video_download_folder": "",
+    "video_download_limit": 2,
 }
 
 
 def read_settings(home: Path) -> dict[str, Any]:
     path = home / "settings.json"
-    return {**DEFAULTS, **(json.loads(path.read_text()) if path.exists() else {})}
+    saved = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if saved.get("short_side") == 2160:
+        saved["short_side"] = 1440
+        write_json(path, saved)
+        from videoenhancer.logging import get_logger
+
+        get_logger(home).info("Changed the saved default output size from 2160p to 1440p.")
+    return {**DEFAULTS, **saved}
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -51,14 +65,30 @@ def write_json(path: Path, data: Any) -> None:
 def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
     if set(value) - set(DEFAULTS):
         raise ValueError("Unknown setting.")
+    if "cleanup_working_files" in value and not isinstance(value["cleanup_working_files"], bool):
+        raise ValueError("Automatic cleanup must be on or off.")
     previous = read_settings(home)
     value = {**previous, **value}
+    if type(value["video_download_limit"]) is not int or value["video_download_limit"] not in {
+        1,
+        2,
+        3,
+    }:
+        raise ValueError("Simultaneous video downloads must be 1, 2 or 3.")
+    download_folder = value["video_download_folder"]
+    if (
+        not isinstance(download_folder, str)
+        or download_folder
+        and not Path(download_folder).is_absolute()
+    ):
+        raise ValueError("Choose an absolute video-download folder.")
     choices = {
         "preset": {"standard", "fast"},
         "codec": {"h264", "hevc", "av1"},
-        "short_side": {"keep", 1080, 1440, 2160},
+        "short_side": {"keep", 1080, 1440},
         "fps": {"off", "2x"},
         "theme": {"system", "dark", "light"},
+        "zoom": {80, 90, 100, 110, 125, 150},
         "restore_strength": {"light", "medium", "strong"},
         "size_strength": {0.2, 0.6},
     }
@@ -67,6 +97,12 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"Invalid {key}.")
     if not isinstance(value["start_with_windows"], bool):
         raise ValueError("Start with Windows must be on or off.")
+    if not isinstance(value["tray_explained"], bool):
+        raise ValueError("Tray explanation must be on or off.")
+    if not isinstance(value["tour_completed"], bool):
+        raise ValueError("Tour completion must be on or off.")
+    if not isinstance(value["delete_original_after"], bool):
+        raise ValueError("Delete original after processing must be on or off.")
     if not isinstance(value["seen_failures"], list) or any(
         not isinstance(item, str) or len(item) > 80 for item in value["seen_failures"]
     ):

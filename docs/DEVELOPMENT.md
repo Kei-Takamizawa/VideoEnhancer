@@ -1,5 +1,39 @@
 # Development
 
+## Playback measurements
+
+Historical comparative measurements and their exact recipes are retained in the
+external cycle evidence and Git history. New measurements use the Tauri shell,
+isolated synthetic media and process-role samples. Never use owner media or the
+owner app-data folders. A generated playback fixture is not an enhancement input.
+The bounded media protocol uses 1 MiB responses; no unauthenticated media URLs are
+exposed by the production engine. Known acceptance failures remain in the report.
+
+## Tauri desktop
+
+On Windows 11, install MSVC C++ Build Tools, a Windows SDK and the WebView2 Runtime.
+Use Rust 1.99.1 with rustfmt and Clippy. Keep `RUSTUP_HOME`, `CARGO_HOME` and
+`CARGO_TARGET_DIR` under the workspace cache, using session-only environment values.
+See [workspace rules](WORKSPACE.md) before installing or launching anything.
+
+From `gui`, `npm run dev` starts Tauri and the existing Vite renderer.
+`npm run build:desktop` builds the unsigned portable executable without an installer.
+For local tests, build the renderer, then run
+`cargo build --manifest-path src-tauri/Cargo.toml --features e2e` once before Playwright.
+Every desktop test uses an isolated home under scratch, isolated roaming/local
+app-data roots and a separate WebView2 data directory, and attaches over CDP.
+Owner packages must omit both `e2e` and `cdp`; their test-command denial is verified separately.
+The Windows CI job checks for the WebView2 Runtime and installs Microsoft's
+Evergreen Runtime on the hosted runner when missing. It passes the resolved
+runtime folder explicitly so isolated local app-data paths do not hide a
+per-user runtime. This does not install software on the developer's PC.
+Elevated hosted runners can ignore environment-only WebView2 debugging flags.
+The `cdp` feature (also enabled by `e2e`) forwards only the validated CDP port through Tauri's browser
+arguments API; feature-free owner builds do not include this test configuration.
+
+The owner package is an executable and `engine-location.json` in one folder.
+The engine checkout and Python environment remain external. No updater is included.
+
 Use Python 3.12 and `uv` from the repository root. For the full Windows NVIDIA engine and optional model benchmarks, install both extras:
 
 ```powershell

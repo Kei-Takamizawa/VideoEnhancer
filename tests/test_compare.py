@@ -60,8 +60,29 @@ def test_compare_uses_one_index_one_analysis_and_publishes_each_real_cpu_preview
         job = copy.deepcopy(job)
         job["settings"].update(preset="passthrough", backend="cpu", fps="off")
         job["settings"].pop("restore_model", None)
+        observer = kwargs.get("frame_observer")
+
+        def capture(frame, index):
+            if index == 7:
+                captured.append(
+                    frame.float()
+                    .clamp(0, 1)
+                    .mul(255)
+                    .round()
+                    .byte()
+                    .permute(1, 2, 0)
+                    .contiguous()
+                    .cpu()
+                    .numpy()
+                    .tobytes()
+                )
+            if observer:
+                observer(frame, index)
+
+        kwargs["frame_observer"] = capture
         return process_segment(job, *args, **kwargs)
 
+    captured = []
     monkeypatch.setattr(module, "source_index", indexed)
     monkeypatch.setattr(module, "analyze_range", analyzed)
     monkeypatch.setattr(module, "record_models", lambda *_: {})
@@ -89,6 +110,28 @@ def test_compare_uses_one_index_one_analysis_and_publishes_each_real_cpu_preview
     assert len(list(destination.glob("*-preview.mp4"))) == 4
     assert not list(destination.glob("*-raw.mp4"))
     assert json.loads((destination / "progress.json").read_text())["percent"] == 100
+    from videoenhancer import proc
+    from videoenhancer.config import executable
+
+    assert len(captured) == len(ids)
+    for model_id, raw in zip(ids, captured, strict=True):
+        decoded = proc.run(
+            [
+                executable("ffmpeg"),
+                "-v",
+                "error",
+                "-i",
+                str(destination / f"{model_id}-first-look.png"),
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "pipe:1",
+            ],
+            capture_output=True,
+            check=True,
+        ).stdout
+        assert decoded == raw
     reused_folder = home / "previews" / "reused"
     reused_folder.mkdir()
     monkeypatch.setattr(
@@ -204,7 +247,10 @@ def test_defaults_validate_weights_and_removal_protects_queued_models(
     job = _job(engine.store, tmp_path)
     job["settings"].update(preset="standard", restore_model=model["id"])
     engine.store.save(job)
-    with pytest.raises(ValueError, match="Used by 1 videos"):
+    with pytest.raises(ValueError, match="default for Standard"):
+        engine.dispatch("DELETE", ["models", model["id"]], {})
+    save_settings(registry.home, {"restore_model": ""})
+    with pytest.raises(ValueError, match="1 videos in the queue use it"):
         engine.dispatch("DELETE", ["models", model["id"]], {})
     job["state"] = "done"
     engine.store.save(job)

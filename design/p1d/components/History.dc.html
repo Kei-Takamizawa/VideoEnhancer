@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VideoEnhancer · History</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.ve-dark{--bg:#1C1814;--surface:#25201B;--raised:#2F2923;--border:#3A322B;--text:#F4ECDF;--text2:#DCCFBD;--muted:#B3A492;--accent:#E0A86E;--on-accent:#1C1814;--success:#A8D5A2;--warning:#EBC06A;--danger:#E8957F;--on-danger:#1C1814;--accent-soft:rgba(224,168,110,.14);--warning-soft:rgba(235,192,106,.11);--danger-soft:rgba(232,149,127,.12);--band:rgba(244,236,223,.14);--hover:#3A322B;--scrim:rgba(14,11,9,.62);--shadow:0 14px 36px rgba(0,0,0,.45);color-scheme:dark}
+.ve-light{--bg:#F5EFE6;--surface:#FFFCF7;--raised:#EDE4D6;--border:#E2D6C4;--text:#2A221C;--text2:#574A3F;--muted:#6F6152;--accent:#8C5024;--on-accent:#FFFFFF;--success:#356B3A;--warning:#8A5A00;--danger:#A8432F;--on-danger:#FFFFFF;--accent-soft:rgba(140,80,36,.11);--warning-soft:rgba(138,90,0,.08);--danger-soft:rgba(168,67,47,.08);--band:rgba(42,34,28,.13);--hover:#E6DBCA;--scrim:rgba(42,34,28,.36);--shadow:0 14px 36px rgba(70,45,20,.18);color-scheme:light}
+.ve,.ve *{box-sizing:border-box}
+.ve :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ve button{font:inherit;cursor:pointer}
+.ve button:disabled{cursor:default;opacity:.45}
+.ve svg.i{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.ve svg.f{fill:currentColor;stroke:none}
+.ve .hov{transition:background-color 120ms ease}
+.ve .hov:not(:disabled):hover{background:var(--hover) !important}
+.ve .pri{transition:opacity 120ms ease}
+.ve .pri:not(:disabled):hover{opacity:.9}
+.ve .tipw{position:relative}
+.ve .tip{position:absolute;left:50%;bottom:calc(100% + 10px);transform:translate(-50%,4px);opacity:0;pointer-events:none;transition:opacity 120ms ease,transform 120ms ease;white-space:nowrap;z-index:5}
+.ve .tipw:hover .tip,.ve .tipw:focus-visible .tip{opacity:1;transform:translate(-50%,0)}
+.ve .tile .hname{opacity:0;transition:opacity 120ms ease}
+.ve .tile:hover .hname,.ve .tile:focus-visible .hname{opacity:1}
+.ve .scroll{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.ve input::placeholder{color:var(--muted)}
+</style>
+</helmet>
+<div class="{{rootClass}}" style="position: relative; width: {{W}}px; height: {{H}}px; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-family: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif; font-size: 13px; line-height: 1.45; font-variant-numeric: tabular-nums;">
+
+  <!-- Title bar -->
+  <div style="height: 32px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding-left: 14px; font-size: 12px; color: var(--text2);">
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="0.5" y="0.5" width="15" height="15" rx="4.5" style="fill: var(--accent);"></rect><path d="M5 5.2 8.2 8 5 10.8M8.6 5.2 11.8 8 8.6 10.8" style="fill: none; stroke: var(--on-accent); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;"></path></svg>
+    <span>VideoEnhancer</span>
+    <div style="flex-grow: 1;"></div>
+    <button class="hov" aria-label="Minimize" style="width: 46px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="10" height="10" viewBox="0 0 10 10" style="stroke-width: 1;"><path d="M0 5h10"></path></svg></button>
+    <button class="hov" aria-label="Maximize" style="width: 46px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="10" height="10" viewBox="0 0 10 10" style="stroke-width: 1;"><rect x="0.5" y="0.5" width="9" height="9" rx="1.5"></rect></svg></button>
+    <button class="hov" aria-label="Close to tray" style="width: 46px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="10" height="10" viewBox="0 0 10 10" style="stroke-width: 1;"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9"></path></svg></button>
+  </div>
+
+  <div style="flex: 1; min-height: 0; display: flex; gap: 20px; padding: 16px 28px 72px;">
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px;">
+
+      <!-- Header: normal -->
+      <sc-if value="{{notSelecting}}" hint-placeholder-val="{{true}}">
+        <div style="height: 36px; flex-shrink: 0; display: flex; align-items: center; gap: 8px;">
+          <h1 style="flex: 1; margin: 0; font-size: 20px; font-weight: 600;">History</h1>
+          <div style="position: relative; width: 220px;">
+            <svg class="i" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 10px; top: 9px; color: var(--muted);"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>
+            <input type="search" aria-label="Search by file name" placeholder="Search by file name" value="{{q}}" onChange="{{onSearch}}" style="width: 100%; height: 32px; padding: 0 10px 0 32px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit;">
+          </div>
+          <button class="hov" onClick="{{startSelect}}" disabled="{{noItems}}" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4"></rect><path d="m8.5 12 2.5 2.5 4.5-5"></path></svg>Select</button>
+          <button class="hov" onClick="{{askClear}}" disabled="{{noItems}}" style="height: 32px; padding: 0 12px; border-radius: 9px; border: 0; background: transparent; color: var(--text2);">Clear history…</button>
+        </div>
+      </sc-if>
+
+      <!-- Header: select mode -->
+      <sc-if value="{{selecting}}" hint-placeholder-val="{{false}}">
+        <div role="toolbar" aria-label="Selection" style="height: 36px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 12px; border-radius: 10px; background: var(--accent-soft); border: 1px solid var(--border);">
+          <span role="status" style="font-weight: 600; min-width: 84px;">{{selCount}} selected</span>
+          <button class="hov" onClick="{{selectAll}}" style="height: 28px; padding: 0 10px; border-radius: 8px; border: 0; background: transparent; color: var(--accent); font-weight: 600;">Select all</button>
+          <div style="flex: 1;"></div>
+          <button class="hov" onClick="{{removeSelected}}" disabled="{{noneChecked}}" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 600;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h7M15 17h6"></path></svg>Remove from history</button>
+          <button class="hov" onClick="{{askDeleteSelected}}" disabled="{{noneChecked}}" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--danger); background: var(--surface); color: var(--danger); font-weight: 600;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9L17.5 7"></path></svg>Delete video files…</button>
+          <button class="hov" onClick="{{endSelect}}" title="Esc" style="height: 28px; padding: 0 10px; border-radius: 8px; border: 0; background: transparent; color: var(--text2);">Done</button>
+        </div>
+      </sc-if>
+
+      <!-- Filters -->
+      <div role="radiogroup" aria-label="Show" style="height: 32px; flex-shrink: 0; display: flex; align-items: center; gap: 6px;">
+        <sc-for list="{{filters}}" as="f" hint-placeholder-count="4">
+          <button role="radio" aria-checked="{{f.on}}" onClick="{{f.pick}}" style="height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 15px; border: 1px solid {{f.border}}; background: {{f.bg}}; color: {{f.fg}}; font-weight: {{f.fw}};">
+            <sc-if value="{{f.warn}}" hint-placeholder-val="{{false}}"><svg class="i" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--warning);"><path d="M12 4 21 19.5H3z"></path><path d="M12 10v4.5M12 17.2v.3"></path></svg></sc-if>
+            {{f.label}}<span style="font-size: 12px; color: var(--muted); font-weight: 400;">{{f.count}}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <!-- Grid -->
+      <sc-if value="{{hasResults}}" hint-placeholder-val="{{true}}">
+        <div class="scroll" tabindex="0" aria-label="Finished videos" onKeyDown="{{gridKey}}" style="flex: 1; min-height: 0; overflow-y: auto; padding: 2px 6px 12px 2px; border-radius: 12px;">
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+            <section aria-label="{{g.label}}" style="margin-bottom: 16px;">
+              <h2 style="margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted);">{{g.label}} · {{g.count}}</h2>
+              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px;">
+                <sc-for list="{{g.items}}" as="t" hint-placeholder-count="6">
+                  <button class="tile" aria-label="{{t.aria}}" aria-pressed="{{t.pressed}}" onClick="{{t.click}}" style="position: relative; aspect-ratio: 4 / 5; padding: 0; border: 0; border-radius: 12px; overflow: hidden; background: {{t.a.bg}}; outline: {{t.outline}}; outline-offset: 2px;">
+                    <span aria-hidden="true" style="position: absolute; left: {{t.a.sx}}%; top: {{t.a.sy}}%; width: 40%; aspect-ratio: 1 / 1; border-radius: 50%; background: {{t.a.sun}};"></span>
+                    <span aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; height: 36%; background: {{t.a.band}};"></span>
+                    <sc-if value="{{t.dim}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="position: absolute; inset: 0; background: rgba(20,16,12,.45);"></span></sc-if>
+                    <sc-if value="{{t.markWarn}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="position: absolute; left: 6px; bottom: 6px; width: 22px; height: 22px; border-radius: 11px; background: #EBC06A; color: #1C1814; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px rgba(28,24,20,.55);"><svg class="i" width="13" height="13" viewBox="0 0 24 24" style="stroke-width: 2.2;"><path d="M12 6v7M12 17.2v.3"></path></svg></span></sc-if>
+                    <sc-if value="{{t.markCancel}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="position: absolute; left: 6px; bottom: 6px; width: 22px; height: 22px; border-radius: 11px; background: #F4ECDF; color: #2A221C; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px rgba(28,24,20,.55);"><svg class="i" width="13" height="13" viewBox="0 0 24 24" style="stroke-width: 2.2;"><circle cx="12" cy="12" r="6.5"></circle><path d="m7.5 7.5 9 9"></path></svg></span></sc-if>
+                    <sc-if value="{{t.showCheck}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="position: absolute; left: 7px; top: 7px; width: 20px; height: 20px; border-radius: 6px; border: 2px solid #F4ECDF; background: {{t.checkBg}}; color: #1C1814; display: flex; align-items: center; justify-content: center;"><sc-if value="{{t.checked}}" hint-placeholder-val="{{false}}"><svg class="i" width="13" height="13" viewBox="0 0 24 24" style="stroke-width: 3;"><path d="m5 12.5 4.5 4.5L19 7.5"></path></svg></sc-if></span></sc-if>
+                    <span class="hname" aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 8px 6px; background: linear-gradient(transparent, rgba(20,16,12,.85)); color: #F4ECDF; font-size: 11px; font-weight: 600; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{t.name}}</span>
+                  </button>
+                </sc-for>
+              </div>
+            </section>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <!-- Empty and no match -->
+      <sc-if value="{{isEmpty}}" hint-placeholder-val="{{false}}">
+        <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; border: 1.5px dashed var(--border); border-radius: 16px;">
+          <svg class="i" width="40" height="40" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--muted); stroke-width: 1.3;"><rect x="4" y="4" width="7" height="7" rx="1.8"></rect><rect x="13" y="4" width="7" height="7" rx="1.8"></rect><rect x="4" y="13" width="7" height="7" rx="1.8"></rect><rect x="13" y="13" width="7" height="7" rx="1.8"></rect></svg>
+          <h2 style="margin: 4px 0 0; font-size: 17px; font-weight: 600;">No finished videos yet</h2>
+          <p style="margin: 0; color: var(--text2); max-width: 340px;">Videos appear here once they are done, with a way to play, compare and tidy them up.</p>
+          <a class="hov" href="{{L.home}}" style="margin-top: 8px; height: 32px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600; text-decoration: none;">Go to Home</a>
+        </div>
+      </sc-if>
+      <sc-if value="{{noMatch}}" hint-placeholder-val="{{false}}">
+        <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center;">
+          <svg class="i" width="36" height="36" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--muted); stroke-width: 1.3;"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>
+          <h2 style="margin: 4px 0 0; font-size: 17px; font-weight: 600;">No videos match “{{q}}”</h2>
+          <p style="margin: 0; color: var(--text2);">Try part of the file name, or show all videos.</p>
+          <button class="hov" onClick="{{clearSearch}}" style="margin-top: 8px; height: 32px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600;">Clear search</button>
+        </div>
+      </sc-if>
+    </div>
+
+    <!-- Detail panel -->
+    <sc-if value="{{hasDetail}}" hint-placeholder-val="{{true}}">
+      <aside aria-label="Video details" style="position: relative; width: 320px; flex-shrink: 0; display: flex; flex-direction: column; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px;">
+        <button class="hov" aria-label="Close details" onClick="{{closeDetail}}" style="position: absolute; right: 22px; top: 22px; z-index: 2; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: var(--surface); color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+        <div style="height: {{thumbH}}px; flex-shrink: 0; border-radius: 12px; background: var(--raised); display: flex; align-items: center; justify-content: center; overflow: hidden;">
+          <div style="position: relative; width: {{d.tw}}px; height: {{d.th}}px; overflow: hidden; background: {{d.a.bg}};">
+            <div style="position: absolute; left: {{d.a.sx}}%; top: {{d.a.sy}}%; width: {{d.a.ss}}%; aspect-ratio: 1 / 1; border-radius: 50%; background: {{d.a.sun}};"></div>
+            <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 36%; background: {{d.a.band}};"></div>
+          </div>
+        </div>
+        <h2 style="margin: 12px 0 0; font-size: 15px; font-weight: 600; word-break: break-all;">{{d.name}}</h2>
+        <div style="font-size: 12px; color: var(--muted);">{{d.when}}</div>
+        <div style="display: flex; margin-top: 8px;">
+          <span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 12px; background: {{d.chipBg}}; color: {{d.chipFg}}; font-size: 12px; font-weight: 600;">
+            <sc-if value="{{d.isOk}}" hint-placeholder-val="{{true}}"><svg class="i" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2.2;"><path d="m5 12.5 4.5 4.5L19 7.5"></path></svg></sc-if>
+            <sc-if value="{{d.isWarn}}" hint-placeholder-val="{{false}}"><svg class="i" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 21 19.5H3z"></path><path d="M12 10v4.5M12 17.2v.3"></path></svg></sc-if>
+            <sc-if value="{{d.isMissing}}" hint-placeholder-val="{{false}}"><svg class="i" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M9.7 9.5a2.4 2.4 0 1 1 3.3 2.2c-.6.3-1 .8-1 1.5v.4M12 16.6v.3"></path></svg></sc-if>
+            <sc-if value="{{d.isCancel}}" hint-placeholder-val="{{false}}"><svg class="i" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="m6.5 6.5 11 11"></path></svg></sc-if>
+            {{d.status}}
+          </span>
+        </div>
+        <sc-if value="{{d.hasReason}}" hint-placeholder-val="{{false}}">
+          <div style="margin-top: 8px; padding: 8px 10px; border-radius: 9px; background: {{d.reasonBg}}; font-size: 12px; color: var(--text2);">{{d.reason}}</div>
+        </sc-if>
+        <dl style="margin: 10px 0 0; display: grid; grid-template-columns: 92px minmax(0, 1fr); row-gap: 3px; font-size: 12px;">
+          <sc-for list="{{d.facts}}" as="x" hint-placeholder-count="4">
+            <dt style="color: var(--muted);">{{x.k}}</dt>
+            <dd style="margin: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{x.v}}</dd>
+          </sc-for>
+        </dl>
+        <div style="flex: 1;"></div>
+        <div style="display: flex; gap: 8px; margin-top: 12px;">
+          <sc-if value="{{d.okActions}}" hint-placeholder-val="{{true}}">
+            <button class="pri" disabled="{{d.fileGone}}" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border-radius: 9px; border: 0; background: var(--accent); color: var(--on-accent); font-weight: 600;"><svg class="i f" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z"></path></svg>Play</button>
+            <button class="hov" disabled="{{d.fileGone}}" style="height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600; white-space: nowrap;">Show in folder</button>
+            <a class="hov" href="{{L.compare}}" style="height: 32px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600; text-decoration: none; white-space: nowrap;">Compare again</a>
+          </sc-if>
+          <sc-if value="{{d.failActions}}" hint-placeholder-val="{{false}}">
+            <button class="pri" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border-radius: 9px; border: 0; background: var(--accent); color: var(--on-accent); font-weight: 600;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2;"><path d="M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6"></path><path d="M18 3v4h-4M6 21v-4h4"></path></svg>Retry</button>
+            <button class="hov" style="height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600;">Show log</button>
+          </sc-if>
+        </div>
+        <div style="height: 1px; margin: 12px 0; background: var(--border);"></div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;">
+          <button class="hov" onClick="{{copyDetails}}" style="height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; border-radius: 9px; border: 0; background: transparent; color: var(--text2);"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="8.5" y="8.5" width="11" height="11" rx="2"></rect><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"></path></svg>Copy details</button>
+          <button class="hov" onClick="{{removeOne}}" style="height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; border-radius: 9px; border: 0; background: transparent; color: var(--text2); white-space: nowrap;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h7M15 17h6"></path></svg>Remove from history</button>
+          <button class="hov" onClick="{{askDeleteOne}}" disabled="{{d.nothingToDelete}}" style="grid-column: span 2; height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; border: 1px solid var(--danger); background: transparent; color: var(--danger); font-weight: 600;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9L17.5 7"></path></svg>Delete video files…</button>
+        </div>
+      </aside>
+    </sc-if>
+  </div>
+
+  <!-- Dock -->
+  <nav aria-label="Main" style="position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 4px; padding: 6px; background: var(--raised); border: 1px solid var(--border); border-radius: 20px; box-shadow: var(--shadow);">
+    <a class="tipw hov" href="{{L.home}}" aria-label="Home, 5 waiting" style="position: relative; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--text2);">
+      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"></path></svg>
+      <span aria-hidden="true" style="position: absolute; top: 2px; right: 2px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--accent); color: var(--on-accent); font-size: 10px; font-weight: 700; line-height: 17px; text-align: center;">5</span>
+      <span class="tip" style="padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 12px; font-weight: 600;">Home · 5 waiting</span>
+    </a>
+    <a class="tipw hov" href="{{L.history}}" aria-current="page" aria-label="History, 2 need attention" style="position: relative; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--accent); background: var(--accent-soft);">
+      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.8"></rect><rect x="13" y="4" width="7" height="7" rx="1.8"></rect><rect x="4" y="13" width="7" height="7" rx="1.8"></rect><rect x="13" y="13" width="7" height="7" rx="1.8"></rect></svg>
+      <span aria-hidden="true" style="position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 5px; background: var(--warning); border: 2px solid var(--raised);"></span>
+      <span aria-hidden="true" style="position: absolute; bottom: 3px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 2px; background: var(--accent);"></span>
+      <span class="tip" style="padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 12px; font-weight: 600;">History · 2 need attention</span>
+    </a>
+    <a class="tipw hov" href="{{L.schedule}}" aria-label="Schedule" style="position: relative; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--text2);">
+      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14" rx="2.5"></rect><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"></path></svg>
+      <span class="tip" style="padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 12px; font-weight: 600;">Schedule</span>
+    </a>
+    <a class="tipw hov" href="{{L.models}}" aria-label="Models" style="position: relative; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--text2);">
+      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 4 8 4.5-8 4.5-8-4.5z"></path><path d="m4 12.5 8 4.5 8-4.5"></path><path d="m4 16.5 8 4.5 8-4.5"></path></svg>
+      <span class="tip" style="padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 12px; font-weight: 600;">Models</span>
+    </a>
+    <span aria-hidden="true" style="width: 1px; height: 26px; margin: 0 4px; background: var(--border);"></span>
+    <a class="tipw hov" href="{{L.settings}}" aria-label="Settings" style="position: relative; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--text2);">
+      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+      <span class="tip" style="padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 12px; font-weight: 600;">Settings</span>
+    </a>
+  </nav>
+
+  <!-- Toast with undo -->
+  <sc-if value="{{showToast}}" hint-placeholder-val="{{false}}">
+    <div role="status" style="position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 55; height: 40px; display: flex; align-items: center; gap: 14px; padding: 0 6px 0 18px; border-radius: 20px; background: var(--text); color: var(--bg); font-weight: 600; box-shadow: var(--shadow); white-space: nowrap;">
+      <span>{{toastText}}</span>
+      <sc-if value="{{toastUndo}}" hint-placeholder-val="{{true}}"><button onClick="{{undo}}" style="height: 30px; padding: 0 12px; border-radius: 15px; border: 0; background: transparent; color: var(--bg); font-weight: 700; text-decoration: underline; text-underline-offset: 3px;">Undo</button></sc-if>
+    </div>
+  </sc-if>
+
+  <!-- Dialog: delete video files -->
+  <sc-if value="{{dDelete}}" hint-placeholder-val="{{false}}">
+    <div style="position: absolute; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: var(--scrim);">
+      <div role="alertdialog" aria-modal="true" aria-labelledby="dlg-del-t" onKeyDown="{{dlgKey}}" style="width: 460px; padding: 22px 24px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow);">
+        <h2 id="dlg-del-t" style="margin: 0; font-size: 17px; font-weight: 600;">Delete video files?</h2>
+        <p style="margin: 6px 0 0; color: var(--text2);">{{delWhat}} Choose which files to delete.</p>
+        <div style="display: flex; flex-direction: column; gap: 2px; margin-top: 14px; padding: 6px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border);">
+          <label style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-radius: 8px; cursor: pointer;">
+            <input type="checkbox" checked="{{delEnh}}" onChange="{{toggleEnh}}" style="width: 18px; height: 18px; margin: 0; accent-color: var(--accent);">
+            <span style="flex: 1;">{{delEnhLabel}}</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-radius: 8px; cursor: pointer;">
+            <input type="checkbox" checked="{{delOrig}}" onChange="{{toggleOrig}}" style="width: 18px; height: 18px; margin: 0; accent-color: var(--accent);">
+            <span style="flex: 1;">{{delOrigLabel}}</span>
+          </label>
+        </div>
+        <p style="margin: 12px 0 0; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted);"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9L17.5 7"></path></svg>Files go to the Recycle Bin. The History entry stays.</p>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
+          <button class="hov" onClick="{{closeDialog}}" style="height: 32px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600; outline: 2px solid var(--accent); outline-offset: 2px;">Keep files</button>
+          <button class="pri" onClick="{{confirmDelete}}" disabled="{{delNone}}" style="height: 32px; padding: 0 14px; border-radius: 9px; border: 0; background: var(--danger); color: var(--on-danger); font-weight: 600;">{{delButton}}</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- Dialog: clear history -->
+  <sc-if value="{{dClear}}" hint-placeholder-val="{{false}}">
+    <div style="position: absolute; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: var(--scrim);">
+      <div role="alertdialog" aria-modal="true" aria-labelledby="dlg-clr-t" aria-describedby="dlg-clr-d" onKeyDown="{{dlgKey}}" style="width: 440px; padding: 22px 24px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow);">
+        <h2 id="dlg-clr-t" style="margin: 0; font-size: 17px; font-weight: 600;">Clear history?</h2>
+        <p id="dlg-clr-d" style="margin: 8px 0 0; color: var(--text2);">This removes all 128 entries from this list. Video files are kept.</p>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px;">
+          <button class="hov" onClick="{{closeDialog}}" style="height: 32px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600; outline: 2px solid var(--accent); outline-offset: 2px;">Keep history</button>
+          <button class="pri" onClick="{{confirmClear}}" style="height: 32px; padding: 0 14px; border-radius: 9px; border: 0; background: var(--danger); color: var(--on-danger); font-weight: 600;">Clear history</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"View"},"size":{"editor":"enum","options":["1280x800","1100x700"],"default":"1280x800","section":"View"},"variant":{"editor":"enum","options":["default","failed","notFound","select","deleteFiles","clear","toast","empty","noMatch"],"default":"default","section":"State"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  items() {
+    const names = [
+      'beach_day.mp4', 'city_lights.mp4', 'studio_dance.mp4', 'morning_routine.mp4', 'idol_fancam_0921.mp4',
+      'rain_window.mp4', 'live_stage_encore.mp4', 'makeup_tutorial_2.mp4', 'night_drive.mp4', 'cafe_corner_vlog.mp4', 'mv_teaser_v1.mp4',
+      'skin_care_night.mp4', 'street_walk.mp4', 'rehearsal_cam_b.mp4', 'lyric_clip_short.mp4', 'harbor_sunset.mp4', 'fan_meeting_live.mp4',
+      'get_ready_with_me.mp4', 'dance_practice_04.mp4', 'acoustic_session.mp4', 'snow_morning.mp4', 'nail_art_quick.mp4', 'stream_highlights_09.mp4',
+      'hair_tutorial_1.mp4', 'concert_intro.mp4', 'park_picnic.mp4', 'live_clip_0905.mp4', 'mv_behind_scenes.mp4', 'lip_tint_review.mp4',
+      'stage_mix_cut.mp4', 'old_phone_clip.mp4', 'festival_crowd.mp4', 'q_and_a_stream.mp4', 'sunrise_timelapse.mp4', 'cover_song_take2.mp4', 'gallery_walk.mp4',
+    ];
+    const when = ['Today 14:20', 'Today 11:05', 'Today 07:40', 'Today 05:15', 'Today 03:30'];
+    return names.map((name, i) => {
+      const grp = i < 5 ? 0 : i < 11 ? 1 : i < 23 ? 2 : 3;
+      let status = 'ok';
+      if (name === 'rain_window.mp4') status = 'failed';
+      if (name === 'idol_fancam_0921.mp4') status = 'missing';
+      if (name === 'skin_care_night.mp4') status = 'cancelled';
+      const t = i < 5 ? when[i] : grp === 1 ? 'Yesterday ' + String(23 - i).padStart(2, '0') + ':' + String((i * 7) % 60).padStart(2, '0') : grp === 2 ? ['Fri', 'Thu', 'Wed', 'Tue'][i % 4] + ' 10/' + (9 - (i % 4)) + ', 0' + (i % 8) + ':' + String((i * 13) % 60).padStart(2, '0') : '10/' + (5 - (i % 4)) + ' 0' + (i % 7) + ':' + String((i * 17) % 60).padStart(2, '0');
+      return { id: 'h' + i, i: i, name: name, grp: grp, status: status, mode: i % 4 === 1 ? 'Fast' : 'Standard', o: i % 3 === 0 ? 'l' : 'p', k: (i * 5 + 3) % 8, when: t };
+    });
+  }
+  base() {
+    const v = this.props.variant ?? 'default';
+    const sel = { default: 'h0', failed: 'h5', notFound: 'h4', deleteFiles: 'h0' }[v] || null;
+    return {
+      forV: v,
+      removed: v === 'empty' ? 'all' : v === 'toast' ? ['h1', 'h2', 'h3'] : [],
+      sel: sel,
+      filter: 'all',
+      q: v === 'noMatch' ? 'sunrise beach' : '',
+      selecting: v === 'select',
+      checked: v === 'select' ? ['h1', 'h2', 'h3'] : [],
+      last: null,
+      dialog: v === 'deleteFiles' ? 'delete' : v === 'clear' ? 'clear' : null,
+      delScope: 'one',
+      delEnh: true,
+      delOrig: false,
+      toast: v === 'toast' ? 'Removed 3 items' : null,
+      undoRemoved: v === 'toast' ? ['h1', 'h2', 'h3'] : null,
+    };
+  }
+  cur() {
+    const s = this.state || {};
+    const v = this.props.variant ?? 'default';
+    return s.touched && s.forV === v ? s : this.base();
+  }
+  upd(p) {
+    this.setState(Object.assign({}, this.cur(), p, { touched: true }));
+  }
+  toast(text, undoRemoved) {
+    this.upd({ toast: text, undoRemoved: undoRemoved });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.upd({ toast: null }), 5000);
+  }
+  renderVals() {
+    const s = this.cur();
+    const theme = this.props.theme === 'light' ? 'light' : 'dark';
+    const small = this.props.size === '1100x700';
+    const W = small ? 1100 : 1280;
+    const H = small ? 700 : 800;
+    const sfx = theme === 'light' ? '-Light' : small ? '-1100' : '';
+    const L = {
+      home: sfx ? 'Home' + sfx + '.dc.html' : 'Main.dc.html',
+      history: 'History' + sfx + '.dc.html', schedule: 'Schedule' + sfx + '.dc.html',
+      models: 'Models' + sfx + '.dc.html', settings: 'Settings' + sfx + '.dc.html', compare: 'Compare' + sfx + '.dc.html',
+    };
+    const PAL = [
+      ['#6B4E5A', '#E8B59A', '#3F2E3A', 50, 16], ['#7E8C6E', '#E9DFC4', '#4E5B45', 18, 22], ['#4F6476', '#D9C7A6', '#2F3E4D', 58, 20],
+      ['#C9A882', '#F3E3C7', '#8E6E4E', 30, 14], ['#A55E45', '#F0C9A0', '#6E3B2B', 46, 20], ['#5C4766', '#D7A9B8', '#3A2C42', 22, 18],
+      ['#3E4237', '#C9B37E', '#262920', 56, 24], ['#B98A86', '#F4D9CC', '#7C5552', 36, 12],
+    ];
+    const art = (k, o) => { const p = PAL[k % 8]; return { bg: p[0], sun: p[1], band: p[2], sx: p[3], sy: p[4], ss: o === 'p' ? 46 : 26 }; };
+    const all = this.items();
+    const live = s.removed === 'all' ? [] : all.filter((x) => s.removed.indexOf(x.id) < 0);
+    const attn = (x) => x.status === 'failed' || x.status === 'missing';
+    const filtered = live.filter((x) => {
+      if (s.filter === 'Standard' && x.mode !== 'Standard') return false;
+      if (s.filter === 'Fast' && x.mode !== 'Fast') return false;
+      if (s.filter === 'attn' && !attn(x)) return false;
+      if (s.q && x.name.toLowerCase().indexOf(s.q.toLowerCase()) < 0) return false;
+      return true;
+    });
+    const empty = live.length === 0;
+    const extra = Math.max(0, 128 - all.length);
+    const counts = {
+      all: empty ? 0 : live.length + extra,
+      Standard: empty ? 0 : live.filter((x) => x.mode === 'Standard').length + Math.round(extra * 0.75),
+      Fast: empty ? 0 : live.filter((x) => x.mode === 'Fast').length + extra - Math.round(extra * 0.75),
+      attn: live.filter(attn).length,
+    };
+    const filters = [['all', 'All'], ['Standard', 'Standard'], ['Fast', 'Fast'], ['attn', 'Needs attention']].map((f) => {
+      const on = s.filter === f[0];
+      return {
+        label: f[1], count: counts[f[0]], on: on, warn: f[0] === 'attn',
+        border: on ? 'var(--accent)' : 'var(--border)', bg: on ? 'var(--accent-soft)' : 'transparent',
+        fg: on ? 'var(--accent)' : 'var(--text2)', fw: on ? 600 : 400,
+        pick: () => this.upd({ filter: f[0] }),
+      };
+    });
+    const order = filtered.map((x) => x.id);
+    const click = (x) => (e) => {
+      const c = this.cur();
+      if (c.selecting) {
+        let checked = c.checked.slice();
+        if (e && e.shiftKey && c.last) {
+          const a = order.indexOf(c.last);
+          const b = order.indexOf(x.id);
+          const lo = Math.min(a, b);
+          const hi = Math.max(a, b);
+          order.slice(lo, hi + 1).forEach((id) => { if (checked.indexOf(id) < 0) checked.push(id); });
+        } else if (checked.indexOf(x.id) >= 0) checked = checked.filter((id) => id !== x.id);
+        else checked.push(x.id);
+        this.upd({ checked: checked, last: x.id });
+      } else {
+        this.upd({ sel: c.sel === x.id ? null : x.id });
+      }
+    };
+    const groupNames = ['Today', 'Yesterday', 'Last 7 days', 'Earlier in October'];
+    const groups = [0, 1, 2, 3].map((g) => {
+      const its = filtered.filter((x) => x.grp === g).map((x) => {
+        const checked = s.checked.indexOf(x.id) >= 0;
+        const opened = !s.selecting && s.sel === x.id;
+        const label = x.status === 'failed' || x.status === 'missing' ? 'needs attention' : x.status === 'cancelled' ? 'cancelled' : 'finished';
+        return {
+          name: x.name, a: art(x.k, 'l'),
+          aria: x.name + ', ' + label + (s.selecting ? (checked ? ', selected' : ', not selected') : ''),
+          pressed: s.selecting ? checked : opened,
+          outline: checked || opened ? '2px solid var(--accent)' : '0 solid transparent',
+          markWarn: attn(x), markCancel: x.status === 'cancelled', dim: x.status === 'cancelled',
+          showCheck: s.selecting, checked: checked, checkBg: checked ? '#E0A86E' : 'rgba(28,24,20,.45)',
+          click: click(x),
+        };
+      });
+      return { label: groupNames[g], count: its.length, items: its };
+    }).filter((g) => g.count > 0);
+
+    const selItem = live.find((x) => x.id === s.sel);
+    let d = null;
+    if (selItem && !s.selecting) {
+      const st = selItem.status;
+      const f = selItem.o === 'p' ? (H >= 800 ? { w: 112, h: 200 } : { w: 84, h: 150 }) : (H >= 800 ? { w: 288, h: 162 } : { w: 266, h: 150 });
+      const facts = st === 'failed'
+        ? [{ k: 'Mode', v: selItem.mode }, { k: 'Time taken', v: '1 h 05 m before it stopped' }, { k: 'Original', v: 'D:\\Videos\\' + selItem.name }]
+        : [{ k: 'Mode', v: selItem.mode }, { k: 'Time taken', v: st === 'cancelled' ? '22 m before you cancelled' : '2 h 41 m' }, { k: 'File size', v: st === 'cancelled' ? 'No file was made' : '1.2 GB (original 800 MB)' }, { k: 'Saved in', v: 'D:\\Videos\\enhanced' }];
+      d = {
+        name: selItem.name, tw: f.w, th: f.h, a: art(selItem.k, selItem.o),
+        when: (st === 'failed' ? 'Stopped ' : st === 'cancelled' ? 'Cancelled ' : 'Finished ') + selItem.when,
+        status: { ok: 'Finished', failed: 'Needs attention', missing: 'File not found', cancelled: 'Cancelled' }[st],
+        isOk: st === 'ok', isWarn: st === 'failed', isMissing: st === 'missing', isCancel: st === 'cancelled',
+        chipBg: st === 'ok' ? 'var(--raised)' : st === 'cancelled' ? 'var(--raised)' : 'var(--warning-soft)',
+        chipFg: st === 'ok' ? 'var(--success)' : st === 'cancelled' ? 'var(--text2)' : 'var(--warning)',
+        hasReason: st === 'failed' || st === 'missing',
+        reason: st === 'failed' ? 'Couldn\u2019t read the video after 41:12. The original file may be damaged. Finished parts were kept so Retry continues from there.' : 'The enhanced video was moved or deleted outside VideoEnhancer, so it can\u2019t be played from here.',
+        reasonBg: 'var(--warning-soft)',
+        facts: facts,
+        okActions: st !== 'failed', failActions: st === 'failed', fileGone: st === 'missing' || st === 'cancelled',
+        nothingToDelete: st === 'cancelled',
+      };
+    }
+    const nChecked = s.checked.length;
+    const multi = s.delScope === 'many';
+    const nFiles = (s.delEnh ? (multi ? nChecked : 1) : 0) + (s.delOrig ? (multi ? nChecked : 1) : 0);
+    return {
+      rootClass: 've ve-' + theme, W: W, H: H, L: L, thumbH: H >= 800 ? 220 : 166,
+      q: s.q, onSearch: (e) => this.upd({ q: e.target.value }), clearSearch: () => this.upd({ q: '' }),
+      selecting: !!s.selecting, notSelecting: !s.selecting, noItems: empty,
+      startSelect: () => this.upd({ selecting: true, checked: [], sel: null }),
+      endSelect: () => this.upd({ selecting: false, checked: [] }),
+      selectAll: () => this.upd({ checked: order.slice() }),
+      selCount: nChecked, noneChecked: nChecked === 0,
+      removeSelected: () => {
+        const c = this.cur();
+        const ids = c.checked.slice();
+        this.upd({ removed: (c.removed === 'all' ? [] : c.removed).concat(ids), checked: [], selecting: false });
+        this.toast('Removed ' + ids.length + (ids.length === 1 ? ' item' : ' items'), ids);
+      },
+      askDeleteSelected: () => this.upd({ dialog: 'delete', delScope: 'many', delEnh: true, delOrig: false }),
+      gridKey: (e) => {
+        const c = this.cur();
+        if (e.key === 'Escape' && c.selecting) this.upd({ selecting: false, checked: [] });
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); this.upd({ selecting: true, checked: order.slice(), sel: null }); }
+      },
+      filters: filters, groups: groups,
+      hasResults: !empty && filtered.length > 0, isEmpty: empty, noMatch: !empty && filtered.length === 0,
+      hasDetail: !!d, d: d || { facts: [], a: {} },
+      closeDetail: () => this.upd({ sel: null }),
+      copyDetails: () => this.toast('Details copied', null),
+      removeOne: () => {
+        const c = this.cur();
+        const id = c.sel;
+        this.upd({ removed: (c.removed === 'all' ? [] : c.removed).concat([id]), sel: null });
+        this.toast('Removed 1 item', [id]);
+      },
+      askDeleteOne: () => this.upd({ dialog: 'delete', delScope: 'one', delEnh: true, delOrig: false }),
+      askClear: () => this.upd({ dialog: 'clear' }),
+      dDelete: s.dialog === 'delete', dClear: s.dialog === 'clear',
+      delWhat: multi ? 'For ' + nChecked + ' videos.' : 'For ' + (selItem ? selItem.name : 'beach_day.mp4') + '.',
+      delEnh: !!s.delEnh, delOrig: !!s.delOrig,
+      delEnhLabel: multi ? 'The enhanced videos (3.4 GB)' : 'The enhanced video (1.2 GB)',
+      delOrigLabel: multi ? 'The originals (2.3 GB)' : 'The original (800 MB)',
+      toggleEnh: () => this.upd({ delEnh: !this.cur().delEnh }),
+      toggleOrig: () => this.upd({ delOrig: !this.cur().delOrig }),
+      delNone: nFiles === 0, delButton: nFiles === 0 ? 'Delete' : 'Delete ' + nFiles + (nFiles === 1 ? ' file' : ' files'),
+      confirmDelete: () => { this.upd({ dialog: null }); this.toast('Moved ' + nFiles + (nFiles === 1 ? ' file' : ' files') + ' to the Recycle Bin', null); },
+      confirmClear: () => { this.upd({ dialog: null, removed: 'all', sel: null }); this.toast('History cleared · video files kept', null); },
+      closeDialog: () => this.upd({ dialog: null }),
+      dlgKey: (e) => { if (e.key === 'Escape') this.upd({ dialog: null }); },
+      showToast: !!s.toast, toastText: s.toast || '', toastUndo: !!s.undoRemoved,
+      undo: () => {
+        const c = this.cur();
+        const back = c.undoRemoved || [];
+        this.upd({ removed: c.removed === 'all' ? [] : c.removed.filter((id) => back.indexOf(id) < 0), toast: null, undoRemoved: null });
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

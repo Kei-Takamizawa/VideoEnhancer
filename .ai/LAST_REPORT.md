@@ -1,401 +1,304 @@
-# VE-P1c-4 report
+# VE-P1f-2 review fixes
 
-- Task ID / Cycle: VE-P1c-4
-- Date: 2026-10-11 (Asia/Tokyo)
-- Status: COMPLETED within the owner-feedback scope.
-- Two optional entries omitted under the task's qualification rules.
-- Branch: p1c-redesign. No merge or push to main.
-- Starting HEAD: 85a04c90ec766ba11e483b62896cc30ed3001598, matching fetched origin.
-  This was the packaging report after the task's referenced db8585c.
-- Full final instructions saved unchanged in CURRENT_TASK.md and committed as 778618d.
-- Owner queue untouched. Evidence, synthetic media, model weights and packages stay outside Git.
-- Native Computer Use is unavailable on this host; GUI verification used actual Electron
-  and Playwright. No manual owner visual check is claimed.
+Status: COMPLETED — implementation, local acceptance, packaging and cleanup.
+Final-head CI is the post-push delivery gate: its actual run outcome is recorded on PR #7 and in the closing response, after this report is committed.
+Cycle: VE-P1f-2, 2026-10-19. Start: 05dbf72bebef3fd24929dae2ea6131c6fdd7a51f.
+Branch: p1f-links. Existing draft [PR #7](https://github.com/Kei-Takamizawa/VideoEnhancer/pull/7), base p1t-tauri.
+Private evidence: D:\my-workspace\VideoEnhancer\work\evidence\P1f-2.
+No owner queue, media, model installation, AppData, VE-check or Recycle Bin was used.
 
-## Changes and expected / actual behavior
+## Changes and item-by-item evidence
 
-F1: the old FFmpeg AV1 probe used 128×128 and failed the encoder's minimum-size
-check. The new probe uses the production CUDA encoder at 1920×1080 and flushes
-two frames through the muxer. Health logs and exposes av1_unavailable_reason;
-Add and Settings show the same disabled AV1 option and one-line reason when
-unavailable. Encoder start/write/flush failures name the codec and never fallback.
-During GPU verification, 180 AV1 frames initially muxed as 7.2 seconds rather than
-3 seconds because stream-copy kept IVF packet timestamps. The AV1-only setts
-filter now assigns the pipeline's exact rational CFR. HEVC/H.264 retiming is unchanged.
+The baseline archive was extracted from Git 05dbf72 and imported from its own
+absolute src path. review-isolated-05dbf72-actual.log reports 30 FAIL / 6 PASS.
+The six passes include five pre-existing invalid chunk rejections and the
+pre-existing all-formats estimate case; they do not establish the positive
+chunk preservation behavior. Earlier source-replay and GUI/Rust baseline logs
+remain available. review-isolated-05dbf72.log accidentally tested current code
+after archive extraction failed: INVALID as baseline evidence.
 
-M2/F3: optional qualified manifests, measured catalog speeds and short English
-summaries; versioned pinned RIFE IFNet variants; tiled single-frame restoration;
-DRUNet quality-factor strength map; learned size after cleanup before resize/RIFE.
-Existing C1, RIFE 4.25 and Standard resize remain the defaults. DRUNet strengths
-share one card/file; selectors stay within the existing card layout. Public license
-metadata is refreshed without changing an installed job's frozen resume identity.
-Archive downloads verify the archive and extracted checkpoint and never copy model
-folder Python. All optional downloads require explicit consent. Restricted torch
-weights loading is retained. No custom CUDA build was used.
+| Item | Status / implementation | Failing baseline or permitted alternative | After / evidence |
+| --- | --- | --- | --- |
+| P2 | Done / PASS, exactly one five-launch measurement | Historical P1f Home-ready 694.6 ms vs Electron 420.9 ms remains FAIL. Relative gate retired by designer. | Home-ready median 718.287 ms <=765; first paint median 720.128 ms <=1000. p2-five-launches.json; all five processes/children exited. |
+| A1 | Done: null unknown media, legacy zero interpretation, pre-analysis link rows, per-record isolation/log once; bad JSON uses whole-folder staging plus 10-second Undo. | test_a1_legacy_placeholders_and_bad_record_isolation, test_a1_bad_projection_or_json_keeps_other_rows_and_safe_removal and GUI History zero-width baseline FAIL. | test_a1_unknown_media_snapshots; real HTTP R2 refusal retains file and GET queue 200 (http-r2.log); unreadable-tests6.log 42 PASS. Raw invalid JSON and invalid UTF-8: byte-identical Undo, expiry, startup cleanup, outside video untouched, file-choice refusal, parse/path details. |
+| A2 | Done: abort missing fragments; compare known duration, keep incomplete file. | test_a2_fragment_abort_flag and test_a2_incomplete_duration_is_kept_and_refused FAIL. | real-hls2.log 2 PASS: once-failed middle segment retries to complete 180 frames; persistent HTTP 500 exhausts four attempts. Unit duration test PASS. |
+| A3 | Done: exact unfinished job MKV removed before each attempt. | test_a3_partial_remux_removed_before_attempt FAIL. | real-remux.log 1 PASS: actual FFmpeg remux suspended/killed, resumed to complete 240-frame file. |
+| B1 | Done: entry URL plus --no-playlist, identity still checked. | test_b1_entry_rechecked_once FAIL. | real-playlist.log PASS: three real local direct-file checks embedded in playlist fixture; three single-video checks and three transfers, no whole-playlist recheck. |
+| B2 | Done: nested/missing-URL cards have plain reasons. | test_b2_nested_or_missing_url_gets_plain_reason FAIL. | Unit and actual GUI nested-list card PASS. |
+| B3 | Done: only exact HTTP-whitelist failure gets encryption refusal. | test_b3_non_http_whitelist_failure_falls_back FAIL. | real-tls2.log PASS: AES-128 HLS crypto failure follows fallback. Proxy whitelist unit PASS. |
+| B4 | Done: format and fragment URL/path/base encryption checks, including relative URL resolution. | test_b4_http_fragments_refused FAIL. | real-tls2.log PASS: HTTPS metadata with HTTP MPD fragments refused before transfer. |
+| B5 | Done: storage_busy excludes storage mutations; storage_moving alone disconnects engine commands until recovery finishes. | b5-baseline-actual.log: old connected condition fails connected().is_ok(). | Rust 20 PASS; real GUI video/play/seek and shared tray Quit handler during long verification/removal PASS, gui-e2e-final.log and storage screenshots. Physical tray click NOT RUN. |
+| B6 | Done: queue and transfer reserve work/output/download/remux space with one 10% margin per volume. | test_b6_queue_checks_working_space and same-drive boundary FAIL. | Unit insufficient output disk PASS; output 1000 B/download 500 B: 4399 B fails, 4400 B passes. Unknown download sizes cannot be reserved exactly. |
+| B7 | Done: hardware/profile cache, shared engine hardware data, job profiles, changed-entry-only estimate requests. | test_b7_estimates_do_not_reprobe_hardware FAIL; old LinkPanel request test FAIL. | b7-process-starts.json: 20 jobs, first 60 s actual starts 1137 -> 0; GUI unit request isolation PASS. |
+| B8 | Done: --cache-dir inside engine home/tools/yt-dlp/cache. | test_b8_cache_is_inside_engine_home FAIL. | Real 99-test bundle PASS; USERPROFILE/.cache/yt-dlp before/after files 0/0, new/changed 0/0 (b8-profile-cache-guard.json). |
+| B9 | Done: reuse selected initially; Download again remains available. | Old LinkPanel default-reuse unit FAIL. | LinkPanel unit and actual GUI both themes PASS. |
+| B10 | Done: preserve only positive integer http_chunk_size, excluding bool. | test_b10_preserves_only_positive_chunk_size FAIL; invalid values already rejected. | Positive preservation and five invalid-value cases PASS. Real YouTube NOT RUN (prohibited). |
+| B11 | Done by permitted measurement; no decoder/pipeline change. | Second decode observed directly, no defect claim requiring behavior change. | 10-minute synthetic 1080p30, 18000 frames: NVDEC verification 16.034 s; second thumbnail decode 17.416 s; full analysis 40.701 s, b11-analysis-time.json. |
+| B12 | Not reproduced; no HEVC playback code change. | Same existing codec support code tested after owner's extension installation. | HEVC Video Extensions 2.5.48.0; actual packaged M1 playback/seek PASS at 1080 and 1440, b12-hevc-playback.json. |
+| B13 | Done: HTTP only for original HTTP, public IP validation for every redirect and pinned public address connection to prevent DNS rebind. | Private thumbnail and redirect tests FAIL. | Loopback/private/redirect/rebind refusal tests PASS before network connection. |
+| B14 | Done: Cancel removes only unfinished exact .ve-<id>. files; Pause retains resumable partials. | test_b14_cancel_removes_only_own_partial_files FAIL. | real-cancel.log PASS with actual throttled transfer; unrelated similar prefix remains. Finished source never removed. |
 
-C2/F2: keys include source path/size/mtime, CFR range, settings, model ID/SHA and
-companion stage identities. Cached Original/models publish immediately; a fully
-cached request needs no GPU lease. New compares cancel earlier waiting/running
-compares, leaving trials/jobs alone. POST compare/range returns the busiest five
-seconds from saved per-frame motion analysis; old/missing/stale analysis falls
-back to the middle. Fast cleanup remains explicitly rejected.
+The designer's A1 decision is appended verbatim to CURRENT_TASK.md. Existing completion timestamps are retained in pre-analysis/error History rows. No damaged
+manifest is repaired, rewritten or partially interpreted. Valid JSON with bad
+values follows the existing History removal workflow. Unparseable records move
+inside the engine home and restore unchanged; video options are hidden with the
+specified message. Copy details includes parse error and path. Windows job-log
+handlers are closed before staging, as already done by normal permanent removal.
 
-E: trial states persist UTC time, elapsed processing time and percent at two-second
-intervals, plus a terminal sample. Waiting for an active segment is separate from
-running-trial progress. Only the requested two short G2 trials were repeated,
-with a short synthetic job for the during-job condition.
+B7's measured baseline made 29 refreshes in 61.141 s and started 569 nvidia-smi
+plus 568 FFmpeg processes in the first 60 s. The fixed code made 60 refreshes in
+60 s and started no processes during refresh. Startup hardware initialization is
+excluded from both counts. These are actual launches, not a theoretical count.
 
-## F1 GPU evidence
+B11 is one observation under concurrent local validation, not an isolated speed
+gate. The generated source was deleted by the measurement recipe. No scene-cut
+or decoder architecture was changed.
 
-Expected: portrait 1080×1920 and landscape 1920×1080, AV1, 180 frames, DONE.
+B12 actual canPlayType was "probably" at both sizes. 1080 codec
+hvc1.1.6.L120.90: first frame 119.6 ms, seek 58.3 ms. 1440 codec
+hvc1.1.6.L150.90: first frame 58.6 ms, seek 46.6 ms. These are single functional
+observations, not ten-run medians. The app's existing hev1 probe was also
+"probably". CDP was enabled only in the instrumentation build.
 
-| Job | State | ffprobe codec_name | Dimensions | Read frames |
-|---|---|---|---|---:|
-| portrait | done | av1 | 1080×1920 | 180 |
-| landscape | done | av1 | 1920×1080 | 180 |
+## Validation
 
-Actual: both match. The realistic probe returned (True, None).
-Evidence: av1-results.json; .tmp/p1c4/av1-gpu3.log.
-Timestamp reference: https://ffmpeg.org/ffmpeg-bitstream-filters.html#setts.
+| Check | Result |
+| --- | --- |
+| Python Ruff / format / Pyright | PASS, ruff-final.log, ruff-format-final.log, pyright-final.log (0 errors/warnings). |
+| GUI lint / typecheck / build | PASS; existing >500 kB bundle warning remains. |
+| GUI unit | 56 PASS, gui-unit-final5.log; includes hidden video-choice rejection for unreadable records in both dialog modes. |
+| Rust fmt / clippy default and e2e / units | PASS; 20 unit tests, rust-*-final.log. |
+| Real verified tools bundle | 99 PASS in 218.54 s, real-bundle-final.log; synthetic loopback media only. |
+| Latest A1 scoped unit suite | 42 PASS in 34.82 s, unreadable-tests6.log. |
+| CPU complete suite | PASS: 582 PASS / 24 SKIP / 101 deselected, 801.34 s, cpu-final3.log. Previous position regression fixed; previous restart test omitted startup recovery and was corrected. |
+| GPU suite | PASS: 101 tests, 583 deselected, 15354.82 s (4:15:54), gpu-suite.log. |
+| Actual GUI suite | PASS: 16 PASS / 13 SKIP, gui-e2e-final2.log (2.7 min). Corrected locator and final GUI guard included. |
+| Feature-free package smoke | PASS: final candidate and again after cache deletion, featurefree-smoke-final.json / featurefree-smoke-after-cleanup.json. Expected isolated engine home and no remote-debugging argument. |
+| P2 five-launch measurement | PASS: 718.287 ms Home-ready / 720.128 ms first paint medians; one measurement, all other suites finished. |
+| Final-head Windows / Ubuntu CI | Post-push gate, required green before delivery; live results and run IDs on existing draft PR #7. No pre-push result is claimed. |
 
-## M2 qualification
+Failures and warnings are retained, not erased:
+- The first baseline's missing basetemp parent was an execution error, not a product failure.
+- Initial real HLS fixture requested missing interpolation model after transfer;
+  corrected to FPS off/keep, both real HLS tests then passed.
+- Initial TLS tests skipped because OpenSSL was unavailable. A local certificate
+  was generated for the successful tests; no certificate dependency added to the project.
+- Early focused tests included sandbox process-tree permission errors, an outdated
+  hardware-probe expectation and an obsolete disk mock. Scoped reruns are recorded.
+- Broken-JSON staging initially failed because Windows log handles were open.
+  Closing those handles fixed folder rename. A restart unit initially omitted
+  Engine.start/_recover; corrected to invoke the exact startup recovery method.
+- A full GUI attempt used an ambiguous Copy details locator (health notice and
+  dialog). The test was scoped to the Video details dialog; no UX workaround.
+- One preliminary A1 test used full Engine.start, leaving a hardware-probe
+  temporary file locked at interpreter exit. It passed 42 assertions but emitted
+  cleanup warnings. The final focused test calls startup recovery directly and
+  avoids unrelated background hardware probes.
+- NO_COLOR/FORCE_COLOR and the existing JS bundle-size warnings are informational.
+- Dependency restoration had sandbox network/OUT_DIR and launcher-cache errors.
+  Retried normal installs/builds under reviewed escalation. Locked all-extras uv
+  sync restored exact dependency versions; no lockfile or dependency spec changed.
 
-One fixed synthetic reference: 150 frames / 5 s, 720×1280 at 30 fps, output
-1080×1920 at 60 fps. Restoration and size: Standard; motion: Fast. FPS excludes
-model loading. Torch peaks reset after setup. Budget = rendering PID dedicated
-plus shared GPU memory sampled at one-second deadlines, decimal GB. Median
-interval 1.000 s, maximum observed gap 1.016 s. These samples do not prove the
-absolute peak between samples; device-wide NVML is not used for acceptance.
-Normal jobs retain their 30-second sampling. Hardware RTX 4060 Ti 8GB.
+## GUI operations and visual evidence
 
-Steps 1–5 are source, license, load, reference measurement, and real GPU Compare.
-Step 6 is the shared strict C1/RIFE tensor-equality and existing CPU/D2 fixtures.
-Temporary measurement IDs map to the public IDs below without changing weights,
-adapter parameters or tensor processing. No model was registered before its
-budget and comparison passed.
+The actual Tauri app was opened at 1280x800, switched between dark/light themes,
+and exercised Home unknown media, failed History, bad-record details, reuse,
+nested lists, Remove/Undo, and storage verification/removal while video and seek
+continued. Screenshots remain private under evidence/P1f-2/gui (not Git).
+The shared tray Quit command handler was called through the test API; a physical
+notification-area click is not claimed. B12 actual playback screenshots are
+under evidence/P1f-2/hevc.
 
-| Entry (public ID) | Result / failing step | Input fps | Torch allocated / reserved bytes | Sampled process peak bytes (GB) | Tile / halo | Exact license |
-|---|---|---:|---|---|---|---|
-| basicvsrpp-ntire21-decompress | QUALIFIED, steps 1–6 | 2.472708 | 2886402048 / 3978297344 | 4342366208 (4.342366) | none / none | Code Apache-2.0; the weights' terms are not stated |
-| basicvsrpp-track1 | QUALIFIED, steps 1–6 | 2.486314 | 2887180288 / 4286578688 | 4650647552 (4.650648) | none / none | Code Apache-2.0; the weights' terms are not stated |
-| basicvsrpp-track2 | QUALIFIED, steps 1–6 | 2.483696 | 2886516736 / 4003463168 | 4367532032 (4.367532) | none / none | Code Apache-2.0; the weights' terms are not stated |
-| basicvsrpp-denoise | QUALIFIED, steps 1–6 | 5.219462 | 2073742848 / 3860856832 | 3925020672 (3.925021) | none / none | Code Apache-2.0; the weights' terms are not stated |
-| scunet-real-psnr | QUALIFIED, steps 1–6 | 0.587473 | 1081937408 / 1373634560 | 1741873152 (1.741873) | 256 / 32 | Apache-2.0 |
-| fbcnn-color | QUALIFIED, steps 1–6 | 1.517374 | 1194374144 / 1562378240 | 1930616832 (1.930617) | 256 / 32 | Apache-2.0 |
-| rife-4.25 | QUALIFIED, steps 1–6 | 16.430267 | 1154199040 / 1595932672 | 1964171264 (1.964171) | none / none | MIT |
-| rife-4.26 | QUALIFIED, steps 1–6 | 16.419470 | 1154681344 / 1595932672 | 1964171264 (1.964171) | none / none | MIT |
-| rife-4.25-lite | QUALIFIED, steps 1–6 | 16.662634 | 1146762240 / 1457520640 | 1823662080 (1.823662) | none / none | MIT |
-| drunet-deblock | QUALIFIED, steps 1–6 | 1.135053 | 1176314880 / 1539309568 | 1909645312 (1.909645) | 256 / 32 | MIT |
-| span-liveaction-2x | QUALIFIED, steps 1–6 | 1.394593 | 2891815936 / 4227858432 | 4565143552 (4.565144) | 256 / 32 | Apache-2.0 |
-| Standard resize | DEFAULT, no learned stage/download | n/a | n/a | n/a | n/a | none |
-| 1xDeH264_realplksr | OMITTED, step 2: ambiguous publisher license | NOT RUN | NOT RUN | NOT RUN | NOT RUN | Literal CC-BY-0.4; CC BY 4.0 unconfirmed |
-| Real-ESRGAN 0.2 Faithful | OMITTED, step 4: above 5.0 GB; step 5 NOT RUN | 1.611152 | 4938035712 / 6526337024 | 6890418176 (6.890418) | 256 / 32 | BSD-3-Clause |
-| Real-ESRGAN 0.6 Cleaner | OMITTED, step 4: above 5.0 GB; step 5 NOT RUN | 1.612309 | 4937344512 / 6530531328 | 6865252352 (6.865252) | 256 / 32 | BSD-3-Clause |
+## Reproduction
 
-DRUNet variants (one checkpoint/card), publisher map (100-QF)/100:
+Run from D:\my-workspace\VideoEnhancer\work\repo and dot-source local-env.ps1.
+All homes, APPDATA/LOCALAPPDATA and WebView profiles must be isolated under scratch.
+Use .venv/Scripts/python.exe explicitly (the system Python alias is unavailable).
 
-| Choice | QF / channel | fps | Torch allocated / reserved bytes | Sampled PID peak bytes |
-|---|---|---:|---|---:|
-| light | 50 / 0.5 | 1.133105 | 1175909376 / 1598029824 | 1968365568 |
-| medium | 30 / 0.7 | 1.135053 | 1176314880 / 1539309568 | 1909645312 |
-| strong | 10 / 0.9 | 1.136166 | 1176139776 / 1562378240 | 1932713984 |
+1. Restore with uv sync --locked --all-extras and npm ci in gui.
+2. Run Ruff, Ruff format --check, python -m pyright; pytest -m "not gpu".
+3. Run pytest -m "gpu and not soak" with VE_GPU_TEST_MODEL_HOME under work/cache.
+   No owner home is allowed. Legacy >1080 source/>1440 output GPU tests stay excluded.
+4. Prepare verified optional tools using scripts/prepare_link_test_tools.py.
+   Run the real link bundle with VE_LINK_TEST_TOOLS_HOME and local TLS cert/key;
+   recipes/real-bundle.py records the external cache guard.
+5. In gui, run lint/typecheck/test/build; cargo fmt, clippy, tests and e2e build.
+   npm run test:e2e launches isolated real Tauri instances.
+6. Build release CDP only for package isolation/HEVC/P2 instrumentation.
+   recipes/hevc-playback.mjs and recipes/p2-five-launches.mjs contain exact fixtures.
+7. Build feature-free release, smoke the candidate before replacing the prior package.
 
-DRUNet uses FP32, tile 256 + halo 32. The blend wrapper follows the publisher's
-strength*main + (1-strength)*wdn formula. Both specified blend points failed the
-budget, so no Real-ESRGAN built-in card/download is offered.
+## Scope and unresolved issues
 
-### Source, bytes and SHA-256
+Questions for the designer: none after the A1 decision. No independent product,
+architecture or decoder changes were made. B11 used the explicitly permitted
+measurement alternative. HEVC default, M1 1 MiB responses, MP4 audio rules,
+strict decoder selection/retry, and Part R are unchanged. M3 remains disabled.
 
-| Entry | Original publisher URL | Checkpoint bytes | Computed SHA-256 |
-|---|---|---:|---|
-| basicvsrpp-ntire21-decompress | https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track3_20210304-6daf4a40.pth | 176414092 | 6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a |
-| basicvsrpp-track1 | https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track1_20210223-7b2eba02.pth | 176414076 | 7b2eba02a24989bfbf8b2ed4a06c8e6fd5dbeb193b1178ef7171cd1c455ddb0f |
-| basicvsrpp-track2 | https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c128n25_ntire_decompress_track2_20210314-eeae05e6.pth | 176414076 | eeae05e655b9849d57a7bb732004ebeb75d376cb0bf76792f18ca0f9eb491774 |
-| basicvsrpp-denoise | https://www.dropbox.com/sh/gopo637rbutlxde/AACGnXDlvQMjwfCey3m2g34za?dl=1 | 39152529 | 28f6920c4681bd8468a831d479459872c7f020d95c40eb3ced4745670bf2d596 |
-| scunet-real-psnr | https://github.com/cszn/KAIR/releases/download/v1.0/scunet_color_real_psnr.pth | 71982841 | fa78899ba2caec9d235a900e91d96c689da71c42029230c2028b00f09f809c2e |
-| fbcnn-color | https://github.com/jiaxi-jiang/FBCNN/releases/download/v1.0/fbcnn_color.pth | 287755111 | 8b0e4ef23d59cf7ac934a342cb31a17619e4fa4a0b3374a9d78c5174312387e8 |
-| rife-4.25 | https://drive.google.com/uc?id=1ZKjcbmt1hypiFprJPIKW0Tt0lr_2i7bg | 24636301 | 6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2 |
-| rife-4.26 | https://drive.google.com/uc?id=1gViYvvQrtETBgU1w8axZSsr7YUuw31uy | 24636301 | 45c7f74156704769dc9f85cfcaf8552e1e926f9399dcfa3a553dee88fac6f53f |
-| rife-4.25-lite | https://drive.google.com/uc?id=1zlKblGuKNatulJNFf5jdB-emp9AqGK05 | 24467405 | 81cdba223fe72a120130cc8552e5d2ecac824259d406f0c15323b3decf96b8b1 |
-| drunet-deblock | https://github.com/cszn/KAIR/releases/download/v1.0/drunet_deblocking_color.pth | 130590513 | b26323e888230b1b5b58957add8dc9b9ea7fa2f69bdf6a0c3cca9db82167209f |
-| span-liveaction-2x | https://raw.githubusercontent.com/jcj83429/upscaling/main/2xLiveActionV1_SPAN/2xLiveActionV1_SPAN_490000.pth | 8947821 | 8b166c75831ea7f694d9058ee9c8df8148af8cc1d2b57e69e6581b15cab572f7 |
-| deh264 | https://github.com/Phhofm/models/releases/download/1xDeH264_realplksr/1xDeH264_realplksr.safetensors | 29486580 | 91f054af6308e37b81c261ecf775a58be5fa1d37a816709db5d0fea6fceb24b8 |
-| esrgan | https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth | 4885111 | 8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292 |
-| esrgan-wdn | https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-wdn-x4v3.pth | 4885111 | 1641f8c4464b9f097c9fdda5589273713f67cf59f3d909e0bd688f0cee269dca |
+Intentionally NOT RUN: designer-deferred Part 6 work, real YouTube or prohibited
+sites, physical OS tray click, owner acceptance/reboot checks, legacy GPU tests
+using sources above 1080 or outputs above 1440. CPU oversized refusal metadata
+fixtures remain permitted. Historical AV1 memory failures and retired P2
+Electron-relative failure remain historical; this cycle does not relabel them.
 
-Denoise publisher zip: 463593013 bytes,
-9ebecdddd2367058b96b043032efe27bdbe1471651c66e02629d724fcb146f41;
-member basicvsr_plusplus_denoise-28f6920c.pth. A second independent download
-had identical bytes/hash (denoise-repeat.json). RIFE 4.26 archive SHA:
-c2452dd2b244947d4be580156bbead60d6b72af5736860f7d6b3f99648c9c4cc;
-4.25 lite archive SHA:
-e84366c23e0eb1a637a55aad2e4f3442ec2bf4c388043b4aabbf590be289e6e8.
-Exact license sources and archive handling are in docs/THIRD_PARTY_MODELS.md.
+## Package, disk and cleanup
 
-### Per-entry lifecycle and GPU Compare
+Final package: D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer (2 files, 5771327 B).
+Executable SHA-256: b000b13204770842f51d7b4ba1df5e812ac822ccd3c88b82f63a0cf1e22ebd9a.
+Both final candidate and post-cache-cleanup smoke passed.
 
-Install was called through the consent-guarded service endpoint and the actual
-isolated operation subprocess. Verify again re-hashed the downloaded file.
-Make default changed the appropriate Settings key; a new selection captured it.
-Remove deleted the built-in checkpoint after clearing that default. No owner
-queue was involved. RIFE downloads reused the already verified publisher archive
-cache; other checkpoint downloads used the original URLs.
+Start (disk-start.json):
+C free 307950469120 B (307.950 GB); D free 1009745002496 B (1009.745 GB).
+Cache 2302190682 B; package 5770811 B; repo 3540169703 logical B; scratch 0 B.
 
-| Entry | Consent required | Install | Verify again | Make default | Remove |
-|---|---|---|---|---|---|
-| basicvsrpp-denoise | True | PASS | PASS | PASS | PASS |
-| basicvsrpp-ntire21-decompress | True | PASS | PASS | PASS | PASS |
-| basicvsrpp-track1 | True | PASS | PASS | PASS | PASS |
-| basicvsrpp-track2 | True | PASS | PASS | PASS | PASS |
-| drunet-deblock | True | PASS | PASS | PASS | PASS |
-| fbcnn-color | True | PASS | PASS | PASS | PASS |
-| rife-4.25 | True | PASS | PASS | PASS | PASS |
-| rife-4.25-lite | True | PASS | PASS | PASS | PASS |
-| rife-4.26 | True | PASS | PASS | PASS | PASS |
-| scunet-real-psnr | True | PASS | PASS | PASS | PASS |
-| span-liveaction-2x | True | PASS | PASS | PASS | PASS |
+Restored dependency directories measured at dependency-restore-inventory.json:
+uv 350049003 B; npm 44801706 B; Cargo registry 354978876 B; Rust target
+3308300845 B; node_modules 191885182 B; GUI dist 576436 B. These were absent
+after P1f cleanup. First measured dependency restore: 4250592048 B (4.250592 GB). Final regenerated dependency/build directories before cleanup: 4292760393 B (4.292760 GB); do not count
+the entire pre-existing .venv as new restoration. Hard links mean logical file
+lengths are not allocated disk space, and drive free-space differences are not
+attributable exclusively to this cycle.
 
-Every qualified entry and its category default produced actual GPU previews.
-Cache reuse is explicit below: default previews may be copied from an earlier
-successful identical-key render; every candidate was freshly rendered at least
-once. FPS in this table includes model setup/encoder finalization and differs
-from the load-excluded reference FPS shown on the catalog cards.
+For the owner to delete: none. All listed cleanup candidates were inventoried by exact path and bytes before deletion, and all were removed. No automatic approval-review rejection occurred.
+The old Electron package and empty Electron cache were already successfully
+removed after the owner's retry authorization in P1f (05dbf72 report); they are
+not restored by this cycle.
 
-| Compare | Model fps (reused flag) | First Original tile seconds | Total seconds |
-|---|---|---:|---:|
-| three-model | basicvsrpp-ntire21-decompress: 2.266792 (False); track1: 2.333062 (False); track2: 2.345715 (False) | 13.910 | 245.449 |
-| basicvsrpp-ntire21-decompress | basicvsrpp-ntire21-decompress: 2.266792 (True) | 0.182 | 0.320 |
-| track1 | basicvsrpp-ntire21-decompress: 2.266792 (True); track1: 2.333062 (True) | 0.158 | 0.434 |
-| track2 | basicvsrpp-ntire21-decompress: 2.266792 (True); track2: 2.345715 (True) | 0.181 | 0.444 |
-| denoise | basicvsrpp-ntire21-decompress: 2.266792 (True); denoise: 4.682312 (False) | 0.148 | 39.677 |
-| scunet | basicvsrpp-ntire21-decompress: 2.266792 (True); scunet: 0.557945 (False) | 0.159 | 274.865 |
-| fbcnn | basicvsrpp-ntire21-decompress: 2.266792 (True); fbcnn: 1.458753 (False) | 0.163 | 109.196 |
-| rife-4.25 | rife-4.25: 12.117497 (False) | 23.543 | 41.186 |
-| rife426 | rife-4.25: 12.117497 (True); rife426: 11.866582 (False) | 0.156 | 18.249 |
-| rife425lite | rife-4.25: 12.117497 (True); rife425lite: 11.964381 (False) | 0.144 | 17.920 |
-| drunet-medium | basicvsrpp-ntire21-decompress: 2.266792 (True); drunet-medium: 1.102742 (False) | 0.157 | 144.001 |
-| span | standard-resize: 2.333602 (False); span: 1.354586 (False) | 24.008 | 230.014 |
-| drunet-light | basicvsrpp-ntire21-decompress: 2.266792 (True); drunet-light: 1.105367 (False) | 0.146 | 143.708 |
-| drunet-strong | basicvsrpp-ntire21-decompress: 2.266792 (True); drunet-strong: 1.104368 (False) | 0.145 | 143.758 |
+## Changed files
 
-Three fresh different cleanup models: C1 2.266792 fps, Track 1 2.333062,
-Track 2 2.345715. Original ready 13.910 s; model tiles ready 96.730,
-174.832, 245.446 s. Total 245.449 s. H.264 previews, real Standard pipeline.
-All four outputs were generated; no simulated GPU measurements.
+Only this cycle's code, tests, docs, CURRENT_TASK and this report are committed; no media, caches, packages or private screenshots.
 
-C2 tests exercise immediate all-hit completion without GPU/process creation,
-Original/model reuse without encoding, range/settings/source/model-SHA key
-invalidation, and cancellation of the old compare only. Busiest/missing-data
-selection is unit tested. Four-stream Electron verification: 100 random seeks,
-300 played frames, 0 mismatches (e2e/four-stream-sync.json).
+- .ai/CURRENT_TASK.md
+- .ai/LAST_REPORT.md
+- docs/API.md
+- docs/GUI.md
+- docs/TROUBLESHOOTING.md
+- gui/src-tauri/src/commands.rs
+- gui/src-tauri/src/main.rs
+- gui/src-tauri/src/storage.rs
+- gui/src/HistoryDetail.tsx
+- gui/src/HistoryRemoval.tsx
+- gui/src/Home.tsx
+- gui/src/LinkPanel.tsx
+- gui/src/history.ts
+- gui/src/types.ts
+- gui/tests/e2e/p1f2-review.spec.ts
+- gui/tests/history-removal.test.tsx
+- gui/tests/home-schedule.test.tsx
+- gui/tests/link-panel.test.tsx
+- src/videoenhancer/jobs/store.py
+- src/videoenhancer/service/engine.py
+- src/videoenhancer/service/link_jobs.py
+- src/videoenhancer/service/video_links.py
+- tests/p1f2_gui_seed.py
+- tests/test_link_jobs.py
+- tests/test_p1f2_real_links.py
+- tests/test_p1f2_review.py
+- tests/test_service.py
 
-## G2 trial histories
 
-Expected: both Standard three-second trials complete, with no running 0% stretch
-over 60 seconds. Submission waiting is separate. Actual:
+Package replacement inventory before cleanup (candidate smoke PASS):
+- D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer: 5770811 B; 2 files. Old current will be deleted; candidate renamed to current.
+- D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-candidate: 5771327 B; 2 files. Old current will be deleted; candidate renamed to current.
+Package replacement PASS: removed old 5770811 B after candidate smoke; current package 5771327 B (2 files), SHA-256 d7750517c0f74d8d8776268bec0ef021d3ed2e1e325786c2426d8dc4991881d5.
 
-### during-job
+Retention cleanup candidate, measured before deletion: D:\my-workspace\VideoEnhancer\work\evidence\P1e-2b: 15587115 B; 265 files. Its report remains in Git dc02580; retaining P1t, P1f and P1f-2 only.
+Retention cleanup PASS: removed the inventoried P1e-2b evidence, 15587115 B. Its historical report remains at dc02580.
 
-State: done; first sampled positive percent at 14.453 s. Operation ce734c0e265f432b86e9db05581af4da.
+Final package replacement inventory before cleanup (new guard unit PASS, candidate smoke PASS):
+- D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer: 5771327 B; 2 files.
+- D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-candidate: 5771327 B; 2 files.
+Final replacement PASS: removed the prior intermediate package (5771327 B) after final candidate smoke. Current package 5771327 B, SHA-256 b000b13204770842f51d7b4ba1df5e812ac822ccd3c88b82f63a0cf1e22ebd9a.
 
-| UTC time | Processing elapsed seconds | Percent |
-|---|---:|---:|
-| 2026-10-11T03:37:00.702625+00:00 | 0.000 | 0.000 |
-| 2026-10-11T03:37:02.806291+00:00 | 2.109 | 0.000 |
-| 2026-10-11T03:37:04.857916+00:00 | 4.156 | 0.000 |
-| 2026-10-11T03:37:06.935317+00:00 | 6.234 | 0.000 |
-| 2026-10-11T03:37:08.963710+00:00 | 8.265 | 0.000 |
-| 2026-10-11T03:37:11.013299+00:00 | 10.312 | 0.000 |
-| 2026-10-11T03:37:13.089524+00:00 | 12.390 | 0.000 |
-| 2026-10-11T03:37:15.158556+00:00 | 14.453 | 14.444 |
-| 2026-10-11T03:37:17.227664+00:00 | 16.531 | 14.444 |
-| 2026-10-11T03:37:19.303347+00:00 | 18.609 | 26.667 |
-| 2026-10-11T03:37:21.369337+00:00 | 20.672 | 26.667 |
-| 2026-10-11T03:37:23.442993+00:00 | 22.734 | 38.889 |
-| 2026-10-11T03:37:25.524343+00:00 | 24.828 | 38.889 |
-| 2026-10-11T03:37:27.565722+00:00 | 26.859 | 51.111 |
-| 2026-10-11T03:37:29.606546+00:00 | 28.906 | 51.111 |
-| 2026-10-11T03:37:31.665269+00:00 | 30.968 | 63.333 |
-| 2026-10-11T03:37:33.722104+00:00 | 33.015 | 63.333 |
-| 2026-10-11T03:37:35.781102+00:00 | 35.078 | 75.556 |
-| 2026-10-11T03:37:37.867796+00:00 | 37.172 | 75.556 |
-| 2026-10-11T03:37:39.906804+00:00 | 39.203 | 75.556 |
-| 2026-10-11T03:37:41.991112+00:00 | 41.297 | 87.778 |
-| 2026-10-11T03:37:44.028468+00:00 | 43.328 | 87.778 |
-| 2026-10-11T03:37:46.167513+00:00 | 45.468 | 100.000 |
-| 2026-10-11T03:37:48.227436+00:00 | 47.531 | 100.000 |
-| 2026-10-11T03:37:50.309662+00:00 | 49.609 | 100.000 |
-| 2026-10-11T03:37:52.386765+00:00 | 51.687 | 100.000 |
-| 2026-10-11T03:37:54.465341+00:00 | 53.765 | 100.000 |
-| 2026-10-11T03:37:56.516695+00:00 | 55.812 | 100.000 |
-| 2026-10-11T03:37:58.569280+00:00 | 57.875 | 100.000 |
-| 2026-10-11T03:38:00.611366+00:00 | 59.906 | 100.000 |
-| 2026-10-11T03:38:14.276582+00:00 | 73.578 | 100.000 |
-### outside-hours
+Final cleanup inventory, measured before any deletion (logical bytes):
+- D:\my-workspace\VideoEnhancer\work\scratch: 57052604858 B; 105538 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\uv: 350049003 B; 7939 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\npm: 44801511 B; 400 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\cargo\registry: 354978876 B; 12504 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\tauri-target: 3350469054 B; 7856 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\node_modules: 191885251 B; 10814 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\dist: 576698 B; 3 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\test-results: 3985542 B; 39 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\.pytest_cache: 65990 B; 5 files; read errors 0.
+First scratch cleanup stopped on an open log in an older failed GUI fixture. Authenticated health verified PID 14264 used scratch/P1f-2/gui/records-1792449277161/home; its normal shutdown returned stopped=true. Other live discoveries were checked only inside scratch and stopped only after exact reported-home verification; see stale-engines.json. No approval-review rejection occurred.
 
-State: done; first sampled positive percent at 12.437 s. Operation b4d5af0c11814561b4d1a524f23409c4.
+Final cleanup inventory, measured before any deletion (logical bytes):
+- D:\my-workspace\VideoEnhancer\work\scratch: 1523970391 B; 89292 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\uv: 350049003 B; 7939 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\npm: 44801511 B; 400 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\cargo\registry: 354978876 B; 12504 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\cache\tauri-target: 3350469054 B; 7856 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\node_modules: 191885251 B; 10814 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\dist: 576698 B; 3 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\gui\test-results: 3985542 B; 39 files; read errors 0.
+- D:\my-workspace\VideoEnhancer\work\repo\.pytest_cache: 65990 B; 5 files; read errors 0.
+Scratch retry cleanup PASS: removed the remaining inventoried 1523970391 B after verified test-engine shutdown. Initial scratch snapshot was 57052604858 B; final scratch 0 B. Do not sum the overlapping initial and retry snapshots. Log writes between snapshots are not attributed as additional removed bytes.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\cache\uv; 350049003 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\cache\npm; 44801511 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\cache\cargo\registry; 354978876 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\cache\tauri-target; 3350469054 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\repo\gui\node_modules; 191885251 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\repo\gui\dist; 576698 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\repo\gui\test-results; 3985542 inventoried B removed.
+Cleanup PASS: D:\my-workspace\VideoEnhancer\work\repo\.pytest_cache; 65990 inventoried B removed.
+Post-cache-cleanup smoke PASS (featurefree-smoke-after-cleanup.json); final SHA-256 b000b13204770842f51d7b4ba1df5e812ac822ccd3c88b82f63a0cf1e22ebd9a. New scratch cleanup candidate: D:\my-workspace\VideoEnhancer\work\scratch; 17153327 B; 186 files, measured before deletion.
+Post-cleanup smoke fixture cleanup PASS: removed 17153327 B; scratch is empty again. No further build or test is claimed after deleting regeneration dependencies; the final package smoke after cache removal passed.
 
-| UTC time | Processing elapsed seconds | Percent |
-|---|---:|---:|
-| 2026-10-11T03:38:59.666807+00:00 | 0.015 | 0.000 |
-| 2026-10-11T03:39:01.758449+00:00 | 2.109 | 0.000 |
-| 2026-10-11T03:39:03.824351+00:00 | 4.172 | 0.000 |
-| 2026-10-11T03:39:05.879499+00:00 | 6.219 | 0.000 |
-| 2026-10-11T03:39:07.935571+00:00 | 8.281 | 0.000 |
-| 2026-10-11T03:39:10.028831+00:00 | 10.375 | 0.000 |
-| 2026-10-11T03:39:12.094684+00:00 | 12.437 | 14.444 |
-| 2026-10-11T03:39:14.167415+00:00 | 14.515 | 14.444 |
-| 2026-10-11T03:39:16.256955+00:00 | 16.609 | 26.667 |
-| 2026-10-11T03:39:18.320439+00:00 | 18.672 | 26.667 |
-| 2026-10-11T03:39:20.383421+00:00 | 20.734 | 26.667 |
-| 2026-10-11T03:39:22.444212+00:00 | 22.797 | 38.889 |
-| 2026-10-11T03:39:24.540063+00:00 | 24.890 | 38.889 |
-| 2026-10-11T03:39:26.620330+00:00 | 26.969 | 51.111 |
-| 2026-10-11T03:39:28.670470+00:00 | 29.015 | 51.111 |
-| 2026-10-11T03:39:30.723365+00:00 | 31.062 | 63.333 |
-| 2026-10-11T03:39:32.800152+00:00 | 33.140 | 63.333 |
-| 2026-10-11T03:39:34.867131+00:00 | 35.219 | 75.556 |
-| 2026-10-11T03:39:36.903640+00:00 | 37.250 | 75.556 |
-| 2026-10-11T03:39:38.963076+00:00 | 39.312 | 87.778 |
-| 2026-10-11T03:39:41.039836+00:00 | 41.390 | 87.778 |
-| 2026-10-11T03:39:43.106786+00:00 | 43.453 | 100.000 |
-| 2026-10-11T03:39:45.196745+00:00 | 45.547 | 100.000 |
-| 2026-10-11T03:39:47.246115+00:00 | 47.594 | 100.000 |
-| 2026-10-11T03:39:49.326822+00:00 | 49.672 | 100.000 |
-| 2026-10-11T03:39:51.381102+00:00 | 51.734 | 100.000 |
-| 2026-10-11T03:39:53.420123+00:00 | 53.765 | 100.000 |
-| 2026-10-11T03:39:55.444951+00:00 | 55.797 | 100.000 |
-| 2026-10-11T03:39:57.536665+00:00 | 57.875 | 100.000 |
-| 2026-10-11T03:39:59.604083+00:00 | 59.953 | 100.000 |
-| 2026-10-11T03:40:12.638192+00:00 | 72.984 | 100.000 |
 
-The during-job trial was submitted while a synthetic job segment was running;
-the outside-hours schedule was enabled with an empty weekly list. The fixture
-job completed. Histories persist in the isolated operation state files, copied
-into g2-results.json. A first positive sample gives an upper bound on the initial
-running 0% interval; neither trial returned to 0% afterward.
+## Final acceptance and disk summary
 
-## Builds and tests
+P2 Home-ready runs (ms): 855.228, 713.317, 738.832, 718.287, 712.720.
+The specified gate uses the median, 718.287 ms (PASS); the first launch is retained,
+not discarded. First-paint median 720.128 ms (PASS). The prestarted Node G1
+fixture has 1000 History records; this is the same shell measurement, not a cold
+Python engine launch. Instrumentation uses the release CDP build; the delivered
+package has neither CDP nor e2e features. No second P2 run was made.
 
-| Check | Result | Evidence |
-|---|---|---|
-| Ruff | PASS | .tmp/p1c4/ruff-final.log |
-| Ruff format --check | PASS, 101 files | .tmp/p1c4/format-final.log |
-| Pyright | PASS, 0 errors / 0 warnings | .tmp/p1c4/pyright-final.log |
-| Final CPU suite | PASS: 257 passed, 3 skipped, 30 deselected; 307.35 s | .tmp/p1c4/cpu-release.log |
-| Strict CUDA C1/RIFE tensor equality | PASS: 2 passed, 31 deselected; 9.80 s | .tmp/p1c4/legacy-final.log |
-| D2 CPU + CUDA suite | PASS: 26 passed; 189.25 s | .tmp/p1c4/d2-final.log |
-| GUI lint | PASS | .tmp/p1c4/gui-lint.log |
-| GUI typecheck | PASS | .tmp/p1c4/gui-typecheck.log |
-| GUI unit tests | PASS: 29 tests / 5 files | .tmp/p1c4/gui-unit.log |
-| GUI production build | PASS | .tmp/p1c4/gui-build.log |
-| Electron e2e | PASS: 1 actual CPU-service test; 4 opt-in tests skipped | .tmp/p1c4/gui-e2e.log |
-| Generated package startup | PASS: 1 test, 3.3 s | .tmp/p1c4/packaged-test.log |
-| Windows / Ubuntu CI | PASS on implementation f50d353, both jobs SUCCESS | https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/38109438547 |
+The final GUI unit addition first reproduced a hidden file-choice bug in the
+files-only removal dialog (55 PASS / 1 FAIL). The unreadable-record selection
+initialization was fixed; 56 PASS followed. The final full GUI E2E passed.
+An attempted final package smoke while the full GUI suite was still running
+exited immediately; a single-instance interaction is inferred, not proven.
+After the GUI suite ended, final candidate and post-cache-cleanup smoke passed.
 
-Built unsigned Windows x64 package with `VE_GUI_PACKAGE_OUT=.tmp/p1c4/package`;
-artifact `.tmp/p1c4/package/VideoEnhancer-win32-x64/VideoEnhancer.exe` is ignored
-and points to this repository's external Python engine. It was launched in a
-fresh isolated home by the packaged test, with service connection, renderer
-isolation and shutdown verified. This does not replace or stop an owner package.
+The media, pipeline and decoder implementation files are unchanged from 05dbf72.
+The GPU suite passed. A separate before/after default-output hash benchmark was
+NOT RUN in this cycle; P1f's measured strict equality remains historical evidence,
+not a new measurement claimed here. No decoder/scene-cut optimization was made.
 
-GUI operations: Add/Settings AV1 reason unit checks; DRUNet three choices on one
-card; actual CPU service, synthetic Add → completion → History, four-stream
-WebCodecs seek/play and close survival; generated package startup, renderer
-isolation and service shutdown. Existing e2e also captured incidental synthetic
-screenshots outside Git; these do not qualify A9's new-card screenshots.
+The initial scratch snapshot was 57052604858 B; an open log caused a partial
+cleanup, then its verified isolated engine was shut down and the remaining
+1523970391 B were removed. These are overlapping snapshots, not additive.
+Post-cleanup smoke created another 17153327 B, inventoried and removed afterwards.
+Regeneration caches/build outputs removed: 4296811925 B. Replaced package copies
+removed: 5770811 B and 5771327 B. Retired P1e-2b evidence removed: 15587115 B.
+Total initial inventoried development files removed across non-overlapping cleanup
+items: 61393699363 B (61.393699 GB logical). Logs could change between snapshots;
+no extra log bytes or allocated disk reclamation are inferred from that sum.
 
-## Errors, warnings and unresolved items
+Dependencies were restored for verification, then regenerable caches were removed
+again to honor the owner's space-minimization request. The .venv, managed Python,
+Node/Rust runtimes, verified optional test tools and isolated GPU model cache are
+retained. Another rebuild requires restoring npm/Cargo/uv caches normally. No
+post-cleanup build is claimed; the package startup after cleanup was tested.
 
-- Initial AV1 GPU renders failed duration validation; corrected IVF timestamps,
-  rerun portrait/landscape both DONE with ffprobe evidence.
-- One new CPU cache test initially tried unavailable production weights and a
-  96×64 restoration geometry; the fixture now bypasses those unrelated production
-  checks while testing actual cache files and transport. Targeted rerun passed.
-- GUI build initially reported a missing gpu field on strength-specific speed
-  metadata; the tooltip now uses the shared reference GPU. Rebuild passed.
-- Driver-only quoting/encoding/path invocation errors were corrected. They are
-  not reported as application passes. No test failure was ignored.
-- Playwright emitted NO_COLOR/FORCE_COLOR warning. Git emitted CRLF normalization
-  warnings. Neither changed runtime results. Large artifacts are not staged.
-- Native Computer Use unavailable; no manual desktop check claimed.
-- Windows and Ubuntu CI passed for implementation f50d353 on PR run 38109438547.
-  This final report update changes no executable code. Its final-head checks are
-  verified again before handoff and tracked on draft PR #4; no merge requested.
+| Decimal GB / logical unless drive free | Start | End |
+| --- | ---: | ---: |
+| C free | 307.950469 | 307.803292 |
+| D free | 1009.745002 | 1009.771368 |
+| cache | 2.302191 | 2.302191 |
+| package | 0.005771 | 0.005771 |
+| scratch | 0.000000 | 0.000000 |
+| repo | 3.540170 | 3.525380 |
+| evidence\P1t | — | 0.182310 |
+| evidence\P1f | — | 0.012832 |
+| evidence\P1f-2 | — | 0.001887 |
 
-## Questions for the designer
-
-1. DeH264 release says CC-BY-0.4 rather than CC BY 4.0. Can the publisher clarify?
-   Default meanwhile: omitted at license step 2; no download card/inference.
-2. SPAN publisher now states Apache-2.0 rather than the proposed CC BY-NC-SA 4.0.
-   Default meanwhile: exact current publisher license, documented commercial flag.
-3. Both Real-ESRGAN blends exceed the 5.0 GB sampled budget with tile 256/halo 32.
-   Default meanwhile: omitted at step 4; Standard resize stays default. No new
-   memory policy, architecture or quality policy introduced.
-
-## Intentionally deferred / not run
-
-DEFERRED to P1d per F2: draggable range box, GUI 800 ms re-render,
-install-then-select, their GUI component/e2e tests, and A9 qualified-model dark/light
-screenshots. The GUI Switch to Standard control belongs to that deferred redesign.
-F4 schedule/dock/colors/History changes were not started. Owner visual checklist
-is owner-run. DeH264 steps 3–5 NOT RUN after license failure. Real-ESRGAN step 5
-NOT RUN after budget failure. No long G1/G3 soak or prior three-job G2 rerun.
-No architecture/UX redesign, added non-M2 entry, model training, telemetry or update.
-
-## Related files and reproduction
-
-Changed: .ai/CURRENT_TASK.md and LAST_REPORT.md; media/{encode,analyze}.py;
-models/{registry,spandrel,rife,rife_variants}.py and qualified manifests;
-bench/rife.py; pipeline/{presets,runner}.py; service/{engine,settings,compare}.py;
-jobs/store.py; scripts/reference_measure.py; tests/{test_compare,test_p1c4}.py;
-gui/src/{App,Pages,Queue,types}; gui/tests/add-models.test.tsx;
-docs/{ADDING_MODELS,THIRD_PARTY_MODELS,GUI,API}.md.
-
-Evidence root (synthetic/private artifacts, not Git):
-C:/Users/pro/.codex/visualizations/2026/10/09/01a12000-750a-7813-9ea1-6bc265708fb5/p1c4.
-Raw *-measurement.json files include every PID/time/memory sample and runner
-statistics. *-compare.json files retain real timing/reuse metadata. Lifecycle,
-G2, AV1, sample intervals and Electron sync have separate JSON evidence.
-Local logs and orchestration scripts are in .tmp/p1c4 (ignored).
-
-```powershell
-$env:VE_HOME = 'C:\Evaluation\p1c4-home' # isolated from the owner queue
-ffmpeg -v error -f lavfi -i testsrc2=size=720x1280:rate=30 -t 5 -c:v libx264 -preset ultrafast -threads 2 reference-5s.mp4
-# Install via the Models consent dialog, then prepare a Standard (motion: Fast)
-# CUDA job at 1080 / 2x / HEVC with the selected model. Use its prepared manifest:
-python scripts/reference_measure.py prepared-job.json measured.mp4
-# POST compare: file=reference-5s.mp4, start=0, seconds=5, models=[default,candidate].
-# POST compare with [C1, basicvsrpp-track1, basicvsrpp-track2] for the three-model run.
-# For G2 use Standard trials with seconds=3, once during a synthetic job and once
-# after PUT schedule {enabled:true, weekly:[], timezone:'Asia/Tokyo'}.
-ruff check .
-ruff format --check .
-pyright
-pytest -m 'not gpu and not soak' --basetemp=.tmp/p1c4/cpu-repro
-pytest tests/test_model_registry.py -m gpu --basetemp=.tmp/p1c4/legacy-repro
-pytest tests/test_source_index.py --basetemp=.tmp/p1c4/d2-repro
-cd gui
-npm run lint
-npm run typecheck
-npm test
-npm run build
-npm run test:e2e
-```
-
-On this host npm was invoked through the retained .tmp/npm-bootstrap/package/bin/npm-cli.js
-because the npm executable is unavailable; commands above are their normal equivalents.
-GPU reproduction additionally requires the documented model/GPU dependencies,
-matching pinned external source archives, and explicit original-source downloads.
-No private owner video is required.
-
-## Git record
-
-- Full instruction commit: 778618d.
-- Implementation and local acceptance report: f50d353e21f0f6e25a137aa46d6c5e7ce4d047a3.
-- Push to origin/p1c-redesign succeeded; ls-remote matched that exact SHA.
-- PR #4 remains draft: https://github.com/Kei-Takamizawa/VideoEnhancer/pull/4.
-- Implementation PR CI run 38109438547: Windows SUCCESS, Ubuntu SUCCESS.
-- Final report-only commit records these verified results. Its source tree is
-  unchanged; final-head remote checks and origin equality are checked before
-  stopping. No merge, history rewrite or push to main occurred.
+Persistent ordinary growth from the independently measured roots, including this
+cycle's evidence and the removed retired evidence: -28488882.0 B (-0.028489 GB),
+PASS against <=1 GB. This is the pre-commit inventory; later Git/CI/report metadata
+is not included. All inventory reads completed without errors. Cache is 2.302 GB,
+below 40 GB; each retained evidence cycle is below 300 MB, exactly three cycles
+remain; scratch is 0 B. Drive-wide free-space changes include unrelated host and
+Windows-managed activity and are not equated with the logical cleanup totals.
+No owner directory or Recycle Bin was inspected or cleaned.

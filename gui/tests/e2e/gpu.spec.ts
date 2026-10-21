@@ -1,10 +1,10 @@
-import { _electron, expect, test } from "@playwright/test";
+import { desktop } from "../desktop";
+import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { Queue } from "../../src/types";
-const electron: string = createRequire(import.meta.url)("electron");
+const executable: string = (process.env.VE_TAURI_EXE || "");
 
 test("owner GPU: trial waits, cancels, updates estimate, paired frames stay synchronized, startup preference toggles", async () => {
   test.skip(
@@ -44,8 +44,8 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
     VE_ENGINE_ROOT: root,
   };
   delete env.ELECTRON_RUN_AS_NODE;
-  const app = await _electron.launch({
-    executablePath: electron,
+  const app = await desktop.launch({
+    executablePath: executable,
     args: [".", `--user-data-dir=${path.join(env.VE_HOME, "desktop")}`],
     env,
   });
@@ -85,13 +85,8 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
     console.log(
       "GPU service discovered; checking production pipeline and trial admission.",
     );
-    await app.evaluate(({ dialog }, file) => {
-      dialog.showOpenDialog = async () => ({
-        canceled: false,
-        filePaths: [file],
-      });
-    }, source);
-    await page.getByRole("button", { name: "+ Add videos" }).click();
+    await app.files((file => [file])(source));
+    await page.getByRole("button", { name: "Add videos" }).click();
     await page.getByText("More options", { exact: true }).click();
     await page
       .getByRole("combobox", { name: /Output short side/ })
@@ -113,13 +108,10 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
       await page
         .getByRole("button", { name: "Try models on this video", exact: true })
         .click();
-      await expect(
-        page.getByRole("button", { name: "Compare selected models" }),
-      ).toBeEnabled({ timeout: 15000 });
+      await expect(page.getByRole("dialog")).toBeVisible();
     };
     await openTrial();
-    await page.getByRole("button", { name: "Compare selected models" }).click();
-    await expect(page.getByText(/Starts after the current step/)).toBeVisible();
+    await expect(page.getByText("Compare: waiting", { exact: true })).toBeVisible();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Cancel", exact: true })
@@ -130,8 +122,7 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
       .getByRole("button", { name: "Back", exact: true })
       .click();
     await openTrial();
-    await page.getByRole("button", { name: "Compare selected models" }).click();
-    await expect(page.getByText(/Starts after the current step/)).toBeVisible();
+    await expect(page.getByText("Compare: waiting", { exact: true })).toBeVisible();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Back", exact: true })
@@ -172,7 +163,7 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
     const last = Number(await picture.getAttribute("data-frame"));
     await page.getByRole("button", { name: "Next frame" }).click();
     await expect(picture).toHaveAttribute("data-frame", String(last + 1));
-    await page.getByRole("combobox", { name: /Zoom/ }).selectOption("400");
+    for (let step = 0; step < 6; step++) await page.getByRole("button", { name: "Zoom in", exact: true }).click();
     await expect(picture).toHaveCSS("image-rendering", "pixelated");
     await page.getByRole("checkbox", { name: "Side by side" }).check();
     await page.screenshot({ path: path.join(evidence, "trial-synthetic.png") });
@@ -185,7 +176,12 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
       .getByRole("button", { name: "Resume" })
       .click();
     await page.getByRole("button", { name: "History", exact: true }).click();
-    await expect(page.getByText("Finished", { exact: true })).toBeVisible({
+    await expect.poll(async () => {
+      const job = ((await call("queue")) as Queue).jobs[0];
+      if (job.state === "failed") throw new Error(JSON.stringify(job));
+      return job.state;
+    }, { timeout: 100000 }).toBe("done");
+    await expect(page.locator(".history-card")).toHaveCount(1, {
       timeout: 100000,
     });
     for (const name of ["Home", "History", "Schedule", "Models", "Settings"]) {
@@ -196,42 +192,25 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
     }
     const startup = page.getByRole("checkbox", { name: /Start with Windows/ });
     await startup.check();
-    await page.getByRole("button", { name: "Save settings" }).click();
-    const loginArgs = [path.resolve("."), "--hidden"];
     await expect
       .poll(
         () =>
-          app.evaluate(
-            ({ app }, args) =>
-              app.getLoginItemSettings({ path: process.execPath, args })
-                .openAtLogin,
-            loginArgs,
-          ),
+          app.startupEnabled(),
         { timeout: 8000 },
       )
       .toBe(true);
     await startup.uncheck();
-    await page.getByRole("button", { name: "Save settings" }).click();
     await expect
       .poll(
         () =>
-          app.evaluate(
-            ({ app }, args) =>
-              app.getLoginItemSettings({ path: process.execPath, args })
-                .openAtLogin,
-            loginArgs,
-          ),
+          app.startupEnabled(),
         { timeout: 8000 },
       )
       .toBe(false);
     await page.getByRole("button", { name: "Copy diagnostics" }).click();
     expect(
-      await app.evaluate(({ clipboard }) => clipboard.readText()),
+      await app.clipboardText(),
     ).toContain("NVIDIA");
-    await page.getByRole("button", { name: "Run speed calibration" }).click();
-    await expect(page.getByText("Calibrate: done")).toBeVisible({
-      timeout: 150000,
-    });
     expect(errors).toEqual([]);
     console.log(
       JSON.stringify({
@@ -240,28 +219,28 @@ test("owner GPU: trial waits, cancels, updates estimate, paired frames stay sync
         max_sync_delta_us: Math.max(...deltas),
       }),
     );
-    await app.evaluate(({ app }) => app.quit());
+    await (async () => app.quit())();
   } finally {
     if (base)
       await call("settings", "PUT", { start_with_windows: false }).catch(
         () => {},
       );
-    await app
-      .evaluate(
-        ({ app }, args) =>
-          app.setLoginItemSettings({
-            path: process.execPath,
-            args,
-            openAtLogin: false,
-          }),
-        [path.resolve("."), "--hidden"],
-      )
-      .catch(() => {});
-    await app.evaluate(({ app }) => app.quit()).catch(() => {});
+    await (async () => app.quit())().catch(() => {});
     await Promise.race([
       app.close().catch(() => {}),
       new Promise((resolve) => setTimeout(resolve, 10000)),
     ]);
     if (testProcess.exitCode === null) testProcess.kill();
   }
+});
+
+test("owner GPU: legacy speed calibration includes 2160 processing", async () => {
+  test.skip(true, "NOT RUN (designer decision): calibration processes 2160; P1f Part R will replace it.");
+  const app = await desktop.launch({ env: { ...process.env, VE_HOME: process.env.VE_GUI_GPU_HOME } });
+  try {
+    const page = await app.firstWindow();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Run speed calibration" }).click();
+    await expect(page.getByText("Calibrate: done")).toBeVisible({ timeout: 150000 });
+  } finally { await app.close(); }
 });

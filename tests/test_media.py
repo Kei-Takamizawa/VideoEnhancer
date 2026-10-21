@@ -61,7 +61,7 @@ def test_audio_stream_reports_offset(video_factory):
     assert audio["start_offset"] == pytest.approx(0.2, abs=0.025)
 
 
-@pytest.mark.parametrize("matrix", ["bt601", "bt709"])
+@pytest.mark.parametrize("matrix", ["bt601", "bt709", "bt2020nc"])
 def test_nv12_roundtrip_preserves_out_of_range_color_and_chroma(matrix):
     generator = torch.Generator().manual_seed(7)
     packed = torch.randint(0, 256, (24, 32), dtype=torch.uint8, generator=generator)
@@ -71,6 +71,42 @@ def test_nv12_roundtrip_preserves_out_of_range_color_and_chroma(matrix):
     error = restored.to(torch.int16) - packed.to(torch.int16)
     assert error.abs().max() <= 1
     assert abs(error.float().mean().item()) <= 0.5
+
+
+@pytest.mark.parametrize("transfer", ["bt709", "bt2020-10", "bt2020-12"])
+def test_probe_accepts_bt2020_sdr_without_changing_color_tags(
+    video_factory, ffmpeg_run, tmp_path, transfer, build_manifest
+):
+    source = video_factory()
+    tagged = tmp_path / "bt2020-sdr.mp4"
+    ffmpeg_run(
+        "-i",
+        str(source),
+        "-c:v",
+        "libx264",
+        "-vf",
+        f"setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc={transfer}",
+        "-colorspace",
+        "bt2020nc",
+        "-color_primaries",
+        "bt2020",
+        "-color_trc",
+        transfer,
+        str(tagged),
+    )
+    result = probe(tagged)
+    assert result.color_matrix == "bt2020nc"
+    assert result.color_primaries == "bt2020"
+    assert result.color_transfer == transfer
+    from videoenhancer.pipeline.runner import process_segment
+
+    job = build_manifest(tagged, preset="passthrough", fps="off")
+    output = tmp_path / "bt2020-output.mp4"
+    process_segment(job, dict(index=0, start=0, end=len(job["cfr_map"])), output, lambda: False)
+    encoded = probe(output)
+    assert encoded.color_matrix == "bt2020nc"
+    assert encoded.color_primaries == "bt2020"
+    assert encoded.color_transfer == transfer
 
 
 def test_p010_roundtrip_preserves_ten_bit_codes():

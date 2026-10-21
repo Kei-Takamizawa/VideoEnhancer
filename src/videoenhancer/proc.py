@@ -14,12 +14,17 @@ STDERR_LIMIT = 64 * 1024
 
 def _options(options: dict[str, Any]) -> dict[str, Any]:
     if os.name == "nt":
-        options["creationflags"] = options.get("creationflags", 0) | subprocess.CREATE_NO_WINDOW
+        options["creationflags"] = (
+            options.get("creationflags", 0)
+            | subprocess.CREATE_NO_WINDOW
+            | subprocess.BELOW_NORMAL_PRIORITY_CLASS
+        )
     return options
 
 
 class Popen(subprocess.Popen):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        observer = kwargs.pop("stderr_observer", None)
         super().__init__(*args, **_options(kwargs))
         self._tail: bytes | str = "" if getattr(self, "text_mode", False) else b""
         self._tail_lock = threading.Lock()
@@ -29,9 +34,12 @@ class Popen(subprocess.Popen):
 
             def drain() -> None:
                 try:
-                    while chunk := stream.read(4096):
+                    read = getattr(stream, "read1", stream.readline)
+                    while chunk := read(4096):
                         with self._tail_lock:
                             self._tail = (self._tail + chunk)[-STDERR_LIMIT:]
+                        if observer is not None:
+                            observer(chunk)
                 finally:
                     stream.close()
 

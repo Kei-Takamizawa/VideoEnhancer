@@ -30,9 +30,7 @@ def _parser() -> argparse.ArgumentParser:
             choices=("passthrough", "resize", "p0-test", "fast", "standard"),
             default="standard",
         )
-        command.add_argument(
-            "--short-side", choices=("keep", "1080", "1440", "2160"), default="1080"
-        )
+        command.add_argument("--short-side", choices=("keep", "1080", "1440"), default="1080")
         command.add_argument("--restore-model", metavar="ID")
         command.add_argument("--interp-model", metavar="ID")
         command.add_argument("--fps", choices=("off", "2x"), default="2x")
@@ -56,7 +54,7 @@ def _parser() -> argparse.ArgumentParser:
     trial.add_argument("--interp-model", metavar="ID")
     trial.add_argument("--out", type=Path)
     trial.add_argument("--backend", choices=("auto", "cpu", "cuda"), default="auto")
-    trial.add_argument("--short-side", choices=("keep", "1080", "1440", "2160"), default="1080")
+    trial.add_argument("--short-side", choices=("keep", "1080", "1440"), default="1080")
 
     models = commands.add_parser("models", help="Manage installed model manifests and weights")
     model_commands = models.add_subparsers(dest="models_command", required=True)
@@ -500,6 +498,9 @@ def main(argv: list[str] | None = None) -> int:
                     job["id"] for job in store.list_jobs() if job["state"] in {"queued", "running"}
                 }
                 run_queue(ignore_schedule=args.ignore_schedule, home=home)
+                from videoenhancer.service.deletion import wait_original_deletions
+
+                wait_original_deletions(home)
                 outcomes = {
                     job["id"]: job["state"] for job in store.list_jobs() if job["id"] in candidates
                 }

@@ -1,9 +1,9 @@
-import { _electron, expect, test } from "@playwright/test";
-import { createRequire } from "node:module";
+import { desktop } from "../desktop";
+import { expect, test } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-const electron: string = createRequire(import.meta.url)("electron");
+const executable: string = (process.env.VE_TAURI_EXE || "");
 
 test("owner GPU: Standard job survives close, second launch focuses, Quit checkpoints, next start resumes", async () => {
   test.skip(
@@ -23,8 +23,8 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
   };
   delete env.ELECTRON_RUN_AS_NODE;
   const discovery = path.join(env.VE_HOME, "serve.json");
-  let app = await _electron.launch({
-    executablePath: electron,
+  let app = await desktop.launch({
+    executablePath: executable,
     args: ["."],
     env,
   });
@@ -34,13 +34,8 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
     await expect(page.getByText("Nothing in the queue.")).toBeVisible({
       timeout: 40000,
     });
-    await app.evaluate(({ dialog }, file) => {
-      dialog.showOpenDialog = async () => ({
-        canceled: false,
-        filePaths: [file],
-      });
-    }, process.env.VE_GUI_OWNER_CLIP!);
-    await page.getByRole("button", { name: "+ Add videos" }).click();
+    await app.files((file => [file])(process.env.VE_GUI_OWNER_CLIP!));
+    await page.getByRole("button", { name: "Add videos" }).click();
     await page.getByText("More options", { exact: true }).click();
     await page
       .getByRole("textbox", { name: /Output folder/ })
@@ -54,14 +49,10 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
         timeout: 30000,
       },
     );
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].close(),
-    );
+    await (async () => app.closeWindow())();
     await expect
       .poll(() =>
-        app.evaluate(({ BrowserWindow }) =>
-          BrowserWindow.getAllWindows()[0].isVisible(),
-        ),
+        (async () => app.isVisible())(),
       )
       .toBe(false);
     const connection = JSON.parse(readFileSync(discovery, "utf8"));
@@ -70,22 +61,20 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
       { headers: { Authorization: `Bearer ${connection.token}` } },
     );
     expect(health.ok).toBe(true);
-    const second = spawn(electron, ["."], {
-      env,
+    const second = spawn(executable, ["."], {
+      env: { ...env, APPDATA: path.join(env.VE_HOME, "desktop/roaming"), LOCALAPPDATA: path.join(env.VE_HOME, "desktop/local"), WEBVIEW2_USER_DATA_FOLDER: path.join(env.VE_HOME, "desktop") },
       windowsHide: true,
       stdio: "ignore",
     });
     await expect
       .poll(
         () =>
-          app.evaluate(({ BrowserWindow }) =>
-            BrowserWindow.getAllWindows()[0].isVisible(),
-          ),
+          (async () => app.isVisible())(),
         { timeout: 10000 },
       )
       .toBe(true);
     await expect.poll(() => second.exitCode, { timeout: 10000 }).toBe(0);
-    await app.evaluate(({ app }) => app.quit());
+    await (async () => app.quit())();
     await expect
       .poll(() => existsSync(discovery), { timeout: 25000 })
       .toBe(false);
@@ -107,8 +96,8 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
         (s: { state: string }) => s.state !== "running",
       ),
     ).toBe(true);
-    app = await _electron.launch({
-      executablePath: electron,
+    app = await desktop.launch({
+      executablePath: executable,
       args: ["."],
       env,
     });
@@ -117,9 +106,11 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
     await reopened
       .getByRole("button", { name: "History", exact: true })
       .click();
-    await expect(reopened.getByText("Finished", { exact: true })).toBeVisible({
+    await expect(reopened.locator(".history-card")).toHaveCount(1, {
       timeout: 150000,
     });
+    const finished = JSON.parse(readFileSync(path.join(jobs, directories[0].name, "manifest.json"), "utf8"));
+    expect(finished.state).toBe("done");
     console.log(
       JSON.stringify({
         checkpoint_state: checkpoint.state,
@@ -127,12 +118,12 @@ test("owner GPU: Standard job survives close, second launch focuses, Quit checkp
         resumed: "done",
       }),
     );
-    await app.evaluate(({ app }) => app.quit());
+    await (async () => app.quit())();
     await expect
       .poll(() => existsSync(discovery), { timeout: 25000 })
       .toBe(false);
   } finally {
-    await app.evaluate(({ app }) => app.quit()).catch(() => {});
+    await (async () => app.quit())().catch(() => {});
     await Promise.race([
       app.close().catch(() => {}),
       new Promise((resolve) => setTimeout(resolve, 10000)),

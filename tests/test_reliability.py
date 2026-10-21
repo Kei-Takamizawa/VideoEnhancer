@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from test_controller import FakeClock, _job
+from test_controller import FakeClock, _job, fixture_assemble
 
 from videoenhancer import proc
 from videoenhancer.estimate.model import job_progress
@@ -206,9 +206,7 @@ def test_bad_job_does_not_block_next(tmp_path, monkeypatch, failure):
 
         monkeypatch.setattr(controller.os, "replace", replace)
         monkeypatch.setattr("videoenhancer.files.time.sleep", lambda _: None)
-    monkeypatch.setattr(
-        "videoenhancer.media.mux.assemble", lambda job, *_a, **_kw: Path(job["output"])
-    )
+    monkeypatch.setattr("videoenhancer.media.mux.assemble", fixture_assemble)
 
     class Executor:
         def run(self, job, _segment, output, *_a, **_kw):
@@ -226,14 +224,14 @@ def test_bad_job_does_not_block_next(tmp_path, monkeypatch, failure):
         assert "stopped responding" in store.load(first["id"])["error"]
 
 
-def test_oversized_finalization_is_admitted_at_window_start(tmp_path, monkeypatch):
+def test_oversized_finalization_waits_even_at_window_start(tmp_path, monkeypatch):
     store = JobStore(tmp_path / "home")
     job = _job(store, tmp_path)
     job["segments"][0]["state"] = "done"
     now = datetime(2026, 1, 1, tzinfo=UTC)
     interval = SimpleNamespace(start=now, end=now + timedelta(seconds=10))
     monkeypatch.setattr(controller, "predict_finalization", lambda _: 60)
-    assert controller.unit_admission(job, now, interval) == (True, True)
+    assert controller.unit_admission(job, now, interval) == (False, False)
     assert controller.unit_admission(job, now + timedelta(seconds=40), interval) == (False, False)
 
 
@@ -294,9 +292,9 @@ def test_sse_snapshot_exception_sends_error_then_keeps_stream(tmp_path):
         if len(calls) == 1:
             raise RuntimeError("injected snapshot failure")
         engine.stop.set()
-        return {"jobs": []}
+        return json.dumps({"queue": {"jobs": []}, "health": {}, "plan": {}})
 
-    engine.queue = snapshot
+    engine.event_message = snapshot
     handler = object.__new__(Handler)
     handler.server = SimpleNamespace(engine=engine)
     handler.wfile = output

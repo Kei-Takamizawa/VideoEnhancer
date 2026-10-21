@@ -15,12 +15,24 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from videoenhancer.estimate.local import recent_correction
 from videoenhancer.files import retry_permission
+from videoenhancer.media.probe import probe
 
 from .segments import plan_segments
 
 SCHEMA_VERSION = 1
-JOB_STATES = {"preparing", "queued", "running", "paused", "cancelled", "failed", "done"}
+ANALYSIS_FIELDS = ("cfr_map", "source_pts", "keyframes", "scene_cuts", "motion_scores")
+JOB_STATES = {
+    "downloading",
+    "preparing",
+    "queued",
+    "running",
+    "paused",
+    "cancelled",
+    "failed",
+    "done",
+}
 QUARANTINE_MESSAGE = (
     "Needs attention: this video's work files are locked by another program. "
     "Close that program, then Retry."
@@ -118,17 +130,20 @@ def estimated_output_size(input_size: int, media: dict[str, Any], settings: dict
         int(media.get("display_height", media.get("height", 1))),
     )
     target = settings.get("short_side", "keep")
-    scale = max(1.0, (int(target) / short) if target != "keep" and short > 0 else 1.0)
+    scale = max(1.0, int(target) / short) if target != "keep" and short > 0 else 1.0
     fps_factor = 2.0 if settings.get("fps") == "2x" else 1.0
     # 0.7 limits huge overestimates for highly compressed inputs; retain
     # headroom for upscale, interpolation and audio.
-    return max(input_size, int(input_size * max(1.0, scale * scale * fps_factor * 0.7)))
+    codec_factor = {"h264": 1.0, "hevc": 0.7, "av1": 0.6}.get(str(settings.get("codec")), 1.0)
+    return max(1, int(input_size * scale * scale * fps_factor * codec_factor))
 
 
 def require_disk_space(
     path: Path,
     estimated_bytes: int,
     disk_free: Callable[[Path], int] | int | None = None,
+    *,
+    copies: int = 2,
 ) -> None:
     probe_path = path
     while not probe_path.exists() and probe_path != probe_path.parent:
@@ -138,12 +153,56 @@ def require_disk_space(
         if callable(disk_free)
         else (disk_free if disk_free is not None else shutil.disk_usage(probe_path).free)
     )
-    required = int(estimated_bytes * 2.2)
+    required = int(estimated_bytes * copies * 1.1)
     if free < required:
         raise OSError(
             f"Insufficient disk space at {probe_path}: {free / 1e9:.2f} GB free, "
             f"about {required / 1e9:.2f} GB required. Free space or choose another output location."
         )
+
+
+def working_space_locations(home: Path, output_folder: Path) -> list[tuple[Path, int]]:
+    """Segments and joined video live at home; the final temporary lives at output."""
+
+    def existing(path: Path) -> Path:
+        while not path.exists() and path != path.parent:
+            path = path.parent
+        return path
+
+    home_root, output_root = existing(home), existing(output_folder)
+    if home_root.stat().st_dev == output_root.stat().st_dev:
+        return [(output_root, 3)]
+    return [(output_root, 1), (home_root, 2)]
+
+
+def require_working_space(
+    home: Path,
+    output_folder: Path,
+    estimated_bytes: int,
+    disk_free: Callable[[Path], int] | int | None = None,
+    *,
+    download_folder: Path | None = None,
+    download_bytes: int = 0,
+) -> None:
+    budgets = [
+        (location, estimated_bytes * copies)
+        for location, copies in working_space_locations(home, output_folder)
+    ]
+    if download_folder is not None and download_bytes:
+
+        def device(path: Path) -> int:
+            while not path.exists() and path != path.parent:
+                path = path.parent
+            return path.stat().st_dev
+
+        for index, (location, amount) in enumerate(budgets):
+            if device(location) == device(download_folder):
+                budgets[index] = (location, amount + download_bytes * 2)
+                break
+        else:
+            budgets.append((download_folder, download_bytes * 2))
+    for location, amount in budgets:
+        require_disk_space(location, amount, disk_free, copies=1)
 
 
 def _require_unreserved_output(
@@ -169,7 +228,7 @@ def load_machine_profile(
     backend: str = "cuda",
     models: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Load the newest calibration for this exact GPU and driver, if any."""
+    """Prefer exact measured hardware, newest same-GPU measurement, then built-in data."""
     import platform
 
     cpu_name = platform.processor() or platform.machine()
@@ -179,14 +238,22 @@ def load_machine_profile(
         environment = environment_info()
         gpu_name = gpu_name or environment.get("gpu")
         driver = driver or environment.get("driver")
-    if backend == "cuda" and (not gpu_name or not driver):
+    if backend == "cuda" and not gpu_name:
         return None
     directory = _home(home) / "profiles"
-    if not directory.exists():
-        return None
     candidates = sorted(
         directory.glob("*.json"), key=lambda path: path.stat().st_mtime_ns, reverse=True
     )
+
+    def exact_driver(path: Path) -> bool:
+        try:
+            return str(json.loads(path.read_text(encoding="utf-8")).get("driver")) == str(driver)
+        except (OSError, ValueError):
+            return False
+
+    if backend == "cuda":
+        candidates.sort(key=lambda path: not exact_driver(path))
+        candidates.extend((Path(__file__).parents[1] / "estimate" / "profiles").glob("*.json"))
     for path in candidates:
         try:
             profile = json.loads(path.read_text(encoding="utf-8"))
@@ -194,10 +261,7 @@ def load_machine_profile(
                 profile.get("schema_version") == 1
                 and profile.get("backend", "cuda") == backend
                 and (
-                    (
-                        profile.get("gpu_name") == gpu_name
-                        and str(profile.get("driver")) == str(driver)
-                    )
+                    (profile.get("gpu_name") == gpu_name)
                     if backend == "cuda"
                     else profile.get("cpu_name") == cpu_name
                 )
@@ -209,6 +273,16 @@ def load_machine_profile(
                         continue
                     if models is not None:
                         identities = {value["id"]: value for value in models.values()}
+                        from videoenhancer.models.registry import C1, RIFE, ModelRegistry
+
+                        registry = ModelRegistry(_home(home))
+                        for task, model_id in (("restore", C1), ("interpolate", RIFE)):
+                            try:
+                                identities[model_id] = registry.snapshot(
+                                    model_id, task, download=False
+                                )
+                            except (OSError, ValueError, KeyError):
+                                pass
                         profile["models"] = {
                             model_id: entry
                             for model_id, entry in entries.items()
@@ -216,8 +290,28 @@ def load_machine_profile(
                             and entry.get("identity") == identities.get(model_id)
                             and model_id in identities
                         }
+                        profile["reference_pipelines"] = {
+                            key: entry
+                            for key, entry in profile.get("reference_pipelines", {}).items()
+                            if entry.get("identity") == identities.get(key.split(":")[0])
+                            and key.split(":")[0] in identities
+                        }
                 profile["profile_path"] = str(path.resolve())
-                return profile
+                profile["source"] = (
+                    "builtin"
+                    if path.parent.name == "profiles" and path.parent.parent.name == "estimate"
+                    else "measured"
+                )
+                profile["current_driver"] = driver
+                profile["driver_note"] = (
+                    f"Speed measured with driver {profile.get('driver')}. "
+                    f"This PC now has driver {driver}."
+                    if profile["source"] == "measured" and str(profile.get("driver")) != str(driver)
+                    else None
+                )
+                from videoenhancer.estimate.local import apply_local
+
+                return apply_local(_home(home), profile)
         except (OSError, ValueError, TypeError):
             continue
     return None
@@ -228,23 +322,26 @@ class JobStore:
         self.home = _home(home)
         self.jobs_dir = self.home / "jobs"
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        self._manifest_cache: dict[str, tuple[Any, dict[str, Any], str]] = {}
 
     def job_dir(self, job_id: str) -> Path:
         if not job_id or Path(job_id).name != job_id or job_id in {".", ".."}:
             raise ValueError("Invalid job ID")
         return self.jobs_dir / job_id
 
-    def load(self, job_id: str) -> dict[str, Any]:
+    def load(self, job_id: str, *, include_analysis: bool = True) -> dict[str, Any]:
         directory = self.job_dir(job_id)
         if not (directory / "quarantine.json").exists():
             try:
                 with self._lock(directory):
-                    return self._load_unlocked(directory / "manifest.json")
+                    return self._load_unlocked(
+                        directory / "manifest.json", include_analysis=include_analysis
+                    )
             except JobQuarantinedError:
                 pass
         # The manifest is replaced atomically; reading the last durable version
         # requires no lock and does not modify the locked work files.
-        job = self._load_unlocked(directory / "manifest.json")
+        job = self._load_unlocked(directory / "manifest.json", include_analysis=include_analysis)
         job.update(state="failed", error=QUARANTINE_MESSAGE, quarantined=True)
         return job
 
@@ -272,12 +369,41 @@ class JobStore:
             return
 
     @staticmethod
-    def _load_unlocked(path: Path) -> dict[str, Any]:
+    def _load_unlocked(path: Path, *, include_analysis: bool = True) -> dict[str, Any]:
         with path.open("r", encoding="utf-8") as source:
             manifest = json.load(source)
         if manifest.get("schema_version") != SCHEMA_VERSION:
             raise ValueError(f"Unsupported manifest schema in {path}; upgrade VideoEnhancer")
+        if manifest.get("analysis_file"):
+            if manifest["analysis_file"] != "analysis.json":
+                raise ValueError("Invalid analysis sidecar.")
+            if include_analysis:
+                try:
+                    with (path.parent / "analysis.json").open(encoding="utf-8") as stream:
+                        manifest.update(json.load(stream))
+                except FileNotFoundError:
+                    manifest["analysis_missing"] = True
         return manifest
+
+    def ensure_analysis(self, job: dict[str, Any]) -> dict[str, Any]:
+        if not job.get("analysis_missing") or job["state"] not in {"queued", "running"}:
+            return job
+        from videoenhancer.media.analyze import analyze
+
+        source = Path(job["input"]["path"])
+        if input_identity(source) != job["input"]:
+            raise ValueError("The original video changed. Add it again before processing.")
+        from videoenhancer.jobs.checks import source_warning
+
+        unsupported = source_warning(probe(source, read_timeline=False).to_dict())
+        if unsupported:
+            raise ValueError(f"No longer supported: {unsupported}")
+        analysis = analyze(source, backend=job["settings"]["backend"])
+        job.update({key: analysis.get(key, []) for key in ANALYSIS_FIELDS})
+        job.update(decoder=analysis.get("decoder"), decoder_reason=analysis.get("decoder_reason"))
+        job.pop("analysis_missing", None)
+        self.save(job)
+        return self.load(job["id"])
 
     def save(self, manifest: dict[str, Any]) -> None:
         if manifest.get("schema_version") != SCHEMA_VERSION:
@@ -291,7 +417,10 @@ class JobStore:
             target = directory / "manifest.json"
             preparation_finished = False
             if target.exists():
-                current = self._load_unlocked(target)
+                current = self._load_unlocked(target, include_analysis=False)
+                for key in ("cancel_cleanup", "remove_on_cancel"):
+                    if key in current and key not in manifest:
+                        manifest[key] = current[key]
                 preparation_finished = (
                     current["state"] == "preparing" and manifest["state"] != "preparing"
                 )
@@ -306,6 +435,37 @@ class JobStore:
             self._write_unlocked(manifest)
             if preparation_finished or not (directory / "control.json").exists():
                 self._write_control_unlocked(manifest)
+
+    def load_existing(self, job_id: str) -> dict[str, Any] | None:
+        with _manifest_lock(self.jobs_dir):
+            if not (self.job_dir(job_id) / "manifest.json").exists():
+                return None
+            return self.load(job_id)
+
+    def patch_existing(self, job_id: str, fields: dict[str, Any]) -> bool:
+        """Merge owned fields into an existing job without recreating removed history."""
+        with _manifest_lock(self.jobs_dir):
+            directory = self.job_dir(job_id)
+            if not (directory / "manifest.json").exists():
+                return False
+            with self._lock(directory):
+                latest = self._load_unlocked(directory / "manifest.json")
+                if all(
+                    (
+                        all(latest.get(key, {}).get(k) == v for k, v in value.items())
+                        if key == "video_deletions"
+                        else latest.get(key) == value
+                    )
+                    for key, value in fields.items()
+                ):
+                    return True
+                for key, value in fields.items():
+                    if key == "video_deletions":
+                        latest.setdefault(key, {}).update(value)
+                    else:
+                        latest[key] = value
+                self._write_unlocked(latest)
+                return True
 
     def _write_unlocked(self, manifest: dict[str, Any]) -> None:
         directory = self.job_dir(str(manifest["id"]))
@@ -323,24 +483,197 @@ class JobStore:
                     ).total_seconds(),
                 )
         target = directory / "manifest.json"
+        stored = dict(manifest)
+        analysis = {key: stored.pop(key) for key in ANALYSIS_FIELDS if key in stored}
+        if analysis:
+            from videoenhancer.service.settings import write_json
+
+            sidecar = directory / "analysis.json"
+            if not sidecar.exists():
+                write_json(sidecar, analysis)
+            stored["analysis_file"] = "analysis.json"
         temporary = directory / f"manifest.{uuid.uuid4().hex}.tmp"
         try:
             with temporary.open("w", encoding="utf-8", newline="\n") as stream:
-                json.dump(manifest, stream, indent=2, ensure_ascii=False)
+                json.dump(stored, stream, indent=2, ensure_ascii=False)
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
             retry_permission(os.replace, temporary, target)
+            from videoenhancer.service.events import changed
+
+            changed(self.home)
         finally:
             temporary.unlink(missing_ok=True)
 
-    def list_jobs(self) -> list[dict[str, Any]]:
-        jobs = [
-            self.load(directory.name)
-            for directory in self.jobs_dir.iterdir()
-            if (directory / "manifest.json").is_file()
+    def _cached_jobs(
+        self, *, check_quarantine: bool = True, snapshot: bool = False
+    ) -> list[tuple[Any, dict[str, Any], str]]:
+        records = []
+        for directory in os.scandir(self.jobs_dir):
+            if not directory.is_dir():
+                continue
+            path = os.path.join(directory.path, "manifest.json")
+            try:
+                info = os.stat(path)
+                cached = self._manifest_cache.get(directory.name)
+                key = (
+                    info.st_mtime_ns,
+                    info.st_size,
+                    info.st_ino,
+                    os.path.exists(os.path.join(directory.path, "quarantine.json"))
+                    if check_quarantine or cached is None
+                    else cached[0][3],
+                )
+                if cached is None or cached[0] != key:
+                    job = self.load(directory.name)
+                    if job.get("id") != directory.name:
+                        raise ValueError("Job record ID does not match its folder.")
+                    content = {
+                        k: v
+                        for k, v in job.items()
+                        if k not in {"progress", "updated_at", "timing", *ANALYSIS_FIELDS}
+                    }
+                    revision = hashlib.sha256(
+                        json.dumps(content, sort_keys=True).encode()
+                    ).hexdigest()
+                    cached = (key, job, revision)
+                    self._manifest_cache[directory.name] = cached
+                records.append(cached)
+            except (FileNotFoundError, NotADirectoryError):
+                self._manifest_cache.pop(directory.name, None)
+            except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+                if not snapshot:
+                    raise
+                stamp = ("record-error", str(error))
+                records.append((stamp, self._record_error(directory.name, error), str(stamp)))
+        return records
+
+    @staticmethod
+    def _record_error(job_id: str, error: Exception, job=None) -> dict[str, Any]:
+        job = job if isinstance(job, dict) else {}
+        source = (job.get("input") or {}) if isinstance(job.get("input"), dict) else {}
+        return dict(
+            id=job_id,
+            schema_version=SCHEMA_VERSION,
+            state="failed",
+            position=job.get("position") if isinstance(job.get("position"), int) else 10**9,
+            input={"path": source.get("path") if isinstance(source.get("path"), str) else job_id},
+            output=job.get("output") if isinstance(job.get("output"), str) else "",
+            settings={
+                "preset": str((job.get("settings") or {}).get("preset") or "fast"),
+                "codec": "hevc",
+            }
+            if isinstance(job.get("settings") or {}, dict)
+            else {"preset": "fast", "codec": "hevc"},
+            media={},
+            segments=[],
+            finished_at=job.get("finished_at") if isinstance(job.get("finished_at"), str) else None,
+            record_error=True,
+            unreadable_record=isinstance(error, (json.JSONDecodeError, UnicodeDecodeError))
+            or bool(job.get("unreadable_record")),
+            error=str(error),
+            created_at=job.get("created_at") if isinstance(job.get("created_at"), str) else "",
+            updated_at=job.get("updated_at") if isinstance(job.get("updated_at"), str) else "",
+        )
+
+    def queue_jobs(self) -> list[dict[str, Any]]:
+        """Cache compact terminal projections; keep full probes private to per-job actions."""
+        if not hasattr(self, "_queue_cache"):
+            self._queue_cache: dict[str, tuple[Any, dict[str, Any]]] = {}
+        rows = []
+        for key, job, _revision in self._cached_jobs(snapshot=True):
+            cached = self._queue_cache.get(job["id"])
+            if cached is None or cached[0] != key:
+                try:
+                    if not isinstance(job.get("created_at"), str) or not isinstance(
+                        job.get("position", 0), int
+                    ):
+                        raise ValueError("Invalid job date or queue position.")
+                    if job["state"] not in JOB_STATES or any(
+                        not isinstance(job.get(field), dict)
+                        for field in ("media", "input", "settings")
+                    ):
+                        raise ValueError("Invalid job state, media, input or settings.")
+                    if job.get("source") is not None and not isinstance(job["source"], dict):
+                        raise ValueError("Invalid job source.")
+                    excluded = {"cfr_map", "source_pts", "keyframes", "motion_scores", "scene_cuts"}
+                    row = {k: v for k, v in job.items() if k not in excluded}
+                    row["segments"] = [
+                        {k: v for k, v in segment.items() if k != "stats"}
+                        | {"stats": {"fps": segment.get("stats", {}).get("fps")}}
+                        for segment in job["segments"]
+                    ]
+                    if job["state"] in {"done", "failed", "cancelled"}:
+                        row["machine_profile"] = None
+                        row["timing"] = {
+                            "events": [
+                                e
+                                for e in job.get("timing", {}).get("events", [])
+                                if e.get("step") == "aggregating"
+                            ]
+                        }
+                        row["media"] = {
+                            k: job["media"].get(k)
+                            for k in (
+                                "display_width",
+                                "display_height",
+                                "cfr_fps",
+                                "frame_count",
+                                "duration",
+                            )
+                        }
+                    self._queue_cache[job["id"]] = (key, row)
+                    cached = self._queue_cache[job["id"]]
+                except (ValueError, KeyError, TypeError, AttributeError) as error:
+                    row = self._record_error(job["id"], error, job)
+                    self._queue_cache[job["id"]] = (key, row)
+                    cached = self._queue_cache[job["id"]]
+            rows.append(cached[1])
+        return sorted(rows, key=lambda row: (row.get("position", 10**9), row["created_at"]))
+
+    def event_state(self) -> tuple[list[tuple[str, str]], list[dict[str, Any]]]:
+        """Copy only immutable revisions and small health fields for idle SSE work."""
+        # Notifications invalidate changed manifests; idle clients compare cached keys.
+        records = self._cached_jobs(check_quarantine=False, snapshot=True)
+        revisions = sorted((job["id"], revision) for _, job, revision in records)
+        health = [
+            dict(
+                id=job["id"],
+                state=job.get("state") if isinstance(job.get("state"), str) else "failed",
+                error=job.get("error"),
+                progress=dict(
+                    phase=(job.get("progress") or {}).get("phase")
+                    if isinstance(job.get("progress") or {}, dict)
+                    else None
+                ),
+            )
+            for _, job, _ in records
         ]
-        return sorted(jobs, key=lambda job: (job.get("position", 10**9), job["created_at"]))
+        return revisions, health
+
+    def list_jobs(self, *, include_analysis: bool = True) -> list[dict[str, Any]]:
+        def metadata(job: dict[str, Any]) -> dict[str, Any]:
+            result = {
+                k: v
+                for k, v in job.items()
+                if k not in {"cfr_map", "source_pts", "keyframes", "motion_scores", "scene_cuts"}
+            }
+            # Queue/planner consumers need scalar segment timing, not per-frame
+            # quality diagnostics or sampled process-memory records.
+            result["segments"] = [
+                {
+                    **segment,
+                    "stats": {k: v for k, v in segment.get("stats", {}).items() if k == "fps"},
+                }
+                for segment in job["segments"]
+            ]
+            return result
+
+        jobs = [job if include_analysis else metadata(job) for _, job, _ in self._cached_jobs()]
+        # Manifests contain only JSON values. The C codec makes independent copies.
+        copied = json.loads(json.dumps(jobs))
+        return sorted(copied, key=lambda job: (job.get("position", 10**9), job["created_at"]))
 
     def move(self, job_id: str, position: int) -> None:
         jobs = self.list_jobs()
@@ -412,13 +745,22 @@ class JobStore:
         with self._lock(directory):
             job = self._load_unlocked(directory / "manifest.json")
             if state == "queued":
+                from videoenhancer.jobs.checks import job_support_reason
                 from videoenhancer.models.registry import validate_job_models
 
+                unsupported = job_support_reason(job)
+                if unsupported:
+                    raise ValueError(f"No longer supported: {unsupported}")
                 validate_job_models(job, self.home)
                 if not job.get("cfr_map") and not job.get("media", {}).get("frame_count"):
                     state = "preparing"
             job["state"] = state
             if state == "queued":
+                if job.pop("working_files_cleaned", False):
+                    for segment in job["segments"]:
+                        segment["state"] = "pending"
+                        segment.pop("stats", None)
+                    job["progress"] = {}
                 job.pop("finished_at", None)
                 job.pop("took_seconds", None)
             job["control_generation"] = int(job.get("control_generation", 0)) + 1
@@ -448,6 +790,9 @@ class JobStore:
                 stream.flush()
                 os.fsync(stream.fileno())
             retry_permission(os.replace, temporary, target)
+            from videoenhancer.service.events import changed
+
+            changed(self.home)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -468,6 +813,7 @@ def add_job(
     disk_free: Callable[[Path], int] | int | None = None,
     target_segment_seconds: float = 180.0,
     job_id: str | None = None,
+    source_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Analyze an input and enqueue a durable, frame-exact conversion plan."""
     source = Path(path).expanduser().resolve(strict=True)
@@ -491,8 +837,10 @@ def add_job(
     }
     if settings:
         chosen.update(settings)
-    if chosen["short_side"] not in {"keep", 1080, 1440, 2160}:
-        raise ValueError("short_side must be keep, 1080, 1440 or 2160")
+    if not isinstance(chosen.get("delete_original_after", False), bool):
+        raise ValueError("delete_original_after must be a boolean")
+    if chosen["short_side"] not in {"keep", 1080, 1440}:
+        raise ValueError("short_side must be keep, 1080 or 1440")
     if chosen["fps"] not in {"off", "2x"}:
         raise ValueError("fps must be off or 2x")
     if chosen["backend"] not in {"cpu", "cuda"}:
@@ -503,15 +851,44 @@ def add_job(
     identity = input_identity(source)
     # Check before the potentially long analysis pass, then again with the
     # measured media geometry before storing the job.
-    require_disk_space(destination.parent, identity["size"], disk_free)
-    require_disk_space(store.home, identity["size"], disk_free)
+    require_disk_space(destination.parent, 1, disk_free)
+    require_disk_space(store.home, 1, disk_free)
+    preview_media = probe(source, read_timeline=False).to_dict()
+    from videoenhancer.jobs.checks import source_warning
+
+    unsupported = source_warning(preview_media)
+    if unsupported:
+        raise ValueError(unsupported)
+    preview_bytes = estimated_output_size(identity["size"], preview_media, chosen)
+    require_working_space(store.home, destination.parent, preview_bytes, disk_free)
+    if any("Smart App Control" in str(job.get("error", "")) for job in store.list_jobs()):
+        raise ValueError("Windows Smart App Control is blocking the video component.")
     from videoenhancer.media.analyze import analyze
 
     analysis = analyze(source, backend=chosen["backend"])
     media = analysis["media"]
+    from videoenhancer.jobs.checks import geometry_warning
+
+    capabilities = {}
+    if chosen.get("codec") == "av1" and chosen.get("backend") == "cuda":
+        from videoenhancer.logging import environment_info
+        from videoenhancer.service.av1_cache import capabilities as av1_capabilities
+
+        environment = environment_info()
+        capabilities = av1_capabilities(
+            store.home, str(environment.get("gpu") or ""), str(environment.get("driver") or "")
+        )
+    if chosen.get("backend") == "cuda":
+        import torch
+
+        capabilities["vram_bytes"] = torch.cuda.get_device_properties(0).total_memory
+    if str(media.get("color_transfer", "")) in {"smpte2084", "arib-std-b67"}:
+        raise ValueError("HDR is not supported. Choose an SDR video.")
+    warning = geometry_warning(store.home, media, chosen, capabilities)
+    if warning:
+        raise ValueError(warning)
     output_bytes = estimated_output_size(identity["size"], media, chosen)
-    require_disk_space(destination.parent, output_bytes, disk_free)
-    require_disk_space(store.home, output_bytes, disk_free)
+    require_working_space(store.home, destination.parent, output_bytes, disk_free)
     from videoenhancer.models.registry import record_models
 
     models = record_models(chosen, store.home, media)
@@ -547,17 +924,28 @@ def add_job(
         "keyframes": analysis.get("keyframes", []),
         "scene_cuts": analysis.get("scene_cuts", []),
         "analysis_seconds": analysis.get("analysis_seconds"),
+        "decoder": analysis.get(
+            "decoder", "nvdec" if analysis.get("backend") == "cuda" else "ffmpeg"
+        ),
+        "decoder_reason": analysis.get("decoder_reason"),
         "segments": segments,
         "state": "queued",
         "position": len(store.list_jobs()) + 1,
         "created_at": now,
         "updated_at": now,
-        "correction_factor": 1.0,
+        "correction_factor": recent_correction(store, chosen["preset"], profile, media, chosen),
         "control_generation": 0,
         "machine_profile": profile,
         "timing": {"observations": [], "wasted_seconds": 0.0},
         "estimated_output_bytes": output_bytes,
+        "notes": (
+            ["The saved frame-doubling model is ignored because 2x is not active for this video."]
+            if chosen.get("interp_model") and "interpolate" not in models
+            else []
+        ),
     }
+    if source_info is not None:
+        manifest["source"] = source_info
     with _manifest_lock(store.jobs_dir):
         _require_unreserved_output(store, destination, job_id)
         manifest["position"] = len(store.list_jobs()) + 1

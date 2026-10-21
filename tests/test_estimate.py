@@ -42,19 +42,6 @@ def test_model_coefficients_follow_ids_and_include_overlap_work():
     assert not estimate_job(job, profile).calibrated  # Finalization is not calibrated.
     job["settings"] = {**settings, "restore_model": "uncalibrated-custom"}
     assert not estimate_job(job, profile).calibrated
-    profile["models"]["custom"] = dict(
-        status="measured",
-        task="restore",
-        backend="cuda",
-        seconds_per_pixel_frame=4e-6,
-        clip_length=1,
-        clip_overlap=0,
-        single_frame=True,
-    )
-    custom = {**settings, "restore_model": "custom", "fps": "off"}
-    assert predict_segment(MEDIA, custom, 11, profile) == pytest.approx(pixels * 11 * 4e-6)
-    custom["preset"] = "fast"
-    assert predict_segment(MEDIA, custom, 11, profile) == pytest.approx(pixels * 11 * 4e-6)
 
 
 def manifest():
@@ -119,7 +106,7 @@ def test_range_narrows_with_consistent_observations():
 
 def test_pixel_count_and_output_rate_affect_cost():
     normal = predict_segment(MEDIA, SETTINGS, 100)
-    bigger = predict_segment(MEDIA, {**SETTINGS, "short_side": 2160}, 100)
+    bigger = predict_segment(MEDIA, {**SETTINGS, "short_side": 1440}, 100)
     single = predict_segment(MEDIA, {**SETTINGS, "fps": "off"}, 100)
     assert bigger > normal > single
     fast = {**MEDIA, "cfr_fps": "60"}

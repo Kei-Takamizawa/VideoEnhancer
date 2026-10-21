@@ -78,6 +78,7 @@ class JobMemorySampler:
             return None
 
     def sample(self) -> dict[str, Any]:
+        started = time.perf_counter()
         pid = os.getpid()
         rss = int(psutil.Process(pid).memory_info().rss)
         reserved = int(torch.cuda.memory_reserved()) if torch.cuda.is_available() else 0
@@ -104,6 +105,7 @@ class JobMemorySampler:
                 "device_nvml_used_bytes": "NVML device-wide memory.used",
             },
         }
+        record["sample_seconds"] = time.perf_counter() - started
         self.samples.append(record)
         if self.on_sample is not None:
             self.on_sample(record)

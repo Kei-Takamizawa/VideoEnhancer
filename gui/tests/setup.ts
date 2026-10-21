@@ -9,10 +9,14 @@ Object.defineProperty(window, "matchMedia", {
   })),
 });
 window.desktop = {
+  reveal: vi.fn(),
+  hide: vi.fn(),
+  onTrayExplanation: vi.fn(() => () => {}),
   connection: vi.fn(),
   files: vi.fn(),
   openFolder: vi.fn(async () => {}),
   play: vi.fn(async () => {}),
   copy: vi.fn(async () => {}),
-  filePath: vi.fn(),
+  zoom: vi.fn(),
+  onZoom: vi.fn(() => () => {}),
 };

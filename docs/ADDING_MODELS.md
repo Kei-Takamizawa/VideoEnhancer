@@ -3,8 +3,9 @@
 ## Catalog metadata
 
 Restore manifests may add `catalog.category: "cleanup"`; interpolation manifests
-use `"motion"`. The existing adapters still require scale 1. Learned size models,
-Faces and the DRUNet strength wrapper are not supported yet.
+use `"motion"`; learned size manifests use `"size"`. Restoration and interpolation
+require scale 1, while learned size adapters support scale 2 or 4. DRUNet supports
+Light, Medium and Strong cleanup. Face models remain unsupported.
 
 ```json
 "catalog": {

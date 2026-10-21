@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VideoEnhancer · Models</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.ve-dark{--bg:#1C1814;--surface:#25201B;--raised:#2F2923;--border:#3A322B;--text:#F4ECDF;--text2:#DCCFBD;--muted:#B3A492;--accent:#E0A86E;--on-accent:#1C1814;--success:#A8D5A2;--warning:#EBC06A;--danger:#E8957F;--on-danger:#1C1814;--accent-soft:rgba(224,168,110,.14);--warning-soft:rgba(235,192,106,.11);--danger-soft:rgba(232,149,127,.12);--band:rgba(244,236,223,.14);--hover:#3A322B;--scrim:rgba(14,11,9,.62);--shadow:0 14px 36px rgba(0,0,0,.45);color-scheme:dark}
+.ve-light{--bg:#F5EFE6;--surface:#FFFCF7;--raised:#EDE4D6;--border:#E2D6C4;--text:#2A221C;--text2:#574A3F;--muted:#6F6152;--accent:#8C5024;--on-accent:#FFFFFF;--success:#356B3A;--warning:#8A5A00;--danger:#A8432F;--on-danger:#FFFFFF;--accent-soft:rgba(140,80,36,.11);--warning-soft:rgba(138,90,0,.08);--danger-soft:rgba(168,67,47,.08);--band:rgba(42,34,28,.13);--hover:#E6DBCA;--scrim:rgba(42,34,28,.36);--shadow:0 14px 36px rgba(70,45,20,.18);color-scheme:light}
+.ve,.ve *{box-sizing:border-box}
+.ve :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ve button{font:inherit;cursor:pointer}
+.ve button:disabled{cursor:default;opacity:.45}
+.ve svg.i{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.ve svg.f{fill:currentColor;stroke:none}
+.ve .hov{transition:background-color 120ms ease}
+.ve .hov:not(:disabled):hover{background:var(--hover) !important}
+.ve .pri{transition:opacity 120ms ease}
+.ve .pri:not(:disabled):hover{opacity:.9}
+.ve .tipw{position:relative}
+.ve .tip{position:absolute;left:50%;bottom:calc(100% + 10px);transform:translate(-50%,4px);opacity:0;pointer-events:none;transition:opacity 120ms ease,transform 120ms ease;white-space:nowrap;z-index:5}
+.ve .tipw:hover .tip,.ve .tipw:focus-visible .tip{opacity:1;transform:translate(-50%,0)}
+.ve .scroll{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+</style>
+</helmet>
+<div class="{{rootClass}}" style="position: relative; width: {{W}}px; height: {{H}}px; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-family: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif; font-size: 13px; line-height: 1.45; font-variant-numeric: tabular-nums;">
+
+  <!-- Title bar -->
+  <div style="height: 32px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding-left: 14px; font-size: 12px; color: var(--text2);">
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="0.5" y="0.5" width="15" height="15" rx="4.5" style="fill: var(--accent);"></rect><path d="M5 5.2 8.2 8 5 10.8M8.6 5.2 11.8 8 8.6 10.8" style="fill: none; stroke: var(--on-accent); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;"></path></svg>
+    <span>VideoEnhancer</span>
+    <div style="flex-grow: 1;"></div>
+    <button class="hov" aria-label="Minimize" style="width: 46px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="10" height="10" viewBox="0 0 10 10" style="stroke-width: 1;"><path d="M0 5h10"></path></svg></button>
+    <button class="hov" aria-label="Maximize" style="width: 46px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="10" height="10" viewBox="0 0 10 10" style="stroke-width: 1;"><rect x="0.5" y="0.5" width="9" height="9" rx="1.5"></rect></svg></button>
+    <button class="hov" aria-label="Close to tray" style="width: 46px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="10" height="10" viewBox="0 0 10 10" style="stroke-width: 1;"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9"></path></svg></button>
+  </div>
+
+  <div style="flex: 1; min-height: 0; display: flex; gap: 20px; padding: 16px 28px 72px;">
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px;">
+      <div style="height: 36px; flex-shrink: 0; display: flex; align-items: center; gap: 8px;">
+        <h1 style="flex: 1; margin: 0; font-size: 20px; font-weight: 600;">Models</h1>
+        <a class="hov" href="https://github.com/Kei-Takamizawa/VideoEnhancer/blob/main/docs/ADDING_MODELS.md" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 9px; color: var(--text2); text-decoration: none; white-space: nowrap;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 11v5M12 8v.3"></path></svg>{{howLabel}}</a>
+        <a class="hov" href="{{L.compare}}" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600; text-decoration: none; white-space: nowrap;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2"></rect><path d="M12 5v14"></path></svg>Compare on my video</a>
+        <button class="hov" onClick="{{addOwn}}" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600; white-space: nowrap;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2.2;"><path d="M12 5v14M5 12h14"></path></svg>Add my own model…</button>
+      </div>
+
+      <div role="tablist" aria-label="Model kinds" style="height: 36px; flex-shrink: 0; display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid var(--border);">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="4">
+          <button role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" disabled="{{t.disabled}}" style="position: relative; height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; background: transparent; color: {{t.fg}}; font-weight: {{t.fw}};">
+            {{t.label}}<span style="font-size: 12px; font-weight: 400; color: var(--muted);">{{t.count}}</span>
+            <span aria-hidden="true" style="position: absolute; left: 10px; right: 10px; bottom: -1px; height: 3px; border-radius: 2px; background: {{t.bar}};"></span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div class="scroll" role="tabpanel" aria-label="{{tabName}}" style="flex: 1; min-height: 0; overflow-y: auto; padding: 2px 4px 12px 2px;">
+        <div style="display: grid; grid-template-columns: repeat({{cols}}, minmax(0, 1fr)); gap: 12px;">
+          <sc-for list="{{cards}}" as="c" hint-placeholder-count="6">
+            <article aria-labelledby="{{c.hid}}" style="display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 14px; background: var(--surface); border: 1.5px solid {{c.border}};">
+              <div style="display: flex; align-items: flex-start; gap: 8px;">
+                <h2 id="{{c.hid}}" style="flex: 1; min-width: 0; margin: 0; font-size: 14px; font-weight: 600;"><button onClick="{{c.open}}" style="padding: 0; border: 0; background: transparent; color: var(--text); font-weight: 600; text-align: left; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px;">{{c.name}}</button></h2>
+                <div style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px;">
+                  <sc-if value="{{c.isDefault}}" hint-placeholder-val="{{false}}"><span style="height: 20px; display: inline-flex; align-items: center; padding: 0 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600;">Default</span></sc-if>
+                  <sc-if value="{{c.installed}}" hint-placeholder-val="{{false}}"><span style="height: 20px; display: inline-flex; align-items: center; gap: 3px; padding: 0 7px; border-radius: 10px; background: var(--raised); color: var(--success); font-size: 11px; font-weight: 600;"><svg class="i" width="11" height="11" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2.6;"><path d="m5 12.5 4.5 4.5L19 7.5"></path></svg>Installed</span></sc-if>
+                  <sc-if value="{{c.nc}}" hint-placeholder-val="{{false}}"><span style="height: 20px; display: inline-flex; align-items: center; padding: 0 7px; border-radius: 10px; border: 1px solid var(--warning); color: var(--warning); font-size: 11px; font-weight: 600;">Non-commercial</span></sc-if>
+                </div>
+              </div>
+              <p style="margin: 0; font-size: 12px; color: var(--text2); min-height: 35px;">{{c.desc}}</p>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--text2);">
+                <span style="display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: 7px; background: var(--raised);" title="Speed on this PC"><svg class="i" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 16a7.5 7.5 0 1 1 15 0"></path><path d="m12 16 {{c.needle}}"></path></svg>{{c.speed}}</span>
+                <span style="display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: 7px; background: var(--raised);"><svg class="i" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"></path></svg>{{c.look}}</span>
+                <span style="display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 7px; background: var(--raised);">{{c.size}}</span>
+              </div>
+              <sc-if value="{{c.hasVariants}}" hint-placeholder-val="{{false}}">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 12px; color: var(--muted);">Strength</span>
+                  <div role="radiogroup" aria-label="Strength" style="display: inline-flex; padding: 2px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border);">
+                    <sc-for list="{{c.variants}}" as="o" hint-placeholder-count="3"><button role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" style="height: 24px; padding: 0 9px; border: 0; border-radius: 6px; font-size: 12px; font-weight: {{o.fw}}; background: {{o.bg}}; color: {{o.fg}}; box-shadow: {{o.ring}};">{{o.label}}</button></sc-for>
+                  </div>
+                </div>
+              </sc-if>
+              <div style="flex: 1;"></div>
+              <sc-if value="{{c.downloading}}" hint-placeholder-val="{{false}}">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="display: flex; font-size: 12px; color: var(--text2);"><span style="flex: 1;">Downloading {{c.pct}}%</span><span>{{c.dl}}</span></div>
+                    <div role="progressbar" aria-label="{{c.dlLabel}}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{c.pct}}" style="height: 5px; margin-top: 4px; border-radius: 3px; background: var(--raised); overflow: hidden;"><div style="width: {{c.pct}}%; height: 100%; background: var(--accent);"></div></div>
+                  </div>
+                  <button class="hov" onClick="{{c.cancel}}" style="height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600;">Cancel</button>
+                </div>
+              </sc-if>
+              <sc-if value="{{c.idle}}" hint-placeholder-val="{{true}}">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <button class="hov" onClick="{{c.open}}" style="height: 32px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 9px; border: 0; background: transparent; color: var(--text2);">Details<svg class="i" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></button>
+                  <div style="flex: 1;"></div>
+                  <sc-if value="{{c.canInstall}}" hint-placeholder-val="{{false}}"><button class="pri" onClick="{{c.install}}" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border-radius: 9px; border: 0; background: var(--accent); color: var(--on-accent); font-weight: 600;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2;"><path d="M12 4v11M7 10l5 5 5-5M5 19.5h14"></path></svg>Install</button></sc-if>
+                  <sc-if value="{{c.installed}}" hint-placeholder-val="{{true}}"><span style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); color: var(--text2); font-weight: 600;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--success); stroke-width: 2.2;"><path d="m5 12.5 4.5 4.5L19 7.5"></path></svg>Installed</span></sc-if>
+                  <sc-if value="{{c.needsVerify}}" hint-placeholder-val="{{false}}"><button class="hov" onClick="{{c.verify}}" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--warning); background: var(--raised); color: var(--text); font-weight: 600;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--warning);"><path d="M12 4 21 19.5H3z"></path><path d="M12 10v4.5M12 17.2v.3"></path></svg>Verify again</button></sc-if>
+                </div>
+              </sc-if>
+            </article>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <!-- Details panel -->
+    <sc-if value="{{hasDetail}}" hint-placeholder-val="{{false}}">
+      <aside aria-labelledby="md-h" style="width: 360px; flex-shrink: 0; display: flex; flex-direction: column; padding: 16px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px;">
+        <div style="display: flex; align-items: flex-start; gap: 8px;">
+          <h2 id="md-h" style="flex: 1; margin: 0; font-size: 16px; font-weight: 600;">BasicVSR++ decompression</h2>
+          <button class="hov" aria-label="Close details" onClick="{{closeDetail}}" style="width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center;"><svg class="i" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+        </div>
+        <div style="display: flex; gap: 4px; margin-top: 4px;">
+          <span style="height: 20px; display: inline-flex; align-items: center; padding: 0 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600;">Default for Standard</span>
+          <span style="height: 20px; display: inline-flex; align-items: center; gap: 3px; padding: 0 7px; border-radius: 10px; background: var(--raised); color: var(--success); font-size: 11px; font-weight: 600;"><svg class="i" width="11" height="11" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2.6;"><path d="m5 12.5 4.5 4.5L19 7.5"></path></svg>Installed · verified</span>
+        </div>
+        <p style="margin: 10px 0 0; font-size: 12px; color: var(--text2);">Made for video squeezed by streaming and social apps. It looks at several frames at once to remove blocks, ringing and smearing without inventing new detail, so faces and filters keep their original look.</p>
+        <dl style="margin: 12px 0 0; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 5px 10px; font-size: 12px;">
+          <dt style="color: var(--muted);">Licence</dt><dd style="margin: 0;">Apache-2.0 (OpenMMLab)</dd>
+          <dt style="color: var(--muted);">In plain words</dt><dd style="margin: 0; color: var(--text2);">Free to use, also for paid work. Rights to the training data are not covered.</dd>
+          <dt style="color: var(--muted);">Source</dt><dd style="margin: 0;">download.openmmlab.com</dd>
+          <dt style="color: var(--muted);">SHA-256</dt><dd style="margin: 0; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: var(--text2); word-break: break-all;">6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a</dd>
+          <dt style="color: var(--muted);">Speed on this PC</dt><dd style="margin: 0;">2.4 fps · about 12.5 h per hour of video</dd>
+          <dt style="color: var(--muted);">Peak GPU memory</dt><dd style="margin: 0;">4.4 GB of 8 GB</dd>
+          <dt style="color: var(--muted);">Invents detail</dt><dd style="margin: 0;">No</dd>
+          <dt style="color: var(--muted);">Flicker</dt><dd style="margin: 0;">Low</dd>
+        </dl>
+        <div style="flex: 1;"></div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px;">
+          <button disabled="disabled" style="height: 32px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600;">Your default</button>
+          <button class="hov" onClick="{{verifyDetail}}" style="height: 32px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600;">Verify again</button>
+          <a class="hov" href="{{L.compare}}" style="height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600; text-decoration: none;">Compare on my video</a>
+          <button class="hov" onClick="{{askRemove}}" style="height: 32px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--danger); background: transparent; color: var(--danger); font-weight: 600;">Remove…</button>
+        </div>
+      </aside>
+    </sc-if>
+  </div>
+
+  <!-- Dock -->
+  <nav aria-label="Main" style="position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 4px; padding: 6px; background: var(--raised); border: 1px solid var(--border); border-radius: 20px; box-shadow: var(--shadow);">
+    <a class="tipw hov" href="{{L.home}}" aria-label="Home, 5 waiting" style="position: relative; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--text2);">
+      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"></path></svg>
+      <span aria-hidden="true" style="position: absolute; top: 2px; right: 2px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--accent); color: var(--on-accent); font-size: 10px; font-weight: 700; line-height: 17px; text-align: center;">5</span>
+      <span class="tip" style="padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 12px; font-weight: 600;">Home · 5 waiting</span>
+    </a>
+    <a class="tipw hov" href="{{L.history}}" aria-label="History, 2 need attention" style="position: relative; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--text2);">
+      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.8"></rect><rect x="13" y="4" width="7" height="7" rx="1.8"></rect><rect x="4" y="13" width="7" height="7" rx="1.8"></rect><rect x="13" y="13" width="7" height="7" rx="1.8"></rect></svg>
+      <span aria-hidden="true" style="position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 5px; background: var(--warning); border: 2px solid var(--raised);"></span>
+      <span class="tip" style="padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 12px; font-weight: 600;">History · 2 need attention</span>
+    </a>
+    <a class="tipw hov" href="{{L.schedule}}" aria-label="Schedule" style="position: relative; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--text2);">
+      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14" rx="2.5"></rect><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"></path></svg>
+      <span class="tip" style="padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 12px; font-weight: 600;">Schedule</span>
+    </a>
+    <a class="tipw hov" href="{{L.models}}" aria-current="page" aria-label="Models" style="position: relative; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--accent); background: var(--accent-soft);">
+      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 4 8 4.5-8 4.5-8-4.5z"></path><path d="m4 12.5 8 4.5 8-4.5"></path><path d="m4 16.5 8 4.5 8-4.5"></path></svg>
+      <span aria-hidden="true" style="position: absolute; bottom: 3px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 2px; background: var(--accent);"></span>
+      <span class="tip" style="padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 12px; font-weight: 600;">Models</span>
+    </a>
+    <span aria-hidden="true" style="width: 1px; height: 26px; margin: 0 4px; background: var(--border);"></span>
+    <a class="tipw hov" href="{{L.settings}}" aria-label="Settings" style="position: relative; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--text2);">
+      <svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+      <span class="tip" style="padding: 4px 9px; border-radius: 7px; background: var(--text); color: var(--bg); font-size: 12px; font-weight: 600;">Settings</span>
+    </a>
+  </nav>
+
+  <sc-if value="{{showToast}}" hint-placeholder-val="{{false}}">
+    <div role="status" style="position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 55; height: 38px; display: flex; align-items: center; padding: 0 18px; border-radius: 19px; background: var(--text); color: var(--bg); font-weight: 600; box-shadow: var(--shadow); white-space: nowrap;">{{toastText}}</div>
+  </sc-if>
+
+  <!-- Dialog: licence before download -->
+  <sc-if value="{{dLicence}}" hint-placeholder-val="{{false}}">
+    <div style="position: absolute; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: var(--scrim);">
+      <div role="dialog" aria-modal="true" aria-labelledby="dlg-lic-t" onKeyDown="{{dlgKey}}" style="width: 480px; padding: 22px 24px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow);">
+        <h2 id="dlg-lic-t" style="margin: 0; font-size: 17px; font-weight: 600;">Download {{licName}}?</h2>
+        <div style="display: flex; gap: 6px; margin-top: 8px;">
+          <span style="height: 22px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 11px; border: 1px solid var(--warning); color: var(--warning); font-size: 11px; font-weight: 600;">Non-commercial</span>
+          <span style="height: 22px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 11px; background: var(--raised); color: var(--text2); font-size: 11px;">{{licSize}}</span>
+        </div>
+        <dl style="margin: 14px 0 0; display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 6px 10px; font-size: 12px;">
+          <dt style="color: var(--muted);">Licence</dt><dd style="margin: 0;">CC BY-NC-SA 4.0</dd>
+          <dt style="color: var(--muted);">In plain words</dt><dd style="margin: 0; color: var(--text2);">Fine for personal videos. Don't use the results to earn money. If you share a changed model, use the same licence and credit the author.</dd>
+          <dt style="color: var(--muted);">Source</dt><dd style="margin: 0;">[model publisher's page]</dd>
+        </dl>
+        <label style="display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; padding: 10px 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); cursor: pointer;">
+          <input type="checkbox" checked="{{licOk}}" onChange="{{toggleLic}}" style="width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent);">
+          <span>I've read the licence and will use this model only as it allows.</span>
+        </label>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
+          <button class="hov" onClick="{{closeDialog}}" style="height: 32px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600; outline: 2px solid var(--accent); outline-offset: 2px;">Cancel</button>
+          <button class="pri" onClick="{{startDownload}}" disabled="{{licOff}}" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border-radius: 9px; border: 0; background: var(--accent); color: var(--on-accent); font-weight: 600;"><svg class="i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2;"><path d="M12 4v11M7 10l5 5 5-5M5 19.5h14"></path></svg>Download</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- Dialog: remove a model that is in use -->
+  <sc-if value="{{dRemove}}" hint-placeholder-val="{{false}}">
+    <div style="position: absolute; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: var(--scrim);">
+      <div role="alertdialog" aria-modal="true" aria-labelledby="dlg-rm-t" onKeyDown="{{dlgKey}}" style="width: 480px; padding: 22px 24px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow);">
+        <h2 id="dlg-rm-t" style="margin: 0; font-size: 17px; font-weight: 600;">BasicVSR++ decompression can't be removed yet</h2>
+        <p style="margin: 8px 0 0; color: var(--text2);">It is still needed. Once nothing uses it, you can remove it here.</p>
+        <ul style="margin: 12px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px;">
+          <li style="display: flex; gap: 8px; align-items: flex-start;"><svg class="i" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--warning); margin-top: 2px;"><path d="M12 4 21 19.5H3z"></path><path d="M12 10v4.5M12 17.2v.3"></path></svg><span>It is your default for Standard. <a href="{{L.settings}}" style="color: var(--accent);">Choose another default</a> first.</span></li>
+          <li style="display: flex; gap: 8px; align-items: flex-start;"><svg class="i" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--warning); margin-top: 2px;"><path d="M12 4 21 19.5H3z"></path><path d="M12 10v4.5M12 17.2v.3"></path></svg><span>3 videos in the queue use it, including beach_walk.mp4, which is being processed now.</span></li>
+        </ul>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+          <a class="hov" href="{{L.home}}" style="height: 32px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 9px; border: 1px solid var(--border); background: var(--raised); color: var(--text); font-weight: 600; text-decoration: none;">Open the queue</a>
+          <button class="pri" onClick="{{closeDialog}}" style="height: 32px; padding: 0 16px; border-radius: 9px; border: 0; background: var(--accent); color: var(--on-accent); font-weight: 600; outline: 2px solid var(--accent); outline-offset: 2px;">OK</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"View"},"size":{"editor":"enum","options":["1280x800","1100x700"],"default":"1280x800","section":"View"},"variant":{"editor":"enum","options":["default","details","licence","remove"],"default":"default","section":"State"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  base() {
+    const v = this.props.variant ?? 'default';
+    return {
+      forV: v,
+      tab: 'clean',
+      detail: v === 'details' || v === 'remove',
+      dialog: v === 'licence' ? 'licence' : v === 'remove' ? 'remove' : null,
+      licFor: 'm4',
+      licOk: false,
+      dl: { m6: 42 },
+      inst: {},
+      strength: 'Medium',
+      flavor: 'Faithful',
+      toast: null,
+    };
+  }
+  cur() {
+    const s = this.state || {};
+    const v = this.props.variant ?? 'default';
+    return s.touched && s.forV === v ? s : this.base();
+  }
+  upd(p) {
+    this.setState(Object.assign({}, this.cur(), p, { touched: true }));
+  }
+  flash(t) {
+    this.upd({ toast: t });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.upd({ toast: null }), 2200);
+  }
+  renderVals() {
+    const s = this.cur();
+    const theme = this.props.theme === 'light' ? 'light' : 'dark';
+    const small = this.props.size === '1100x700';
+    const W = small ? 1100 : 1280;
+    const H = small ? 700 : 800;
+    const sfx = theme === 'light' ? '-Light' : small ? '-1100' : '';
+    const L = {
+      home: sfx ? 'Home' + sfx + '.dc.html' : 'Main.dc.html', history: 'History' + sfx + '.dc.html',
+      schedule: 'Schedule' + sfx + '.dc.html', models: 'Models' + sfx + '.dc.html', settings: 'Settings' + sfx + '.dc.html', compare: 'Compare' + sfx + '.dc.html',
+    };
+    const M = {
+      clean: [
+        { id: 'm1', name: 'BasicVSR++ decompression', desc: 'Removes blocks and smearing using nearby frames. Keeps faces and filters as they are.', speed: 'Slow', look: 'Keeps the look', size: '30 MB', def: true, inst: true },
+        { id: 'm2', name: 'Gentle Denoise', desc: 'Light noise cleanup for dim rooms and stage lights. Very little change to skin.', speed: 'Medium', look: 'Keeps the look', size: '120 MB', inst: true },
+        { id: 'm3', name: 'Deblock', desc: 'Targets square blocks from heavy compression. Pick how hard it works.', speed: 'Fast', look: 'Keeps the look', size: '48 MB', inst: true, variants: ['Light', 'Medium', 'Strong'], vkey: 'strength' },
+        { id: 'm4', name: 'JPEG Cleaner (community)', desc: 'Community model for blocky, low-bitrate uploads. Personal use only.', speed: 'Medium', look: 'Changes the look a little', size: '64 MB', nc: true },
+        { id: 'm5', name: 'Detail Restore', desc: 'Brings back fine texture after cleanup. Choose faithful or cleaner.', speed: 'Very slow', look: 'Changes the look', size: '210 MB', variants: ['Faithful', 'Cleaner'], vkey: 'flavor' },
+        { id: 'm6', name: 'Low-light Cleanup', desc: 'For night and live-stream clips with colour noise in dark areas.', speed: 'Slow', look: 'Keeps the look', size: '286 MB' },
+        { id: 'm7', name: 'Film Grain Keeper', desc: 'Removes compression damage but keeps natural film grain.', speed: 'Slow', look: 'Keeps the look', size: '95 MB', verify: true, inst: true },
+        { id: 'm8', name: 'Strong Restore', desc: 'For badly damaged clips. Can smooth skin and invent detail.', speed: 'Very slow', look: 'Changes the look', size: '340 MB' },
+      ],
+      motion: [
+        { id: 'r1', name: 'RIFE 4.25', desc: 'Doubles the frame rate with natural in-between frames. Good with dance and camera moves.', speed: 'Medium', look: 'Keeps the look', size: '21 MB', def: true, inst: true },
+        { id: 'r2', name: 'RIFE 4.6 (lighter)', desc: 'Older, lighter version. Faster, with more wobble on fast hands and hair.', speed: 'Fast', look: 'Keeps the look', size: '11 MB' },
+        { id: 'r3', name: 'Frame blend', desc: 'Mixes neighbouring frames. No AI and very fast, but motion looks softer.', speed: 'Fast', look: 'Changes the look a little', size: 'Built in', inst: true },
+      ],
+      big: [
+        { id: 'b1', name: 'Standard resize', desc: 'Plain, high-quality resizing. Never invents detail.', speed: 'Fast', look: 'Keeps the look', size: 'Built in', def: true, inst: true },
+        { id: 'b2', name: 'Real-ESRGAN general v3', desc: 'Upscales with sharper edges and texture. Can change how skin looks.', speed: 'Medium', look: 'Changes the look', size: '5 MB' },
+      ],
+    };
+    const tabsDef = [['clean', 'Cleanup', 8], ['motion', 'Smoother motion', 3], ['big', 'Bigger picture', 2], ['faces', 'Faces', 'Coming later']];
+    const tabs = tabsDef.map((t) => {
+      const on = s.tab === t[0];
+      const dis = t[0] === 'faces';
+      return {
+        label: t[1], count: t[2], on: on, disabled: dis,
+        fg: on ? 'var(--text)' : 'var(--text2)', fw: on ? 600 : 400, bar: on ? 'var(--accent)' : 'transparent',
+        pick: () => this.upd({ tab: t[0] }),
+      };
+    });
+    const needle = { Fast: '5-4', Medium: '0-6', Slow: '-5-4', 'Very slow': '-6-1' };
+    const list = M[s.tab] || M.clean;
+    const cards = list.map((m) => {
+      const pct = s.dl[m.id];
+      const downloading = pct !== undefined;
+      const installed = !!(m.inst || s.inst[m.id]) && !m.verify;
+      return {
+        hid: 'card-' + m.id, name: m.name, desc: m.desc, speed: m.speed, look: m.look, size: m.size,
+        needle: needle[m.speed], isDefault: !!m.def, installed: installed, nc: !!m.nc,
+        border: m.def ? 'var(--accent)' : 'var(--border)',
+        hasVariants: !!m.variants && installed,
+        variants: (m.variants || []).map((x) => {
+          const on = s[m.vkey] === x;
+          return {
+            label: x, on: on, fw: on ? 600 : 400, bg: on ? 'var(--accent-soft)' : 'transparent', fg: on ? 'var(--accent)' : 'var(--text2)',
+            ring: on ? 'inset 0 0 0 1px var(--accent)' : 'none', pick: () => this.upd({ [m.vkey]: x }),
+          };
+        }),
+        downloading: downloading, idle: !downloading, pct: pct || 0,
+        dl: downloading ? Math.round((pct / 100) * parseInt(m.size, 10)) + ' of ' + m.size : '',
+        dlLabel: 'Downloading ' + m.name,
+        canInstall: !installed && !m.verify, needsVerify: !!m.verify,
+        open: () => this.upd({ detail: true }),
+        install: () => this.upd({ dialog: 'licence', licFor: m.id, licOk: false }),
+        verify: () => this.flash(m.name + ' verified'),
+        cancel: () => { const dl = Object.assign({}, this.cur().dl); delete dl[m.id]; this.upd({ dl: dl }); },
+      };
+    });
+    const lic = M.clean.concat(M.motion, M.big).find((m) => m.id === s.licFor) || M.clean[3];
+    const detail = !!s.detail;
+    return {
+      rootClass: 've ve-' + theme, W: W, H: H, L: L,
+      howLabel: small ? 'How to add a model' : 'How to add a compatible model',
+      tabs: tabs, tabName: (tabsDef.find((t) => t[0] === s.tab) || tabsDef[0])[1],
+      cards: cards, cols: detail ? (small ? 1 : 2) : (small ? 2 : 3),
+      hasDetail: detail, closeDetail: () => this.upd({ detail: false }),
+      verifyDetail: () => this.flash('BasicVSR++ decompression verified · SHA-256 matches'),
+      askRemove: () => this.upd({ dialog: 'remove' }),
+      addOwn: () => this.flash('Choose a folder with a model and its manifest'),
+      dLicence: s.dialog === 'licence', dRemove: s.dialog === 'remove',
+      licName: lic.name, licSize: lic.size, licOk: !!s.licOk, licOff: !s.licOk,
+      toggleLic: () => this.upd({ licOk: !this.cur().licOk }),
+      startDownload: () => { const c = this.cur(); this.upd({ dialog: null, dl: Object.assign({}, c.dl, { [c.licFor]: 3 }) }); },
+      closeDialog: () => this.upd({ dialog: null }),
+      dlgKey: (e) => { if (e.key === 'Escape') this.upd({ dialog: null }); },
+      showToast: !!s.toast, toastText: s.toast || '',
+    };
+  }
+}
+</script>
+</body>
+</html>

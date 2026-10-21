@@ -1,4 +1,4 @@
-"""BT.601/709 conversion. Chroma stays on its original 2x2 sampling grid."""
+"""BT.601/709/2020 conversion on the original 2x2 chroma sampling grid."""
 
 import torch
 
@@ -6,6 +6,8 @@ import torch
 def _coefficients(matrix: str) -> tuple[float, float]:
     if matrix == "bt709":
         return 0.2126, 0.0722
+    if matrix == "bt2020nc":
+        return 0.2627, 0.0593
     if matrix in {"bt601", "smpte170m", "bt470bg"}:
         return 0.299, 0.114
     raise ValueError(f"Unsupported color matrix: {matrix}")

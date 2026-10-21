@@ -1,10 +1,10 @@
 import type { Connection } from "./types";
 export interface Api {
-  call<T>(route: string, method?: string, data?: unknown): Promise<T>;
+  call<T>(route: string, method?: string, data?: unknown, signal?: AbortSignal): Promise<T>;
   blob(route: string): Promise<Blob>;
 }
 export function client(connection: Connection): Api {
-  async function send(route: string, method = "GET", data?: unknown) {
+  async function send(route: string, method = "GET", data?: unknown, signal?: AbortSignal) {
     const response = await fetch(`${connection.base_url}/${route}`, {
       method,
       headers: {
@@ -12,9 +12,12 @@ export function client(connection: Connection): Api {
         "Content-Type": "application/json",
       },
       body: data === undefined ? undefined : JSON.stringify(data),
-      signal: AbortSignal.timeout(
-        method === "POST" && route === "queue" ? 1200000 : 30000,
-      ),
+      signal: AbortSignal.any([
+        ...(signal ? [signal] : []),
+        ...(method === "POST" && route === "estimate" ? [] : [
+          AbortSignal.timeout(method === "POST" && route === "queue" ? 1200000 : 30000),
+        ]),
+      ]),
     });
     if (!response.ok)
       throw new Error(
@@ -24,8 +27,8 @@ export function client(connection: Connection): Api {
     return response;
   }
   return {
-    call: async <T>(route: string, method?: string, data?: unknown) =>
-      (await send(route, method, data)).json() as Promise<T>,
+    call: async <T>(route: string, method?: string, data?: unknown, signal?: AbortSignal) =>
+      (await send(route, method, data, signal)).json() as Promise<T>,
     blob: async (route) => (await send(route)).blob(),
   };
 }
@@ -35,13 +38,15 @@ export async function events(
   receive: (data: unknown) => void,
   status: (reconnecting: boolean) => void = () => {},
   reconnect?: () => Promise<Connection>,
+  stalled: (value: boolean) => void = () => {},
 ) {
   let attempt = 0;
   while (!signal.aborted) {
     const stream = new AbortController();
     const cancel = () => stream.abort();
+    const timeout = () => { stalled(true); cancel(); };
     signal.addEventListener("abort", cancel, { once: true });
-    let silence = setTimeout(cancel, 30000);
+    let silence = setTimeout(timeout, 30000);
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
       const response = await fetch(`${connection.base_url}/events`, {
@@ -62,10 +67,11 @@ export async function events(
           const message = buffer.slice(0, boundary);
           buffer = buffer.slice(boundary + 2);
           clearTimeout(silence);
-          silence = setTimeout(cancel, 30000);
+          silence = setTimeout(timeout, 30000);
+          stalled(false);
           attempt = 0;
           status(false);
-          if (message.startsWith("event: update")) {
+          if (message.startsWith("event: update") || message.startsWith("event: progress")) {
             const line = message.split("\n").find((line) => line.startsWith("data: "));
             if (line) receive(JSON.parse(line.slice(6)));
           }
@@ -102,10 +108,12 @@ export function folder(value: string) {
   return value.replace(/[\\/][^\\/]*$/, "");
 }
 export function duration(seconds: number) {
-  const minutes = Math.ceil(Math.max(0, seconds) / 60);
+  const total = Math.ceil(Math.max(0, seconds));
+  const minutes = Math.floor(total / 60);
+  const tail = String(total % 60).padStart(2, "0");
   return minutes >= 60
-    ? `${Math.floor(minutes / 60)} h ${minutes % 60} m`
-    : `${minutes} m`;
+    ? `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}:${tail}`
+    : `${minutes}:${tail}`;
 }
 export function when(value?: string | null) {
   return value

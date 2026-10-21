@@ -47,6 +47,17 @@ def run_trial(
         raise ValueError("Trial seconds must be positive; start must be nonnegative and finite.")
     if preset not in {"fast", "standard"}:
         raise ValueError("Trial preset must be fast or standard.")
+    from videoenhancer.jobs.checks import job_support_reason
+    from videoenhancer.media.probe import probe
+
+    unsupported = job_support_reason(
+        {
+            "media": probe(source, read_timeline=False).to_dict(),
+            "settings": {"short_side": (settings_patch or {}).get("short_side", short_side)},
+        }
+    )
+    if unsupported:
+        raise ValueError(unsupported)
     destination = (out or get_home() / "trials" / time.strftime("%Y%m%d-%H%M%S")).resolve()
     repository = Path(__file__).resolve().parents[2]
     if destination.is_relative_to(repository):

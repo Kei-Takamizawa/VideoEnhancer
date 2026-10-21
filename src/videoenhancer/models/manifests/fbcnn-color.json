@@ -44,6 +44,9 @@
       "tile_overlap": 32,
       "mode": "standard",
       "seconds": 5
+    },
+    "download_sizes": {
+      "fbcnn.pth": 287755111
     }
   }
 }
