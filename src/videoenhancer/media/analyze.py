@@ -13,7 +13,13 @@ import torch.nn.functional as F
 
 from videoenhancer import proc
 from videoenhancer.config import executable
-from videoenhancer.media.decode import choose_backend, read_exact, validate_pixel_format
+from videoenhancer.media.decode import (
+    IndexedDecoder,
+    TimestampMismatch,
+    choose_backend,
+    read_exact,
+    validate_pixel_format,
+)
 from videoenhancer.media.probe import packet_timeline, probe
 from videoenhancer.media.timing import nearest_mapping
 
@@ -101,6 +107,19 @@ def analyze(path: str | Path, backend: str = "auto") -> dict[str, Any]:
     pts, durations = packet_timeline(path, Fraction(info.time_base))
     if not pts:
         raise ValueError("The input lacks presentation timestamps. Remux it before processing.")
+    decoder_name = "ffmpeg"
+    decoder_reason = "CPU backend requested or CUDA unavailable."
+    if selected == "cuda":
+        native = IndexedDecoder(path, media, selected)
+        try:
+            native.verify_timestamps([str(p) for p in pts])
+        except TimestampMismatch as error:
+            decoder_reason = str(error)
+        else:
+            decoder_name = "nvdec"
+            decoder_reason = "All NVDEC presentation timestamps match the analysed packet timeline."
+        finally:
+            native.close()
     duration = pts[-1] - pts[0] + (durations[-1] or 1 / Fraction(info.average_fps))
     mapping = nearest_mapping(pts, duration, Fraction(info.cfr_fps))
     cuts = []
@@ -108,7 +127,9 @@ def analyze(path: str | Path, backend: str = "auto") -> dict[str, Any]:
     motion_scores = []
     previous: np.ndarray | None = None
     source_count = 0
-    for index, thumbnail in enumerate(_thumbnails(path, media, selected)):
+    for index, thumbnail in enumerate(
+        _thumbnails(path, media, selected if decoder_name == "nvdec" else "cpu")
+    ):
         source_count += 1
         if previous is not None:
             delta, distance = _cut_score(previous, thumbnail)
@@ -173,4 +194,6 @@ def analyze(path: str | Path, backend: str = "auto") -> dict[str, Any]:
         "motion_scores": motion_scores,
         "analysis_seconds": time.perf_counter() - started,
         "backend": selected,
+        "decoder": decoder_name,
+        "decoder_reason": decoder_reason,
     }

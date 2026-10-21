@@ -172,6 +172,11 @@ def compare_input(value: dict[str, Any]) -> tuple[Path, dict[str, Any], dict[str
             None,
         )
     index = source_index(source, analysis)
+    from videoenhancer.jobs.checks import job_support_reason
+
+    unsupported = job_support_reason({"media": index["media"], "settings": settings})
+    if unsupported:
+        raise ValueError(unsupported)
     rate = float(Fraction(index["media"]["cfr_fps"]))
     seconds = value.get("seconds", 5)
     start = value.get("start")

@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from videoenhancer import proc
 from videoenhancer.service.engine import Engine
 
-APP_ORIGIN = "app://videoenhancer"
+APP_ORIGIN = "http://tauri.localhost"
 DEV_ORIGIN = "http://127.0.0.1:5173"
 
 
@@ -236,6 +236,16 @@ class Handler(BaseHTTPRequestHandler):
                     while remaining > 0 and (chunk := stream.read(min(64 * 1024, remaining))):
                         self.wfile.write(chunk)
                         remaining -= len(chunk)
+                return
+            if (
+                len(parts) == 4
+                and parts[0] == "links"
+                and parts[2] == "thumbnail"
+                and self.command == "GET"
+            ):
+                mime, raw = self.server.engine.video_links.thumbnail(parts[1], parts[3])
+                self._headers(200, mime, len(raw))
+                self.wfile.write(raw)
                 return
             if (
                 len(parts) == 3

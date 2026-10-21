@@ -6,7 +6,7 @@ import subprocess
 from collections.abc import Callable, Iterator
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -21,6 +21,32 @@ SMART_APP_CONTROL_MESSAGE = (
     "unsigned NVIDIA video component (VersionCheck.cp312-win_amd64.pyd). See "
     "docs/TROUBLESHOOTING.md for details and options."
 )
+
+
+class TimestampMismatch(ValueError):
+    """A decoded presentation label disagrees with the analysed timeline."""
+
+
+class TimestampSequence:
+    def __init__(self, pts: list[str]):
+        self.pts = [Fraction(value) for value in pts]
+        self.positions = {stamp: index for index, stamp in enumerate(self.pts)}
+        self.next_index: int | None = None
+
+    def accept(self, stamp: Fraction) -> int:
+        index = self.positions.get(stamp) if self.next_index is None else self.next_index
+        if index is None or index >= len(self.pts) or self.pts[index] != stamp:
+            expected = (
+                self.pts[index]
+                if index is not None and index < len(self.pts)
+                else "a known timestamp"
+            )
+            raise TimestampMismatch(
+                f"Decoded timestamp {stamp} at frame {self.next_index or 0} "
+                f"does not match {expected}."
+            )
+        self.next_index = index + 1
+        return index
 
 
 def _load_pynvcodec() -> Any:
@@ -114,7 +140,7 @@ class IndexedDecoder:
         self.decoder: Any = None
         self.demuxer: Any = None
         self._cuda_used = False
-        if backend == "cuda":
+        if backend == "cuda" and self.manifest.get("decoder", "nvdec") == "nvdec":
             self._open_cuda()
 
     def _open_cuda(self) -> None:
@@ -126,6 +152,30 @@ class IndexedDecoder:
             usedevicememory=True,
             outputColorType=nvc.OutputColorType.NATIVE,
         )
+
+    def _decoded_packets(self, packets: Iterator[Any], abort: Callable[[], bool]) -> Iterator[Any]:
+        for compressed in packets:
+            if abort():
+                raise InterruptedError("The segment was interrupted.")
+            yield from self.decoder.Decode(compressed)
+        flush: Any = getattr(self.decoder, "Flush", None)
+        if callable(flush):
+            yield from cast(Any, flush)()
+
+    def verify_timestamps(self, pts: list[str]) -> None:
+        """Scan the entire native stream, including the EOF packet and final frame."""
+        base = Fraction(self.demuxer.GetTimebaseNum(), self.demuxer.GetTimebaseDen())
+        sequence = TimestampSequence(pts)
+        count = 0
+        for frame in self._decoded_packets(iter(self.demuxer), lambda: False):
+            stamp = Fraction(frame.getPTS()) * base
+            if sequence.accept(stamp) != count:
+                raise TimestampMismatch(
+                    f"NVDEC starts at frame {(sequence.next_index or 1) - 1}, expected 0."
+                )
+            count += 1
+        if count != len(pts):
+            raise TimestampMismatch(f"NVDEC ended after {count} frames; expected {len(pts)}.")
 
     def _cuda_frames(self, indices: list[int], abort: Callable[[], bool]) -> Iterator[torch.Tensor]:
         if not indices:
@@ -139,6 +189,8 @@ class IndexedDecoder:
             self._open_cuda()
         self._cuda_used = True
         pts = self.manifest.get("source_pts", [])
+        if not pts:
+            raise TimestampMismatch("Analysed source timestamps are missing.")
         anchor = (
             max(
                 (
@@ -172,29 +224,20 @@ class IndexedDecoder:
         )
         base = Fraction(self.demuxer.GetTimebaseNum(), self.demuxer.GetTimebaseDen())
 
-        def decoded() -> Iterator[Any]:
-            for compressed in packets:
-                if abort():
-                    raise InterruptedError("The segment was interrupted.")
-                yield from self.decoder.Decode(compressed)
-            yield from self.decoder.Flush()
-
+        sequence = TimestampSequence(pts)
         wanted = iter(indices)
         target = next(wanted)
         self._active_cuda_index = target
-        for ordinal, frame in enumerate(decoded()):
+        for frame in self._decoded_packets(packets, abort):
             if abort():
                 raise InterruptedError("The segment was interrupted.")
             stamp = Fraction(frame.getPTS()) * base
-            expected = Fraction(pts[target]) if pts else None
-            if (expected is not None and stamp < expected) or (
-                expected is None and ordinal < target
-            ):
+            decoded_index = sequence.accept(stamp)
+            if decoded_index < target:
                 continue
-            if expected is not None and stamp != expected:
-                raise ValueError(
-                    f"Decoded timestamp {stamp} does not match "
-                    f"analysed frame {target} ({expected})."
+            if decoded_index != target:
+                raise TimestampMismatch(
+                    f"Decoder skipped analysed frame {target}; received frame {decoded_index}."
                 )
             picture = self._convert(torch.from_dlpack(frame))
             # Core decode surfaces may be reused on the next Decode call.
@@ -208,7 +251,7 @@ class IndexedDecoder:
                 if target != previous:
                     self._active_cuda_index = target
                     break
-        raise ValueError(f"Decoder ended before analysed frame {target}.")
+        raise TimestampMismatch(f"Decoder ended before analysed frame {target}.")
 
     def _convert(self, frame: torch.Tensor) -> torch.Tensor:
         rgb = nv12_to_rgb(
@@ -235,10 +278,10 @@ class IndexedDecoder:
         return rgb.contiguous()
 
     def frames(self, indices: list[int], abort: Callable[[], bool]) -> Iterator[torch.Tensor]:
-        if self.backend == "cuda":
+        if self.backend == "cuda" and self.manifest.get("decoder", "nvdec") == "nvdec":
             try:
                 yield from self._cuda_frames(indices, abort)
-            except (torch.OutOfMemoryError, InterruptedError):
+            except (torch.OutOfMemoryError, InterruptedError, TimestampMismatch):
                 raise
             except Exception as error:
                 raise RuntimeError(
@@ -312,13 +355,14 @@ class IndexedDecoder:
                             f"Decode failed at input frame {index}: {stderr}. Re-probe the input."
                         )
                     current_index += 1
-                    current = self._convert(
-                        torch.from_numpy(
-                            np.frombuffer(raw, dtype=np.uint16 if depth > 8 else np.uint8)
-                            .copy()
-                            .reshape(height * 3 // 2, width)
-                        )
+                    native = torch.from_numpy(
+                        np.frombuffer(raw, dtype=np.uint16 if depth > 8 else np.uint8)
+                        .copy()
+                        .reshape(height * 3 // 2, width)
                     )
+                    if self.backend == "cuda":
+                        native = native.to("cuda")
+                    current = self._convert(native)
                 assert current is not None
                 yield current
         finally:

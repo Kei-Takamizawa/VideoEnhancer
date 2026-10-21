@@ -66,7 +66,7 @@ export function Thumbnail({
   useEffect(() => {
     let alive = true,
       object: string | undefined;
-    if (api)
+    if (api && job.state !== "downloading" && !job.link_unanalysed)
       void api
         .blob(`queue/${job.id}/thumbnail`)
         .then((blob) => {
@@ -95,6 +95,18 @@ type Actions = {
   action(job: Job, name: string, data?: unknown): void;
   trial(job: Job): void;
 };
+function DownloadCard({ job, cancel }: { job: Job; cancel(): void }) {
+  const download = job.download;
+  return <article className="now-card"><div className="now-details">
+    <p className="muted">{download?.phase || "Downloading"}</p>
+    <h2>{job.source?.title || filename(job.input)}</h2>
+    <div className="now-percent">{download?.percent == null ? "Downloading" : `${download.percent.toFixed(0)}%`}</div>
+    <progress aria-label="Download progress" max="100" value={download?.percent ?? undefined} />
+    <p>{download?.bytes_per_second ? `${(download.bytes_per_second / 1e6).toFixed(1)} MB/s` : "Waiting for download speed"} · {download?.remaining_seconds != null ? `${duration(download.remaining_seconds)} left` : "Time left after download starts"}</p>
+    <p>Processing: {job.estimate_after_download ? "after download" : `${duration(job.estimate.seconds)} · Done ${when(job.eta)}`}</p>
+    <ActionButton onClick={cancel}>Cancel download</ActionButton>
+  </div></article>;
+}
 export function JobMenu({
   job,
   action,
@@ -116,6 +128,9 @@ export function JobMenu({
     document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
   }, [open]);
+  if (job.record_error) return <ActionButton onClick={() => action(job, "remove")}>Remove</ActionButton>;
+  if (job.unsupported_reason) return <ActionButton onClick={() => action(job, "cancel")}>Remove</ActionButton>;
+  if (job.state === "downloading") return <ActionButton onClick={() => action(job, "cancel")}>Cancel download</ActionButton>;
   return (
     <div className="job-menu" ref={menu}>
       <ActionButton
@@ -243,13 +258,14 @@ export function HomePage({
   seen?(ids: string[]): void;
 }) {
   const [problem, setProblem] = useState(false);
+  const pointerJob = useRef<string | null>(null);
   const active = queue.jobs.filter(
     (j) => !["done", "failed", "cancelled"].includes(j.state),
   );
   const current =
-    active.find((j) => j.state === "running") ||
-    active.find((j) => ["queued", "paused"].includes(j.state)) ||
-    active[0];
+    active.find((j) => !j.unsupported_reason && j.state === "running") ||
+    active.find((j) => !j.unsupported_reason && ["queued", "paused"].includes(j.state)) ||
+    active.find((j) => !j.unsupported_reason);
   const next = active.filter((j) => j !== current);
   const failures = queue.jobs.filter(
     (j) => j.state === "failed" && !seenFailures.includes(j.id),
@@ -276,6 +292,7 @@ export function HomePage({
               ? `Working · ${current.fps?.toFixed(1) || "—"} fps${health?.next_change ? ` · pauses at ${when(health.next_change)}` : ""}`
               : current?.state === "preparing"
                 ? "Preparing…"
+                : current?.state === "downloading" ? "Downloading"
                 : current
                   ? `Waiting for your hours${health?.next_change ? ` · starts ${when(health.next_change)}` : ""}`
                   : "Idle · nothing to do";
@@ -298,7 +315,7 @@ export function HomePage({
           </ActionButton>
         </div>
         <div className="actions">
-          <ActionButton onClick={pauseAll} disabled={!health?.paused_all && !active.some(job => job.state === "running" || (job.state === "queued" && health?.engine_state !== "Waiting for your hours"))} title="Pause jobs running or ready to run now">
+          <ActionButton onClick={pauseAll} disabled={!health?.paused_all && !active.some(job => !job.unsupported_reason && (job.state === "downloading" || job.state === "running" || (job.state === "queued" && health?.engine_state !== "Waiting for your hours")))} title="Pause jobs running or ready to run now">
             {health?.paused_all ? "Resume all" : "Pause all"}
           </ActionButton>
           <ActionButton className="primary" onClick={() => add()}>
@@ -351,7 +368,7 @@ export function HomePage({
       {health?.deletion_notices?.filter(notice => !queue.jobs.some(job => job.id === notice.job_id)).map(notice => <div className="alert" role="status" key={notice.id}><p>{notice.result}</p><p>{notice.guard}</p><ActionButton onClick={() => window.desktop.reveal(notice.guard)}>Show in folder</ActionButton></div>)}
       <div className="home-columns">
         <div>
-          {current ? (
+          {current && (current.state === "downloading" || current.link_unanalysed) ? <DownloadCard job={current} cancel={() => action(current, "cancel")} /> : current ? (
             <article className="now-card">
               <Thumbnail job={current} api={api} />
               <div className="now-details">
@@ -454,20 +471,20 @@ export function HomePage({
                   <article
                     key={job.id}
                     className="next-row"
-                    draggable
-                    onDragStart={(e) =>
-                      e.dataTransfer.setData("text/plain", job.id)
-                    }
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const moved = queue.jobs.find(
-                        (j) => j.id === e.dataTransfer.getData("text/plain"),
-                      );
-                      if (moved)
-                        action(moved, "move", {
-                          position: job.position || 1,
-                        });
+                    data-job-id={job.id}
+                    onPointerDown={e => {
+                      if (e.button !== 0 || (e.target as Element).closest("button,input,select,a")) return;
+                      pointerJob.current = job.id;
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    }}
+                    onPointerCancel={() => { pointerJob.current = null; }}
+                    onPointerUp={e => {
+                      const moved = queue.jobs.find(j => j.id === pointerJob.current);
+                      pointerJob.current = null;
+                      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+                      const targetId = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>(".next-row")?.dataset.jobId;
+                      const target = queue.jobs.find(j => j.id === targetId);
+                      if (moved && target && moved.id !== target.id) action(moved, "move", { position: target.position || 1 });
                     }}
                     onKeyDown={(e) => {
                       if (
@@ -496,7 +513,7 @@ export function HomePage({
                       </p>
                     </div>
                     <div>
-                      {job.cancel_cleanup ? ("Cancelling…") : job.state === "preparing" ? (
+                      {(job.state === "downloading" || job.link_unanalysed) ? <><p>{job.download?.phase} · {job.download?.percent == null ? "" : `${job.download.percent.toFixed(0)}%`}</p><progress aria-label="Download progress" max="100" value={job.download?.percent ?? undefined} /><p>Processing: {job.estimate_after_download ? "after download" : duration(job.estimate.seconds)}</p></> : job.unsupported_reason ? `No longer supported: ${job.unsupported_reason}` : job.cancel_cleanup ? ("Cancelling…") : job.state === "preparing" ? (
                         "Preparing…"
                       ) : job.state === "paused" ? (
                         "Waits until you resume it"
@@ -570,6 +587,11 @@ export function HomePage({
   );
 }
 
+function historyAspect(job: Job) {
+  const width = job.media.display_width, height = job.media.display_height;
+  return width > 0 && height > 0 && Number.isFinite(width / height) ? width / height : 16 / 9;
+}
+
 export function HistoryPage({
   queue,
   api,
@@ -641,7 +663,7 @@ export function HistoryPage({
       height += rowHeight + 12; pending = []; aspectSum = 0;
     };
     for (const job of jobs) {
-      const aspect = job.media.display_width / Math.max(1, job.media.display_height);
+      const aspect = historyAspect(job);
       pending.push(job); aspectSum += aspect;
       if (aspectSum * 200 + (pending.length - 1) * 12 >= galleryWidth) flush();
     }
@@ -710,7 +732,7 @@ export function HistoryPage({
               data-failed={job.state === "failed"}
             >
               <button className="history-image" aria-label={selectMode ? `Select ${filename(job.input)}` : filename(job.input)}
-                style={{ width: (row.height - 12) * job.media.display_width / Math.max(1, job.media.display_height), height: row.height - 12 }}
+                style={{ width: (row.height - 12) * historyAspect(job), height: row.height - 12 }}
                 onClick={() => selectMode ? setSelected(old => old.includes(job.id) ? old.filter(id => id !== job.id) : [...old, job.id]) : setDetail(job.id)}>
                 <Thumbnail job={job} api={api} small />
                 {selectMode && <span className="history-select" aria-hidden="true">{selected.includes(job.id) && <Check size={16} strokeWidth={1.8} />}</span>}

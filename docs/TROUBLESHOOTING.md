@@ -1,5 +1,23 @@
 # Troubleshooting
 
+## Tauri candidate startup and playback
+
+The Windows shell requires the Microsoft Edge WebView2 Runtime. If the webview
+cannot start, install the Evergreen Runtime from Microsoft's official WebView2
+download page and retry. Building the shell also requires Microsoft C++ Build Tools
+and a Windows SDK; these are developer requirements, not owner package contents.
+
+HEVC playback depends on the codecs available to WebView2. If the app reports that
+HEVC cannot play inside the app, use its HEVC Video Extensions Store button or open
+the video in the default player. H.264/AV1 support is measured on the target PC;
+an installed codec package alone does not prove successful playback. Processing
+and the default output codec do not change when in-app playback is unavailable.
+
+The shell and CLI share `%APPDATA%/VideoEnhancer/storage-location.json`. If its active
+folder is missing, choose an existing folder, use the previous folder, or quit.
+The app must not silently open an older default home. Explicit `VE_HOME` overrides
+location selection and disables Move and Remove.
+
 ## Preview and catalog messages
 
 Closing Preview result stops its CPU encoding and removes partial previews;
@@ -14,9 +32,10 @@ remove those queue entries first. Removing a History entry keeps the video.
 "Not measured here" is deliberate: no qualifying speed or memory measurement
 has been recorded for that model. It is not an estimate copied from a publisher.
 
-If packaging reports EBUSY because the existing package is open, use a fresh
-`VE_GUI_PACKAGE_OUT` folder. Do not terminate the owner's running app merely to
-build a test package.
+If packaging reports EBUSY because the current package is open, close that app
+before replacing the candidate in `work/package/VideoEnhancer`. Build the executable
+first and keep the current package until its replacement passes an isolated smoke
+test. Do not terminate an owner's instance to run tests.
 
 ## A video's work files are locked
 
@@ -182,9 +201,11 @@ identity. Finished records remain readable. FFmpeg software VP9/AV1 decoder
 availability is reported in Settings and when adding the affected formats.
 Audio checks use each stream's packets and account for codec priming.
 
-2160p forecasts use measured component and whole-pipeline points. Larger output
-is visibly uncalibrated. Old local observations are not silently treated as
-measurements of a new built-in profile revision.
+Inputs with a displayed short side above 1080 pixels are refused. Output choices
+are Keep, 1080p and 1440p. A saved 2160p default becomes 1440p, but existing queued
+2160p jobs are blocked and must be removed. Finished History videos remain
+readable. Old calibration observations are not relabelled as measurements of a
+different output size; unmeasured sizes remain visibly uncalibrated.
 
 ## Moving app data and reclaiming working space
 
@@ -195,3 +216,35 @@ If a move fails, the original folder remains selected. Keep the original and ins
 Use **Remove the old folder** only after a successful move. This is permanent deletion. **Clean up** for failed/cancelled jobs removes engine-owned parts and the joined working video, preserving inputs, finished outputs and History. After cleanup Retry processes every part again. The default automatic cleanup period is seven days; it runs when the desktop engine is active.
 
 For development disk growth and the fixed D-drive layout, see [WORKSPACE.md](WORKSPACE.md). Missing historical P1e-2 D-drive evidence was accepted as lost in P1e-2b revision 2; do not attempt to recover or recreate those historical observations.
+
+## Video links
+
+Install the optional tools in Settings > Video links. Checks and updates run
+only when requested. If a site changes, press Check for updates; Nightly may
+contain fixes newer than Stable. A missing published checksum or a changed
+installed executable prevents execution; reinstall the tools in that case.
+
+Sign-in, cookies, DRM and live streams are unsupported. A failed transfer has
+Retry; partial files are kept for resume. Choose another download folder if it
+runs out of space. The enhanced output remains MP4: audio outside AAC, MP3,
+AC-3, E-AC-3 and ALAC becomes AAC 256 kbps, including Opus.
+
+When size cannot be read before download, the downloaded file is checked before
+processing. Sources above 1080p or HDR stop with a reason; the file stays in the
+download folder. A site can still redirect a download from an HTTPS link to
+plain HTTP during transfer. HTTP format URLs known before an HTTPS download
+are refused.
+
+If a link is a list of lists, paste one list instead, for example the channel's
+Videos tab. A failed download with unknown size or frame rate stays in History
+and offers Retry. A damaged job record shows its reason and can be removed without
+discarding the other queue rows.
+
+"The download is incomplete (N s of M s). Retry the download." means the reported
+duration and downloaded file disagree. The partial file is kept until Retry,
+Cancel or removal of that unfinished download. Retry also discards an interrupted
+remux before rebuilding it. Completed downloaded originals are preserved.
+
+Missing thumbnails do not prevent downloading: private-network thumbnail URLs or
+redirects are refused. Link-tool caches follow the app-data folder, rather than
+the user profile on C. Uninstall removes the yt-dlp cache too.

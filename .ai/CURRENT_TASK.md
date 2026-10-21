@@ -1,241 +1,311 @@
-# CURRENT_TASK: Cycle P1e-2b (move the work to drive D and stop disk growth)
+# CURRENT_TASK: Cycle P1f-2 (fixes from the P1f review)
 
-- **Task ID:** VE-P1e-2b, revision 2
-- **Date:** 2026-10-16
+- **Task ID:** VE-P1f-2
+- **Date:** 2026-10-19
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
-**Why:**
-- The owner's drive C is full.
-- Every cycle has left several GB behind: packages, synthetic media, finalization fixtures (up to 29 GB for a 120-minute output) and isolated homes.
-- The owner wants all work on drive D from now on, with no unbounded growth.
+## 1. Start
 
-**Start condition:**
-- Branch `p1d-ui-v2` at `7347029` (draft PR #5).
-- Save this file as `.ai/CURRENT_TASK.md` in the new checkout on D (Part B) and commit it there.
-- **This cycle runs in a new Codex project** whose folder is `D:\my-workspace\VideoEnhancer\work`. The owner creates that folder and the project. The old checkout on C belonged to the previous Codex project. Because it is no longer your working folder, step B5 can delete it. Find it: it is a folder on C whose `origin` is this repository. If you are unsure which folder it is, ask the owner.
-- At the end, write `.ai/LAST_REPORT.md` (English, UTF-8, ASCII punctuation, under 40 KB).
-- Do not push to `main`.
+- Continue on branch `p1f-links` from `05dbf72` (the P1f final commit). Keep draft PR #7 (base `p1t-tauri`). Do not open a new PR.
+- Replace `.ai/CURRENT_TASK.md` with this file. Write a new `.ai/LAST_REPORT.md` for this cycle. The P1f report stays in Git history at `05dbf72`.
+- **Restore the dependencies removed at the end of P1f** (Python environment and uv cache as needed, `npm ci` in `gui`, the Cargo registry, and the Rust target through a normal build).
+  - This restore does not count toward the 1 GB per-cycle growth limit in `docs/WORKSPACE.md`. Report its size on its own line.
+  - Every other workspace rule still applies.
 
-## Revision 2: resume after the missing-evidence blocker
+## 2. Background
 
-This revision overrides the parts it names. Everything else in this file still applies.
+- P1f finished as PARTIAL at `05dbf72`. P2 cold start failed; everything else passed. Windows and Ubuntu CI passed.
+- The designer reviewed the P1f code by reading it, without running it. The review found the defects in Parts A and B below. Each one names its file and line at `05dbf72`.
+- For each item:
+  - first write a test that fails on `05dbf72` and record that failure;
+  - then fix it and show the same test passing.
+  - If a test shows that an item does not reproduce, report that with the evidence and do not change the code for it.
+- After this cycle, the owner checks P1e-2, P1t, P1f and P1f-2 together, then merges.
 
-**What happened:**
-- Drive D was exFAT (your blocker in `8c81b60`).
-- The owner then reformatted D as NTFS, which erased `D:\VideoEnhancer-P1e-2`.
-- Your report at `5e7ca8c` found that folder missing and stopped correctly.
+## 3. Designer decision on P2 (2026-10-19)
 
-**Decisions (Claude, as designer):**
-1. **The lost records are accepted as lost.** These are the 7 records and the old package listed in the `5e7ca8c` report.
-   - Do not search for them, try to recover them, or regenerate them.
-   - The record of their numbers is the P1e-2 report in git history (`.ai/LAST_REPORT.md` at `7347029`), plus your `evidence\P1e-2b\missing-evidence.json`. Claude reviewed those numbers from that report before the loss.
-   - P1e-3 measures the 2160 estimate and the other gates again, so no later step needs the lost files.
-2. **Start condition (overrides the one above).**
-   - Continue in the existing clone `D:\my-workspace\VideoEnhancer\work\repo`, on `p1d-ui-v2` at `5e7ca8c`. Its product files are identical to `7347029`.
-   - Do not reset or rewrite history.
-3. **Part A is done.** Do not repeat it.
-   - Reuse the `5e7ca8c` inventory. At the start of this run, measure only the free space on C and D.
-   - Leaving the owner's job parts unclassified by state is accepted. Part S's Clean up list shows them in the app.
-4. **B4 (evidence) is revised.**
-   - Move what still exists in `C:\Users\pro\Documents\VideoEnhancer-P1e-2` into `work\evidence\P1e-2`:
-     - reports, JSON and logs;
-     - the 92 screenshots in `gui-evidence\visual-9`;
-     - the Japanese summaries.
-   - Do not move synthetic media or test homes.
-   - Report the size. If it is over 300 MB, keep it anyway, because it predates the rule, and say so.
-5. **B5 (cleanup).**
-   - Skip the two D items (`D:\VideoEnhancer-P1e-2`, `D:\VideoEnhancer`); they no longer exist. The C items stand.
-   - The old checkout is `C:\Users\pro\Documents\my-workspace\Hobby\VideoEnhancer`. Delete it only after B1 to B4 pass. If its 12 access-denied directories still refuse, list them under "For the owner to delete".
-   - Expected space freed on C is about 334 GB (decimal), from your inventory:
-     - 280.7 GB of `VideoEnhancer-*` folders;
-     - at least 46.6 GB for the old checkout;
-     - 6.5 GB of uv, pip, npm and Electron caches.
+- **The P2 cold-start failure is accepted as a known issue.** P1f measured a G1 Home-ready median of 694.6 ms for Tauri, against 420.9 ms for Electron. Most of the gap is WebView2 start-up: the median window-to-navigation interval is 297.6 ms for Tauri and 16.8 ms for Electron.
+- Electron is removed, so the gate relative to Electron is retired. The P1f FAIL stays in the record.
+- **New gate, from this cycle on:** measure on the same G1 fixture (5 launches). The G1 Home-ready median must be at most 765 ms (694.6 ms + 10%), and the first-paint median at most 1.0 s.
+- In this cycle, run that measurement once at the end.
 
-     Report the actual figures.
-6. **GPU test model home.** Its old location is unknown, and any copy on D was erased.
-   - Create it under `work\cache`.
-   - Download the weights that the GPU tests need, from the sources the code already uses.
-   - Report its size and how much was downloaded.
-7. **exFAT.** The `8c81b60` blocker is obsolete now that D is NTFS. Do not change the deletion guard in this cycle.
+## 4. Part A: must fix
 
-## Working rules
+### A1. A link job without known size or frame rate breaks Home and History
 
-1. **Never delete, move or open** any of the following:
-   - the owner's videos and finished outputs;
-   - anything in the Recycle Bin;
-   - the owner's app data (`%LOCALAPPDATA%\VideoEnhancer`: queue, History, settings, models, logs), except by reading sizes in Part A;
-   - the owner's folders next to your project folder: `D:\my-workspace\VideoEnhancer\VE-check\` (the owner's test copies) and `D:\my-workspace\VideoEnhancer\AppData\` (where the owner will move the app data). Either may already exist when you start.
-     - Do not write to them or use them as scratch or test homes.
-     - Do not include them in any cleanup.
-     - They are outside your project folder on purpose, so the sandbox asks before any write there. Never request that approval;
-   - anything in `D:\my-workspace` outside `D:\my-workspace\VideoEnhancer\work`, except the two owner folders' sizes if a report needs them.
+- **Where:**
+  - `service/link_jobs.py:78-87` stores `width`, `display_width`, `height` and `display_height` as `0`, and `cfr_fps` as `"0"`, when the metadata has no size or no frame rate. Internet Archive formats from yt-dlp have no frame rate. Many HLS formats have none either.
+  - After the download, the job enters `preparing` with these values (`link_jobs.py:241-254`). `add_job` replaces the media only later.
+  - The queue snapshot calls `estimate_job` (`service/engine.py:720-724`) and `job_progress` (`engine.py:758`). Both reach `estimate/model.py` `_geometry`, which raises "Media dimensions must be positive." or "Media frame rate must be positive."
+  - The snapshot has no per-row guard, so `GET /queue` fails and Home and History stop updating.
+  - If the job then fails, the failed row breaks every later snapshot until someone removes the manifest by hand. Ways the job can fail here:
+    - the download fails after its retries;
+    - R2 or HDR refuses it after the download;
+    - its preparation is interrupted.
+- **Required:**
+  1. Never store `0` or `"0"` for an unknown size, frame rate, duration or frame count. Store `null`.
+  2. Show a link job that has no analysed media with the link-style row, like the downloading row at `engine.py:~625-655`. Do not call `estimate_job` or `job_progress` for it. This covers the downloading, preparing, failed and cancelled states before analysis.
+     - Its estimate comes from `link_estimate`, or reads "after download".
+  3. **One bad record must never break the whole snapshot.** If building one row fails:
+     - log it once;
+     - show that job with "This job's record can't be shown: <reason>" and a Remove action;
+     - keep all the other rows.
+  4. Read the placeholders written by P1f builds (`0` and `"0"`) as unknown, so existing manifests load safely.
+- **Tests:**
+  - a format without a frame rate whose download fails after all retries: `GET /queue` and History still work, and the row shows the failure and Retry;
+  - the same with no size (the L2b fallback);
+  - the same with a 1440p file refused by R2 after the download;
+  - a snapshot taken during the preparing window;
+  - a manifest from a P1f build with `0`/`"0"` placeholders.
 
-   The owner moves their app data with the Part S feature.
-2. **You may delete only what you created** for VideoEnhancer cycles: packages, synthetic media, isolated test homes, fixtures, caches and old checkouts.
-   - List every path with its size in the report before deleting it.
-   - Delete it permanently, not to the Recycle Bin, because the Recycle Bin on C would keep the space in use.
-   - If the auto-approval refuses a deletion, do not work around it. Put the path and size under "For the owner to delete" in the report.
-3. **Do not change system-wide settings:** no system or user environment variables, no driver settings, no Recycle Bin settings. Environment variables for one command or one session are fine.
+### A2. A download with missing fragments counts as finished
 
-## Part A: inventory (before changing anything)
+- **Where:** `service/video_links.py:632-657` passes `--fragment-retries 0` without `--abort-on-unavailable-fragments`.
+  - yt-dlp's default skips fragments it cannot fetch and still exits with 0.
+  - So an HLS or DASH download with one failed middle segment is renamed and processed with a gap.
+- **Required:**
+  - Add `--abort-on-unavailable-fragments`, so the app's own retry (the first attempt plus 3 retries) handles the failure. Keep resume working.
+  - **Check the duration after the download.** When the metadata duration is known and the file is shorter by more than max(1 s, 1%), fail with "The download is incomplete (N s of M s). Retry the download." Keep the file.
+- **Tests:** the local HLS server returns HTTP 500 for one middle segment:
+  - once: the retry succeeds and the file is complete;
+  - always: the job fails with the reason, after its retries.
 
-Report a size table (decimal GB) for each of these:
-- every `C:\Users\pro\Documents\VideoEnhancer-*` folder, and `C:\Users\pro\Documents\jobs`;
-- the previous checkout on C (give its path), its `.venv`, `gui\node_modules` and build outputs;
-- `D:\VideoEnhancer-P1e-2`, broken down by top-level subfolder;
-- `D:\VideoEnhancer`, if it exists, broken down by top-level subfolder, saying which parts you created;
-- the caches you used:
-  - uv, pip and npm;
-  - Electron's download cache and the Playwright browsers;
-  - Hugging Face and torch hub;
-  - the GPU test model home;
-  - test leftovers in `%TEMP%`;
-- the owner's app data, `%LOCALAPPDATA%\VideoEnhancer`, **sizes only**:
-  - per top-level subfolder (jobs, models, logs, others);
-  - the total size of part files (`seg_*.mp4`, joined files) left in failed and cancelled job folders.
+### A3. A partial remux can be accepted when a download resumes
 
-  This is read-only: open no videos and change nothing.
-- the free space on C and on D.
+- **Where:** `service/video_links.py:639-671`.
+  - For a single stream that is not MKV (for example a direct MP4), yt-dlp's remuxer writes straight into `.ve-<id>.mkv`. In yt-dlp 2026.08.19, `FFmpegVideoConvertorPP.run` uses no temporary file, while the merger does.
+  - Pause all, Quit or a crash during that remux leaves a partial `.mkv`.
+  - On the next attempt, `--no-overwrites` can treat that partial file as already downloaded. It is then renamed and processed.
+- **Required:** before each attempt, remove a leftover `.ve-<job id>.mkv` unless the job has recorded a completed download for it. Alternatively, remux to a temporary name yourself and rename it.
+  - These are the app's own temporary files in the download folder, so removing them is allowed. Match the exact name pattern with the job id, and never touch any other file.
+- **Test:** stop the process during the remux, resume, and confirm the final file is complete (its frame count equals the source's).
 
-## Part B: one fixed workspace on D
+## 5. Part B: should fix
 
-The owner chose `D:\my-workspace\VideoEnhancer` for everything. Your Codex project folder is `work\` inside it. The owner's two folders sit beside it, outside the project folder.
+### B1. Every playlist entry reads the whole playlist again
 
-```
-D:\my-workspace\VideoEnhancer\
-  work\                Codex project folder (yours)
-    repo\              git checkout and its .venv
-    package\           the current package only (VideoEnhancer-win32-x64\VideoEnhancer.exe)
-    evidence\<cycle>\  reports, JSON, logs, screenshots
-    scratch\           isolated test homes, synthetic media, temporary outputs
-    cache\             reusable fixtures, GPU test model home, uv/npm/Playwright/Electron caches
-  VE-check\            the owner's test copies (owner's: never touch)
-  AppData\             the owner's app data after they press Move... (owner's: never touch)
-```
+- **Where:** `video_links.py:507-513` re-checks `source["request_url"]`, which `link_jobs.py:91` sets to the playlist link. So every entry's download, and every retry, runs `-J` on the whole playlist, with up to 200 entries and their header probes. That can exceed the timeout and can trigger a site's rate limit.
+- **Required:** re-check with the entry's own link (`source.url`, from `webpage_url`) and `--no-playlist`, still matching `extractor_key` and `id`. If an entry has no link of its own, keep today's behaviour for it.
+- **Test:** a local 3-entry playlist. Each entry's download runs exactly one single-video check. Count the yt-dlp runs.
 
-**Git in the project.** The project folder `work\` is not a git repository, so the Codex app's own Git and pull-request actions will not find one. Run git inside `work\repo` as before.
+### B2. A list of lists makes the check fail
 
-**Path length.** The checkout path `D:\my-workspace\VideoEnhancer\work\repo` is 39 characters.
-- If any tool (npm, the Electron packager, pip, git) fails on the 260-character path limit, report the path and the tool.
-- Do not enable long paths system-wide (working rule 3). Shorten folder names inside `package\` or `cache\` instead, and say so in the report.
+- **Where:** a channel's home page and its "Playlists" tab return entries with `_type: playlist`, which have no `formats` and no `url`.
+  - `video_links.py:213` reads `item["url"]` outside the `try` that starts at line 214.
+  - `check()` catches only `ValueError` (line 752).
+  - So the operation fails with the bare text `'url'`.
+- **Required:**
+  - Refuse such a link with: "This link is a list of lists. Paste the link of one list, for example a channel's Videos tab."
+  - Any entry without a usable URL gets a plain reason on its own card. It must not fail the whole check.
+- **Test:** a local fixture with nested playlists.
 
-1. **New checkout.**
-   - Clone `origin` into `D:\my-workspace\VideoEnhancer\work\repo` and check out `p1d-ui-v2` at `7347029`.
-   - Create the `.venv` there from the lock file.
-   - Run `ruff`, `ruff format --check`, `pyright`, the CPU tests, and the GUI lint, typecheck, unit tests and build, to prove the new checkout works.
-2. **Caches on D for your own work only.** Set `UV_CACHE_DIR`, `npm_config_cache`, `PLAYWRIGHT_BROWSERS_PATH`, Electron's cache, `HF_HOME`, `TORCH_HOME` and `TMP`/`TEMP` for test runs, per session.
-   - Use, for example, a git-ignored `local-env.ps1` that you dot-source.
-   - Do not set them system-wide.
-3. **Package.** Rebuild it into `D:\my-workspace\VideoEnhancer\work\package\VideoEnhancer-win32-x64\`.
-   - Its `engine-location.json` must point at `D:\my-workspace\VideoEnhancer\work\repo`.
-   - Repeat the P1e-2 smoke test.
-   - The package must find the engine on D and never fall back to an old checkout.
-4. **Evidence.** Move the P1e-2 evidence that the P1e-2 report refers to into `D:\my-workspace\VideoEnhancer\work\evidence\P1e-2`: reports, JSON, logs, the 92 screenshots, and the Japanese summaries.
-   - Do not move synthetic media. It is regenerated when needed.
-   - Update the paths in `.ai/LAST_REPORT.md` only in this cycle's report; do not rewrite the P1e-2 report.
-5. **Clean up the old locations, only after steps 1 to 4 pass:**
-   - the old checkout on C, only if `git status` is clean and every commit is on `origin`;
-   - old package folders;
-   - the `C:\Users\pro\Documents\VideoEnhancer-*` folders;
-   - `C:\Users\pro\Documents\jobs`, only if it holds only test files;
-   - `D:\VideoEnhancer-P1e-2`, after step 4;
-   - `D:\VideoEnhancer`, if it exists and holds only what you created;
-   - the caches on C that step 2 replaced.
+### B3. The header probe gives the wrong "not encrypted" refusal
 
-   Report the space freed by each item.
+- **Where:** `video_links.py:255-260` tests `"http" in str(error)`. This is always true for a whitelist error, because FFmpeg's message includes the whitelist `'https,tls,tcp'`. So these are refused with the T6 message instead of falling back as L2b says:
+  - an AES-128 HLS link ("Protocol 'crypto' not on whitelist");
+  - a link opened through a proxy.
+- **Required:**
+  - Give the T6 refusal only when the error matches `Protocol 'http' not on whitelist` (case-insensitive). Every other probe failure uses the L2b fallback.
+  - You may add `crypto` to the whitelist for `https` links. It does not allow plain transport. Never add `http` for an `https` link.
+- **Tests:**
+  - AES-128 HLS over local TLS: the probe succeeds or falls back, and never shows the T6 message;
+  - an `https` link that redirects to `http`: still refused.
 
-## Part C: disk rules for every future cycle
+### B4. DASH fragments over http are not checked
 
-Write these rules in `docs/WORKSPACE.md` (English). Future instructions refer to that file.
-1. **Location.** All cycle work goes under `D:\my-workspace\VideoEnhancer\work`, which is the Codex project folder. List anything that Windows or a tool still puts on C and that cannot be moved.
-   - `D:\my-workspace\VideoEnhancer\VE-check\` and `D:\my-workspace\VideoEnhancer\AppData\` belong to the owner and stay outside the project folder. No rule below applies to them.
-     - Never clean, prune, move or write them.
-     - Leave them out of the growth gate.
-     - Report their sizes only if asked.
-   - Nothing else in `D:\my-workspace` is touched.
-2. **One package.** Build the new package into `package\`. Replace the old one only after the new one passes its smoke test.
-3. **Scratch.** Empty `scratch\` at the end of every cycle, after the report's numbers are saved as JSON in `evidence\<cycle>\`. Never keep a synthetic file larger than 100 MB.
-4. **Evidence.** At most 300 MB per cycle. Keep the last 3 cycles and delete older ones.
-5. **Cache.** Generate reusable fixtures once, keyed by their recipe, and keep the GPU test model home here. Cap: 40 GB, pruning the oldest first.
-6. **Disk table in every report.** Show:
-   - free space on C and D, at the start and at the end;
-   - the size of `package\`, `evidence\<cycle>\`, `scratch\` and `cache\`.
+- **Where:** `check()` (around line 745) never checks `fragments`. `download()` (lines 564-567) only checks that each fragment's scheme is `http` or `https`.
+- **Required:** for an `https` link, refuse a format when any fragment URL is `http`, with the T6 message. Resolve each fragment as `urljoin(fragment_base_url or url, fragment path)`. Apply the same check in `check()`, in `links/queue` and again in `download()`.
+- **Test:** a local MPD with absolute `http://` `SegmentURL` values.
 
-   **Gate:** persistent growth is at most 1 GB per cycle, unless the report says why.
+### B5. The storage lock blocks the whole app
 
-## Part S: the owner's app data (Settings → Storage)
+- **Where:**
+  - `gui/src-tauri/src/storage.rs:204` (`refresh`, which runs when the Storage card opens) and `storage.rs:298` (`remove_old`, including its confirmation dialog) hold `storage_busy`.
+  - `State::connected` (`main.rs:53-58`) refuses every command while that flag is set. The media protocol returns 502 (`media.rs:137`), and tray Quit fails (`window.rs:274`). Pause, zoom, hide and `sourceLink` fail too.
+- **Required:**
+  - Use a separate lock to keep Move, Remove and refresh from overlapping.
+  - `connected()` refuses only during the Move phase that stops the engine.
+- **Test:** run Remove on a large synthetic old folder, and open the Storage card. While each runs, a video plays and tray Quit works.
 
-**Today:**
-- App data lives in `%LOCALAPPDATA%\VideoEnhancer`. The location is chosen in `config.py` `get_home` and `gui/electron/main.cjs:38-40`, and `VE_HOME` overrides it.
-- It holds the History, settings, installed models and logs.
-- It also holds the working files of jobs, which are parts and the joined video. When app data and the output folder are on the same drive, admission reserves three copies of the estimated output there (`store.py` `working_space_locations`). For a 2-hour job whose output is about 29 GB, that is about 87 GB of free space.
-- Parts are deleted only after a job finishes successfully (`controller.py:1087-1089`). Failed and cancelled jobs keep theirs.
+### B6. The free-space check before a download
 
-**Do:**
-1. **A Storage card in Settings.**
-   - It shows the app data folder and its size, split into:
-     - Models;
-     - Working files of unfinished jobs;
-     - History and logs.
-   - It also shows the free space on that drive.
-2. **Move…** lets the owner choose a folder. The owner plans to choose `D:\my-workspace\VideoEnhancer\AppData`.
-   - It works only while nothing is processing. Otherwise it says "Pause processing first."
-   - The target must be a new or empty folder. Refuse a non-empty folder with a message, so a wrong pick cannot mix the data with other files.
-   - **Steps:**
-     - Copy the data.
-     - Verify it: every file's size, plus hashes for manifests, settings, journals and model weights.
-     - Switch to the new folder.
-     - Restart the service on the new folder.
-     - Show the result.
-   - **The old folder:** it is removed only after the switch works and the owner presses **Remove the old folder**. That is a permanent delete, because it holds only the app's own data.
-   - **Where the location is stored:** outside the app data folder (for example in Electron's userData), so the app finds the folder at start-up. `VE_HOME` still overrides it.
-   - **Records that keep working:** every record type must work after a move:
-     - the History and Undo;
-     - the deletion journal and its guards;
-     - the model registry;
-     - the schedule and logs;
-     - resuming a paused job.
+- **Where:** `link_jobs.py:73-76` checks only the download folder. L4 says the free-space check (P1e B2) includes the download size. Today the output and working-space check runs first in `add_job`, after the download.
+- **Required:**
+  - At queue time, run the same working and output space check that `add_job` runs. Add the download size when the download folder is on the same drive.
+  - Apply one margin once. Today the margins multiply: 2.2 × 2 copies × 1.1, about 4.84× (`link_jobs.py:76`, `video_links.py:531` and `617`).
+- **Test:** a drive with room for the download but not for the output is refused at queue time, with the existing message.
 
-     Test each one.
-   - **An interrupted copy** (app killed midway) leaves the old folder in use and unchanged.
-   - **A missing new folder at start-up** shows "The app data folder was not found" with **Choose…** and **Use the previous folder**.
-3. **Clean up working files.**
-   - It lists failed and cancelled jobs that still have working files, with their sizes.
-   - **Clean up** removes only the engine's own part and joined files. The job stays in History, and Retry starts from the beginning.
-   - A setting, on by default, cleans these up automatically 7 days after the job failed or was cancelled.
-4. **The Add dialog.** If the app data drive lacks the space a job needs, the message names the drive and the free space, and offers **Open Storage settings**.
-5. **Do not move the owner's real app data yourself.** The owner does it with **Move…** after this cycle.
+### B7. External programs started on every refresh
 
-## Part G: acceptance
+- **Where:**
+  - `engine.py:315-331` calls `load_machine_profile` for each downloading job in every forecast. With the `cuda` backend, that calls `environment_info` (`logging.py:75`), which starts external programs each time.
+  - The same happens per format in `check()` (`video_links.py:318`) and in `links/estimate` with `all_formats`.
+  - `gui/src/LinkPanel.tsx:70-80` asks again for every entry's estimates whenever any quality changes.
+- **Required:**
+  - Load the machine profile once per engine start, and again only when the GPU, driver or installed models change. Pass it in.
+  - The GUI asks only for the entry whose quality changed.
+- **Report:** external process starts per minute with 20 queued downloads, before and after.
 
-- **G1:** screenshots of the Storage card (both sizes and both themes, including a move in progress and the result), stored in `evidence\P1e-2b\`.
-- **G2:** CI tests:
-  - a move with a fake home that contains every record kind;
-  - the interrupted copy;
-  - the missing folder at start-up;
-  - **Clean up** removes only part and joined files;
-  - the space message names the drive.
-- **G3:** the package smoke test from `D:\my-workspace\VideoEnhancer\work\package`, plus a real move of an isolated test home on the PC (from a test folder on C to one under `scratch\` on D, and back) with a finished job, a paused job and an installed model. Never use `AppData\` or `VE-check\` for this.
-- **G4:** `ruff`, format, `pyright`, CPU tests, GUI lint, typecheck, unit tests, build and e2e. Windows and Ubuntu CI green on the final commit.
-- **Report:**
-  - the Part A table;
-  - the space freed per item;
-  - the Part C disk table;
-  - "For the owner to delete", if anything was refused;
-  - the new package path;
-  - anything the owner must change on their side, for example removing the old Codex project once its folder is gone.
+### B8. The yt-dlp cache is written to drive C
 
-## Constraints
+- **Where:** `video_links.py:341-350` runs yt-dlp without `--cache-dir`. yt-dlp therefore writes to `%USERPROFILE%\.cache\yt-dlp` on drive C, and Uninstall leaves it there. The owner moved all app data off drive C because it is full.
+- **Required:**
+  - Pass `--cache-dir <engine home>/tools/yt-dlp/cache` on every yt-dlp run.
+  - Uninstall removes that folder.
+- **Test:** no file appears under the user profile's `.cache\yt-dlp` during the real-tool bundle.
 
-- English for code, comments, UI text and docs. Update `docs/GUI.md`, `docs/TROUBLESHOOTING.md` and the new `docs/WORKSPACE.md`.
+### B9. Reuse is off by default
+
+- **Where:** `LinkPanel.tsx:39` and `104`. The reuse checkbox starts unchecked, so the default is to download again. L2 says to offer the earlier file instead of downloading again.
+- **Required:**
+  - When an offer exists, select it by default. "Download again" switches to downloading.
+  - Keep the label "Use the file downloaded on <date> (<width>x<height>, <fps> fps)".
+- **Test:** a GUI unit test.
+
+### B10. YouTube chunk size is dropped
+
+- **Where:** `video_links.py:532-553`. `safe_keys` drops `downloader_options`, so yt-dlp's `http_chunk_size` is lost. yt-dlp sets it because YouTube slows down large chunks.
+- **Required:** keep `downloader_options.http_chunk_size` in the info file, and accept only a positive integer.
+- **Test:** a unit test on the info file. Do not test against YouTube.
+
+### B11. Analysis decodes every NVDEC video twice
+
+- **Where:** in `media/analyze.py`, `verify_timestamps` (lines 112-122) decodes the whole file with NVDEC. Then `_thumbnails` (lines 130-132) decodes it again with `SimpleDecoder`.
+- **Required:**
+  - If the change stays inside `analyze.py`, make the thumbnails from the frames `verify_timestamps` already decodes.
+  - Otherwise, measure the extra time on a 10-minute 1080p30 synthetic file and report it.
+  - Scene cuts, analysis output and the pipeline output must not change (G5 strict equality).
+
+### B12. HEVC playback with the owner's extension (missed in P1f)
+
+- The task copy Codex received for P1f did not include this check.
+- The owner installed HEVC Video Extensions on 2026-10-18. Run the A3a HEVC check once in the packaged app:
+  - synthetic 1080 and 1440 files;
+  - the exact codec strings and `canPlayType`;
+  - real playback and seeking.
+- Change no code unless playback fails. If it fails, report it under "Questions for the designer".
+
+### B13. Link thumbnails can be fetched from the local network
+
+- **Where:** `video_links.py:455-472` and `service/server.py:240-249`. The engine fetches any thumbnail URL from the metadata, including loopback, private and link-local addresses.
+- **Required:**
+  - Fetch only `https`, or `http` when the link itself is `http`.
+  - Resolve the host and refuse loopback, private, link-local, multicast and unspecified addresses.
+  - Follow no redirect to such an address.
+  - A refused thumbnail just shows no image.
+- **Tests:** a loopback thumbnail URL, a private-address thumbnail URL, and a redirect to loopback.
+
+### B14. Cancelling a download leaves large partial files
+
+- **Where:** `engine.py:1447-1448`. Cancel, and Remove of a failed download, delete only the job folder. The `.ve-<job id>.*` and `.part` files stay in the user's download folder, possibly several GB.
+- **Required:**
+  - On Cancel, and on Remove of a job that never finished downloading, delete that job's own temporary files in the download folder.
+  - Match the exact name pattern with the job id. Never touch any other file, and never touch a finished, renamed download.
+- **Test:** cancel during a download. The temporary files are gone, and an unrelated file in the same folder is untouched.
+
+## 6. Not in this cycle
+
+The designer keeps these for P1e-3. Do not change them now:
+- **Decoder:**
+  - the out-of-memory fallback after the decoder retry;
+  - re-analysis keeping a runtime FFmpeg choice;
+  - `p016le` for 12-bit sources.
+- **Storage:**
+  - Remove offered when nothing can be deleted;
+  - the "earlier version" message on a pointer this app recovered;
+  - the raw JSON in the result text;
+  - a disconnected drive clearing the pointer;
+  - the status line during Remove;
+  - a second Move overwriting `previous`;
+  - hashing twice in Remove.
+- **Links:**
+  - the downloaded tool's bytes being read again before install;
+  - the install/uninstall guard while checks or downloads run;
+  - one audio choice disabling every video format;
+  - Retry after a crash between the rename and the record, and collisions that differ only in letter case;
+  - Quit refused while a downloaded video is being analysed;
+  - odd-width reuse mismatches.
+
+## 7. Do not change
+
+- The default pipeline output: G5 strict equality.
+- The P1f decoder decisions: the strict timestamp check, the per-job decoder choice and the single retry.
+- HEVC as the default output.
+- The M1 media path with 1 MiB responses.
+- The MP4 audio rule.
+- The Part R limits.
+- The T6 rules, except the tightening in B3 and B4.
+- The generic reuse rule from L2.
+
+## 8. Working rules and constraints (unchanged from P1f)
+
+- Never report a test as passed if it did not run. Report every run of a gated measurement.
+- **Not test data:** the owner's queue, settings, videos, models, Recycle Bin, `D:\my-workspace\VideoEnhancer\AppData` and `D:\my-workspace\VideoEnhancer\VE-check`. Use a separate engine home for every test.
+- **Network:**
+  - CI uses no third-party site at all, only local servers with synthetic media.
+  - Local real-network tests may use only sources that allow downloading (Wikimedia Commons, Internet Archive).
+  - Never download from YouTube, TikTok, Instagram or X in tests.
+- **Size limits:**
+  - No source above 1080 and no output above 1440 is processed.
+  - Small CPU-made fixtures above 1080p are allowed only for refusal, probe and playback tests, as P1f section 5 says.
+- **Cleanup:**
+  - Tests remove their own files under `work\scratch`. Report the size of `work\scratch` at the end.
+  - Do not use a separate delete command to get around a refused delete. List what is left under "For the owner to delete".
 - **Never commit:**
-  - media, weights, packages or screenshots;
+  - media, weights, downloaded tools or packages;
   - `node_modules` or build output;
+  - screenshots;
   - `local-env.ps1`;
-  - the owner's logs or private names.
-- No new dependencies unless open source (name them in the report). No telemetry, no auto-update.
-- The default pipeline output must not change.
+  - the owner's logs, links, paths or names.
+- No telemetry and no automatic update checks.
+- All code, comments, UI text and docs are in English. Update `docs/GUI.md`, `docs/API.md` and `docs/TROUBLESHOOTING.md` where behaviour changes.
 
-Never report a test as passed if it did not run.
+## 9. Acceptance
+
+- Every A and B item has a test that failed on `05dbf72` (or evidence that it does not reproduce) and passes now.
+- **Python:** `ruff`, `ruff format --check`, `pyright`, the CPU suite, and the local real-tool link bundle.
+- **GUI:** lint, typecheck, unit tests, build and e2e.
+- **Rust:** fmt, clippy (default and e2e) and unit tests.
+- **GPU:** the suite `-m "gpu and not soak"`.
+- **P2 cold start:** 5 launches against the new gate in section 3.
+- **Package:** rebuilt at `work\package\VideoEnhancer`, with an isolated startup smoke and its SHA-256.
+- **CI:** Windows and Ubuntu green on the final commit.
+
+## 10. GUI checks (screenshots outside the repository, 1280x800, dark and light)
+
+- Home and History keep updating with a failed link job that had no frame rate.
+- The record-error row from A1 (use a synthetic damaged manifest).
+- The reuse offer, selected by default.
+- The list-of-lists refusal.
+- A video playing while the Storage card is open.
+
+## 11. Report (`.ai/LAST_REPORT.md`)
+
+- A table with every item (P2 gate, A1-A3, B1-B14): done / partial / not reproduced / NOT RUN, with test names and evidence files.
+- The failing output on `05dbf72` and the passing output after, for each item.
+- **Numbers:** B7 process starts, B11 analysis time, the B12 HEVC result, and the P2 cold-start medians.
+- **Disk:**
+  - the dependency restore size;
+  - growth for the rest of the cycle;
+  - the size of `work\scratch` at the end;
+  - free space on C and D.
+- "Questions for the designer", each with the default you chose.
+- The package path and its SHA-256.
+- Exact reproduction steps.
+
+
+Designer decision (2026-10-19), P1f-2 A1. Added to the task doc as A1 item 5.
+Keep the same Remove with the 10-second Undo for every broken record, including one whose JSON does not parse.
+- Valid JSON with bad values: use the existing History removal and Undo.
+- JSON that does not parse:
+  - Remove moves the whole job folder aside, inside the engine home (for example jobs/.removing/<id>). Undo moves it back unchanged.
+  - After the Undo window, delete the moved folder. At engine start, delete any folder left in that place.
+- Never repair, rewrite or partly read the broken file.
+- Do not offer the video options (moving the finished video or the original to the Recycle Bin) for a record that can't be read, because the app can't tell which files belong to it. Show instead: "This record can't be read, so its videos stay where they are."
+- Copy details shows the parse error and the record's path.
+- Tests:
+  - Remove, then Undo, restores the folder byte for byte;
+  - Remove without Undo removes only that job folder;
+  - no file outside the job folder is touched.

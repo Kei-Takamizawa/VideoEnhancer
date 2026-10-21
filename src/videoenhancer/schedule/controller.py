@@ -55,6 +55,7 @@ class SegmentResult:
     error: str | None = None
     oom: bool = False
     stalled: bool = False
+    timestamp_mismatch: bool = False
 
 
 @dataclass
@@ -329,7 +330,16 @@ def _child_run(
         import traceback
 
         traceback.print_exc()
-        send(SegmentResult("failed", error=f"{name}: {error}", oom=oom))
+        from videoenhancer.media.decode import TimestampMismatch
+
+        send(
+            SegmentResult(
+                "failed",
+                error=f"{name}: {error}",
+                oom=oom,
+                timestamp_mismatch=isinstance(error, TimestampMismatch),
+            )
+        )
     finally:
         heartbeat_stop.set()
         if heart.ident is not None:
@@ -895,6 +905,17 @@ def run_queue(
                     jobs = [job for job in jobs if job["id"] in job_ids]
                 runnable = [job for job in jobs if job["state"] in {"queued", "running"}]
                 for job in runnable:
+                    from videoenhancer.jobs.checks import job_support_reason
+
+                    unsupported = job_support_reason(job)
+                    if unsupported:
+                        if job.get("unsupported_reason") != unsupported:
+                            job.update(
+                                unsupported_reason=unsupported,
+                                error=f"No longer supported: {unsupported}",
+                            )
+                            store.save(job)
+                        continue
                     if job.get("analysis_missing"):
                         try:
                             store.ensure_analysis(job)
@@ -904,7 +925,11 @@ def run_queue(
                                 error=f"Couldn't analyse the original again: {error}",
                             )
                             store.save(job)
-                runnable = [job for job in runnable if job["state"] in {"queued", "running"}]
+                runnable = [
+                    job
+                    for job in runnable
+                    if job["state"] in {"queued", "running"} and not job.get("unsupported_reason")
+                ]
                 if not runnable:
                     if any(job["state"] == "paused" for job in jobs):
                         timed_wait(
@@ -1250,13 +1275,42 @@ def run_queue(
                                 )
                             if result.oom and batch_size > 1:
                                 temp_path.unlink(missing_ok=True)
+                                batch_size = 1
                                 job_logger.warning(
                                     "Segment %d ran out of GPU memory; retrying with batch size 1",
                                     index,
                                     extra={"job_id": job_id, "segment": index},
                                 )
                                 result = executor.run(
-                                    manifest, segment, temp_path, should_abort, batch_size=1
+                                    manifest,
+                                    segment,
+                                    temp_path,
+                                    should_abort,
+                                    batch_size=batch_size,
+                                )
+                            if (
+                                result.timestamp_mismatch
+                                and manifest.get("decoder", "nvdec") == "nvdec"
+                            ):
+                                temp_path.unlink(missing_ok=True)
+                                manifest["decoder"] = "ffmpeg"
+                                manifest["decoder_reason"] = (
+                                    f"Runtime NVDEC mismatch: {result.error}"
+                                )
+                                manifest.setdefault("decoder_events", []).append(
+                                    {"segment": index, "reason": result.error, "decoder": "ffmpeg"}
+                                )
+                                store.save(manifest)
+                                job_logger.warning(
+                                    "NVDEC timestamp mismatch; retrying once with FFmpeg",
+                                    extra={"job_id": job_id, "segment": index},
+                                )
+                                result = executor.run(
+                                    manifest,
+                                    segment,
+                                    temp_path,
+                                    should_abort,
+                                    batch_size=batch_size,
                                 )
                         except Exception as error:
                             result = SegmentResult(

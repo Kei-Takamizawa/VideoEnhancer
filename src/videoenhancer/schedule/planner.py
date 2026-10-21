@@ -48,6 +48,16 @@ def build_plan(
         windows[0] = current
     forecasts: list[dict[str, Any]] = []
     for ordinal, job in enumerate(jobs):
+        from videoenhancer.jobs.checks import job_support_reason
+
+        if job_support_reason(job):
+            continue
+        ready_at = instant(now)
+        if job.get("state") == "downloading":
+            ready = job.get("download", {}).get("ready_at")
+            if not ready or not job.get("link_estimate"):
+                continue
+            ready_at = instant(datetime.fromisoformat(ready))
         if job.get("state") in {
             "preparing",
             "paused",
@@ -120,6 +130,7 @@ def build_plan(
                 completion=instant(now) if not units else None,
                 window_end=job.get("admitted_window_end"),
                 allow_window_overrun=job.get("allow_window_overrun", True),
+                ready_at=ready_at,
             )
         )
     timeline: list[dict[str, Any]] = []
@@ -143,6 +154,7 @@ def build_plan(
                     f
                     for f in forecasts
                     if f["units"]
+                    and f["ready_at"] <= cursor
                     and admit_step(
                         f["units"][0]["seconds"], f["units"][0]["finalizing"], cursor, interval
                     )[0]
@@ -150,6 +162,14 @@ def build_plan(
                 None,
             )
             if selected is None:
+                ready = [
+                    f["ready_at"]
+                    for f in forecasts
+                    if f["units"] and cursor < f["ready_at"] < instant(interval.end)
+                ]
+                if ready:
+                    cursor = min(ready)
+                    continue
                 window_index += 1
                 continue
             boundary = interval.end

@@ -15,17 +15,22 @@ RUNTIME = {"serve.json", "serve.lock", "controller.lock", "worker.lock", "deleti
 PART = re.compile(r"seg_\d{5}(?:\.tmp)?\.mp4\Z")
 
 
-def regular_files(root: Path) -> list[Path]:
+def regular_files(root: Path, *, tolerate_transient: bool = False) -> list[Path]:
     result = []
 
     def failed(error: OSError) -> None:
-        raise error
+        if not tolerate_transient:
+            raise error
 
     for folder, dirs, files in os.walk(root, followlinks=False, onerror=failed):
         for name in [*dirs, *files]:
             p = Path(folder) / name
-            if p.is_symlink() or p.is_junction():
-                raise ValueError(f"App data contains a linked path: {p}.")
+            try:
+                if p.is_symlink() or p.is_junction():
+                    raise ValueError(f"App data contains a linked path: {p}.")
+            except (FileNotFoundError, PermissionError):
+                if not tolerate_transient:
+                    raise
         result.extend(Path(folder) / name for name in files)
     return sorted(result)
 
@@ -51,23 +56,37 @@ def protected_video_paths(store: JobStore) -> set[Path]:
 
 
 def storage_status(home: Path, store: JobStore) -> dict[str, Any]:
-    files = regular_files(home)
-    total = sum(p.stat().st_size for p in files)
-    models = sum(p.stat().st_size for p in files if p.is_relative_to(home / "models"))
+    def size(path: Path) -> int:
+        try:
+            return path.stat().st_size
+        except (FileNotFoundError, PermissionError):
+            return 0
+
+    files = regular_files(home, tolerate_transient=True)
+    total = sum(size(p) for p in files)
+    models = sum(size(p) for p in files if p.is_relative_to(home / "models"))
     protected = protected_video_paths(store)
     unfinished = 0
     cleanup = []
     for job in store.list_jobs():
         if job["state"] == "done":
             continue
-        size = sum(
-            p.stat().st_size
-            for p in working_files(store.job_dir(job["id"]))
-            if p.resolve() not in protected
-        )
-        unfinished += size
-        if job["state"] in {"failed", "cancelled"} and size:
-            cleanup.append({"id": job["id"], "state": job["state"], "bytes": size})
+        try:
+            parts = working_files(store.job_dir(job["id"]))
+        except (FileNotFoundError, PermissionError):
+            parts = []
+        job_size = sum(size(p) for p in parts if p.resolve() not in protected)
+        unfinished += job_size
+        if job["state"] in {"failed", "cancelled"} and job_size:
+            cleanup.append(
+                {
+                    "id": job["id"],
+                    "name": Path(job["input"]["path"]).name,
+                    "state": job["state"],
+                    "date": job.get("finished_at"),
+                    "bytes": job_size,
+                }
+            )
     return {
         "folder": str(home),
         "total_bytes": total,
@@ -76,7 +95,92 @@ def storage_status(home: Path, store: JobStore) -> dict[str, Any]:
         "history_bytes": max(0, total - models - unfinished),
         "free_bytes": shutil.disk_usage(home).free,
         "cleanup": cleanup,
+        "core_records_load": core_records_load(home, store),
     }
+
+
+def check_startup_records(home: Path) -> None:
+    """Read startup records without repairing files or changing recovery policy."""
+    from videoenhancer.models.registry import validate_manifest
+    from videoenhancer.schedule.windows import Schedule
+    from videoenhancer.service.settings import read_settings
+
+    paths = [home / "settings.json", home / "schedule.json"]
+    paths.extend(sorted((home / "jobs").glob("*/manifest.json")))
+    paths.extend(sorted((home / "models").glob("*/model.json")))
+    paths.extend(sorted((home / "previews").glob("*/state.json")))
+    paths.extend(sorted((home / "previews").glob("*/request.json")))
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(record, dict):
+                raise ValueError("A startup record must be an object.")
+            if path == home / "settings.json":
+                read_settings(home)
+            elif path == home / "schedule.json":
+                Schedule.from_file(path)
+            elif path.name == "manifest.json":
+                job = JobStore._load_unlocked(path, include_analysis=False)
+                if not {"id", "state", "settings", "input", "output", "segments"} <= job.keys():
+                    raise ValueError("A job is missing startup fields.")
+                if job.get("analysis_file"):
+                    sidecar = path.parent / "analysis.json"
+                    if sidecar.exists():
+                        path = sidecar
+                        if not isinstance(json.loads(sidecar.read_text(encoding="utf-8")), dict):
+                            raise ValueError("Analysis must be an object.")
+            elif path.name == "model.json":
+                if validate_manifest(record)["id"] != path.parent.name:
+                    raise ValueError("Model manifest id does not match its folder.")
+            elif path.name == "state.json":
+                if not {"id", "state"} <= record.keys():
+                    raise ValueError("A preview state is missing startup fields.")
+            elif path.name == "request.json":
+                if not {"kind", "request"} <= record.keys():
+                    raise ValueError("A preview request is missing startup fields.")
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+            relative = path.relative_to(home).as_posix()
+            raise ValueError(
+                "Move stopped. A file the app needs at start is damaged: "
+                f"{relative}. Your data stays in the current folder."
+            ) from error
+
+
+def core_records_load(home: Path, store: JobStore) -> bool:
+    """Check live startup records without repairing missing registry files."""
+    from videoenhancer.models.registry import BUILTINS, ModelRegistry
+    from videoenhancer.schedule.windows import Schedule
+    from videoenhancer.service.settings import read_settings
+
+    try:
+        if not (home / "settings.json").is_file() or not (home / "jobs").is_dir():
+            return False
+        if any(not (home / "models" / name / "model.json").is_file() for name in BUILTINS):
+            return False
+        read_settings(home)
+        Schedule.from_file(home / "schedule.json")
+        store.list_jobs()
+        for path in store.jobs_dir.glob("*/manifest.json"):
+            store._load_unlocked(path)
+        registry = ModelRegistry(home)
+        for path in registry.root.glob("*/model.json"):
+            registry.manifest(path.parent.name)
+        for folder in (home / "previews").glob("*"):
+            state = folder / "state.json"
+            request = folder / "request.json"
+            if state.is_file():
+                record = json.loads(state.read_text(encoding="utf-8"))
+                if not isinstance(record, dict) or not {"state", "id"} <= record.keys():
+                    return False
+            elif request.is_file():
+                record = json.loads(request.read_text(encoding="utf-8"))
+                if not isinstance(record, dict) or not {"kind", "request"} <= record.keys():
+                    return False
+        return True
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
 
 
 def cleanup_job(store: JobStore, job_id: str, *, _protected: set[Path] | None = None) -> int:
@@ -210,14 +314,19 @@ def copy_home(source: Path, target: Path, progress: Any = None) -> dict[str, Any
                 pass
         return value
 
+    damaged: dict[str, int] = {}
     for p in regular_files(target):
         if p.suffix not in {".json", ".jsonl"}:
             continue
-        raw = p.read_text(encoding="utf-8")
+        raw = p.read_bytes()
         try:
             if p.suffix == ".json":
                 data = rebase(json.loads(raw))
-                if p.name == "manifest.json" and data.get("history_hidden_until"):
+                if (
+                    p.name == "manifest.json"
+                    and isinstance(data, dict)
+                    and data.get("history_hidden_until")
+                ):
                     remaining = data.get(
                         "history_undo_remaining", max(0, data["history_hidden_until"] - began)
                     )
@@ -227,22 +336,41 @@ def copy_home(source: Path, target: Path, progress: Any = None) -> dict[str, Any
                         data["history_hidden_until"] = time.time() + 315360000
                 encoded = json.dumps(data, indent=2)
             else:
-                records = []
-                for line in raw.splitlines():
+                records: list[bytes] = []
+                for line in raw.splitlines(keepends=True):
                     if not line.strip():
+                        records.append(line)
                         continue
-                    entry = rebase(json.loads(line))
-                    if p.name == "deletions.jsonl" and entry.get("guard"):
+                    try:
+                        entry = rebase(json.loads(line))
+                    except (ValueError, TypeError, UnicodeError):
+                        key = p.relative_to(target).as_posix()
+                        damaged[key] = damaged.get(key, 0) + 1
+                        records.append(line)
+                        continue
+                    if (
+                        p.name == "deletions.jsonl"
+                        and isinstance(entry, dict)
+                        and entry.get("guard")
+                    ):
                         guard = Path(entry["guard"])
                         if guard.is_relative_to(target) and guard.exists():
                             info = guard.stat()
                             entry.update(guard_dev=info.st_dev, guard_ino=info.st_ino)
-                    records.append(json.dumps(entry))
-                encoded = "\n".join(records) + "\n"
-        except (ValueError, TypeError):
-            # Malformed durable records must not be silently published as a successful move.
-            raise ValueError(f"Invalid app data record: {p.relative_to(target)}") from None
-        p.write_text(encoded, encoding="utf-8")
+                    ending = (
+                        b"\r\n"
+                        if line.endswith(b"\r\n")
+                        else b"\n"
+                        if line.endswith(b"\n")
+                        else b""
+                    )
+                    records.append(json.dumps(entry).encode("utf-8") + ending)
+                encoded = b"".join(records)
+        except (ValueError, TypeError, UnicodeError):
+            key = p.relative_to(target).as_posix()
+            damaged[key] = damaged.get(key, 0) + 1
+            continue
+        p.write_bytes(encoded.encode("utf-8") if isinstance(encoded, str) else encoded)
     # Verify the source is unchanged, including the complete file set, before returning.
     current = [
         p
@@ -254,7 +382,36 @@ def copy_home(source: Path, target: Path, progress: Any = None) -> dict[str, Any
     for p in current:
         if (p.stat().st_size, digest(p)) != expected[p.relative_to(source).as_posix()]:
             raise OSError("App data changed during the copy.")
-    return {"files": len(files), "bytes": total, "source": str(source), "target": str(target)}
+    protected = set()
+    damaged_manifests = False
+    for p in files:
+        if p.name == "manifest.json" and p.is_relative_to(source / "jobs"):
+            try:
+                record = json.loads(p.read_bytes())
+                protected.update(
+                    Path(v).resolve() for v in (record["input"]["path"], record["output"])
+                )
+            except (ValueError, TypeError, UnicodeError, KeyError):
+                damaged_manifests = True
+    manifest = [
+        {
+            "path": name,
+            "size": info[0],
+            "sha256": info[1],
+            "active_size": (target / name).stat().st_size,
+            # Damaged jobs can hide input/output names with any extension.
+            "protected_video": (source / name).resolve() in protected or damaged_manifests,
+        }
+        for name, info in expected.items()
+    ]
+    return {
+        "files": len(files),
+        "bytes": total,
+        "source": str(source),
+        "target": str(target),
+        "manifest": manifest,
+        "damaged": damaged,
+    }
 
 
 if __name__ == "__main__":
@@ -264,4 +421,8 @@ if __name__ == "__main__":
 
     if len(sys.argv) != 3:
         raise SystemExit("Usage: python -m videoenhancer.service.storage SOURCE TARGET")
-    emit({"phase": "Verified", "result": copy_home(Path(sys.argv[1]), Path(sys.argv[2]), emit)})
+    source, target = Path(sys.argv[1]), Path(sys.argv[2])
+    check_startup_records(source)
+    result = copy_home(source, target, emit)
+    check_startup_records(target)
+    emit({"phase": "Verified", "result": result})

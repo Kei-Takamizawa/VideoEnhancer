@@ -1,5 +1,33 @@
 # Architecture
 
+## Tauri desktop migration (P1t)
+
+The candidate Windows shell lives in `gui/src-tauri`. React communicates through
+`window.desktop`, implemented only by `gui/src/desktop.ts`. Rust validates this
+small command surface; the renderer receives no filesystem, shell or HTTP plugin
+scope. Capabilities are restricted to the local main window. Test commands are
+compiled and granted only with the `e2e` Cargo feature.
+
+Rust modules separate service discovery/start/stop, windows/tray, storage,
+commands and bounded media forwarding. The Python engine retains its authenticated
+loopback API, Host/Origin checks and processing pipeline. The app origin is
+`http://tauri.localhost`. The shared storage pointer is under roaming app data at
+`VideoEnhancer/storage-location.json`; a missing active folder is an error, not a
+silent fallback. Explicit `VE_HOME` disables storage relocation and removal.
+
+Media uses `http://ve-media.localhost/<job-id>` in WebView2. Each engine fetch has
+a ten-second timeout, responses are capped at 1 MiB, and at most two engine fetches run
+concurrently. Abandoned WebView requests have no cancellation signal in Tauri;
+their bounded response is discarded. This is the designer-approved P1t behavior.
+
+The shell sets WebView2's memory target to Normal while a player is open and Low
+after it closes. Runtimes without this API retain their normal target. This
+reduces measured residual memory but does not establish that repeated playback
+meets the P1t memory gates; the measured failures remain in the acceptance report.
+
+The existing desktop implementation is retained during acceptance. Its removal
+is gated on the P1t acceptance results, not merely a successful candidate build.
+
 VideoEnhancer is organized as a local conversion engine. A job is probed and normalized into a frame timeline, split into resumable segments, processed by ordered stages, then assembled with its original audio. The production presets share one bounded decode → compute → encode streaming runner. `fast` uses Practical-RIFE motion interpolation; `standard` uses BasicVSR++ restoration, resize, then Practical-RIFE.
 
 The media layer owns probing, decode, color conversion, encode and mux. Standard restoration is split into overlapping clips. Clips stop at hard scene cuts; overlap frames are emitted once by the clip in which the frame is farthest from an edge (ties go to the later clip). A bounded frame buffer supplies context across segment boundaries and releases frames after their final clip use. Interpolated frames belong to the left source frame. Job storage owns the manifest and atomic segment state. The scheduler decides when segments may run, while the estimator uses a per-machine profile plus observed job timings.

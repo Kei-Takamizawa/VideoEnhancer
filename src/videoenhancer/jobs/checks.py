@@ -1,5 +1,6 @@
 """Shared blocking geometry checks for API and CLI additions."""
 
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -7,9 +8,45 @@ from videoenhancer.media.timing import output_size
 from videoenhancer.models.registry import ModelRegistry, selected_models
 
 
+def source_warning(media: dict[str, Any]) -> str | None:
+    width = int(media.get("display_width") or media.get("width") or 0)
+    height = int(media.get("display_height") or media.get("height") or 0)
+    short = min(width, height)
+    # The processing projection rounds square pixels to even widths. Admission
+    # must still reject an actual 1081-pixel source rounded down to 1080 there.
+    if (
+        Fraction(
+            str(media.get("sample_aspect_ratio") or media.get("sar") or "1:1").replace(":", "/")
+        )
+        == 1
+    ):
+        short = max(short, min(int(media.get("width") or 0), int(media.get("height") or 0)))
+    if short > 1080:
+        return (
+            f"This video is larger than 1080p (short side {short} px). "
+            "VideoEnhancer processes videos up to 1080p."
+        )
+    return None
+
+
+def job_support_reason(job: dict[str, Any]) -> str | None:
+    source = source_warning(job.get("media", {}))
+    if source:
+        return source
+    target = job.get("settings", {}).get("short_side", 1080)
+    if target != "keep" and int(target) > 1440:
+        return (
+            f"{target}p output is no longer available. Choose Keep, 1080p or 1440p for a new video."
+        )
+    return None
+
+
 def geometry_warning(
     home: Path, media: dict[str, Any], settings: dict[str, Any], capabilities: dict[str, Any]
 ) -> str | None:
+    unsupported = job_support_reason({"media": media, "settings": settings})
+    if unsupported:
+        return unsupported
     if settings.get("codec") == "av1":
         if settings.get("backend") != "cuda":
             return "AV1 requires CUDA hardware encoding. Choose HEVC instead."
@@ -20,17 +57,6 @@ def geometry_warning(
             return "Output too small for AV1. Choose HEVC or a larger size."
     restore = selected_models(settings).get("restore")
     if restore and ModelRegistry(home).manifest(restore, "restore")["architecture"] == "basicvsrpp":
-        source_short = min(
-            media.get("display_width", media["width"]), media.get("display_height", media["height"])
-        )
-        memory = capabilities.get("vram_bytes")
-        if (
-            settings.get("preset") == "standard"
-            and source_short >= 2160
-            and memory
-            and memory <= 8 * 1024**3
-        ):
-            return "Standard can't run at this size on this GPU yet. Fast works."
         width, height = output_size(settings, media)
         if min(width, height) < 256:
             return (

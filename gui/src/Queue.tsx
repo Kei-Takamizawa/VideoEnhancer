@@ -1,5 +1,8 @@
 import { Notice } from "./Notice";
+import { hevcPlaybackSupported } from "./desktop";
 import { ActionButton } from "./ActionButton";
+import { LinkPanel } from "./LinkPanel";
+import type { LinkSelection } from "./LinkPanel";
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration, filename, folder, when } from "./api";
@@ -16,6 +19,7 @@ type Preview = ValidPreview | { error: string; media?: never; presets?: never; w
 export function AddDialog({
   api,
   files,
+  initialUrl,
   defaults,
   models,
   av1 = false,
@@ -26,6 +30,7 @@ export function AddDialog({
 }: {
   api: Api;
   files: string[];
+  initialUrl?: string;
   defaults: Settings;
   models: Model[];
   av1?: boolean;
@@ -40,6 +45,7 @@ export function AddDialog({
   ): void;
 }) {
   const [items, setItems] = useState(files);
+  const [links, setLinks] = useState<LinkSelection[]>([]);
   const [settings, setSettings] = useState({ ...defaults });
   const [fileSettings, setFileSettings] = useState<Record<string, Partial<Settings>>>({});
   const [selectedSeconds, setSelectedSeconds] = useState<number>();
@@ -102,7 +108,7 @@ export function AddDialog({
     return () => { clearTimeout(timer); request.abort(); };
   }, [api, items, settings.output_folder, settings.codec, settings.short_side, settings.fps, spaceKey]);
   const addable = items.filter(file => validPreviews[file] && !validPreviews[file].warnings.some(w =>
-    ["HDR", "Smart App Control", "Insufficient", "Output too small", "cannot read", "Standard can't run"].some(reason => w.includes(reason))));
+    ["HDR", "Smart App Control", "Insufficient", "Output too small", "cannot read", "larger than 1080p"].some(reason => w.includes(reason))));
   const field = (key: keyof Settings, value: string | number | boolean) => {
     setSettings((old) => ({ ...old, [key]: value }));
     setFileSettings(old => Object.fromEntries(Object.entries(old).map(([file, item]) => [file, { ...item, [key]: value }])));
@@ -124,8 +130,10 @@ export function AddDialog({
         }}
       >
         <h2 id="add-title">
-          Add {items.length === 1 ? "video" : `${items.length} videos`}
+          Add {items.length + links.length === 1 ? "video" : items.length + links.length ? `${items.length + links.length} videos` : "videos"}
         </h2>
+        <LinkPanel api={api} settings={settings} initialUrl={initialUrl} changed={setLinks} />
+        <ActionButton onClick={async () => { const paths = await window.desktop.files("videos"); setItems(old => [...new Set([...old, ...paths])]); }}>Choose video files…</ActionButton>
         <p className="muted">Apply to all</p>
         <div className="mode-cards">
           {["standard", "fast"].map((mode) => (
@@ -143,7 +151,7 @@ export function AddDialog({
               <p>
                 {totals[mode]
                   ? totals[mode].unknown_models?.length ? "Speed unknown" : `${duration(totals[mode].seconds)} of work`
-                  : "Preparing…"}
+                  : items.length ? "Preparing…" : ""}
               </p>
               <p className="mode-finish">
                 {totals[mode]
@@ -202,7 +210,7 @@ export function AddDialog({
                 }
               >
                 <option value="keep">Keep</option>
-                {[1080, 1440, 2160].map((n) => (
+                {[1080, 1440].map((n) => (
                   <option key={n} value={n}>
                     {n}
                   </option>
@@ -225,7 +233,7 @@ export function AddDialog({
                 value={settings.codec}
                 onChange={(e) => field("codec", e.target.value)}
               >
-                <option value="hevc">HEVC</option>
+                <option value="hevc">{hevcPlaybackSupported() ? "HEVC" : "HEVC - Needs HEVC Video Extensions to play inside the app"}</option>
                 <option value="h264">H.264</option>
                 <option value="av1" disabled={!av1}>
                   AV1
@@ -332,9 +340,9 @@ export function AddDialog({
                 {["standard", "fast"].map(mode => <ActionButton key={mode} aria-pressed={forFile(file).preset === mode} onClick={() => fileField(file, "preset", mode)}>{mode === "standard" ? "Standard" : "Fast"}</ActionButton>)}
               </div>
               <details><summary>Settings</summary><div className="form-grid">
-                <label>Output short side<select value={forFile(file).short_side} onChange={event => fileField(file, "short_side", event.target.value === "keep" ? "keep" : Number(event.target.value))}><option value="keep">Keep</option>{[1080,1440,2160].map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+                <label>Output short side<select value={forFile(file).short_side} onChange={event => fileField(file, "short_side", event.target.value === "keep" ? "keep" : Number(event.target.value))}><option value="keep">Keep</option>{[1080,1440].map(value => <option key={value} value={value}>{value}</option>)}</select></label>
                 <label>Frame rate<select value={forFile(file).fps} onChange={event => fileField(file, "fps", event.target.value)}><option value="off">Keep</option><option value="2x">2×</option></select></label>
-                <label>File format<select value={forFile(file).codec} onChange={event => fileField(file, "codec", event.target.value)}><option value="hevc">HEVC</option><option value="h264">H.264</option><option value="av1" disabled={!av1}>AV1</option></select></label>
+                <label>File format<select value={forFile(file).codec} onChange={event => fileField(file, "codec", event.target.value)}><option value="hevc">{hevcPlaybackSupported() ? "HEVC" : "HEVC - Needs HEVC Video Extensions to play inside the app"}</option><option value="h264">H.264</option><option value="av1" disabled={!av1}>AV1</option></select></label>
                 {(["restore_model", "interp_model", "size_model"] as const).map((key, index) => <label key={key}>{["Cleanup", "Smoother motion", "Bigger picture"][index]}<select value={forFile(file)[key] || ""} onChange={event => fileField(file, key, event.target.value)}><option value="">Preset default</option>{models.filter(model => model.weights_verified && model.task === ["restore", "interpolate", "size"][index]).map(model => <option key={model.id} value={model.id}>{model.catalog?.title || model.display_name}</option>)}</select></label>)}
                 {models.find(model => model.id === forFile(file).restore_model)?.architecture === "drunet" && <label>Cleanup strength<select value={forFile(file).restore_strength || "medium"} onChange={event => fileField(file, "restore_strength", event.target.value)}>{["light", "medium", "strong"].map(strength => <option key={strength} value={strength}>{strength}</option>)}</select></label>}
                 <label className="check"><input type="checkbox" checked={!!forFile(file).delete_original_after} onChange={event => fileField(file, "delete_original_after", event.target.checked)} />Delete this original when it is done</label>
@@ -373,7 +381,6 @@ export function AddDialog({
                       {w.includes("Insufficient") && <ActionButton onClick={async () => { const folder = (await window.desktop.files("folder"))[0]; if (folder) fileField(file, "output_folder", folder); }}>Choose a folder…</ActionButton>}
                       {w.includes("too small for cleanup") && <ActionButton onClick={() => fileField(file, "short_side", 1080)}>Use 1080</ActionButton>}
                       {w.includes("too small for AV1") && <ActionButton onClick={() => fileField(file, "codec", "hevc")}>Use HEVC</ActionButton>}
-                      {w.includes("Standard can't run") && <ActionButton onClick={() => fileField(file, "preset", "fast")}>Use Fast</ActionButton>}
                       {w.includes("HDR") && <ActionButton onClick={() => setItems(old => old.filter(item => item !== file))}>Remove it</ActionButton>}
                       {w.includes("Smart App Control") && <a href="https://github.com/Kei-Takamizawa/VideoEnhancer/blob/main/docs/TROUBLESHOOTING.md" target="_blank" rel="noreferrer">Read instructions</a>}
                     </Notice>
@@ -404,13 +411,27 @@ export function AddDialog({
             className="primary add-submit"
             disabled={
               busy ||
-              !addable.length ||
+              (!addable.length && !links.length) ||
               !!error
             }
             onClick={async () => {
               setBusy(true);
               setError("");
               try {
+                if (links.some(link => !link.reuse_job_id)) {
+                  const preferences = await api.call<Settings>("settings");
+                  if (!preferences.video_download_folder) {
+                    const folder = (await window.desktop.files("folder"))[0];
+                    if (!folder) { setBusy(false); return; }
+                    await api.call("settings", "PUT", { video_download_folder: folder });
+                  }
+                }
+                for (const link of links) {
+                  const key = `link:${link.check_id}:${link.entry_key}`;
+                  if (added.current.has(key)) continue;
+                  await api.call("links/queue", "POST", { ...link, settings, output_folder: settings.output_folder });
+                  added.current.add(key);
+                }
                 for (const file of addable) {
                   if (added.current.has(file)) continue;
                   await api.call("queue", "POST", {

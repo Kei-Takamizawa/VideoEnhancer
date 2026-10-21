@@ -1,4 +1,6 @@
 export type Settings = {
+  video_download_folder?: string;
+  video_download_limit?: number;
   cleanup_working_files?: boolean;
   preset: string;
   codec: string;
@@ -38,6 +40,12 @@ export type Estimate = {
   finish?: string | null;
 };
 export type Job = {
+  source?: { url: string; title?: string; format?: string; downloaded_at?: string };
+  download?: { phase: string; percent?: number | null; bytes?: number; total_bytes?: number | null; bytes_per_second?: number | null; remaining_seconds?: number | null; ready_at?: string | null };
+  estimate_after_download?: boolean;
+  unreadable_record?: boolean; record_error?: boolean;
+  link_unanalysed?: boolean;
+  unsupported_reason?: string | null;
   position?: number;
   part_seconds?: number;
   id: string;
@@ -216,7 +224,7 @@ export type Model = {
 };
 export type Connection = { base_url: string; token: string };
 export interface Desktop {
-  storageStatus?(): Promise<{ phase?: string; previous?: string; copied_bytes?: number; total_bytes?: number }>;
+  storageStatus?(verify?: boolean): Promise<{ phase?: string; previous?: string; copied_bytes?: number; total_bytes?: number }>;
   moveStorage?(folder: string): Promise<unknown>;
   removeOldStorage?(): Promise<unknown>;
   reload?(): Promise<void>;
@@ -230,7 +238,9 @@ export interface Desktop {
   play(file: string): Promise<void>;
   copy(text: string): Promise<void>;
   logRendererError?(details: string): Promise<void>;
-  filePath(file: File): string;
+  openExternal?(url: string): Promise<void>;
+  sourceLink?(jobId: string): Promise<void>;
+  onFileDrop?(callback: (event: { type: "enter" | "drop" | "leave"; paths: string[] }) => void): () => void;
   zoom(percent: number): Promise<number>;
   theme?(theme: string): Promise<void>;
   onZoom(callback: (percent: number) => void): () => void;

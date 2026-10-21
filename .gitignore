@@ -48,3 +48,5 @@ gui/release/
 playwright-report/
 
 /local-env.ps1
+target/
+gui/src-tauri/gen/schemas/

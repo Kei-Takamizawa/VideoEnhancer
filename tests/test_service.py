@@ -48,6 +48,59 @@ def api(tmp_path):
     thread.join(timeout=5)
 
 
+def test_production_engine_does_not_expose_prototype_media_urls(api):
+    _, _, request = api
+    for route, method in [
+        ("fixture-url/h264-1440-large", "POST"),
+        ("fixture-playback/00000000000000000000000000000000", "GET"),
+    ]:
+        with pytest.raises(urllib.error.HTTPError) as error:
+            request(route, method=method, data={} if method == "POST" else None)
+        assert error.value.code in {400, 404}
+        with pytest.raises(urllib.error.HTTPError) as error:
+            request(route, method=method, data={} if method == "POST" else None, token=False)
+        assert error.value.code == 401
+
+
+def test_link_r2_after_download_keeps_file_and_queue_available(api, video_factory, monkeypatch):
+    """CPU-only tiny oversized refusal fixture; never analysed or processed."""
+    import shutil
+    from pathlib import Path
+
+    from videoenhancer.service.settings import save_settings
+
+    engine, _, request = api
+    monkeypatch.setattr("videoenhancer.service.engine.choose_backend", lambda _: "cpu")
+    oversized = video_factory(width=2560, height=1440, frames=2)
+    save_settings(engine.home, {"video_download_folder": str(engine.home.parent / "downloads")})
+    video = dict(format_id="v", url="http://localhost/video.mp4", vcodec="h264")
+    monkeypatch.setattr(
+        engine.video_links, "metadata", lambda *a: (video["url"], dict(id="v", formats=[video]))
+    )
+
+    def download(job, *a):
+        final = Path(job["input"]["path"])
+        shutil.copyfile(oversized, final)
+        return final
+
+    monkeypatch.setattr(engine.video_links, "download", download)
+    job = engine.link_jobs.queue(
+        dict(check_id="x", entry_key="0", format_id="v", settings={"backend": "cpu", "fps": "off"})
+    )
+    try:
+        engine.link_jobs.download(job["id"])
+        with request("queue") as response:
+            row = json.load(response)["jobs"][0]
+        assert row["state"] == "failed"
+        assert "larger than 1080p" in row["error"]
+        assert row["link_unanalysed"]
+        assert Path(row["input"]).is_file()
+        with request("queue") as response:
+            assert response.status == 200
+    finally:
+        oversized.unlink(missing_ok=True)
+
+
 def test_token_origin_host_and_user_private_discovery(api):
     engine, server, request = api
     assert server.server_address[0] == "127.0.0.1"
@@ -58,6 +111,7 @@ def test_token_origin_host_and_user_private_discovery(api):
         (dict(origin="https://evil.invalid"), 403),
         (dict(host="evil.invalid"), 403),
         (dict(origin="null"), 403),
+        (dict(origin="app://videoenhancer"), 403),
     ):
         with pytest.raises(urllib.error.HTTPError) as error:
             request("health", **kwargs)

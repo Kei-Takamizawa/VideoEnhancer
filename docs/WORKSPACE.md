@@ -5,7 +5,7 @@ All local cycle work belongs under `D:\my-workspace\VideoEnhancer\work`:
 | Folder | Purpose |
 | --- | --- |
 | `repo` | Git checkout and its `.venv`; run Git here |
-| `package` | The single current `VideoEnhancer-win32-x64` package |
+| `package` | The single portable `VideoEnhancer` candidate |
 | `evidence/<cycle>` | Reports, JSON measurements, logs and essential screenshots |
 | `scratch` | Isolated test homes, generated media and temporary outputs |
 | `cache` | Recipe-keyed reusable fixtures, GPU test model home and tool caches |
@@ -14,13 +14,26 @@ All local cycle work belongs under `D:\my-workspace\VideoEnhancer\work`:
 
 ## Session environment
 
+For the Tauri candidate, also set `RUSTUP_HOME=work/cache/rustup`,
+`CARGO_HOME=work/cache/cargo`, and `CARGO_TARGET_DIR=work/cache/tauri-target` in the
+session-only local environment script. The complete cache, including Rust targets,
+must stay below 40 GB. Use at most two Cargo build jobs locally and prune obsolete
+development artifacts only after inventorying their exact paths and sizes.
+Rust bootstrap is the P1t one-time exception to the 1 GB growth gate; report it.
+
+The Tauri portable layout is `package/VideoEnhancer/VideoEnhancer.exe` with
+`engine-location.json` beside it. Keep the existing current package until the
+candidate passes its isolated smoke test. P1f removes the historical shell and
+its dependencies after the P2 baseline measurements; the accepted P1t failures
+remain recorded and do not delay that removal.
+
 Use a Git-ignored `repo/local-env.ps1` and dot-source it before installing, building or testing. Set `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`, `npm_config_cache`, `PLAYWRIGHT_BROWSERS_PATH`, `ELECTRON_CACHE`, `HF_HOME`, `TORCH_HOME`, `TEMP` and `TMP` to subfolders of `work/cache` or `work/scratch`. Use an isolated `VE_HOME` under scratch and `VE_GPU_TEST_MODEL_HOME` under cache. These variables apply only to the current shell or command. Never change system or user environment variables, long-path policy, drivers or Recycle Bin settings.
 
-Windows-managed event logs, crash reporting and application compatibility data can still be written to the system drive. The Codex host's own installation, sessions and runtime are outside this project's control. Do not clean these as project cache. Electron's owner-facing folder-location preference lives in Electron userData, outside the movable app data. Development GUI launches must use a user-data directory under scratch. Installed system FFmpeg and Git remain where the owner installed them; development does not modify them.
+Windows-managed event logs, crash reporting and application compatibility data can still be written to the system drive. The Codex host's own installation, sessions and runtime are outside this project's control. Do not clean these as project cache. The Tauri shell and engine share the roaming `VideoEnhancer/storage-location.json` pointer, outside movable app data; a legacy Electron pointer is migrated only if the canonical pointer is missing. Development GUI launches must isolate roaming/local app data and the WebView2 profile under scratch. Installed system FFmpeg and Git remain where the owner installed them; development does not modify them.
 
 ## Retention
 
-1. Keep one package. Build a candidate within `package`, smoke-test it, then replace the old current package. Keep the old package until the candidate passes; delete the replaced one immediately afterward. Its `resources/engine-location.json` must reference this checkout on D.
+1. Keep one package. Build a candidate within `package`, smoke-test it, then replace the old current package. Keep the old package until the candidate passes; delete the replaced one immediately afterward, subject to the cleanup rejection rule below. Tauri's `engine-location.json` beside the executable must reference this checkout on D; the historical Electron package used `resources/engine-location.json`.
 2. Empty scratch at the end of each cycle, after saving the report's numbers as JSON in `evidence/<cycle>`. Never retain a synthetic file larger than 100 MB. Preserve no owner queue or media as a fixture.
 3. Keep at most 300 MB of evidence per cycle and only the last three cycles. Delete older cycle evidence after retaining the required report in Git. P1e-2 evidence predates this rule and may exceed 300 MB; disclose its measured size instead of discarding it.
 4. Cache reusable fixtures once, keyed by the exact recipe (including tools, dimensions, codec and duration). Keep the GPU test model home here. Cap the complete cache at 40 GB; prune the oldest entries first. Never regenerate a large fixture simply to leave another copy behind.

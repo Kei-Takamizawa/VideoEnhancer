@@ -1,4 +1,5 @@
-import { _electron, expect, test } from "@playwright/test";
+import { desktop } from "../desktop";
+import { expect, test } from "@playwright/test";
 import { createRequire } from "node:module";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -11,13 +12,13 @@ test("P1d-3 renderer median budgets across ten independent cold launches", async
   const evidence = process.env.VE_GUI_EVIDENCE || path.resolve("test-results/perf-evidence");
   mkdirSync(evidence, { recursive: true });
   for (let repeat = 0; repeat < 10; repeat++) {
-  const root = path.resolve("test-results", `perf-${Date.now()}`);
+  const root = path.resolve(process.env.VE_GUI_TEST_ROOT || "test-results", `perf-${Date.now()}`);
   const fixture = await fakeEngine(path.join(root, "home"));
-  const app = await _electron.launch({ executablePath: require("electron"), args: [".", `--user-data-dir=${path.join(root, "desktop")}`], env: { ...process.env, VE_HOME: path.join(root, "home") } });
+  const app = await desktop.launch({ executablePath: (process.env.VE_TAURI_EXE || ""), args: [".", `--user-data-dir=${path.join(root, "desktop")}`], env: { ...process.env, VE_HOME: path.join(root, "home") } });
   const page = await app.firstWindow();
   const numbers: Record<string, unknown> = {};
   try {
-    await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].setContentSize(1280, 800); });
+    await app.setContentSize(1280, 800);
     await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
     await page.evaluate(() => {
       const state = window as unknown as { timings: { event: string; start: number; processing: number; duration: number; interaction: number; target: string }[]; keyPaint: number[] };
@@ -45,7 +46,7 @@ test("P1d-3 renderer median budgets across ten independent cold launches", async
       await page.evaluate(() => { document.querySelector('select')!.closest('section')!.querySelectorAll('select').forEach(select => { if ([...select.options].some(option => option.value === 'system')) select.addEventListener('change', () => performance.mark('theme-selection'), { once: true }); }); });
       await page.getByLabel("Theme").selectOption(theme);
       themePaint[theme] = await page.evaluate(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); return performance.now() - performance.getEntriesByName('theme-selection').at(-1)!.startTime; });
-      expect(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe(theme);
+      expect(await app.themeSource()).toBe(theme);
     }
     numbers.theme_paint_ms = themePaint;
 

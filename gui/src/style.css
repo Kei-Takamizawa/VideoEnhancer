@@ -1152,8 +1152,7 @@ nav .warning-dot {
   font-size: 12px;
 }
 
-.app { height: calc(100vh - 32px); margin-top: 32px; display: block; }
-.title-bar { position: fixed; inset: 0 138px auto 0; height: 32px; display: flex; align-items: center; gap: 8px; padding-left: 14px; font-size: 12px; color: var(--text2); app-region: drag; }
+.app { height: 100vh; margin-top: 0; display: block; }
 .title-icon { background: var(--accent); color: var(--on-accent); width: 18px; height: 18px; border-radius: 4px; display: grid; place-items: center; font-size: 8px; }
 .app aside { position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 30; display: flex; flex-direction: row; align-items: center; gap: 4px; padding: 6px; background: var(--raised); border: 1px solid var(--border); border-radius: 20px; box-shadow: var(--shadow); overflow: visible; }
 aside > .brand { display: none; }
@@ -1171,7 +1170,7 @@ aside .dock-count { position: absolute; right: -2px; top: -2px; min-width: 18px;
 .first-look { margin: 0; min-width: 0; flex: 1; }
 .first-look img { width: 100%; height: 130px; object-fit: contain; background: var(--raised); }
 .first-look figcaption { color: var(--muted); font-size: 12px; }
-.compare-full-window { top: 32px; padding: 0; background: var(--bg); }
+.compare-full-window { top: 0; padding: 0; background: var(--bg); }
 .compare-full-window .trial-dialog { width: 100%; height: 100%; max-width: none; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
 .app:has(.compare-full-window) aside { display: none; }
 .history-card .thumbnail.small.portrait, .history-card .thumbnail.small.landscape { width: 100%; height: 128px; }
@@ -1197,7 +1196,6 @@ aside .dock-count { position: absolute; right: -2px; top: -2px; min-width: 18px;
 .history-card .actions { gap: 6px; }
 .history-card .actions > button { padding: 4px 8px; white-space: nowrap; }
 .modal-shade { z-index: 50; }
-.title-bar { z-index: 60; }
 .trial-dialog button { white-space: nowrap; }
 .filter-pills button { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .settings-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
@@ -1217,7 +1215,6 @@ aside .dock-count { position: absolute; right: -2px; top: -2px; min-width: 18px;
 .engine-actions > main > section > .history-viewport { flex: 1; min-height: 0; }
 .history-card h2 { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .history-card p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.title-bar { color: var(--text2); }
 .compare-full-window .trial-dialog { padding: 12px 28px; }
 .compare-full-window .page-heading { margin-bottom: 4px; }
 .compare-full-window .thumbnails { height: 36px; margin: 4px 0; }
@@ -1304,12 +1301,12 @@ button .action-icon { flex: 0 0 16px; }
 .model-card .installed-check { font-size: 12px; color: var(--success); }
 .model-card .download-progress { width: 150px; }
 
-.compare-full-window .trial-dialog { height: calc(100vh - 32px); max-height: none; display: flex; flex-direction: column; overflow: auto; padding: 12px; }
+.compare-full-window .trial-dialog { height: 100vh; max-height: none; display: flex; flex-direction: column; overflow: auto; padding: 12px; }
 .compare-full-window .compare { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .compare-full-window .canvas-viewport { height: auto; flex: 1; min-height: 100px; display: flex; align-items: center; justify-content: center; touch-action: none; overflow: hidden; }
 .compare-full-window .canvas-viewport canvas { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
 .preview-counter { font-variant-numeric: tabular-nums; display: inline-block; width: 39ch; flex: 0 0 39ch; white-space: nowrap; }
-.compare.is-full-window { position: fixed; inset: 32px 0 0; padding: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; }
+.compare.is-full-window { position: fixed; inset: 0; padding: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; }
 .compare.is-full-window > :not(.canvas-viewport):not(.compare-labels) { display: none; }
 
 .tour-layer { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.25); }

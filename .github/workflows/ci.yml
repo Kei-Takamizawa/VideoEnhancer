@@ -7,6 +7,9 @@ on:
 permissions:
   contents: read
 
+env:
+  VE_DEV_M3_MEDIA: "0"
+
 jobs:
   cpu:
     strategy:
@@ -16,6 +19,33 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: WebView2 Runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          function Find-WebViewRuntime {
+            $roots = @("${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application", "$env:ProgramFiles\Microsoft\EdgeWebView\Application", "$env:LOCALAPPDATA\Microsoft\EdgeWebView\Application")
+            foreach ($root in $roots) {
+              $runtime = Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+                Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'msedgewebview2.exe') } |
+                Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+              if ($runtime) { return $runtime.FullName }
+            }
+          }
+          $runtime = Find-WebViewRuntime
+          if (-not $runtime) {
+            Write-Output 'WebView2 Runtime is missing; installing it on this hosted runner.'
+            $installer = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $installer
+            $setup = Start-Process -FilePath $installer -ArgumentList '/silent','/install' -WindowStyle Hidden -Wait -PassThru
+            if ($setup.ExitCode -ne 0) { throw "WebView2 installation failed: $($setup.ExitCode)" }
+            $runtime = Find-WebViewRuntime
+          }
+          if (-not $runtime) { throw 'WebView2 Runtime was not found after setup.' }
+          Write-Output "WebView2 Runtime: $runtime"
+          $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+          Write-Output "Runner elevated: $($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))"
+          "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=$runtime" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.12.23"
@@ -31,6 +61,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run pytest -m "not gpu and not soak" --basetemp=.venv/testtmp
+        if: runner.os == 'Linux'
         env:
           VE_HOME: ${{ runner.temp }}/ve-home
       - uses: actions/setup-node@v4
@@ -48,9 +79,78 @@ jobs:
         working-directory: gui
       - run: npm run build
         working-directory: gui
-      - name: Electron CPU end-to-end
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+          components: rustfmt, clippy
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui/src-tauri
+          cache-on-failure: true
+      - name: Non-Windows refusal stub
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          result=$(cargo run --quiet --manifest-path gui/src-tauri/Cargo.toml)
+          test "$result" = "The desktop app requires Windows 11."
+      - name: Rust format, lint and tests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo fmt --manifest-path gui/src-tauri/Cargo.toml --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo clippy --manifest-path gui/src-tauri/Cargo.toml -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path gui/src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build Tauri test shell
+        if: runner.os == 'Windows'
+        run: cargo build --manifest-path gui/src-tauri/Cargo.toml --features e2e
+      - name: Build release without test commands
+        if: runner.os == 'Windows'
+        run: cargo build --release --manifest-path gui/src-tauri/Cargo.toml --features cdp
+      - name: Release command isolation over CDP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $folder = Join-Path $env:RUNNER_TEMP 'scratch/ve-release-bin'
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          Copy-Item -LiteralPath 'gui/src-tauri/target/release/VideoEnhancer.exe' -Destination $folder
+          @{root=$env:GITHUB_WORKSPACE} | ConvertTo-Json | Set-Content (Join-Path $folder 'engine-location.json')
+          $env:VE_TAURI_RELEASE_EXE = Join-Path $folder 'VideoEnhancer.exe'
+          Push-Location gui
+          npm run test:e2e -- tests/e2e/packaged.spec.ts
+          exit $LASTEXITCODE
+        env:
+          VE_GUI_TEST_ROOT: ${{ runner.temp }}/scratch/ve-release
+      - name: Tauri startup smoke over CDP
+        if: runner.os == 'Windows'
+        run: npm run test:e2e -- tests/e2e/p1e.spec.ts -g "hidden startup"
+        working-directory: gui
+        env:
+          VE_GUI_TEST_ROOT: ${{ runner.temp }}/scratch/ve-startup
+          VE_TAURI_EXE: ${{ github.workspace }}/gui/src-tauri/target/debug/VideoEnhancer.exe
+      - name: CPU engine tests (Windows)
+        if: runner.os == 'Windows'
+        run: uv run pytest -m "not gpu and not soak" --basetemp=.venv/testtmp
+        env:
+          VE_HOME: ${{ runner.temp }}/ve-home
+      - name: Prepare verified optional tools for local media tests
+        if: runner.os == 'Windows'
+        run: uv run python scripts/prepare_link_test_tools.py "${{ runner.temp }}/ve-link-tools"
+      - name: Local synthetic link media acceptance
+        if: runner.os == 'Windows'
+        run: uv run pytest tests/test_link_download.py -q --basetemp=.venv/link-testtmp
+        env:
+          VE_LINK_TEST_TOOLS_HOME: ${{ runner.temp }}/ve-link-tools
+          VE_HOME: ${{ runner.temp }}/ve-link-test-home
+      - name: Tauri CPU end-to-end over CDP
         if: runner.os == 'Windows'
         run: npm run test:e2e
         working-directory: gui
         env:
           VE_GUI_EVIDENCE: ${{ runner.temp }}/ve-gui-evidence
+          VE_GUI_TEST_ROOT: ${{ runner.temp }}/scratch/ve-e2e
+          VE_TAURI_EXE: ${{ github.workspace }}/gui/src-tauri/target/debug/VideoEnhancer.exe

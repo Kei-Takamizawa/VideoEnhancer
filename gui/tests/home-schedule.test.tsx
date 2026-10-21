@@ -216,7 +216,7 @@ describe("Home and History", () => {
     render(<HistoryPage queue={queue} action={action} trial={vi.fn()} />);
     expect(screen.queryByText("synthetic.mp4")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "locked.mp4" }));
-    expect(screen.getByText(failed.error!)).toBeTruthy();
+    expect(screen.getAllByText(failed.error!).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(action).toHaveBeenCalledWith(failed, "retry");
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -415,6 +415,12 @@ it("opens the shared file-removal flow from History details", () => {
   fireEvent.click(screen.getByRole("button", { name: "Delete video files…" }));
   expect(action).toHaveBeenCalledWith(job, "delete-files");
   expect(close).toHaveBeenCalled();
+});
+it("disables in-app playback when HEVC support is absent", () => {
+  const job = { ...failed, settings: { ...failed.settings, codec: "hevc" as const } };
+  render(<HistoryDetail job={job} close={vi.fn()} action={vi.fn()} compare={vi.fn()} />);
+  expect(screen.getByText(/This PC can't play HEVC videos inside the app/)).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Play or Pause" }) as HTMLButtonElement).disabled).toBe(true);
 });
 it("saves an overnight row without changing its end date semantics", async () => {
   const call = vi.fn(async () => ({ plan }));

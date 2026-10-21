@@ -241,7 +241,8 @@ def test_mixed_file_modes_and_folders_use_selected_plan(tmp_path, video_factory,
     from videoenhancer.service.engine import Engine
 
     engine = Engine(tmp_path / "home")
-    first, second = video_factory(frames=30), video_factory(frames=60)
+    first = video_factory(width=512, height=288, frames=30)
+    second = video_factory(width=512, height=288, frames=60)
     plans = []
 
     def plan(jobs, *_args, **_kwargs):
@@ -315,6 +316,8 @@ def test_watchdog_reports_holder_before_lock_is_released(tmp_path, monkeypatch):
 
 
 def test_missing_analysis_keeps_finished_details_and_reanalyses_queue(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
     from test_controller import _job
 
     from videoenhancer.jobs.store import ANALYSIS_FIELDS, JobStore
@@ -332,6 +335,10 @@ def test_missing_analysis_keeps_finished_details_and_reanalyses_queue(tmp_path, 
         return {key: job.get(key, []) for key in ANALYSIS_FIELDS}
 
     monkeypatch.setattr("videoenhancer.media.analyze.analyze", analyse)
+    monkeypatch.setattr(
+        "videoenhancer.jobs.store.probe",
+        lambda *_args, **_kwargs: SimpleNamespace(to_dict=lambda: job["media"]),
+    )
     restored = store.ensure_analysis(missing)
     assert restored["cfr_map"] == job["cfr_map"] and len(calls) == 1
     restored["state"] = "done"
@@ -406,17 +413,20 @@ def test_finalization_admission_reserves_margin_and_never_uses_overrun():
     )[0]
 
 
-def test_four_k_preflight_refuses_measured_standard_size_on_eight_gb_and_allows_fast(tmp_path):
+def test_oversized_source_is_refused_in_both_modes_on_any_gpu(tmp_path):
     from videoenhancer.jobs.checks import geometry_warning
 
     media = dict(width=3840, height=2160, display_width=3840, display_height=2160)
     settings = dict(preset="standard", short_side=1080, fps="2x", codec="hevc")
     capabilities = dict(vram_bytes=8 * 1024**3)
-    assert (
-        geometry_warning(tmp_path, media, settings, capabilities)
-        == "Standard can't run at this size on this GPU yet. Fast works."
+    expected = (
+        "This video is larger than 1080p (short side 2160 px). "
+        "VideoEnhancer processes videos up to 1080p."
     )
-    assert geometry_warning(tmp_path, media, {**settings, "preset": "fast"}, capabilities) is None
+    assert geometry_warning(tmp_path, media, settings, capabilities) == expected
+    assert (
+        geometry_warning(tmp_path, media, {**settings, "preset": "fast"}, capabilities) == expected
+    )
 
 
 def test_saved_interpolation_model_is_ignored_for_sixty_fps():
