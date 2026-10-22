@@ -197,7 +197,7 @@ test("desktop starts real CPU service, adds synthetic footage, streams completio
             }
             return issues;
           });
-          expect(clipping).toEqual([]);
+          expect(clipping, JSON.stringify({ page: name, size, theme })).toEqual([]);
           for (const button of await page.locator("aside button").all()) {
             await button.hover();
             const rect = await button.locator('[role="tooltip"]').boundingBox();

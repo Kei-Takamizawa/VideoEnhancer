@@ -1,3 +1,4 @@
+import { CopyMessage } from "./Notice";
 import { Check, GripVertical } from "lucide-react";
 import { historyWarning } from "./history";
 import { ActionButton } from "./ActionButton";
@@ -342,7 +343,7 @@ export function HomePage({
             className="dialog"
           >
             <h2>Problem</h2>
-            <p>{health.last_error.message}</p>
+            <p>{health.last_error.message}<CopyMessage text={JSON.stringify(health.last_error, null, 2)} /></p>
             <p>{when(health.last_error.time)}</p>
             <p>
               {queue.jobs.find((j) => j.id === health.last_error?.job_id)
@@ -365,7 +366,7 @@ export function HomePage({
           </div>
         </div>
       )}
-      {health?.deletion_notices?.filter(notice => !queue.jobs.some(job => job.id === notice.job_id)).map(notice => <div className="alert" role="status" key={notice.id}><p>{notice.result}</p><p>{notice.guard}</p><ActionButton onClick={() => window.desktop.reveal(notice.guard)}>Show in folder</ActionButton></div>)}
+      {health?.deletion_notices?.filter(notice => !queue.jobs.some(job => job.id === notice.job_id)).map(notice => <div className="alert" role="status" key={notice.id}><p>{notice.result}</p><p>{notice.guard}</p><CopyMessage text={`${notice.result}\n${notice.guard}`} /><ActionButton onClick={() => window.desktop.reveal(notice.guard)}>Show in folder</ActionButton></div>)}
       <div className="home-columns">
         <div>
           {current && (current.state === "downloading" || current.link_unanalysed) ? <DownloadCard job={current} cancel={() => action(current, "cancel")} /> : current ? (
@@ -513,7 +514,7 @@ export function HomePage({
                       </p>
                     </div>
                     <div>
-                      {(job.state === "downloading" || job.link_unanalysed) ? <><p>{job.download?.phase} · {job.download?.percent == null ? "" : `${job.download.percent.toFixed(0)}%`}</p><progress aria-label="Download progress" max="100" value={job.download?.percent ?? undefined} /><p>Processing: {job.estimate_after_download ? "after download" : duration(job.estimate.seconds)}</p></> : job.unsupported_reason ? `No longer supported: ${job.unsupported_reason}` : job.cancel_cleanup ? ("Cancelling…") : job.state === "preparing" ? (
+                      {(job.state === "downloading" || job.link_unanalysed) ? <><p>{job.download?.phase} · {job.download?.percent == null ? "" : `${job.download.percent.toFixed(0)}%`}</p><progress aria-label="Download progress" max="100" value={job.download?.percent ?? undefined} /><p>Processing: {job.estimate_after_download ? "after download" : duration(job.estimate.seconds)}</p></> : job.unsupported_reason ? <>No longer supported: {job.unsupported_reason}<CopyMessage text={`${job.input}\nNo longer supported: ${job.unsupported_reason}`} /></> : job.cancel_cleanup ? ("Cancelling…") : job.state === "preparing" ? (
                         "Preparing…"
                       ) : job.state === "paused" ? (
                         "Waits until you resume it"

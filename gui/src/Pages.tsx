@@ -1,12 +1,14 @@
 import { StorageCard } from "./Storage";
 import { VideoLinksCard } from "./VideoLinks";
-import { Notice } from "./Notice";
+import { CopyMessage, Notice } from "./Notice";
 import { Check } from "lucide-react";
 import { ActionButton } from "./ActionButton";
 import { useEffect, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration } from "./api";
 import type { Health, Model, Operation, Settings } from "./types";
+
+const sessionStarted = Date.now();
 
 export function timelineHour(value: string, date: string, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -36,7 +38,7 @@ export function OperationStatus({
   const remaining = operation.remaining_seconds;
   const percent = operation.percent;
   return (
-    <Notice role={operation.state === "failed" ? "alert" : "status"} dismissible={operation.state === "failed"} className={operation.state === "failed" ? "error" : "operation"} identity={operation.id + operation.state + operation.error}>
+    <Notice autoDismiss={operation.state === "failed"} role={operation.state === "failed" ? "alert" : "status"} dismissible={operation.state === "failed"} className={operation.state === "failed" ? "error" : "operation"} identity={operation.id + operation.state + operation.error}>
       <strong>
         {operation.kind.charAt(0).toUpperCase() + operation.kind.slice(1)}:{" "}
         {operation.state}
@@ -94,6 +96,7 @@ export function ModelsPage({
   useEffect(() => setAccepted(false), [consent]);
   const [removal, setRemoval] = useState<Model>();
   const [error, setError] = useState("");
+  const modelRemovalBlocked = error.startsWith("The default for Standard.") || error.startsWith("Used by ") || /^\d+ videos in the queue use it/.test(error);
   const [category, setCategory] = useState("cleanup");
   const [details, setDetails] = useState<Model>();
   const [resizeDetails, setResizeDetails] = useState(false);
@@ -134,7 +137,7 @@ export function ModelsPage({
         </a>
       </p>
       {error && (
-        <Notice identity={error} dismiss={() => setError("")}>{error}</Notice>
+        <Notice autoDismiss={!modelRemovalBlocked} identity={error} dismiss={() => setError("")}>{error}</Notice>
       )}
       <div className="filter-pills" aria-label="Model category">
         {[
@@ -217,7 +220,7 @@ export function ModelsPage({
                   : m.weights_verified ? <ActionButton className="danger" disabled={!!m.uninstall_reason || defaultId === m.id} title={m.uninstall_reason || (defaultId === m.id ? "Choose another default before uninstalling this model." : "Uninstall this model")} onClick={() => { setRemoval(m); setError(""); }}>Uninstall</ActionButton>
                   : <ActionButton className="primary" onClick={() => setConsent(m)}>Install</ActionButton>}
                 </div>
-                {operation?.state === "failed" && <Notice identity={(operation.created_at || operation.id) + operation.error}>{operation.error || "Install failed. Open details for the full log."}</Notice>}
+                {operation?.state === "failed" && <Notice autoDismiss identity={(operation.created_at || operation.id) + operation.error}>{operation.error || "Install failed. Open details for the full log."}</Notice>}
               </article>
             );
           })}
@@ -271,7 +274,7 @@ export function ModelsPage({
             <p>{consent.catalog?.licence_plain}</p>
             {consent.publisher_url && <a href={consent.publisher_url} target="_blank" rel="noreferrer">Model publisher’s page</a>}
             {!consent.commercial_use_allowed && (
-              <p className="warning-text">Non-commercial use only.</p>
+              <p className="warning-text">Non-commercial use only.<CopyMessage text="Non-commercial use only." /></p>
             )}
             <p>
               Source: <span className="break">{consent.weights.url}</span>
@@ -304,7 +307,7 @@ export function ModelsPage({
         <div className="modal-shade">
           <div className="dialog" role="dialog" aria-modal="true">
             <h2>{error ? "This model is needed" : `Uninstall ${removal.catalog?.title || removal.display_name}?`}</h2>
-            {error && <Notice identity={error} dismiss={() => setError("")}>{error}</Notice>}
+            {error && <Notice autoDismiss={!modelRemovalBlocked} identity={error} dismiss={() => setError("")}>{error}</Notice>}
             <p>
               This removes the model weights from this computer. Videos already
               finished remain unchanged. Models used in the queue cannot be
@@ -353,7 +356,21 @@ export function SettingsPage({
   tour?(): void;
   appearance?(theme: string): void;
 }) {
+  const pastCalibration = operation?.kind === "calibrate" && operation.state === "failed"
+    && (!operation.created_at || Date.parse(operation.created_at) < sessionStarted);
+  const speedProfileMessage = health?.speed_profile?.source === "builtin" ? "Using the built-in speed profile." : health?.speed_profile?.source === "measured" ? "Using this PC's measured speed profile." : "No speed profile for this GPU. Estimates are uncalibrated. Run speed calibration to measure this PC.";
+  const previousCalibration = pastCalibration
+    ? `The last calibration on ${operation?.created_at ? new Date(operation.created_at).toLocaleString() : "an earlier date"} failed: ${operation?.error || "No reason was recorded."}` : "";
   const [draft, setDraft] = useState(value);
+  const [startupError, setStartupError] = useState("");
+  useEffect(() => {
+    let active = true;
+    let revision = 0;
+    const update = (event: Event) => { revision++; setStartupError((event as CustomEvent<string>).detail); };
+    window.addEventListener("startup-status", update);
+    void window.desktop.startupStatus?.().then(value => { if (active && revision === 0) setStartupError(value); }).catch(error => { if (active && revision === 0) setStartupError(String(error)); });
+    return () => { active = false; window.removeEventListener("startup-status", update); };
+  }, []);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const dirty = useRef(false);
@@ -396,7 +413,7 @@ export function SettingsPage({
   return (
     <section className="settings-page">
       <div className="page-heading"><h1>Settings</h1><ActionButton onClick={tour} className="tutorial">Tutorial</ActionButton><span role="status">{message}</span></div>
-      {error && <Notice identity={error} dismiss={() => setError("")}>{error}</Notice>}
+      {error && <Notice autoDismiss identity={error} dismiss={() => setError("")}>{error}</Notice>}
       <div className="settings-columns">
         <div>
           <article className="card">
@@ -408,7 +425,7 @@ export function SettingsPage({
               <label>Default frame rate<select value={draft.fps} onChange={event => change("fps", event.target.value)}><option value="off">Keep</option><option value="2x">2×</option></select></label>
               <label>Default codec<select value={draft.codec} onChange={event => change("codec", event.target.value)}><option value="h264">H.264</option><option value="hevc">HEVC</option><option value="av1" disabled={health?.av1_supported !== true}>AV1</option></select></label>
             </div>
-            {health?.av1_supported === false && <p className="muted">{health.av1_unavailable_reason || "AV1 hardware encoding is unavailable."}</p>}
+            {health?.av1_supported === false && <p className="muted">{health.av1_unavailable_reason || "AV1 hardware encoding is unavailable."}<CopyMessage text={health.av1_unavailable_reason || "AV1 hardware encoding is unavailable."} /></p>}
           </article>
           <article className="card"><h2>After processing</h2><label className="check"><input type="checkbox" checked={!!draft.delete_original_after} onChange={event => change("delete_original_after", event.target.checked)} />Delete the original after a verified output</label><p className="muted">Off by default. Files are moved to the Recycle Bin only after the output passes all checks.</p></article>
           <article className="card"><details><summary>Advanced</summary><p className="muted">Apply to new videos. Keep defaults unless you need a specific adjustment.</p><div className="form-grid">{[["clip_length","Clip length",15],["clip_overlap","Clip overlap",2],["interpolation_safety_threshold","Interpolation safety threshold",0.2]].map(([key,label,fallback]) => <label key={key}>{label}<input type="number" step={key === "interpolation_safety_threshold" ? "0.01" : "1"} value={draft.advanced[key] ?? fallback} onChange={event => { dirty.current = true; setDraft(old => ({ ...old, advanced: { ...old.advanced, [key]: Number(event.target.value) } })); }} /></label>)}</div></details></article>
@@ -420,8 +437,9 @@ export function SettingsPage({
               <label>Zoom<select value={draft.zoom || 100} onChange={event => { const zoom = Number(event.target.value); change("zoom", zoom); void window.desktop.zoom(zoom).catch(error => setError(error.message)); }}>{[80,90,100,110,125,150].map(zoom => <option key={zoom} value={zoom}>{zoom}%</option>)}</select></label>
             </div><p className="muted">Above 100%, small windows can scroll.</p>
             <label className="check"><input type="checkbox" checked={draft.start_with_windows} onChange={event => change("start_with_windows", event.target.checked)} />Start with Windows (hidden in tray)</label>
+            {startupError && <p role="alert">{startupError}<CopyMessage text={startupError} /></p>}
           </article>
-          <article className="card"><h2>Diagnostics</h2><label>Log folder<div className="input-button"><input value={draft.log_folder} placeholder={health?.home || "Engine home"} onChange={event => change("log_folder", event.target.value)} /><ActionButton aria-label="Open log folder" onClick={() => window.desktop.openFolder(draft.log_folder || health?.home || "").catch(error => setError(error.message))}>Open</ActionButton></div></label><div className="toolbar"><ActionButton onClick={calibrate} disabled={operation?.state === "running" || operation?.state === "waiting"}>Run speed calibration{health?.speed_profile?.calibration_minutes ? ` (about ${health.speed_profile.calibration_minutes} min)` : ""}</ActionButton><ActionButton onClick={() => window.desktop.copy(JSON.stringify({ health, settings: draft }, null, 2)).then(() => setMessage("Diagnostics copied."))}>Copy diagnostics</ActionButton></div>{health?.speed_profile && <p>{health.speed_profile.source === "builtin" ? "Using the built-in speed profile." : health.speed_profile.source === "measured" ? "Using this PC’s measured speed profile." : "No speed profile for this GPU. Estimates are uncalibrated."}</p>}{health?.speed_profile?.driver_note && <p>{health.speed_profile.driver_note}</p>}{operation && <OperationStatus operation={operation} cancel={["running", "waiting"].includes(operation.state) ? () => api.call(`operations/${operation.id}/cancel`, "POST").catch(error => setError(error.message)) : undefined} />}</article>
+          <article className="card"><h2>Diagnostics</h2><label>Log folder<div className="input-button"><input value={draft.log_folder} placeholder={health?.home || "Engine home"} onChange={event => change("log_folder", event.target.value)} /><ActionButton aria-label="Open log folder" onClick={() => window.desktop.openFolder(draft.log_folder || health?.home || "").catch(error => setError(error.message))}>Open</ActionButton></div></label><div className="toolbar"><ActionButton onClick={calibrate} disabled={operation?.state === "running" || operation?.state === "waiting"}>{pastCalibration ? "Run again" : "Run speed calibration"}{health?.speed_profile?.calibration_minutes ? ` (about ${health.speed_profile.calibration_minutes} min)` : ""}</ActionButton><ActionButton onClick={() => window.desktop.copy(JSON.stringify({ health, settings: draft }, null, 2))}>Copy diagnostics</ActionButton></div>{health?.speed_profile && <p>{speedProfileMessage}<CopyMessage text={speedProfileMessage} /></p>}{health?.speed_profile?.driver_note && <p>{health.speed_profile.driver_note}<CopyMessage text={health.speed_profile.driver_note} /></p>}{pastCalibration ? <p>{previousCalibration}<CopyMessage text={previousCalibration} /></p> : operation && <OperationStatus operation={operation} cancel={["running", "waiting"].includes(operation.state) ? () => api.call(`operations/${operation.id}/cancel`, "POST").catch(error => setError(error.message)) : undefined} />}</article>
           <StorageCard api={api} automatic={draft.cleanup_working_files !== false} change={value => change("cleanup_working_files", value)} />
           <VideoLinksCard api={api} />
           <article className="card"><h2>About</h2><p>VideoEnhancer {health?.version || "0.1.0"} · Windows 11 · MIT licence</p><p>{health?.gpu || "Detecting GPU…"} · Driver {health?.driver || "unknown"}{health?.vram_bytes ? ` · ${(health.vram_bytes / 1e9).toFixed(1)} GB VRAM` : ""}</p>

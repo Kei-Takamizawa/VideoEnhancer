@@ -23,6 +23,8 @@ For local tests, build the renderer, then run
 Every desktop test uses an isolated home under scratch, isolated roaming/local
 app-data roots and a separate WebView2 data directory, and attaches over CDP.
 Owner packages must omit both `e2e` and `cdp`; their test-command denial is verified separately.
+Debug, `e2e` and `cdp` builds never write the Windows Run key. Startup-write
+failure tests use a fake writer; `e2e` can inject `VE_TEST_STARTUP_ERROR`.
 The Windows CI job checks for the WebView2 Runtime and installs Microsoft's
 Evergreen Runtime on the hosted runner when missing. It passes the resolved
 runtime folder explicitly so isolated local app-data paths do not hide a

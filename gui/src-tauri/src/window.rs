@@ -191,8 +191,12 @@ pub fn open(raw: &str, reveal: bool) -> Result<()> {
     }
 }
 pub fn startup(settings: &Value) -> Result<()> {
+    #[cfg(feature = "e2e")]
+    if let Ok(reason) = std::env::var("VE_TEST_STARTUP_ERROR") {
+        return Err(reason);
+    }
     // Test builds never alter the owner's Run key.
-    if cfg!(any(debug_assertions, feature = "e2e")) {
+    if cfg!(any(debug_assertions, feature = "e2e", feature = "cdp")) {
         return Ok(());
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -230,14 +234,33 @@ pub fn startup(settings: &Value) -> Result<()> {
         return Ok(());
     }
     let (key, _) = root.create_subkey(path).map_err(|e| e.to_string())?;
-    for (name, value) in changes {
+    write_startup_changes(changes, |name, value| {
         if let Some(value) = value {
-            key.set_value(name, &value).map_err(|e| e.to_string())?;
+            key.set_value(name, value).map_err(|e| e.to_string())
         } else {
-            key.delete_value(name).map_err(|e| e.to_string())?;
+            key.delete_value(name).map_err(|e| e.to_string())
         }
+    })
+}
+pub fn write_startup_changes(
+    changes: Vec<(String, Option<String>)>,
+    mut write: impl FnMut(&str, Option<&String>) -> Result<()>,
+) -> Result<()> {
+    for (name, value) in changes {
+        write(&name, value.as_ref())?;
     }
     Ok(())
+}
+pub fn startup_status(previous: &mut String, result: Result<()>) -> bool {
+    let next = result
+        .err()
+        .map(|reason| format!("Windows didn't accept the startup entry: {reason}"))
+        .unwrap_or_default();
+    if *previous == next {
+        return false;
+    }
+    *previous = next;
+    true
 }
 pub fn old_electron_entry(command: &str, expected: &Path) -> bool {
     let path = command
@@ -291,6 +314,27 @@ pub fn quit(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fake_registry_failure_is_reported_once_and_then_cleared() {
+        let mut registry = std::collections::BTreeMap::new();
+        let result = write_startup_changes(
+            vec![("VideoEnhancer".into(), Some("synthetic command".into()))],
+            |name, value| {
+                registry.insert(name.to_owned(), value.cloned());
+                Err("synthetic registry denied write".into())
+            },
+        );
+        let mut previous = String::new();
+        assert!(startup_status(&mut previous, result.clone()));
+        assert_eq!(
+            previous,
+            "Windows didn't accept the startup entry: synthetic registry denied write"
+        );
+        assert!(!startup_status(&mut previous, result));
+        assert!(startup_status(&mut previous, Ok(())));
+        assert!(previous.is_empty());
+        assert_eq!(registry.len(), 1);
+    }
     #[test]
     fn external_target_percent_encodes_quotes_before_shell_open() {
         let raw = "https://github.com/Kei-Takamizawa/VideoEnhancer/blob/main/docs/a\"b.md";

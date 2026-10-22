@@ -88,6 +88,8 @@ def environment_info() -> dict[str, str]:
             ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=3,
             check=False,
         )
@@ -102,6 +104,8 @@ def environment_info() -> dict[str, str]:
             [executable("ffmpeg"), "-version"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=3,
             check=False,
         )

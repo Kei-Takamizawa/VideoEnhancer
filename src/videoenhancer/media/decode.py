@@ -87,6 +87,8 @@ def software_decoder_support() -> dict[str, bool]:
         [executable("ffmpeg"), "-hide_banner", "-decoders"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=True,
     )
     names = {

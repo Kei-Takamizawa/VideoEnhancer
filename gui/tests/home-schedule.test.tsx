@@ -229,6 +229,29 @@ describe("Home and History", () => {
 });
 
 describe("Schedule week", () => {
+  it("fading a save failure does not retry an unchanged schedule", async () => {
+    vi.useFakeTimers();
+    const call = vi.fn(async (_route: string, method?: string) => {
+      if (method === "PUT") throw new Error("Synthetic save failure");
+      return { plan };
+    });
+    const view = render(<ScheduleView api={{ call } as unknown as Api} value={schedule}
+      plan={plan} jobs={[]} applied={vi.fn()} />);
+    try {
+      await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      fireEvent.keyDown(screen.getByLabelText("Hours 1 start"), { key: "ArrowUp" });
+      await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+      expect(screen.getByText("Synthetic save failure")).toBeTruthy();
+      const saves = () => call.mock.calls.filter(([, method]) => method === "PUT").length;
+      expect(saves()).toBe(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(11000); });
+      expect(screen.queryByText("Synthetic save failure")).toBeNull();
+      expect(saves()).toBe(1);
+      fireEvent.keyDown(screen.getByLabelText("Hours 1 start"), { key: "ArrowUp" });
+      await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+      expect(saves()).toBe(2);
+    } finally { view.unmount(); vi.useRealTimers(); }
+  });
   it("sends one preview after 400 ms and aborts the stale request after an edit", async () => {
     vi.useFakeTimers();
     const call = vi.fn(async () => ({ plan }));

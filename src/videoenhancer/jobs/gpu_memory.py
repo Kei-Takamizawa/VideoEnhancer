@@ -68,6 +68,8 @@ class JobMemorySampler:
                 [powershell, "-NoProfile", "-NonInteractive", "-Command", command],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=8,
                 check=False,
             )

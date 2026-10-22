@@ -3,7 +3,7 @@ import type { Api } from "./api";
 import { duration } from "./api";
 import type { Estimate, Settings } from "./types";
 import { ActionButton } from "./ActionButton";
-import { Notice } from "./Notice";
+import { CopyMessage, Notice } from "./Notice";
 import { VideoLinksCard } from "./VideoLinks";
 
 type Format = { id: string; width?: number; height?: number; fps?: number; codec: string; dynamic_range: string; bytes?: number; disabled?: string; unknown_size?: boolean; estimate?: Estimate };
@@ -39,9 +39,10 @@ export function LinkPanel({ api, settings, initialUrl = "", changed }: { api: Ap
   const [reuse, setReuse] = useState<Record<string, boolean>>({});
   const estimateKeys = useRef<Record<string, string>>({});
   const [error, setError] = useState("");
+  const [conditionError, setConditionError] = useState("");
   const [busy, setBusy] = useState(false);
   const [estimates, setEstimates] = useState<Record<string, Record<string, Estimate | null>>>({});
-  useEffect(() => { let active = true; void api.call<{ available: boolean }>("link-tools").then(value => { if (active) setAvailable(value.available); }).catch(error => { if (active) setError(error.message); }); return () => { active = false; }; }, [api]);
+  useEffect(() => { let active = true; void api.call<{ available: boolean }>("link-tools").then(value => { if (active) setAvailable(value.available); }).catch(error => { if (active) setConditionError(error.message); }); return () => { active = false; }; }, [api]);
   useEffect(() => {
     changed(entries.filter(entry => selected[entry.key] && !entry.error && formats[entry.key]).map(entry => ({ check_id: operation!.id, entry_key: entry.key, format_id: formats[entry.key], reuse_job_id: reuse[entry.key] ? entry.reuse?.job_id : undefined })));
   }, [entries, selected, formats, reuse, operation?.id, changed]);
@@ -91,7 +92,8 @@ export function LinkPanel({ api, settings, initialUrl = "", changed }: { api: Ap
       catch (error) { setError((error as Error).message); setBusy(false); }
     }}>Check</ActionButton>}
     {busy && <p role="status">{operation?.phase || "Checking link"} <ActionButton disabled={!operation || operation.state !== "running"} onClick={() => api.call(`operations/${operation!.id}/cancel`, "POST")}>Cancel</ActionButton></p>}
-    {error && <Notice identity={error} dismiss={() => setError("")}>{error}</Notice>}
+    {conditionError && <Notice identity={conditionError}>{conditionError}</Notice>}
+    {error && <Notice autoDismiss identity={error} dismiss={() => setError("")}>{error}</Notice>}
     {operation?.result?.truncated && <p>The first 200 videos are shown.</p>}
     {entries.length > 1 && <div className="toolbar"><ActionButton onClick={() => setSelected(Object.fromEntries(entries.map(entry => [entry.key, !entry.error])))}>Select all</ActionButton><ActionButton onClick={() => setSelected({})}>Select none</ActionButton></div>}
     {entries.map(entry => {
@@ -101,7 +103,7 @@ export function LinkPanel({ api, settings, initialUrl = "", changed }: { api: Ap
         {entry.thumbnail && operation && <LinkThumbnail api={api} path={`links/${operation.id}/thumbnail/${entry.key}`} />}
         <label className="check"><input type="checkbox" disabled={!!entry.error} checked={!!selected[entry.key]} onChange={event => setSelected(old => ({ ...old, [entry.key]: event.target.checked }))} />{entry.title}</label>
         <p>{entry.site} · {entry.uploader} {entry.duration ? `· ${duration(entry.duration)}` : ""}</p>
-        {entry.error ? <p role="status">{entry.error}</p> : <>
+        {entry.error ? <p role="status">{entry.error}<CopyMessage text={`${url}\n${entry.title}\n${entry.error}`} /></p> : <>
           <label>Quality<select value={formats[entry.key] || ""} onChange={event => setFormats(old => ({ ...old, [entry.key]: event.target.value }))}>{entry.formats?.map(format => <option key={format.id} value={format.id} disabled={!!format.disabled}>{format.width && format.height ? `${format.width} × ${format.height}` : "Size checked after download"} · {format.fps || "?"} fps · {format.codec} · {format.dynamic_range}{format.bytes ? ` · ${(format.bytes / 1e6).toFixed(1)} MB` : " · Size unknown"} · {(estimates[entry.key]?.[format.id] || format.estimate) ? duration((estimates[entry.key]?.[format.id] || format.estimate)!.seconds) : "after download"}{format.disabled ? ` — ${format.disabled}` : ""}</option>)}</select></label>
           {format?.unknown_size && <p>{unknown}</p>}
           <p>{format?.bytes ? `Download about ${(format.bytes / 1e6).toFixed(1)} MB` : "Download size reported during transfer"}</p>

@@ -416,13 +416,14 @@ export default function App() {
       setActionError("");
     } catch (e) {
       setActionError((e as Error).message);
+      if (name === "copy") throw e;
     }
   };
   const action = (job: Job, name: string, data?: unknown) => {
     if (name === "cancel" || name === "remove-unstarted") setConfirm({ job, name });
     else if (name === "delete-files") { const ids = (data as { ids?: string[] } | undefined)?.ids || [job.id]; setHistoryFiles(queue.jobs.filter(record => ids.includes(record.id))); }
     else if (name === "remove") { const ids = (data as { ids?: string[] } | undefined)?.ids || [job.id]; setHistoryRemoval(queue.jobs.filter(record => ids.includes(record.id))); }
-    else void perform(job, name, data);
+    else return perform(job, name, data);
   };
   const add = useCallback(async (paths?: string[]) => {
     try {
@@ -520,7 +521,7 @@ export default function App() {
           </Notice>
         )}
         {actionError && (
-          <Notice identity={actionError} dismiss={() => setActionError("")}>
+          <Notice autoDismiss identity={actionError} dismiss={() => setActionError("")}>
             {actionError}
 
           </Notice>
