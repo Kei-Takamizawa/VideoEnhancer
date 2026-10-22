@@ -367,6 +367,7 @@ export function HomePage({
         </div>
       )}
       {health?.deletion_notices?.filter(notice => !queue.jobs.some(job => job.id === notice.job_id)).map(notice => <div className="alert" role="status" key={notice.id}><p>{notice.result}</p><p>{notice.guard}</p><CopyMessage text={`${notice.result}\n${notice.guard}`} /><ActionButton onClick={() => window.desktop.reveal(notice.guard)}>Show in folder</ActionButton></div>)}
+      {!!health?.damaged_file_notices?.length && <div className="alert" role="status"><p>Some saved files could not be read. The files have been left unchanged.</p><CopyMessage text={health.damaged_file_notices.map(item => `${item.path}\n${item.error}`).join("\n\n")} /></div>}
       <div className="home-columns">
         <div>
           {current && (current.state === "downloading" || current.link_unanalysed) ? <DownloadCard job={current} cancel={() => action(current, "cancel")} /> : current ? (

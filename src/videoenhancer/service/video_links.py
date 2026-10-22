@@ -404,9 +404,18 @@ class VideoLinks:
         self.hardware: dict[str, Any] | None = None
         self._profiles: dict[str, Any] = {}
         self._profile_lock = threading.Lock()
+        self._timing_stamp: tuple[int, int, int] | None = None
 
     def profile(self, settings: dict[str, Any], media: dict[str, Any]) -> Any:
         with self._profile_lock:
+            try:
+                info = (self.home / "timing-observations.json").stat()
+                stamp = (info.st_mtime_ns, info.st_size, info.st_ino)
+            except FileNotFoundError:
+                stamp = None
+            if stamp != self._timing_stamp:
+                self._profiles.clear()
+                self._timing_stamp = stamp
             if self.hardware is None:
                 from videoenhancer.logging import environment_info
 
@@ -503,19 +512,21 @@ class VideoLinks:
         if reason:
             raise ValueError(reason)
         require_encrypted_format(original, video)
-        audio = next(
-            (
-                item
-                for item in reversed(entry["formats"])
-                if item.get("vcodec") == "none"
-                and item.get("acodec") != "none"
-                and not item.get("has_drm")
-            ),
-            None,
-        )
-        if audio:
-            require_encrypted_format(original, audio)
-        return video, audio
+        if video.get("acodec") not in {None, "none"}:
+            return video, None
+        audio_error = None
+        for item in reversed(entry["formats"]):
+            if item.get("vcodec") != "none" or item.get("acodec") == "none" or item.get("has_drm"):
+                continue
+            try:
+                require_encrypted_format(original, item)
+            except ValueError as error:
+                audio_error = error
+                continue
+            return video, item
+        if audio_error is not None:
+            raise audio_error
+        return video, None
 
     def reusable(self, entry: dict[str, Any], store: JobStore) -> dict[str, Any] | None:
         extractor = entry.get("extractor_key") or entry.get("extractor") or "Generic"

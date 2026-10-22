@@ -48,7 +48,12 @@ def get_logger(home: Path, *, job_id: str | None = None, console: bool = True) -
     global_path = home / "videoenhancer.jsonl"
     settings_path = home / "settings.json"
     if settings_path.exists():
-        preferences = json.loads(settings_path.read_text(encoding="utf-8"))
+        try:
+            preferences = json.loads(settings_path.read_text(encoding="utf-8"))
+            if not isinstance(preferences, dict):
+                preferences = {}
+        except (ValueError, UnicodeError):
+            preferences = {}
         if preferences.get("log_folder"):
             global_path = Path(preferences["log_folder"]) / "videoenhancer.jsonl"
     job_path = home / "jobs" / job_id / "job.jsonl" if job_id else None

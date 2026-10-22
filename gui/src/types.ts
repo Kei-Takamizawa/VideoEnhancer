@@ -137,6 +137,7 @@ export type Health = {
   software_decoders?: { vp9: boolean; av1: boolean };
   speed_profile?: { source: string; driver_note?: string | null; calibration_minutes: number; profile_path?: string };
   deletion_notices?: { id: string; job_id?: string; path: string; guard: string; result: string }[];
+  damaged_file_notices?: { path: string; error: string }[];
   paused_all?: boolean;
   waiting_count?: number;
   version: string;

@@ -370,8 +370,9 @@ class JobStore:
 
     @staticmethod
     def _load_unlocked(path: Path, *, include_analysis: bool = True) -> dict[str, Any]:
-        with path.open("r", encoding="utf-8") as source:
-            manifest = json.load(source)
+        from videoenhancer.damaged_json import read_object
+
+        manifest = read_object(path, path.parents[2])
         if manifest.get("schema_version") != SCHEMA_VERSION:
             raise ValueError(f"Unsupported manifest schema in {path}; upgrade VideoEnhancer")
         if manifest.get("analysis_file"):
@@ -379,8 +380,7 @@ class JobStore:
                 raise ValueError("Invalid analysis sidecar.")
             if include_analysis:
                 try:
-                    with (path.parent / "analysis.json").open(encoding="utf-8") as stream:
-                        manifest.update(json.load(stream))
+                    manifest.update(read_object(path.parent / "analysis.json", path.parents[2]))
                 except FileNotFoundError:
                     manifest["analysis_missing"] = True
         return manifest
@@ -400,7 +400,10 @@ class JobStore:
             raise ValueError(f"No longer supported: {unsupported}")
         analysis = analyze(source, backend=job["settings"]["backend"])
         job.update({key: analysis.get(key, []) for key in ANALYSIS_FIELDS})
-        job.update(decoder=analysis.get("decoder"), decoder_reason=analysis.get("decoder_reason"))
+        if not (job.get("decoder") == "ffmpeg" and job.get("decoder_events")):
+            job.update(
+                decoder=analysis.get("decoder"), decoder_reason=analysis.get("decoder_reason")
+            )
         job.pop("analysis_missing", None)
         self.save(job)
         return self.load(job["id"])
@@ -507,7 +510,7 @@ class JobStore:
             temporary.unlink(missing_ok=True)
 
     def _cached_jobs(
-        self, *, check_quarantine: bool = True, snapshot: bool = False
+        self, *, check_quarantine: bool = True, snapshot: bool = False, skip_damaged: bool = False
     ) -> list[tuple[Any, dict[str, Any], str]]:
         records = []
         for directory in os.scandir(self.jobs_dir):
@@ -544,7 +547,12 @@ class JobStore:
                 self._manifest_cache.pop(directory.name, None)
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
                 if not snapshot:
-                    raise
+                    if isinstance(error, OSError) or not skip_damaged:
+                        raise
+                    from videoenhancer.damaged_json import record
+
+                    record(self.home, Path(path), error)
+                    continue
                 stamp = ("record-error", str(error))
                 records.append((stamp, self._record_error(directory.name, error), str(stamp)))
         return records
@@ -652,7 +660,9 @@ class JobStore:
         ]
         return revisions, health
 
-    def list_jobs(self, *, include_analysis: bool = True) -> list[dict[str, Any]]:
+    def list_jobs(
+        self, *, include_analysis: bool = True, skip_damaged: bool = False
+    ) -> list[dict[str, Any]]:
         def metadata(job: dict[str, Any]) -> dict[str, Any]:
             result = {
                 k: v
@@ -670,7 +680,10 @@ class JobStore:
             ]
             return result
 
-        jobs = [job if include_analysis else metadata(job) for _, job, _ in self._cached_jobs()]
+        jobs = [
+            job if include_analysis else metadata(job)
+            for _, job, _ in self._cached_jobs(skip_damaged=skip_damaged)
+        ]
         # Manifests contain only JSON values. The C codec makes independent copies.
         copied = json.loads(json.dumps(jobs))
         return sorted(copied, key=lambda job: (job.get("position", 10**9), job["created_at"]))

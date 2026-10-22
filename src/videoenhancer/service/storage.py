@@ -50,7 +50,7 @@ def working_files(directory: Path) -> list[Path]:
 def protected_video_paths(store: JobStore) -> set[Path]:
     return {
         Path(value).resolve()
-        for job in store.list_jobs()
+        for job in store.list_jobs(skip_damaged=False)
         for value in (job["input"]["path"], job["output"])
     }
 
@@ -155,13 +155,16 @@ def core_records_load(home: Path, store: JobStore) -> bool:
     from videoenhancer.service.settings import read_settings
 
     try:
+        from videoenhancer.damaged_json import read_object
+
+        read_object(home / "settings.json", home)
         if not (home / "settings.json").is_file() or not (home / "jobs").is_dir():
             return False
         if any(not (home / "models" / name / "model.json").is_file() for name in BUILTINS):
             return False
         read_settings(home)
         Schedule.from_file(home / "schedule.json")
-        store.list_jobs()
+        store.list_jobs(skip_damaged=False)
         for path in store.jobs_dir.glob("*/manifest.json"):
             store._load_unlocked(path)
         registry = ModelRegistry(home)

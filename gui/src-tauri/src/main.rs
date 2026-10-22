@@ -49,6 +49,8 @@ pub struct State {
     native_drop: Mutex<Vec<PathBuf>>,
     #[cfg(feature = "e2e")]
     remove_confirmation: Mutex<Option<bool>>,
+    #[cfg(feature = "e2e")]
+    copied_text: Mutex<String>,
 }
 #[cfg(windows)]
 impl State {
@@ -103,6 +105,8 @@ mod connection_tests {
             native_drop: Mutex::new(vec![]),
             #[cfg(feature = "e2e")]
             remove_confirmation: Mutex::new(None),
+            #[cfg(feature = "e2e")]
+            copied_text: Mutex::new(String::new()),
         };
         assert!(state.connected().is_ok());
         state.storage_moving.store(true, Ordering::SeqCst);
@@ -159,6 +163,8 @@ fn initial_state() -> Option<(Arc<State>, Value)> {
         native_drop: Mutex::new(vec![]),
         #[cfg(feature = "e2e")]
         remove_confirmation: Mutex::new(None),
+        #[cfg(feature = "e2e")]
+        copied_text: Mutex::new(String::new()),
     });
     Some((state, initial))
 }

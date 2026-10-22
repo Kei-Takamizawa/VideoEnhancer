@@ -1,143 +1,181 @@
-# VE-P1f-3b implementation and verification report
+# VE-P1e-3a implementation and verification report
 
-- Task ID / Cycle: VE-P1f-3b / P1f-3b
-- Status: COMPLETED (closed by designer note; see last section)
-- Branch: `claude/project-thread-1n4s31`; HEAD: `8769afd81072c22793ef7c46103e6e616dc6d812`.
-- Operator verified this is the task hand-over commit immediately after `8302964`, with an initially clean tree. Read-only escalated Git subsequently confirmed branch/HEAD and only this cycle's changes.
-- Terminal: Windows 11 x64, PowerShell. No Git mutation, commit, push, merge or new PR.
-- CURRENT_TASK.md already contains the complete requested task and was preserved unchanged.
-- The initial BLOCKED report was superseded after the operator clarified that the operator-only stop rule does not apply to Codex's sandbox Git restriction.
-
-## Confirmed cause and before/after evidence
-
-The old seed used the host's detected GPU, and fresh state relied on that GPU matching a shipped built-in profile. `load_machine_profile` returns None without a GPU; Engine.health then exposes source `defaults`, so neither the built-in text nor a measured-driver note can appear. No product defect in the calibration card was found for the required no-GPU state.
-
-Baseline used unchanged P1f-3 product code and seed (the operator verified no product changes between `8302964` and HEAD), plus a test-only startup hook and environment plumbing to remove GPU/driver from environment_info. Assertions were unchanged. No checkout or real hardware modification occurred.
-
-| Run | Result | Actual output |
-| --- | --- | --- |
-| Initial sandbox baseline attempt | FAIL, prerequisite | 2 failures: FFmpeg unavailable inside sandbox; not counted as cause reproduction (`before.log`). |
-| Escalated no-GPU baseline | Expected FAIL | Both fresh and driver failed with `element(s) not found`, Timeout 20000ms, at their original expected-message assertions (`before-no-gpu.log`). Both snapshots show the existing uncalibrated text. |
-| First implementation run | FAIL | Fresh passed; failed/driver hit the newly added immediate health assertion before asynchronous environment discovery; no-GPU hit two matching Copied indicators (`after.log`). |
-| Focused rerun | PASS | 4 passed in 56.9 s: fresh, failed, driver and no-GPU, each in dark/light themes (`after-final.log`). |
-
-Expected baseline messages absent:
-
-```text
-Using the built-in speed profile.
-Speed measured with driver synthetic-old-driver
-```
-
-Actual baseline calibration message:
-
-```text
-No speed profile for this GPU. Estimates are uncalibrated. Run speed calibration to measure this PC.
-```
-
-The final test waits boundedly for environment metadata and asserts exact synthetic GPU/driver (or their absence), then retains the original three state assertions. Copy feedback is scoped to its own startup notice, retaining the visible-feedback and clipboard assertions. The added no-GPU case checks the existing complete message and exact native clipboard contents in both themes. A no-GPU dark screenshot was also visually inspected: the Diagnostics card and Copy control are visible and intact.
-
-Evidence stays outside Git under `work/evidence/VE-P1f-3b`: baseline test source, baseline/first-implementation traces, logs and synthetic screenshots. No owner sample was used.
-
-## Implementation and changed files
-
-- `gui/tests/e2e/p1f3-visual.spec.ts`: pass the same test-only environment to seed and native engine, assert hardware metadata after discovery, add no-GPU state/Copy checks, scope startup Copied lookup, and remove each isolated run directory in finally (including seed/launch failures).
-- `tests/p1f3_environment/sitecustomize.py`: Python startup hook loaded exclusively by this test's PYTHONPATH. It substitutes fixed `NVIDIA GeForce RTX 4060 Ti` (the shipped built-in fixture identity) and `synthetic-current-driver`, or removes GPU/driver for no-GPU coverage. Unknown/unset mode or a home outside a scratch path leaves environment_info untouched.
-- `tests/test_p1f3_environment.py`: five guard cases cover fixed GPU, no GPU, both modes on ordinary homes, and unset mode; unrelated metadata is preserved.
-- `.ai/LAST_REPORT.md`: this cycle report.
-
-No delivered Python, GUI or Rust code changed. No production hook, configuration option or environment-variable handling was introduced. Normal package launches do not add the test hook directory to PYTHONPATH. A separate ordinary Python startup check also passed with test mode set but no hook PYTHONPATH: environment_info remained the original videoenhancer.logging function. The explicit test startup path, mode and scratch-home guard confine injection to isolated tests. No package rebuild: delivered code is unchanged. Existing package was not replaced.
-
-## Build and tests
-
-Every installation/build/test shell dot-sourced local-env.ps1. TEMP/TMP, VE_HOME and pytest basetemp remained under scratch; caches remained under work/cache.
-
-| Check | State / result |
-| --- | --- |
-| npm ci | PASS; restored 194 packages |
-| GUI lint | PASS; final rerun after test edits |
-| GUI typecheck | PASS; final rerun after test edits |
-| GUI unit | PASS; 12 files, 64 tests |
-| GUI build | PASS |
-| ruff check . | PASS |
-| ruff format --check . | PASS |
-| pyright | PASS; 0 errors |
-| Focused hook guard tests | PASS; 5 passed |
-| CPU Python suite | PASS; 600 passed, 24 skipped, 101 deselected, 1 warning in 743.50 s |
-| Full e2e suite | PASS; 21 passed, 13 existing opt-in skips in 3.7 min; includes final 4-state calibration and A7 |
-| Read-only Git diff --check | PASS; only CRLF conversion warnings |
-| Final-commit Windows CI | NOT_RUN; operator commit/push pending |
-| Final-commit Ubuntu CI | NOT_RUN; operator commit/push pending |
-| Owner package rebuild | NOT_RUN; delivered code unchanged |
-
-No assertion was weakened, test skipped conditionally on GPU, or timeout enlarged. Full e2e retains 13 existing opt-in skips. CPU excludes GPU/soak-marked tests and retains existing optional-fixture skips; skipped checks are not claimed as passed. Native GUI operations include Settings/theme changes, all three calibration states, no-GPU Copy, startup-error Copy, and the unchanged fresh-state action notices/Japanese synthetic Home/History/playback/Add flows. Startup errors use the existing fake writer; no real registry mutation.
-
-Warnings: CPU pytest could not write the pre-existing inaccessible repo/.pytest_cache/v/cache/nodeids (one PytestCacheWarning); no test failed. Cleanup succeeded; the subsequent disk helper emitted a temporary-directory cwd warning after scratch/tmp was removed and exited 0. Node reports NO_COLOR/FORCE_COLOR overlap; Git reports expected LF-to-CRLF conversion warnings. The preliminary sandbox FFmpeg failure and first implementation failures above are retained, not hidden.
-
-## CI and handoff
-
-Windows/Ubuntu green status on the final commit is not yet available: AGENTS.md assigns every Git mutation to the operator. Operator must review/stage only the four files listed above, commit/push on PR #8's existing branch, and verify both final-commit CI jobs. No new PR is needed. Overall acceptance remains PARTIAL until those results exist.
-
-## Disk and cleanup
-
-Decimal GB, logical file lengths. Initial figures are the pre-resume observation from the initial stopped attempt. Start C/D free space was not captured. A later observation during tests (not start): C 301.543227392 GB / D 1005.352923136 GB. End free space: C 301.540929536 GB / D 1005.790793728 GB. Drive-wide free-space changes are not deletion measurements.
-
-| Folder | Initial GB | Final GB |
-| --- | --- | --- |
-| package | 0.005775421 | 0.005775421 |
-| this cycle evidence | 0 | approximately 0.01114 (below 0.300) |
-| scratch | 0 | 0 (empty, 0 errors) |
-| complete cache | 6.530885265 | 6.596187550 (below 40) |
-| repo/gui/node_modules | 0 | 0; restored dependencies removed |
-| repo/gui/dist and test-results | not measured | absent after cleanup |
-
-Known retained principal-root growth is approximately 0.07454 GB: cache +0.065302285 GB, new evidence approximately +0.01114 GB, minus 0.001904221 GB of oldest evidence. Package and scratch have no retained growth. Source/report changes are small; this is a logical-size estimate, not allocated-space accounting. The pre-existing inaccessible pytest cache has unknown size and was not deleted or successfully written. No large persistent dependency restore remains. The measured principal roots meet the 1 GB gate.
-
-All cleanup candidates were inventoried and recorded before deletion. Both suites had exited before scratch cleanup. No cleanup request was rejected in this cycle, no ACL was changed, and no refused deletion was retried.
-
-| Exact development path under work | Bytes removed | Outcome |
-| --- | --- | --- |
-| repo/gui/node_modules | 191885342 | REMOVED after all GUI checks |
-| repo/gui/dist | 581770 | REMOVED generated renderer output |
-| repo/gui/test-results | 45 | REMOVED final metadata; failure traces retained externally |
-| evidence/P1f-2 | 1904221 | REMOVED oldest cycle; its report remains in Git history |
-| scratch/p1f3b-hook-tests | 0 | REMOVED empty directory by its creating sandbox identity |
-| scratch remaining synthetic test contents | 895607488 | REMOVED after complete inventory, 0 errors; scratch recreated empty |
-| **Total independently inventoried bytes** | **1089978866** | No overlapping rows summed |
-
-The empty hook-test directory was readable from the sandbox identity but not elevated identity. It was inventoried with 0 errors and removed normally from the creating identity; no access control workaround was used. Final scratch inventory has 0 errors. Missing-path entries in end-disk.json for removed folders establish absence, not incomplete inventories. Evidence retains only VE-MIG-1, VE-P1f-3 and VE-P1f-3b. Pre-cleanup and final inventories remain external. The pre-existing repo/.pytest_cache remains inaccessible; repo/.ruff_cache is 9358 readable bytes. These remain owner residuals.
-
-### For the owner to delete
-
-P1f-3 residuals remain listed as required. These are HISTORICAL candidates, not a claim that every path still exists. No deletion was retried. Scratch is now empty after this cycle cleanup. Historical residual provenance/removal by the owner is not inferred from absence.
-
-- `scratch` (historical readable bytes: 3,582,153,461; 7 errors), including historically unreadable `p1f3-after`, `p1f3-before`, `p1f3-history-final`, `p1f3-null-isolation`, `p1f3-partial-delete-after`, `p1f3-partial-delete-before`, `p1f3-placeholder-before` (each total size unknown).
-- `repo/gui/node_modules` (191,885,377 historical bytes).
-- Historical bytecode folders: `repo/scripts/__pycache__` (27,896), `repo/tests/__pycache__` (1,687,919), `repo/gui/tests/perf/__pycache__` (5,040).
-- `repo/src/videoenhancer/__pycache__` (60,309), and its `bench` (115,731), `estimate` (52,772), `jobs` (71,901), `media` (100,838), `models` (70,084), `pipeline` (96,873), `schedule` (109,104), `service` (429,130) `__pycache__` folders.
-- `.ruff_cache` (78), `repo/.ruff_cache` (9,106), `repo/.pytest_cache` (unknown total; historically inaccessible).
-- `package/p1f3-candidate-d5b95bc823f94070891919927504c634` (historically 0 bytes).
-- Historical owner sample, unchanged by this cycle; private location and metadata are not published. It was not inspected or used.
-
-The previous cycle's cleanup rejection remains historical; this cycle received no automatic approval review rejection.
-
+- Task ID / Cycle: VE-P1e-3a / P1e-3a.
+- **Status: BLOCKED. This is an incomplete implementation, not a release candidate.**
+- Branch: `claude/project-thread-6lra47`; unchanged HEAD: `57850df8f8e6c3c0f50a18936fc1202a4be03025`.
+- Terminal: Windows x64, PowerShell. Session: 2026-10-22.
+- Initial working tree was clean. Read-only Git confirmed that HEAD differs from `c84ce1a` only in CURRENT_TASK.md; the initial product-code reproductions therefore used the requested baseline product code.
+- CURRENT_TASK.md was read completely and left unchanged. No Git mutation, commit, push, merge, system setting change, owner data, or owner sample use.
 
 ## Questions for the designer
 
-- Fixed test identity: default uses the shipped built-in GPU name with a synthetic current driver so the original built-in assertion remains meaningful. No product profile is fabricated or changed.
-- No-GPU wording: default preserves the existing complete uncalibrated message because display and exact Copy pass. No independent UI/UX change was made.
-- Final hosted CI: default leaves acceptance PARTIAL until the operator commits/pushes and both jobs pass.
-- No unresolved product or architecture decision was required.
+1. **C3: confirm the intended 12-bit admission policy.** MIGRATION_HANDOFF.md section 3 describes the verified specification as 8/10-bit SDR input. The current implementation explicitly accepts `yuv420p12le` in `media/decode.py:validate_pixel_format`, detects depth 12 in `media/probe.py`, and has no admission check against that depth. A synthetic 12-bit HEVC source completed CPU analysis successfully: `{'bit_depth': 12, 'pixel_format': 'yuv420p12le', 'frames': 3, 'admission': 'accepted'}`. Meanwhile C3 says to retain refusal if the specification refuses 12-bit and only make the refusal reason exact. There is no current refusal reason to refine. Decide between retaining current admission and correcting conversion to p016le, or introducing the specification's 12-bit refusal. **Default chosen: neither; leave admission and conversion unchanged and stop under the AGENTS.md design-decision rule.** Analysis success is demonstrated; a complete 12-bit enhancement/export was NOT RUN.
+2. **D: provide the original failure trace/error context if available.** The exact failed Windows job log was retrieved, but the run's artifacts API returned an empty list. The log proves that `DesktopApp.command` tried `page.evaluate` after the target was closed during the clipboard poll. It does not identify what closed the target. **Default chosen: report the cause as unknown, without claiming that clipboard access caused the closure.** Source: [attempt 1 Windows job](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/39737098567/job/119685243353). The relevant log excerpt is retained outside Git.
 
-## Intentionally not performed
+New feature implementation stopped at question 1. Closing checks found two regressions introduced by the partial startup changes; those simple mistakes were corrected and the same focused suite was rerun. No new scope was implemented after the stop.
 
-No owner sample, real GPU/driver/system/registry change, third-party-site media download, new feature, package rebuild, Git mutation, new PR, merge or deployment. Physical GPU-less hardware was not available; no-GPU environment_info was simulated in isolated test processes without changing the PC.
+## Item status
 
-## Designer closure (2026-10-22)
+| Item | Status | Work and evidence |
+| --- | --- | --- |
+| A1 | partial | Five configurations, 30-frame parts from a synthetic 120-second 1920x1080 30-fps source. Whole-part peaks measured; complete per-stage attribution remains missing. Ten runs recorded below. |
+| A2 | NOT RUN | No allocator or tensor-lifetime option tried or kept; no before/after peak claim. |
+| A3 | NOT RUN | No production cap, budget reserve, or uncapped rerun implemented. |
+| A4 | NOT RUN | Existing external ctypes PDH profiler exercised; production sampler, detection, watchdog, learning exclusions and spill notice unchanged. |
+| A5 | NOT RUN | No capped acceptance, competing-load helper, prediction gate, or G5 run. |
+| B | partial | Settings/preview JSON guards, startup job enumeration, persistent Home notice, settings-save refusal and tests. Other startup reads and full runtime recovery remain unfinished. |
+| C1 | NOT RUN | Decoder-retry/OOM sequencing unchanged. |
+| C2 | partial | Preserve runtime FFmpeg choice and reason during re-analysis when decoder_events exist; focused regression passes. |
+| C3 | BLOCKED | Specification/admission mismatch above; no production change. |
+| C4 | NOT RUN | No completed reproduction/verification. |
+| C5 | NOT RUN | No completed reproduction/verification. |
+| C6 | NOT RUN | No completed reproduction/verification. |
+| C7 | NOT RUN | No completed reproduction/verification. |
+| C8 | NOT RUN | No completed reproduction/verification. |
+| C9 | NOT RUN | No completed reproduction/verification. |
+| C10 | NOT RUN | No completed reproduction/verification. |
+| C11 | partial | Install from the same buffered bytes hashed during download; synthetic substitution regression passes. Baseline execution of the new substitution test remains NOT RUN. |
+| C12 | not reproduced | Existing install/uninstall guard already refuses active link checks; both actions tested. Active-download case still NOT RUN. |
+| C13 | partial | Skip insecure separate-audio alternatives and select an eligible one; do not select separate audio for a video already carrying audio. Regression passes. |
+| C14 | NOT RUN | Download crash recovery/case handling unchanged. |
+| C15 | NOT RUN | Analysis cancellation/resume unchanged. |
+| C16 | NOT RUN | Width reuse comparison unchanged. |
+| C17 | NOT RUN | Analysis thumbnail decoding unchanged. |
+| C18 | NOT RUN | Unreadable details title unchanged. |
+| C19 | partial | Invalidate cached link profiles when timing-observations.json changes; corrected regression passes. Corrected baseline test NOT RUN. |
+| D | partial | e2e-only copy capture implemented; real clipboard unit integration passes. Repeated spec interrupted at BLOCKED stop: Copy-details test 13/50 passes, Storage test 12/50 passes. Cause of original closure unknown. |
+| P2 | NOT RUN | No five-launch measurement. |
 
-Written by the designer (cloud Claude). Codex's text above is unchanged except the Status line.
+No item marked partial satisfies the cycle's complete before/after, documentation and acceptance requirements.
 
-- **CI:** all 4 checks passed on `526f0d5` (same code as `05b8d0f`), completed 2026-10-22 06:54 UTC. `cpu (windows-latest)` and `cpu (ubuntu-latest)` in runs 39733674213 and 39733669592.
-- **Cleanup:** on 2026-10-22 about 05:50 UTC, with the owner's approval, the operator deleted 3.53 GB of P1f-3 leftovers: `work\scratch` contents, including 7 sandbox-owned folders deleted from inside the sandbox with no refusals, `gui\node_modules` (192 MB), `__pycache__`, `.ruff_cache`, `.pytest_cache` and the empty package folder. `work\scratch` is empty. `work\owner-sample` was not touched.
-- **P1f-3 (`8302964`):** its report was PARTIAL only because of the final CI and the blocked cleanup. Both are now resolved: CI is green and the cleanup is done.
-- **P2:** the loaded Home run failed (767.5 ms, during the GPU suite) and stays recorded. The idle run passed (732 ms, gate 765 ms).
-- **A6 and A7:** the causes on hosted runners remain not established. Both tests passed in this CI.
+## A: preliminary measurements
+
+All GPU measurements used synthetic footage and individual scratch homes with development-model hard links. No cap was active. Clip length 15, overlap 2, HEVC output. These are 30-frame parts, not complete two-minute jobs. The first five runs used the unchanged production pipeline. Its original PowerShell sampler remained active; a separate external PDH sampler recorded process memory every second.
+
+| Configuration | Torch allocated peak GB | Torch reserved peak GB | Process dedicated peak GB | Process shared peak GB | Part seconds |
+| --- | --- | --- | --- | --- | --- |
+| Standard 1080 Keep | 5.749 | 7.126 | 7.394 | 0.126 | 32.939 |
+| Standard 1080 2x | 5.947 | 7.086 | 7.355 | 0.126 | 36.037 |
+| Standard 1440 Keep | 5.875 | 7.147 | 7.476 | 0.146 | 32.458 |
+| Standard 1440 2x | 6.198 | 7.554 | 7.816 | 0.213 | 37.928 |
+| Fast 1440 2x | 2.057 | 2.863 | 3.177 | 0.146 | 7.193 |
+
+Values are decimal GB and sampled process peaks; sampled peaks are not guaranteed continuous maxima. Raw JSON is authoritative if rounding differs. All ten processing calls completed and reported zero BasicVSR OOM retries. G5 and predictions were not compared.
+
+A second instrumentation pass reset global Torch peaks at compute-stage boundaries and added simultaneous Torch reserve to each external PDH sample. This affects the meaning of the returned aggregate Torch peak: the v2 stats' final peak must not be interpreted as a whole-part peak. Stage entry/exit records are retained. Decode and encode windows were not separately instrumented, and overlapping workers prevent interpreting the recorded stage windows as exclusive stage allocations. Consequently A1's required complete per-stage table is **NOT AVAILABLE**.
+
+| Additional run | Processing result | Part seconds | Maximum external direct-PDH sample cost ms |
+| --- | --- | --- | --- |
+| Standard 1080 Keep v2 | PASS | 32.537 | 0.734 |
+| Standard 1080 2x v2 | PASS | 36.087 | 9.078 |
+| Standard 1440 Keep v2 | PASS | See raw JSON | 1.003 |
+| Standard 1440 2x v2 | PASS | See raw JSON | 1.291 |
+| Fast 1440 2x v2 | PASS | 7.255 | 0.667 |
+
+The last four v2 runs overlapped the CPU GUI e2e run, whose engine can probe GPU hardware. They are unsuitable as isolated GPU performance/reserve evidence and must be rerun before choosing a reserve. No reserve was chosen. The external direct query ran through ctypes PDH, not a PowerShell fallback. Its measured samples were below 50 ms; this is not a production-sampler acceptance result. The original production sampler still took about 3 seconds in the retained logs. The multi-run PowerShell wrapper returned exit 1 despite each JSON recording processing completion; do not relabel that wrapper exit as zero.
+
+Evidence under `work/evidence/VE-P1e-3a`: `profile_baseline.py`, ten `*-baseline*.json` files, corresponding logs, and `measurement-summary.json`. Original manifest evidence filenames were reused by the second instrumentation pass; original processing stats/logs remain intact. Output media and model links were cleanup candidates, not Git content.
+
+## B: partial recovery behavior
+
+- `damaged_json.py` reads object-shaped JSON, records path/error once in a session registry, and logs the first detection. It never rewrites the input file.
+- Damaged settings fall back to session defaults. save_settings first validates the existing file and refuses with a copyable error until it has been fixed or removed. Logger setup also tolerates damaged settings, avoiding a recursive failure while reporting them.
+- Preview state/request parse errors and wrong top-level types are skipped in startup recovery.
+- Startup job enumeration can skip damaged manifests/analysis, while ordinary JobStore enumeration remains strict by default. This preserves the P1f-2 broken-record contract. Storage protection/core-record verification also remain strict.
+- Health publishes damaged_file_notices; Home displays one non-fading condition message with Copy containing all paths/errors.
+- Tests cover truncated JSON, non-JSON and a list at top level for settings, preview state, preview request, manifest and analysis; damaged bytes are checked unchanged and a valid second record is retained.
+- **Still missing:** guards/notices for every other startup JSON path, schema-field validation beyond object shape, complete runtime operation despite damaged jobs, duplicate-log audit, Home notice-specific GUI tests, and the required docs. Reads additionally identified include logging preferences, schedule.json, machine profiles, timing-observations.json, model/tool metadata and the native/Python storage pointer. These are not claimed fixed.
+
+## Before/after evidence and checks
+
+| Check | Result |
+| --- | --- |
+| Dependency restore | PASS: npm ci, 194 packages. |
+| Initial settings/preview regression on baseline product code | Expected FAIL: 9 failed; `startup-before.log`. |
+| First startup fix | FAIL: 1 failed, 8 passed; logger still assumed object-shaped settings; `startup-after.log`. |
+| Settings/preview correction | PASS: 9 passed; `startup-after2.log`. |
+| Added actual engine-start tests | Two attempts interrupted, not PASS. Fixtures initially failed to suppress the already-bound environment thread target, causing concurrent native AV1 probes; faulthandler evidence in `startup-debug.log`. Test injection was moved before Engine construction. |
+| Corrected startup tests | PASS: 15 passed; `startup-after4.log`. |
+| Initial minor tests | FAIL: 3 failed, 1 passed. C2/C13 reproduced; C19 was a fixture KeyError, not a valid cache reproduction; `minor-before.log`. |
+| First minor implementation check | FAIL: 1 failed, 14 passed; C19 fixture still missing cfr_fps; `minor-after.log`. |
+| Corrected minor/tool tests | PASS: 16 passed; `minor-after2.log`. |
+| Focused Python closing suite | FAIL: 2 failed, 116 passed; introduced strict-enumeration and Storage settings validation regressions; `focused-final.log`. |
+| Same focused suite after correcting regressions | PASS: 118 passed in 28.37 s; `focused-final2.log`. Includes new startup/minor/tool cases and existing jobs, Storage and P1f-2 review tests. |
+| ruff check / format check | PASS: all checks passed; 155 files formatted at that check. Earlier lint attempt reported four long lines, then formatter corrected them. Final strict-enumeration correction was later; final-tree rerun NOT RUN. |
+| pyright | PASS: 0 errors/warnings on the partial tree before closing strict-enumeration corrections; final-tree rerun NOT RUN. |
+| Complete CPU suite | NOT RUN. |
+| GPU suite / A5 / G5 | NOT RUN. Preliminary measurements are not substitute GPU-suite acceptance. |
+| GUI lint / typecheck / unit / build | PASS on the modified GUI: 12 unit files, 64 tests. Build warns of a minified chunk over 500 kB. |
+| Full GUI e2e | NOT RUN. |
+| D repeated spec | PARTIAL/INTERRUPTED: 25 completed test executions, no reported failure before interruption. Copy details 13 passes, Storage 12 passes; remaining repetitions NOT RUN. Not retry-wrapped or skipped. |
+| Rust changed? | YES: e2e copy capture and native clipboard integration test. |
+| Initial Rust e2e clippy | FAIL: frontendDist missing after prior cleanup. |
+| Rust e2e debug build after GUI build | PASS. |
+| Rust fmt / clippy default / clippy e2e | PASS after GUI build. |
+| Rust default unit | PASS: 22 tests, including real clipboard copy round trip. |
+| Rust e2e-feature unit | NOT RUN. |
+| P2 / package rebuild and smoke / package SHA | NOT RUN; existing package retained unchanged. |
+| Final Windows/Ubuntu CI | NOT RUN; no final commit or push by Codex. |
+| Read-only Git diff check | PASS; Git also warns about normal LF-to-CRLF conversion. |
+
+The real clipboard test saves/restores prior text when available and exercises the same native copy helper used by the non-e2e build. e2e builds capture text in State through the normal copy command; their clipboard test command reads that captured text. The unreadable-record spec asserts the visible Copied flow before checking the captured details. The e2e hook is compile-time feature gated.
+
+Environment warnings: Git and FFmpeg were initially unavailable through the sandbox environment; read-only Git and existing FFmpeg execution succeeded with reviewed escalation. The first focused Python suite could not write the repository pytest cache (WinError 5); the corrected rerun disabled that cache and passed. The later scratch deletion errors were OS Access denied results, not automatic approval-review rejections. No refused deletion was retried.
+
+GUI operations executed: both-theme Home/History, damaged-record details and Copy, guarded record removal/Undo, local mocked link reuse/nested lists; Storage verification/removal with synthetic video playback and tray Quit. No separate visual screenshot review was completed in this cycle. Expected: the Copy path remains usable and captures Parse error details. Actual: all 13 completed iterations passed. This does not identify the original CI closure cause or satisfy the 50-run gate.
+
+## Changed files
+
+- `src/videoenhancer/damaged_json.py`
+- `src/videoenhancer/jobs/store.py`
+- `src/videoenhancer/logging.py`
+- `src/videoenhancer/service/engine.py`
+- `src/videoenhancer/service/settings.py`
+- `src/videoenhancer/service/storage.py`
+- `src/videoenhancer/service/link_tools.py`
+- `src/videoenhancer/service/video_links.py`
+- `gui/src/Home.tsx`, `gui/src/types.ts`
+- `gui/src-tauri/src/commands.rs`, `gui/src-tauri/src/main.rs`
+- `gui/tests/e2e/p1f2-review.spec.ts`
+- `tests/test_p1e3a_startup.py`, `tests/test_p1e3a_minor.py`, `tests/test_link_tools.py`
+- `.ai/LAST_REPORT.md`
+
+API.md, GUI.md and TROUBLESHOOTING.md updates remain NOT RUN. Do not publish this partial behavior as complete.
+
+## Disk and cleanup
+
+Decimal GB; file-length inventories are logical sizes, not allocated space. Model hard links can repeat lengths across different paths. Folder rows below do not overlap.
+
+| Measurement | GB |
+| --- | --- |
+| C free near start, before dependency restore/measurements | 294.829 |
+| D free near start | 1005.791 |
+| C free at final inventory | 294.874 |
+| D free at final inventory | 1003.032 |
+| Dependency restore, separate authorized exception | 0.192 (191,885,340 bytes at final inventory) |
+| Current package, unchanged | 0.005775 |
+| Cycle evidence at final inventory | 0.003694, below 0.300 GB; the active operator log may still grow |
+| Complete cache | 6.682081, below 40 GB |
+| Scratch remaining | **4.577918; NOT EMPTY** |
+
+The first detailed folder baseline was taken after restore and initial profiling, not at the very start. Cache then measured 6.596231 GB; subsequent cache growth is 0.085850 GB. A complete start-to-end persistent-growth attribution is unavailable. The 1 GB cycle gate is **NOT established**, and retained scratch exceeds that limit in logical lengths. Do not infer allocated growth from hard-link lengths or drive free-space differences.
+
+Before deletion, exact target sizes were recorded in final-cleanup-candidates.json. Deletion was attempted once inside the sandbox. There was no escalation/retry/workaround after denial.
+
+| Cleanup target | Before bytes | Result |
+| --- | --- | --- |
+| work/scratch/VE-P1e-3a | 5,130,148,743 | Partial; 4,577,917,713 bytes remain. 552,231,030 logical bytes removed. |
+| work/scratch/tmp | 9,496,969 | Files removed; denied directories remain at 0 logical bytes. |
+| repo/gui/dist | 582,055 | Removed. |
+| repo/gui/test-results | 0 | Removed. |
+
+### For the owner to delete
+
+- `work/scratch/VE-P1e-3a` — 4,577,917,713 logical bytes. Deletion stopped at `focused-final` with `[WinError 5] Access is denied`. Remaining development fixtures include hard-linked model copies and synthetic GUI fixtures. Do not treat logical bytes as additional allocated model storage.
+- `work/scratch/tmp` — 0 logical bytes in remaining directories. Deletion stopped at `ve-av1-probe-ctoah85f` with `[WinError 5] Access is denied`.
+
+No process with this cycle's isolated VE_HOME/test-home environment was found in the final process inventory. Evidence retains cleanup-inventory.json, final-cleanup-candidates.json, cleanup-results.json and final-inventory.json. No owner AppData, VE-check, Recycle Bin or owner sample was accessed or cleaned. No earlier evidence retention pruning was performed; this blocked cycle does not claim the workspace-wide retention audit complete.
+
+## Handoff
+
+Resolve the C3 input-policy question before continuing implementation. Supply D trace/error-context evidence if it still exists. Resume from this partial working tree; do not mark the cycle completed based on this report's existence. Full A, remaining B/C/D work, corrected before/after evidence, docs, all required gates, package and CI remain outstanding. The operator retains responsibility for Git recording and publication after review.

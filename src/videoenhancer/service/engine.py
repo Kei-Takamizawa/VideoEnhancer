@@ -19,6 +19,7 @@ from typing import Any
 
 from videoenhancer import __version__, proc
 from videoenhancer.cli import _jobs_plan, _save_schedule, _schedule_payload
+from videoenhancer.damaged_json import notices as damaged_notices
 from videoenhancer.estimate import estimate_job
 from videoenhancer.estimate.live import live_job
 from videoenhancer.estimate.local import recent_correction
@@ -204,7 +205,7 @@ class Engine:
                 ):
                     job.setdefault("video_deletions", {})[key] = entry["result"]
                     self.store.save(job)
-        for job in self.store.list_jobs():
+        for job in self.store.list_jobs(skip_damaged=True):
             from videoenhancer.jobs.checks import job_support_reason
 
             unsupported = job_support_reason(job)
@@ -242,9 +243,14 @@ class Engine:
                 job.update(state="failed", error="Preparation was interrupted. Try again.")
                 self.store.save(job)
         for folder in (self.home / "previews").glob("*"):
+            from videoenhancer.damaged_json import read_object
+
             state_path = folder / "state.json"
             if state_path.is_file():
-                op = json.loads(state_path.read_text(encoding="utf-8"))
+                try:
+                    op = read_object(state_path, self.home)
+                except (ValueError, UnicodeError):
+                    continue
                 if op["state"] in {"waiting", "running"}:
                     op.update(
                         state="failed",
@@ -252,7 +258,10 @@ class Engine:
                         error="Interrupted. Try again.",
                     )
             elif (folder / "request.json").is_file():
-                saved = json.loads((folder / "request.json").read_text(encoding="utf-8"))
+                try:
+                    saved = read_object(folder / "request.json", self.home)
+                except (ValueError, UnicodeError):
+                    continue
                 op = dict(
                     id=folder.name,
                     kind=saved["kind"],
@@ -602,6 +611,7 @@ class Engine:
             "last_error": self.last_error,
             "home": str(self.home),
             "deletion_notices": list(self.deletion.notices),
+            "damaged_file_notices": damaged_notices(self.home),
             "av1_supported": self.environment.get("av1_supported", False),
             "av1_unavailable_reason": self.environment.get(
                 "av1_unavailable_reason", "Checking AV1 hardware encoding…"
