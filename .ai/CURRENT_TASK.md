@@ -182,3 +182,39 @@ Each item below was found in the P1f and P1f-2 reviews and deferred here. The de
 - Changed files.
 - **Disk:** the dependency restore size; growth for the rest of the cycle; `work\scratch` at the end; free space on C and D; anything left for the owner to delete.
 - "Questions for the designer", each with the default you chose.
+
+## 11. Designer answers and resume (2026-10-22, after the first run stopped at `216043d`)
+
+Continue this same cycle on the same branch, from the partial work in `216043d`. Keep that work; do not start over. Everything in sections 1-10 still applies, and every item still marked partial or NOT RUN in your report is still required.
+
+### 11.1 Do not stop the whole cycle for one question
+
+When one item needs a designer decision, choose the safer default that keeps the settled spec, record it under "Questions for the designer", and **continue with every other item**. Stop early only for the reasons in `AGENTS.md` (a conflict between `AGENTS.md` and this task, a usage limit, or an environment failure). BLOCKED is for a cycle that cannot continue at all.
+
+### 11.2 C3 answer: follow the spec and refuse inputs above 10 bits
+
+- The spec allows 8-bit and 10-bit SDR input only (`MIGRATION_HANDOFF.md` section 3). The current acceptance of `yuv420p12le` and other formats above 10 bits is a gap, not a product decision.
+- **Required:**
+  - Refuse local files above 10 bits at admission (the Add dialog and the API), with this reason: "This video uses <N>-bit color. VideoEnhancer accepts 8-bit and 10-bit videos only." Make it copyable (P1f-3 B1).
+  - For links, never choose a format above 10 bits. If only formats above 10 bits exist, refuse the link with the same reason.
+  - A job already in the queue or History from an earlier build with such a source: it is not deleted or changed. If it has not finished, it fails at its next start with the same reason.
+  - Do not add `p016le` conversion. Remove or narrow the code path that accepts 12-bit input, so the refusal cannot be bypassed.
+- **Test:** the synthetic 12-bit HEVC fixture you made is refused, with the exact reason, on `c84ce1a` behaviour (accepted) versus now (refused). An 8-bit and a 10-bit fixture are still accepted.
+- Update `docs/GUI.md` or `docs/TROUBLESHOOTING.md` with the refusal.
+
+### 11.3 D answer: the cause stays unknown; make the next failure leave evidence
+
+- The designer accepts "what closed the page is unknown" for the failure in run 39737098567 attempt 1. No other trace exists: the run kept no artifacts.
+- Keep your e2e-only copy capture. Finish the 50-run local repetition of the whole spec file and report the count.
+- **Add evidence for the future (allowed file: `.github/workflows/ci.yml`):** on an e2e failure, CI uploads the Playwright trace, the app log and the engine log of the failing test as an artifact (kept 7 days, at most 100 MB, no owner data; e2e homes are synthetic). The upload runs only on failure. It must not change pass/fail and must not retry.
+- Also log, in e2e builds only, why a window or webview closes (the Tauri close or destroy event, the reason if known, and the time), so a future "page closed" can be explained.
+
+### 11.4 Measurements in A
+
+- Run A1 again **with nothing else using the GPU** (no GUI e2e or other GPU tests at the same time). The earlier runs that overlapped e2e do not count for choosing the reserve.
+- If exact per-stage attribution is not possible because stages overlap, measure each stage alone in a test harness on the same frames (decode only, BasicVSR++ only, resize, RIFE only, encode only), and report both: the per-stage table from the harness, and the whole-part peaks from real runs.
+
+### 11.5 Cleanup
+
+- The operator deleted most of `work\scratch` after your first run. 17 empty folders that only the sandbox account can open are still there (`minor-*`, `startup-*`, `tmp\ve-av1-probe-*`). Delete them from inside the sandbox at the end of this run if you can. List any that remain.
+- Create test folders so the owner's account can delete them (see `docs/WORKSPACE.md`), for example by avoiding mode `0o700`, where the test code is yours to change.
