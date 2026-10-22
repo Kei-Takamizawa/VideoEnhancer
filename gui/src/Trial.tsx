@@ -521,7 +521,7 @@ export function Compare({
         Arrow keys step one frame. Drag the zoomed picture to pan.
       </p>
       {error && (
-        <Notice identity={error} dismiss={() => setError("")}>{error}</Notice>
+        <Notice autoDismiss identity={error} dismiss={() => setError("")}>{error}</Notice>
       )}
     </div>
   );
@@ -883,7 +883,7 @@ function TrialDialogContent({
           </div>
         )}
         {error && (
-          <Notice identity={error} dismiss={() => setError("")}>
+          <Notice autoDismiss identity={error} dismiss={() => setError("")}>
             {error}
           </Notice>
         )}

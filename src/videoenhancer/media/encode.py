@@ -321,7 +321,9 @@ class Encoder:
                 "mp4",
                 str(self.path),
             ]
-            result = proc.run(command, capture_output=True, text=True)
+            result = proc.run(
+                command, capture_output=True, text=True, encoding="utf-8", errors="replace"
+            )
             if result.returncode:
                 raise RuntimeError(
                     f"GPU segment mux failed: {result.stderr}. "

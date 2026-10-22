@@ -45,6 +45,8 @@ export function ScheduleView({
   const [draft, setDraft] = useState(value),
     [preview, setPreview] = useState<Plan>();
   const [saveCount, setSaveCount] = useState(0);
+  const failedSave = useRef(false);
+  useEffect(() => { failedSave.current = false; }, [draft]);
   const [exceptionEditor, setExceptionEditor] = useState(false);
   const [undo, setUndo] = useState<Schedule>(),
     [saved, setSaved] = useState(false),
@@ -109,7 +111,7 @@ export function ScheduleView({
     };
   }, [api, draft]);
   useEffect(() => {
-    if (JSON.stringify(draft) === JSON.stringify(lastApplied.current) || error)
+    if (JSON.stringify(draft) === JSON.stringify(lastApplied.current) || error || failedSave.current)
       return;
     let alive = true;
     const timer = setTimeout(() => {
@@ -126,7 +128,7 @@ export function ScheduleView({
           }
         })
         .catch((e) => {
-          if (alive) setError(e.message);
+          if (alive) { failedSave.current = true; setError(e.message); }
         });
     }, 600);
     return () => {
@@ -227,7 +229,7 @@ export function ScheduleView({
         </div>
       )}
       {error && (
-        <Notice identity={error} dismiss={() => setError("")}>
+        <Notice autoDismiss identity={error} dismiss={reason => { if (reason === "manual") failedSave.current = false; setError(""); }}>
           {error}
         </Notice>
       )}

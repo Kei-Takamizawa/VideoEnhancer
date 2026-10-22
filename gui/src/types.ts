@@ -237,6 +237,7 @@ export interface Desktop {
   openFolder(folder: string): Promise<void>;
   play(file: string): Promise<void>;
   copy(text: string): Promise<void>;
+  startupStatus?(): Promise<string>;
   logRendererError?(details: string): Promise<void>;
   openExternal?(url: string): Promise<void>;
   sourceLink?(jobId: string): Promise<void>;

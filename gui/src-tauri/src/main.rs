@@ -30,6 +30,7 @@ use tauri::{
 pub struct State {
     home: Mutex<PathBuf>,
     appearance: Mutex<String>,
+    startup_error: Mutex<String>,
     zoom_percent: AtomicU64,
     connection: Mutex<Option<engine::Connection>>,
     storage_busy: AtomicBool,
@@ -77,6 +78,7 @@ mod connection_tests {
     fn storage_verification_and_removal_keep_commands_connected() {
         let state = State {
             home: Mutex::new(PathBuf::from("isolated-test")),
+            startup_error: Mutex::new(String::new()),
             appearance: Mutex::new("dark".into()),
             zoom_percent: AtomicU64::new(100),
             connection: Mutex::new(Some(engine::Connection {
@@ -132,6 +134,7 @@ fn initial_state() -> Option<(Arc<State>, Value)> {
         .unwrap_or_else(|| json!({}));
     let state = Arc::new(State {
         home: Mutex::new(home),
+        startup_error: Mutex::new(String::new()),
         appearance: Mutex::new(initial["theme"].as_str().unwrap_or("system").to_owned()),
         zoom_percent: AtomicU64::new(
             initial["zoom"]
@@ -349,7 +352,19 @@ fn main() {
                 }
                 if let Ok(c) = state.connected() {
                     if let Ok(settings) = engine::request(&c, "settings", "GET", None) {
-                        let _ = window::startup(&settings);
+                        if let Ok(mut previous) = state.startup_error.lock() {
+                            if window::startup_status(&mut previous, window::startup(&settings)) {
+                                let _ = handle.emit("startup-status", previous.clone());
+                                if !previous.is_empty() {
+                                    use std::io::Write;
+                                    if let Ok(home) = state.home.lock() {
+                                        if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(home.join("startup-errors.log")) {
+                                            let _ = writeln!(log, "{}", *previous);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         if let Some(webview) = handle.get_webview_window("main") {
                             let preferred = settings["theme"].as_str().unwrap_or("system");
                             let changed = state

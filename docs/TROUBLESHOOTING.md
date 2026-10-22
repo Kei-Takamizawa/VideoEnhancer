@@ -248,3 +248,21 @@ remux before rebuilding it. Completed downloaded originals are preserved.
 Missing thumbnails do not prevent downloading: private-network thumbnail URLs or
 redirects are refused. Link-tool caches follow the app-data folder, rather than
 the user profile on C. Uninstall removes the yt-dlp cache too.
+
+### Unicode paths and decoder preparation
+
+Tool output is read as UTF-8, replacing undecodable diagnostic bytes. The engine's
+own JSON and text files use explicit encodings; JSON records remain strict UTF-8
+so a damaged record cannot silently change a saved path. Existing JSONL log
+handlers already write UTF-8 and retain non-ASCII paths.
+
+A valid packet timeline does not guarantee that NVDEC's indexed thumbnail reader
+can read the container. Incomplete NVDEC thumbnail analysis now selects FFmpeg for
+that job and repeats analysis. "Remux the input first" is reserved for a count
+mismatch on the FFmpeg path. Decoder checks and the output pipeline are unchanged.
+
+An expired History Undo timer reschedules if it fires early. A transient deletion
+failure is logged and retried with short backoff. A persistent failure leaves the
+record for subsequent cleanup; it does not remove the original or output video.
+Use Copy message or Copy details when reporting an error. An old calibration
+failure is labelled as the last attempt; Run again starts a new calibration.

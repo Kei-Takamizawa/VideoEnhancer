@@ -195,7 +195,15 @@ def _generate_hevc_clip(ffmpeg: str | None, directory: Path) -> Path | None:
 def _run(command: list[str], timeout: float = 90) -> tuple[bool, str, float]:
     begin = time.perf_counter()
     try:
-        result = proc.run(command, capture_output=True, text=True, timeout=timeout, check=False)
+        result = proc.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc), time.perf_counter() - begin
     elapsed = time.perf_counter() - begin

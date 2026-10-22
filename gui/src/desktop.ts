@@ -23,7 +23,7 @@ export function installDesktop() {
     storageStatus: verify => call("storageStatus", !!verify), moveStorage: folder => call("moveStorage", folder), removeOldStorage: () => call("removeOldStorage"),
     logRendererError: details => call("logRendererError", details), files: kind => call("files", kind),
     openFolder: folder => call("openFolder", folder), play: file => call("play", file), reveal: file => call("reveal", file),
-    copy: text => call("copy", text), hide: () => call("hide"), zoom: percent => call("zoom", percent), theme: theme => call("theme", theme),
+    copy: text => call("copy", text), startupStatus: () => call("startupStatus"), hide: () => call("hide"), zoom: percent => call("zoom", percent), theme: theme => call("theme", theme),
     onZoom: callback => subscribe("zoom-changed", callback), onTrayExplanation: callback => subscribe("tray-explanation", callback),
     openExternal: url => call("openExternal", url), sourceLink: id => call("sourceLink", id), onFileDrop: callback => subscribe("native-file-drop", callback),
   };
@@ -62,5 +62,6 @@ export function installDesktop() {
     if (link && /^(https:|ms-windows-store:)/.test(link.href)) { event.preventDefault(); void desktop.openExternal!(link.href); }
   });
   subscribe<string>("desktop-error", message => { window.dispatchEvent(new CustomEvent("desktop-error", { detail: message })); });
+  subscribe<string>("startup-status", message => { window.dispatchEvent(new CustomEvent("startup-status", { detail: message })); });
   requestAnimationFrame(() => requestAnimationFrame(() => { void call("ready"); }));
 }

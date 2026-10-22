@@ -351,3 +351,17 @@ Missing fragments and incomplete durations fail the download and allow Retry.
 Cancel and removal of an unfinished download delete only its own temporary files;
 completed downloaded originals remain. Videos and ordinary controls remain usable
 while Storage verifies or removes an old copy. Move temporarily stops the engine.
+
+### Copyable messages and action errors
+
+Errors and warnings expose an icon named **Copy message**. Copy details, Copy
+diagnostics and message copies confirm with a nearby **Copied** status for 1.5
+seconds. Copy failures show the reason instead of confirming success.
+
+Action errors (for example, Save, Install, Remove or Quit) stay for eight seconds,
+then fade for one second. Hover or keyboard focus holds them; Dismiss closes them
+immediately. Notices about an ongoing condition and reasons inside rows remain.
+
+Diagnostics labels a calibration failure from an earlier session with its date
+and offers **Run again**. A Windows startup-entry failure appears beside **Start
+with Windows**, has Copy, and is logged once until the error changes or clears.

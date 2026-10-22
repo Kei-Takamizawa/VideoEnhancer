@@ -1369,3 +1369,18 @@ input, textarea, pre, .log-output { user-select: text; }
 .storage-card dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; margin: 8px 0; }
 .storage-card dd { margin: 0; }
 .storage-card li { overflow-wrap: anywhere; }
+ .copy-control { display: inline-flex; position: relative; align-items: center; }
+ .copy-feedback { position: absolute; z-index: 100; left: 100%; margin-left: 6px; padding: 4px 8px; border-radius: 6px; background: var(--raised); color: var(--text); white-space: nowrap; box-shadow: 0 2px 8px #0004; animation: copy-feedback 1.7s forwards; }
+ @keyframes copy-feedback { 0%, 88.235% { opacity: 1; } 100% { opacity: 0; } }
+ .notice-fading { opacity: 0; transition: opacity 1s; }
+.copyable-notice { position: relative; padding-right: 82px; min-height: 40px; }
+.copyable-notice > .copy-control { position: absolute; right: 36px; top: 4px; }
+.copyable-notice > .copy-control > button { margin: 0; padding: 6px; }
+.copyable-notice:not(.dismissible) > .copy-control { right: 6px; }
+.copyable-notice:not(.dismissible) { padding-right: 46px; }
+.copyable-notice > .copy-control .copy-feedback { left: auto; right: 100%; margin-right: 6px; }
+.copy-feedback { max-width: min(360px, calc(100vw - 32px)); white-space: normal; width: max-content; }
+.copy-failure { animation: copy-failure 9s forwards; }
+.copy-control:hover .copy-failure, .copy-control:focus-within .copy-failure { animation-play-state: paused; }
+@keyframes copy-failure { 0%, 88.889% { opacity: 1; } 100% { opacity: 0; } }
+.copy-feedback { overflow-wrap: anywhere; }

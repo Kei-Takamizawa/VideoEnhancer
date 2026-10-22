@@ -114,12 +114,13 @@ class LinkJobs:
             output = engine.output(source_path, value)
             from videoenhancer.jobs import store as job_store
 
-            space_media = {key: val or 1 for key, val in media.items()}
             input_bytes = source_path.stat().st_size if reused else download_bytes
-            estimated_bytes = job_store.estimated_output_size(
-                max(1, input_bytes),
-                space_media,
-                settings,
+            # Unknown dimensions cannot support an output-size estimate. The
+            # downloaded file gets the full output/working-space check in add_job.
+            estimated_bytes = (
+                job_store.estimated_output_size(max(1, input_bytes), media, settings)
+                if media["width"] and media["height"]
+                else 0
             )
             job_store.require_working_space(
                 engine.home,

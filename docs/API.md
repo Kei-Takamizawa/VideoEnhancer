@@ -481,3 +481,17 @@ folder. Expiration, or the next engine start, deletes the staged folder. Video
 removal choices are unavailable for unreadable records; videos outside the job
 folder remain untouched. Copy details returns the parse error and manifest path.
 No damaged manifest is repaired or rewritten.
+
+### Unanalysed local files
+
+During local preparation, unknown media dimensions, frame rate, frame count and
+duration are JSON `null`. Failed or cancelled preparation retains these unknown
+values until successful analysis. Queue snapshots do not calculate progress or
+finalization timing from these placeholders. Existing unreadable-record isolation
+and the link-job representation remain in force.
+
+If the NVDEC thumbnail pass disagrees with the packet count, analysis repeats the
+thumbnail pass with FFmpeg and persists `decoder: "ffmpeg"` and `decoder_reason`
+for that job. The strict packet/frame-count check still applies to the fallback.
+Unknown link dimensions reserve the download twice plus the existing margin at
+admission; the downloaded file still receives the full output/working-space check.

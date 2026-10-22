@@ -711,6 +711,22 @@ class Engine:
                     )
                     json.dumps(rows[-1], allow_nan=False)
                     continue
+                unknown_media = j["state"] == "preparing" or (
+                    j["state"] in {"failed", "cancelled"}
+                    and not j.get("analysis_file")
+                    and all(
+                        j["media"].get(key, "missing") is None
+                        for key in (
+                            "display_width",
+                            "display_height",
+                            "width",
+                            "height",
+                            "cfr_fps",
+                            "frame_count",
+                            "duration",
+                        )
+                    )
+                )
                 terminal = j["state"] in {"done", "failed", "cancelled"}
                 previous_row = self._history_rows.get(j["id"])
                 if terminal and previous_row and previous_row[0][0] != j["updated_at"]:
@@ -776,7 +792,7 @@ class Engine:
                         "unsupported_reason": (job_support_reason(j) if not terminal else None),
                         "estimate": (
                             estimate_job(j).to_dict()
-                            if j["state"] != "preparing"
+                            if not unknown_media
                             else dict(seconds=0, low=0, high=0, calibrated=False)
                         ),
                         "eta": (
@@ -812,7 +828,17 @@ class Engine:
                         "segment": active["index"] + 1 if active else len(done),
                         "completed_segments": len(done),
                         "segments": len(j["segments"]),
-                        **job_progress(j),
+                        **(
+                            job_progress(j)
+                            if not unknown_media
+                            else dict(
+                                progress_percent=0,
+                                phase=j["state"],
+                                step="Analyzing input",
+                                phase_percent=0,
+                                step_percent=0,
+                            )
+                        ),
                         "log": str(self.store.job_dir(j["id"]) / "job.jsonl"),
                         "started_at": j.get("started_at"),
                         "finished_at": j.get("finished_at"),
@@ -1407,7 +1433,15 @@ class Engine:
             input={"path": str(source)},
             output=str(output),
             settings=settings,
-            media=dict(display_width=0, display_height=0, cfr_fps="30", frame_count=0, duration=0),
+            media=dict(
+                display_width=None,
+                display_height=None,
+                width=None,
+                height=None,
+                cfr_fps=None,
+                frame_count=None,
+                duration=None,
+            ),
             segments=[],
             state="preparing",
             created_at=now,
@@ -1470,7 +1504,7 @@ class Engine:
 
         return geometry_warning(self.home, media, settings, self.environment)
 
-    def remove(self, job_id: str) -> dict[str, Any]:
+    def remove(self, job_id: str, *, stage_history: bool = False) -> dict[str, Any]:
         import logging
 
         job = self.store.load(job_id)
@@ -1502,7 +1536,7 @@ class Engine:
         previews = self.home / "previews"
         if previews.exists():
             for request in previews.glob("*/request.json"):
-                data = json.loads(request.read_text())
+                data = json.loads(request.read_text(encoding="utf-8"))
                 if data.get("request", {}).get("job_id") == job_id:
                     shutil.rmtree(request.parent)
         directory = self.store.job_dir(job_id)
@@ -1513,7 +1547,12 @@ class Engine:
                 logger.removeHandler(handler)
                 handler.close()
         with _manifest_lock(self.store.jobs_dir):
-            shutil.rmtree(directory)
+            if stage_history:
+                staged = self.store.jobs_dir / ".removing" / job_id
+                staged.parent.mkdir(exist_ok=True)
+                directory.rename(staged)
+            else:
+                shutil.rmtree(directory)
         self.link_jobs.pending.pop(job_id, None)
         self.link_jobs.cancelled.discard(job_id)
         return {"removed": job_id, "output_preserved": True}
@@ -1772,32 +1811,66 @@ class Engine:
             raise ValueError("Choose at least one removal option.")
 
     def _schedule_history_removal(self, job: dict[str, Any]) -> None:
-        def expire() -> None:
+        staged_record: dict[str, Any] | None = None
+
+        def schedule(delay: float, failures: int = 0) -> None:
+            timer = threading.Timer(max(0.01, delay), lambda: expire(failures))
+            timer.daemon = True
+            self._history_timers.append(timer)
+            timer.start()
+
+        def failed(error: OSError, failures: int) -> None:
+            get_logger(self.home).warning(
+                "History cleanup attempt %s failed for %s: %s",
+                failures + 1,
+                job["id"],
+                error,
+            )
+            if failures < 3:
+                schedule(0.1 * 2**failures, failures + 1)
+            # Expired records and staged folders remain available to startup cleanup.
+
+        def expire(failures: int) -> None:
+            nonlocal staged_record
             with self._mutation_lock:
                 if job.get("unreadable_record"):
                     latest = self._unreadable_removals.get(job["id"])
-                    if latest and latest["history_hidden_until"] <= time.time():
-                        shutil.rmtree(self.store.jobs_dir / ".removing" / job["id"])
-                        self._unreadable_removals.pop(job["id"], None)
-                    return
-                if not (self.store.job_dir(job["id"]) / "manifest.json").exists():
-                    return
-                latest = self.store.load(job["id"])
-                if (
-                    latest.get("history_hidden_until", 0)
-                    and latest["history_hidden_until"] <= time.time()
-                ):
+                elif staged_record is not None:
+                    latest = staged_record
+                elif (self.store.job_dir(job["id"]) / "manifest.json").exists():
                     try:
-                        self.remove(job["id"])
-                    except Exception as error:
+                        latest = self.store.load(job["id"])
+                    except OSError as error:
+                        failed(error, failures)
+                        return
+                else:
+                    return
+                if not latest or not latest.get("history_hidden_until"):
+                    return
+                remaining = latest["history_hidden_until"] - time.time()
+                if remaining > 0:
+                    schedule(remaining, failures)
+                    return
+                try:
+                    if not job.get("unreadable_record") and staged_record is None:
+                        self.remove(job["id"], stage_history=True)
+                        staged_record = latest
+                    directory = self.store.jobs_dir / ".removing" / job["id"]
+                    if directory.exists():
+                        shutil.rmtree(directory)
+                    if job.get("unreadable_record"):
+                        self._unreadable_removals.pop(job["id"], None)
+                except OSError as error:
+                    failed(error, failures)
+                except Exception as error:
+                    if not job.get("unreadable_record") and staged_record is None:
                         latest["history_hidden_until"] = 0
                         self.store.save(latest)
                         self._error(job["id"], error)
+                    else:
+                        get_logger(self.home).exception("Staged History cleanup failed")
 
-        timer = threading.Timer(max(0, job["history_hidden_until"] - time.time()), expire)
-        timer.daemon = True
-        self._history_timers.append(timer)
-        timer.start()
+        schedule(job["history_hidden_until"] - time.time())
 
     def _clean_cancelled(self, job: dict[str, Any]) -> dict[str, Any]:
         self.video_links.cleanup_download(job)
@@ -2397,8 +2470,10 @@ class Engine:
         if op.get("timed_out"):
             raise TimeoutError(op["error"])
         if process.returncode:
-            raise RuntimeError((folder / "operation.log").read_text(errors="replace")[-4000:])
-        result = json.loads((folder / "result.json").read_text())
+            raise RuntimeError(
+                (folder / "operation.log").read_text(encoding="utf-8", errors="replace")[-4000:]
+            )
+        result = json.loads((folder / "result.json").read_text(encoding="utf-8"))
         if op["kind"] == "trial":
             from videoenhancer.config import executable
             from videoenhancer.media.mux import _run

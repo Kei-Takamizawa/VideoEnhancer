@@ -351,7 +351,7 @@ export function AddDialog({
 
               <ActionButton disabled={busy} onClick={() => setItems(old => old.filter(item => item !== file))}>Remove it</ActionButton>
               {loading && !previews[file] && <p role="status">Checking…</p>}
-              {previews[file]?.error && <Notice identity={previews[file].error!}>{previews[file].error}</Notice>}
+              {previews[file]?.error && <Notice copyText={`${file}\n${previews[file].error}`} identity={previews[file].error!}>{previews[file].error}</Notice>}
               {validPreviews[file] && (
                 <>
                   <div className="preset-estimates">
@@ -376,7 +376,7 @@ export function AddDialog({
                   </div>
                   {validPreviews[file].warnings.some(w => w.includes("Insufficient")) && <ActionButton onClick={() => window.dispatchEvent(new Event("open-storage"))}>Open Storage settings</ActionButton>}
                   {validPreviews[file].warnings.map((w) => (
-                    <Notice className="warning-text" key={w} identity={w + timeKey}>
+                    <Notice copyText={`${file}\n${w}`} className="warning-text" key={w} identity={w + timeKey}>
                       {w}
                       {w.includes("Insufficient") && <ActionButton onClick={async () => { const folder = (await window.desktop.files("folder"))[0]; if (folder) fileField(file, "output_folder", folder); }}>Choose a folder…</ActionButton>}
                       {w.includes("too small for cleanup") && <ActionButton onClick={() => fileField(file, "short_side", 1080)}>Use 1080</ActionButton>}
@@ -391,7 +391,7 @@ export function AddDialog({
           ))}
         </div>
         {error && (
-          <Notice identity={error} dismiss={() => setError("")}>
+          <Notice autoDismiss identity={error} dismiss={() => setError("")}>
             {error}
           </Notice>
         )}

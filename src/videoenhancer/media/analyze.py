@@ -122,29 +122,38 @@ def analyze(path: str | Path, backend: str = "auto") -> dict[str, Any]:
             native.close()
     duration = pts[-1] - pts[0] + (durations[-1] or 1 / Fraction(info.average_fps))
     mapping = nearest_mapping(pts, duration, Fraction(info.cfr_fps))
-    cuts = []
-    scores = []
-    motion_scores = []
-    previous: np.ndarray | None = None
-    source_count = 0
-    for index, thumbnail in enumerate(
-        _thumbnails(path, media, selected if decoder_name == "nvdec" else "cpu")
-    ):
-        source_count += 1
-        if previous is not None:
-            delta, distance = _cut_score(previous, thumbnail)
-            motion_scores.append({"frame": index, "delta": round(delta, 3)})
-            if delta >= 24 and distance >= 0.18:
-                cuts.append(index)
-                scores.append(
-                    {
-                        "frame": index,
-                        "delta": round(delta, 3),
-                        "histogram_distance": round(distance, 3),
-                    }
-                )
-        previous = thumbnail
-    if source_count != len(pts):
+    for _attempt in range(2):
+        cuts = []
+        scores = []
+        motion_scores = []
+        previous: np.ndarray | None = None
+        source_count = 0
+        for index, thumbnail in enumerate(
+            _thumbnails(path, media, selected if decoder_name == "nvdec" else "cpu")
+        ):
+            source_count += 1
+            if previous is not None:
+                delta, distance = _cut_score(previous, thumbnail)
+                motion_scores.append({"frame": index, "delta": round(delta, 3)})
+                if delta >= 24 and distance >= 0.18:
+                    cuts.append(index)
+                    scores.append(
+                        {
+                            "frame": index,
+                            "delta": round(delta, 3),
+                            "histogram_distance": round(distance, 3),
+                        }
+                    )
+            previous = thumbnail
+        if source_count == len(pts):
+            break
+        if decoder_name == "nvdec":
+            decoder_reason = (
+                f"NVDEC thumbnail pass returned {source_count} of {len(pts)} frames. "
+                "Using FFmpeg decoding for this job."
+            )
+            decoder_name = "ffmpeg"
+            continue
         raise ValueError(
             f"Timestamp/frame count mismatch ({len(pts)} packets, {source_count} decoded frames). "
             "Remux the input first."
@@ -167,7 +176,9 @@ def analyze(path: str | Path, backend: str = "auto") -> dict[str, Any]:
         "csv=p=0",
         str(path),
     ]
-    packets = proc.run(command, capture_output=True, text=True, check=True).stdout.splitlines()
+    packets = proc.run(
+        command, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True
+    ).stdout.splitlines()
     key_pts = {
         int(row.split(",")[0])
         for row in packets

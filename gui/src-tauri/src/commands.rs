@@ -61,6 +61,11 @@ pub fn execute(
         .get_webview_window("main")
         .ok_or("Main window missing")?;
     match operation {
+        "startupStatus" => Ok(json!(state
+            .startup_error
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone())),
         "memoryTarget" => {
             window::memory_target(&window, args.as_bool().ok_or("Invalid memory target")?)?;
             Ok(Value::Null)

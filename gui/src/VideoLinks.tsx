@@ -19,17 +19,18 @@ export function VideoLinksCard({ api, compact = false, installed }: { api: Api; 
   const [dialog, setDialog] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [conditionError, setConditionError] = useState("");
   const [folder, setFolder] = useState("");
   const [limit, setLimit] = useState(2);
   useEffect(() => {
     if (compact) return;
     let active = true;
-    void api.call<{ video_download_folder?: string; video_download_limit?: number }>("settings").then(value => { if (active) { setFolder(value.video_download_folder || ""); setLimit(value.video_download_limit || 2); } }).catch(error => { if (active) setError(error.message); });
+    void api.call<{ video_download_folder?: string; video_download_limit?: number }>("settings").then(value => { if (active) { setFolder(value.video_download_folder || ""); setLimit(value.video_download_limit || 2); } }).catch(error => { if (active) setConditionError(error.message); });
     return () => { active = false; };
   }, [api, compact]);
   useEffect(() => {
     let active = true;
-    void api.call<Status>("link-tools").then(value => { if (active) setStatus(value); }).catch(error => { if (active) setError(error.message); });
+    void api.call<Status>("link-tools").then(value => { if (active) setStatus(value); }).catch(error => { if (active) setConditionError(error.message); });
     return () => { active = false; };
   }, [api]);
   useEffect(() => {
@@ -74,7 +75,8 @@ export function VideoLinksCard({ api, compact = false, installed }: { api: Api; 
       <ActionButton disabled={busy || !status} onClick={() => void start("check")}>{status?.available ? "Check for updates" : "Install link tools"}</ActionButton>
       {!compact && Object.keys(status?.installed || {}).length > 0 && <ActionButton disabled={busy} onClick={() => void start("uninstall")}>Uninstall link tools</ActionButton>}
     </div>
-    {error && <Notice role="alert" identity={error} dismiss={() => setError("")}>{error}</Notice>}
+    {conditionError && <Notice identity={conditionError}>{conditionError}</Notice>}
+    {error && <Notice autoDismiss role="alert" identity={error} dismiss={() => setError("")}>{error}</Notice>}
     {operation && <OperationStatus operation={operation as Operation} cancel={operation.state === "running" ? () => { void api.call(`operations/${operation.id}/cancel`, "POST").catch(error => setError(error.message)); } : undefined} />}
     {dialog && plan && <div className="modal-shade"><section className="dialog" role="dialog" aria-modal="true" aria-label="Install link tools">
       <h2>{status?.available ? "Update link tools" : "Install link tools"}</h2>

@@ -51,7 +51,7 @@ def verified_source(url: str, expected_sha256: str, archive_name: str, root_name
     directory = archive.parent
     root = directory / root_name
     marker = root / ".videoenhancer-source-sha256"
-    if marker.exists() and marker.read_text() == expected_sha256:
+    if marker.exists() and marker.read_text(encoding="utf-8") == expected_sha256:
         return root
     with zipfile.ZipFile(archive) as source:
         for member in source.infolist():

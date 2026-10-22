@@ -45,7 +45,7 @@ def service_lock(home: Path) -> Iterator[None]:
         except OSError as error:
             port = "unknown"
             try:
-                port = json.loads((home / "serve.json").read_text())["port"]
+                port = json.loads((home / "serve.json").read_text(encoding="utf-8"))["port"]
             except (OSError, ValueError, KeyError):
                 pass
             raise RuntimeError(f"VideoEnhancer service already runs on port {port}.") from error
@@ -72,6 +72,8 @@ def discovery(home: Path, port: int, token: str) -> None:
             ["whoami", "/user", "/fo", "csv", "/nh"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=True,
             timeout=5,
         )

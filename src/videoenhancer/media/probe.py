@@ -78,7 +78,9 @@ def packet_timeline(path: str | Path, time_base: Fraction) -> tuple[list[Fractio
         "csv=p=0",
         str(path),
     ]
-    result = proc.run(command, capture_output=True, text=True, check=True)
+    result = proc.run(
+        command, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True
+    )
     records: list[tuple[int, int]] = []
     for line in result.stdout.splitlines():
         fields = line.split(",")
@@ -119,7 +121,14 @@ def audio_packet_spans(path: Path, streams: list[dict[str, Any]]) -> dict[int, d
         str(path),
     ]
     spans: dict[int, dict[str, Any]] = {}
-    with proc.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
+    with proc.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    ) as process:
         assert process.stdout is not None
         for line in process.stdout:
             fields = dict(field.split("=", 1) for field in line.strip().split("|") if "=" in field)
@@ -165,7 +174,14 @@ def probe(
     command = [executable("ffprobe"), "-v", "error", "-show_format", "-show_streams", "-of", "json"]
     if count_frames:
         command += ["-count_frames"]
-    result = proc.run([*command, str(source)], capture_output=True, text=True, check=True)
+    result = proc.run(
+        [*command, str(source)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+    )
     raw = json.loads(result.stdout)
     streams = raw.get("streams", [])
     video = next(
