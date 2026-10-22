@@ -20,7 +20,8 @@ These rules apply to every Codex run in this repository. The current cycle's tas
 ## Git
 
 - **Do not run Git commands that change anything**: no `add`, `commit`, `push`, `checkout`, `switch`, `branch`, `merge`, `rebase`, `reset`, `stash`, `tag` or `clean`. The operator does all Git work.
-- Read-only Git commands (`status`, `diff`, `log`, `show`) are allowed.
+- Read-only Git commands (`status`, `diff`, `log`, `show`) are allowed. If the sandbox denies one (for example `git.exe: Access is denied`), request escalation. If that is not possible or is refused, do not stop: the operator checks the branch and a clean tree before starting you. Continue and note the denial in your report.
+- The stop rules for permission errors in `CLAUDE.md` are for the operator, not for you.
 
 ## Workspace
 
