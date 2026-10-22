@@ -1,7 +1,7 @@
 # VE-P1f-3b implementation and verification report
 
 - Task ID / Cycle: VE-P1f-3b / P1f-3b
-- Status: PARTIAL - implementation and all required local checks complete; final-commit Windows/Ubuntu CI requires the operator.
+- Status: COMPLETED (closed by designer note; see last section)
 - Branch: `claude/project-thread-1n4s31`; HEAD: `8769afd81072c22793ef7c46103e6e616dc6d812`.
 - Operator verified this is the task hand-over commit immediately after `8302964`, with an initially clean tree. Read-only escalated Git subsequently confirmed branch/HEAD and only this cycle's changes.
 - Terminal: Windows 11 x64, PowerShell. No Git mutation, commit, push, merge or new PR.
@@ -131,3 +131,13 @@ The previous cycle's cleanup rejection remains historical; this cycle received n
 ## Intentionally not performed
 
 No owner sample, real GPU/driver/system/registry change, third-party-site media download, new feature, package rebuild, Git mutation, new PR, merge or deployment. Physical GPU-less hardware was not available; no-GPU environment_info was simulated in isolated test processes without changing the PC.
+
+## Designer closure (2026-10-22)
+
+Written by the designer (cloud Claude). Codex's text above is unchanged except the Status line.
+
+- **CI:** all 4 checks passed on `526f0d5` (same code as `05b8d0f`), completed 2026-10-22 06:54 UTC. `cpu (windows-latest)` and `cpu (ubuntu-latest)` in runs 39733674213 and 39733669592.
+- **Cleanup:** on 2026-10-22 about 05:50 UTC, with the owner's approval, the operator deleted 3.53 GB of P1f-3 leftovers: `work\scratch` contents, including 7 sandbox-owned folders deleted from inside the sandbox with no refusals, `gui\node_modules` (192 MB), `__pycache__`, `.ruff_cache`, `.pytest_cache` and the empty package folder. `work\scratch` is empty. `work\owner-sample` was not touched.
+- **P1f-3 (`8302964`):** its report was PARTIAL only because of the final CI and the blocked cleanup. Both are now resolved: CI is green and the cleanup is done.
+- **P2:** the loaded Home run failed (767.5 ms, during the GPU suite) and stays recorded. The idle run passed (732 ms, gate 765 ms).
+- **A6 and A7:** the causes on hosted runners remain not established. Both tests passed in this CI.
