@@ -2,7 +2,20 @@ use libloading::Library;
 use std::{
     ffi::{c_char, c_void, CStr, CString},
     path::Path,
+    sync::atomic::{AtomicBool, Ordering},
 };
+use tao::event_loop::EventLoopProxy;
+
+struct Notify {
+    proxy: EventLoopProxy<()>,
+    dirty: AtomicBool,
+}
+
+unsafe extern "C" fn notify(context: *mut c_void) {
+    let state = &*context.cast::<Notify>();
+    state.dirty.store(true, Ordering::Release);
+    let _ = state.proxy.send_event(());
+}
 
 #[repr(C)]
 pub struct Param {
@@ -13,6 +26,9 @@ pub struct Mpv {
     library: Library,
     pub handle: *mut c_void,
     pub render: *mut c_void,
+    pub init_ms: f64,
+    wake: Option<Box<Notify>>,
+    update: Option<Box<Notify>>,
 }
 impl Mpv {
     pub unsafe fn new(path: &Path, wid: Option<isize>) -> Result<Self, Box<dyn std::error::Error>> {
@@ -23,16 +39,20 @@ impl Mpv {
         wid: Option<isize>,
         options: &[(&str, &str)],
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        let started = std::time::Instant::now();
         let library = Library::new(path)?;
         let create = library.get::<unsafe extern "C" fn() -> *mut c_void>(b"mpv_create\0")?;
         let handle = create();
         if handle.is_null() {
             return Err("mpv_create failed".into());
         }
-        let this = Self {
+        let mut this = Self {
             library,
             handle,
             render: std::ptr::null_mut(),
+            init_ms: 0.,
+            wake: None,
+            update: None,
         };
         for (key, value) in [
             ("config", "no"),
@@ -58,7 +78,60 @@ impl Mpv {
             .library
             .get::<unsafe extern "C" fn(*mut c_void) -> i32>(b"mpv_initialize\0")?;
         Self::check(init(handle))?;
+        this.init_ms = started.elapsed().as_secs_f64() * 1000.;
         Ok(this)
+    }
+    pub unsafe fn callbacks(
+        &mut self,
+        proxy: EventLoopProxy<()>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if self.wake.is_some() {
+            return Err("Callbacks already installed".into());
+        }
+        self.wake = Some(Box::new(Notify {
+            proxy: proxy.clone(),
+            dirty: AtomicBool::new(false),
+        }));
+        let wake = self.library.get::<unsafe extern "C" fn(
+            *mut c_void,
+            Option<unsafe extern "C" fn(*mut c_void)>,
+            *mut c_void,
+        )>(b"mpv_set_wakeup_callback\0")?;
+        wake(
+            self.handle,
+            Some(notify),
+            (&mut **self.wake.as_mut().unwrap() as *mut Notify).cast(),
+        );
+        if !self.render.is_null() {
+            self.update = Some(Box::new(Notify {
+                proxy,
+                dirty: AtomicBool::new(false),
+            }));
+            let update = self.library.get::<unsafe extern "C" fn(
+                *mut c_void,
+                Option<unsafe extern "C" fn(*mut c_void)>,
+                *mut c_void,
+            )>(b"mpv_render_context_set_update_callback\0")?;
+            update(
+                self.render,
+                Some(notify),
+                (&mut **self.update.as_mut().unwrap() as *mut Notify).cast(),
+            );
+        }
+        Ok(())
+    }
+    pub unsafe fn needs_render(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        if !self
+            .update
+            .as_ref()
+            .is_some_and(|s| s.dirty.swap(false, Ordering::AcqRel))
+        {
+            return Ok(false);
+        }
+        let update = self
+            .library
+            .get::<unsafe extern "C" fn(*mut c_void) -> u64>(b"mpv_render_context_update\0")?;
+        Ok(update(self.render) & 1 != 0)
     }
     pub unsafe fn events(&self) -> Vec<i32> {
         #[repr(C)]
@@ -75,10 +148,13 @@ impl Mpv {
             return vec![];
         };
         let mut result = Vec::new();
-        for _ in 0..100 {
+        loop {
             let p = wait(self.handle, 0.0);
             if p.is_null() || (*p).id == 0 {
                 break;
+            }
+            if (*p).error < 0 {
+                eprintln!("mpv event {} failed: {}", (*p).id, (*p).error);
             }
             result.push((*p).id);
         }
@@ -174,10 +250,12 @@ impl Mpv {
         ptrs.push(std::ptr::null());
         let f = self
             .library
-            .get::<unsafe extern "C" fn(*mut c_void, *const *const c_char) -> i32>(
-                b"mpv_command\0",
+            .get::<unsafe extern "C" fn(*mut c_void, u64, *const *const c_char) -> i32>(
+                b"mpv_command_async\0",
             )?;
-        Self::check(f(self.handle, ptrs.as_ptr()))
+        // The render thread must keep servicing frames while mpv executes seeks
+        // and loadfile. Synchronous commands can wait on the renderer itself.
+        Self::check(f(self.handle, 0, ptrs.as_ptr()))
     }
     pub unsafe fn property(&self, name: &str) -> Option<String> {
         let get = self
@@ -252,7 +330,25 @@ impl Mpv {
 impl Drop for Mpv {
     fn drop(&mut self) {
         unsafe {
+            // Disable callbacks before their boxed contexts or DLL can be dropped.
+            if let Ok(f) = self.library.get::<unsafe extern "C" fn(
+                *mut c_void,
+                Option<unsafe extern "C" fn(*mut c_void)>,
+                *mut c_void,
+            )>(b"mpv_set_wakeup_callback\0")
+            {
+                f(self.handle, None, std::ptr::null_mut());
+            }
             if !self.render.is_null() {
+                if let Ok(f) =
+                    self.library.get::<unsafe extern "C" fn(
+                        *mut c_void,
+                        Option<unsafe extern "C" fn(*mut c_void)>,
+                        *mut c_void,
+                    )>(b"mpv_render_context_set_update_callback\0")
+                {
+                    f(self.render, None, std::ptr::null_mut());
+                }
                 if let Ok(f) = self
                     .library
                     .get::<unsafe extern "C" fn(*mut c_void)>(b"mpv_render_context_free\0")

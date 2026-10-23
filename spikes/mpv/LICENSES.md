@@ -1,4 +1,4 @@
-# libmpv candidate: distribution is not cleared
+# libmpv source-build status (VE-P1e-3c1): distribution remains OPEN
 
 The product remains MIT. This spike loads a DLL dynamically; it adds no library
 to the product or package. Do not distribute the candidate until all open items
@@ -66,3 +66,37 @@ licences. [source-build.ps1](source-build.ps1) reproduces the attempt. The measu
 failure is retained outside Git in the cycle evidence. The designer explicitly
 permits the pinned prebuilt DLL for measurements after a failed source attempt;
 that permission does not clear it for redistribution.
+
+
+## VE-P1e-3c1 source-build outcome
+
+**OPEN. No source-built DLL was produced.** The two portable MSYS2 base
+archives (20260927 and 20260611) passed SHA-256 verification against official
+release metadata. Both stopped during the normal GnuPG keyring initialization.
+The UCRT64 native route and the MSYS mpv-winbuild-cmake prerequisite route both
+reported unknown signing key `5F944B027F7FE2091985AA2EFA11531AA0AA7F57`
+and timed out during key import. No signature check was disabled. WSL is not
+installed. These are prerequisite failures, not successful library builds or
+a completed dependency audit. The pinned alternative builder was downloaded
+and its upstream MSYS instructions inspected, but CMake configure did not run.
+
+The fallback candidate remains measurement-only. Its size remains 101511680
+bytes; it must never ship. Nothing in the B1 timing improvements changes that
+restriction. A smaller output size, aggregate licence version, embedded FFmpeg
+configuration and two clean reproduction hashes remain unavailable.
+
+For a future successful minimal build, collect the exact upstream licence texts
+for mpv and libplacebo (LGPL-2.1-or-later), FFmpeg (the actual configured LGPL
+version), dav1d (BSD-2-Clause), libass (ISC), FreeType (FTL option including its
+required attribution), FriBidi (LGPL-2.1-or-later), HarfBuzz (MIT) and zlib
+(Zlib). If glslang/shaderc or any transitive component is linked, retain each
+applicable BSD, MIT and Apache notice as determined from those exact sources.
+This list is a required audit checklist, not proof those components were linked.
+
+Attach an archive of the exact corresponding sources, patches and build scripts
+to each release. Include applicable LGPL texts and all required source/relink
+materials. Permit users to replace libmpv-2.dll and debug the modified library;
+do not impose an integrity restriction that prevents replacement. Static
+combination of LGPL dependencies needs a reviewed relinking/source arrangement.
+These obligations remain OPEN until the final binary and every dependency are
+known. The product package remains unchanged.

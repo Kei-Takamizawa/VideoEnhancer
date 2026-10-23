@@ -1,10 +1,11 @@
 {
-  "status": "OPEN: minimal source build failed before linking; no minimal DLL exists",
+  "status": "OPEN: VE-P1e-3c1 portable toolchain initialization failed; no source-built DLL exists",
   "mpv": {
     "commit": "0fae4695470bf2c0c06762503292ee5379f62f62",
     "archive_sha256": "a2cb3f3c1ad61b31c8df77aacb5ce106f6f47991df4e8b9e6975f94194fb386a",
     "licence": "LGPL-2.1-or-later with gpl=false; see source Copyright",
-    "configure": "--auto-features=disabled -Dgpl=false -Dlibmpv=true -Dcplayer=false -Dgl=disabled -Dd3d11=enabled -Dd3d-hwaccel=enabled -Dzlib=enabled"
+    "configure": "--auto-features=disabled -Dgpl=false -Dlibmpv=true -Dcplayer=false -Dgl=disabled -Dd3d11=enabled -Dd3d-hwaccel=enabled -Dzlib=enabled",
+    "source_url": "https://github.com/mpv-player/mpv/archive/0fae4695470bf2c0c06762503292ee5379f62f62.tar.gz"
   },
   "meson": {
     "version": "1.12.1",
@@ -13,20 +14,187 @@
   },
   "compiler": "Existing MSVC 19.51.36260 x64; linker 14.51.36260.0; not bundled",
   "build_dependencies": [
-    {"name": "FFmpeg libavcodec", "required": ">=60.31.102", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not found"},
-    {"name": "FFmpeg libavfilter", "required": ">=9.12.100", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not reached"},
-    {"name": "FFmpeg libavformat", "required": ">=60.16.100", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not reached"},
-    {"name": "FFmpeg libavutil", "required": ">=58.29.100", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not reached"},
-    {"name": "FFmpeg libswresample", "required": ">=4.12.100", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not reached"},
-    {"name": "FFmpeg libswscale", "required": ">=7.5.100", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not reached"},
-    {"name": "libplacebo", "required": ">=7.360.1", "resolved_version": null, "licence": "OPEN: no resolved source/build audit", "status": "mandatory mpv dependency, not reached"},
-    {"name": "libass", "required": ">=0.12.2", "resolved_version": null, "licence": "OPEN: no resolved source/build audit", "status": "mandatory mpv dependency, not reached"},
-    {"name": "zlib", "required": "enabled", "resolved_version": null, "licence": "OPEN: no resolved source/build audit", "status": "not reached"}
+    {
+      "name": "FFmpeg libavcodec",
+      "required": ">=60.31.102",
+      "resolved_version": null,
+      "licence": "OPEN: target LGPL-only configuration",
+      "status": "not found"
+    },
+    {
+      "name": "FFmpeg libavfilter",
+      "required": ">=9.12.100",
+      "resolved_version": null,
+      "licence": "OPEN: target LGPL-only configuration",
+      "status": "not reached"
+    },
+    {
+      "name": "FFmpeg libavformat",
+      "required": ">=60.16.100",
+      "resolved_version": null,
+      "licence": "OPEN: target LGPL-only configuration",
+      "status": "not reached"
+    },
+    {
+      "name": "FFmpeg libavutil",
+      "required": ">=58.29.100",
+      "resolved_version": null,
+      "licence": "OPEN: target LGPL-only configuration",
+      "status": "not reached"
+    },
+    {
+      "name": "FFmpeg libswresample",
+      "required": ">=4.12.100",
+      "resolved_version": null,
+      "licence": "OPEN: target LGPL-only configuration",
+      "status": "not reached"
+    },
+    {
+      "name": "FFmpeg libswscale",
+      "required": ">=7.5.100",
+      "resolved_version": null,
+      "licence": "OPEN: target LGPL-only configuration",
+      "status": "not reached"
+    },
+    {
+      "name": "libplacebo",
+      "required": ">=7.360.1",
+      "resolved_version": null,
+      "licence": "OPEN: no resolved source/build audit",
+      "status": "mandatory mpv dependency, not reached"
+    },
+    {
+      "name": "libass",
+      "required": ">=0.12.2",
+      "resolved_version": null,
+      "licence": "OPEN: no resolved source/build audit",
+      "status": "mandatory mpv dependency, not reached"
+    },
+    {
+      "name": "zlib",
+      "required": "enabled",
+      "resolved_version": null,
+      "licence": "OPEN: no resolved source/build audit",
+      "status": "not reached"
+    }
   ],
   "decoder_plan": "Keep D3D11VA plus dav1d, native FFmpeg VP9 and zlib; resolve their exact sources and licences before any successful binary can be cleared.",
   "ffmpeg_plan_not_executed": "--disable-gpl --disable-nonfree --disable-programs --disable-doc --disable-network --disable-devices --disable-encoders --disable-muxers; retain file playback demuxers/parsers/decoders and D3D11VA. This is a plan, not a completed FFmpeg build.",
-  "disabled_by_mpv_auto_features": ["lua", "javascript", "vapoursynth", "libbluray", "libarchive", "libcurl", "sdl2", "vulkan", "spirv-cross", "sixel", "egl-angle", "openal", "amf", "cuda"],
-  "failure": "meson.build:23:13: Dependency lookup for libavcodec with method pkg-config failed: Pkg-config for machine host machine not found. Giving up.",
+  "disabled_by_mpv_auto_features": [
+    "lua",
+    "javascript",
+    "vapoursynth",
+    "libbluray",
+    "libarchive",
+    "libcurl",
+    "sdl2",
+    "vulkan",
+    "spirv-cross",
+    "sixel",
+    "egl-angle",
+    "openal",
+    "amf",
+    "cuda"
+  ],
   "minimal_dll_bytes": 0,
-  "measurement_fallback": "Pinned prebuilt candidate from download.ps1; not cleared for packaging; exact embedded dependency audit remains OPEN."
+  "measurement_fallback": "Pinned prebuilt candidate from download.ps1; not cleared for packaging; exact embedded dependency audit remains OPEN.",
+  "cycle": "VE-P1e-3c1",
+  "portable_toolchains": [
+    {
+      "version": "20260927",
+      "url": "https://repo.msys2.org/distrib/x86_64/msys2-base-x86_64-20260927.tar.xz",
+      "sha256": "ea2f31a0b6ade63914ce441ffb022f0f6aa96982bfefa2326460a26d5fb01322",
+      "bytes": 42860696,
+      "checksum_authority": "https://api.github.com/repos/msys2/msys2-installer/releases/tags/2026-09-27",
+      "status": "SHA256 PASS; extracted; GnuPG migration stalled during pacman-key --init"
+    },
+    {
+      "version": "20260611",
+      "url": "https://repo.msys2.org/distrib/x86_64/msys2-base-x86_64-20260611.tar.xz",
+      "sha256": "a2d047e8ee213c3c6a49a8de427eb1069df12207c0422ff1b3cbb5c905c34221",
+      "checksum_authority": "https://api.github.com/repos/msys2/msys2-installer/releases/tags/2026-06-11",
+      "status": "SHA256 PASS; extracted; same GnuPG migration stall"
+    }
+  ],
+  "cycle_attempts": [
+    {
+      "route": "native UCRT64",
+      "command": "timeout 60 pacman -Sy --noconfirm --needed mingw-w64-ucrt-x86_64-{gcc,meson,ninja,pkgconf,nasm,cmake,python}",
+      "exit": 124,
+      "failure": "error: clangarm64: key \"5F944B027F7FE2091985AA2EFA11531AA0AA7F57\" is unknown; Import PGP key prompt did not complete",
+      "evidence": "evidence/VE-P1e-3c1/native-toolchain.log",
+      "stage": "toolchain bootstrap; compilation NOT_RUN"
+    },
+    {
+      "route": "mpv-winbuild-cmake prerequisite setup under MSYS",
+      "upstream_commit": "1f8d2e76255abc48f0456d9be99b4cab9c6566e6",
+      "source_url": "https://github.com/shinchiro/mpv-winbuild-cmake/archive/1f8d2e76255abc48f0456d9be99b4cab9c6566e6.tar.gz",
+      "archive_sha256": "0d2018d2dbc17c5ba97a791113adaa2833d1e8624df71645f0d816af87d86d38",
+      "checksum_kind": "locally calculated immutable-source archive digest; no separately published checksum verified",
+      "command": "timeout 30 pacman -Sy --noconfirm --needed cmake ninja gcc git meson python",
+      "exit": 124,
+      "failure": "same unknown signing key and stalled import",
+      "evidence": "evidence/VE-P1e-3c1/winbuild-toolchain.log",
+      "stage": "toolchain bootstrap; CMake configure and compilation NOT_RUN"
+    },
+    {
+      "route": "existing WSL alternative",
+      "command": "wsl.exe --list --quiet",
+      "failure": "The Windows Subsystem for Linux is not installed.",
+      "stage": "availability probe; no system installation attempted"
+    }
+  ],
+  "source_build_acceptance": {
+    "complete_dependency_manifest": "NOT_MET: libraries never fetched or built in this cycle",
+    "clean_reproduction_runs": 0,
+    "output_sha256": [],
+    "embedded_ffmpeg_configuration": "NOT_RUN: no built DLL",
+    "codec_hwdec_proof": "NOT_RUN for source-built DLL; fallback measured separately",
+    "replacement_and_source_delivery": "OPEN: exact corresponding sources, final LGPL version and relink materials unavailable"
+  },
+  "historical_p1e3b_failure": "meson.build:23:13: Dependency lookup for libavcodec with method pkg-config failed: Pkg-config for machine host machine not found. Giving up.",
+  "failure": "Portable package-manager key initialization/import stalled on both routes; source compilation NOT_RUN",
+  "unresolved_manifest_fields": "Every library besides the historical mpv source still lacks a fetched and verified pinned source version/checksum, executed flags, patch inventory and transitive link audit. Planned licences are not resolved licences for an actual linked output.",
+  "required_unbuilt_components": [
+    {
+      "name": "FFmpeg",
+      "planned_spdx": "LGPL-2.1-or-later (final configured version unresolved)",
+      "status": "NOT_FETCHED_OR_BUILT; pinned source, checksum, flags and patches unresolved"
+    },
+    {
+      "name": "dav1d",
+      "planned_spdx": "BSD-2-Clause",
+      "status": "NOT_FETCHED_OR_BUILT; pinned source, checksum, flags and patches unresolved"
+    },
+    {
+      "name": "libplacebo",
+      "planned_spdx": "LGPL-2.1-or-later",
+      "status": "NOT_FETCHED_OR_BUILT; pinned source, checksum, flags and patches unresolved"
+    },
+    {
+      "name": "libass",
+      "planned_spdx": "ISC",
+      "status": "NOT_FETCHED_OR_BUILT; pinned source, checksum, flags and patches unresolved"
+    },
+    {
+      "name": "FreeType",
+      "planned_spdx": "FTL",
+      "status": "NOT_FETCHED_OR_BUILT; pinned source, checksum, flags and patches unresolved"
+    },
+    {
+      "name": "FriBidi",
+      "planned_spdx": "LGPL-2.1-or-later",
+      "status": "NOT_FETCHED_OR_BUILT; pinned source, checksum, flags and patches unresolved"
+    },
+    {
+      "name": "HarfBuzz",
+      "planned_spdx": "MIT",
+      "status": "NOT_FETCHED_OR_BUILT; pinned source, checksum, flags and patches unresolved"
+    },
+    {
+      "name": "zlib",
+      "planned_spdx": "Zlib",
+      "status": "NOT_FETCHED_OR_BUILT; pinned source, checksum, flags and patches unresolved"
+    }
+  ]
 }

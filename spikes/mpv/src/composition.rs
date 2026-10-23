@@ -37,6 +37,7 @@ impl Composition {
         dll: &Path,
         profile: &Path,
         events: mpsc::Sender<String>,
+        proxy: tao::event_loop::EventLoopProxy<()>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut d3d = None;
         D3D11CreateDevice(
@@ -137,6 +138,7 @@ impl Composition {
                     let text = value.to_string()?;
                     windows::Win32::System::Com::CoTaskMemFree(Some(value.0.cast()));
                     let _ = events.send(text);
+                    let _ = proxy.send_event(());
                 }
                 Ok(())
             })),
@@ -144,7 +146,17 @@ impl Composition {
         )?;
         web.NavigateToString(&HSTRING::from(include_str!("../controls.html")))?;
         device.Commit()?;
-        let mut mpv = Mpv::new(dll, None)?;
+        let graph = std::env::var("VE_MPV_GRAPH").ok();
+        let external = std::env::var("VE_MPV_EXTERNAL").ok();
+        let mut options = Vec::new();
+        if let Some(graph) = &graph {
+            options.push(("lavfi-complex", graph.as_str()));
+            options.push(("hwdec", "d3d11va-copy"));
+        }
+        if let Some(external) = &external {
+            options.push(("external-files", external.as_str()));
+        }
+        let mut mpv = Mpv::configured(dll, None, &options)?;
         mpv.create_render(d3d.as_raw())?;
         Ok(Self {
             mpv,
