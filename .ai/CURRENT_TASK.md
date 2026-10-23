@@ -1,8 +1,8 @@
-# CURRENT_TASK: Cycle P1e-3b (spike: embedded mpv player in the Tauri window)
+# CURRENT_TASK: Cycle P1e-3c1 (LGPL libmpv source build, and a faster B1 host)
 
 > Follow `AGENTS.md` and `CLAUDE.md` on `main` for the workflow. This file defines only the work.
 
-- **Task ID:** VE-P1e-3b
+- **Task ID:** VE-P1e-3c1
 - **Date:** 2026-10-23
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
@@ -10,143 +10,136 @@
 
 ## 1. Start
 
-- **Branch:** `claude/project-thread-6lra47`. `main` (`aa107af`, the P1e-3a squash merge) is merged into it at `a2879e8`, so its tree equals `main`. The operator opens a new draft PR.
-- This file is `.ai/CURRENT_TASK.md`. Write a new `.ai/LAST_REPORT.md`.
+- **Branch:** `claude/project-thread-6lra47`. `main` (`ed00b03`, the P1e-3b squash merge) is merged into it, so its tree equals `main` apart from this file. The operator opens a new draft PR.
+- This file is `.ai/CURRENT_TASK.md`. Write a new `.ai/LAST_REPORT.md`. The first lines must be the Task ID and `Status: COMPLETED | PARTIAL | BLOCKED`.
+- **Diff base:** `origin/main`. `.ai/CURRENT_TASK.md` and `.ai/LAST_REPORT.md` are expected to differ.
 - Restore any dependencies the last cleanup removed. The restore does not count toward growth; report its size.
+- **Do not stop the cycle for a question.** Write the default you chose under "Questions for the designer" and continue.
 
 ### Where this cycle sits
 
-P1e-3a (done, merged) → **P1e-3b (this spike)** → P1e-3c (the real player with an IINA-like UI, and Compare speed) → P1e-3d (speed-ups, warm worker, recalibration).
+P1e-3b (spike, merged) → **P1e-3c1 (this cycle: clear the licence blocker, make B1 fast)** → P1e-3c2 (the real player in the product, and Compare speed) → P1e-3d (speed-ups, warm worker, recalibration).
 
-This cycle is a **spike**: it answers whether and how an embedded mpv player works in this app, with measurements, and it leaves a small prototype. **It does not replace the current player.** The delivered app must behave exactly as on `main`.
+This cycle still works **only in `spikes/mpv/`**. The product does not change.
 
-## 2. Background and fixed decisions
+## 2. What P1e-3b established (read `spikes/mpv/README.md` and the P1e-3b report in Git history)
 
-- **Owner decision (2026-10-18):** the player is embedded mpv (libmpv) with an IINA-like UI.
-- **Licence:** the app is MIT. libmpv must be an **LGPL build** (`-Dgpl=false`), loaded dynamically (`libmpv-2.dll`), and every bundled library must be LGPL-compatible or more permissive. No GPL component may be linked or shipped.
-- **Approved design (owner, 2026-10-14, mockup in the cloud project `design/claude_design/player_mockup_v1.html`, summary here):**
-  - controls: play/pause, back/forward 10 s, previous/next frame, seek bar, volume and mute, playback speed, fullscreen, video details, keyboard shortcuts sheet, close;
-  - the seek-bar hover preview sits **above** the bar, YouTube style, with the time under the thumbnail;
-  - **no dark panels over the video**: the controller, title, preview box, menus and the shortcut sheet are transparent, with thin shadows to keep text and icons readable. The letterbox stays black.
-- **Consequence for the architecture:** HTML controls must be drawn **with real transparency over the native video picture**. A layout that puts the controls beside the video, or over an opaque panel, does not meet the approved design. It may be reported only as a fallback.
-- **Today's player (`main`):** an HTML5 `<video>` in `gui/src/HistoryDetail.tsx`, fed through the app's media path (`gui/src-tauri/src/media.rs`, 1 MiB responses, at most 2 fetches at once).
-- **Inputs it must play:** results and sources up to 1440 output (short side), H.264, HEVC Main10 (default output), AV1, VP9; 8-bit and 10-bit SDR; MP4, MKV, WebM, MOV; up to 60 fps; with rotation metadata.
+- **B1 is the chosen approach:** WebView2 composition controller over a libmpv D3D11 swap chain in one DirectComposition tree. Its transparency was verified by self-capture. B2 is dropped. Do not spend more time on B2.
+- **The B1 prototype is slow:**
+  - first frame 430-630 ms (B2: 30-45 ms; HTML5: 23-47 ms);
+  - seek median 260-460 ms, worst up to 700 ms;
+  - about 63 % of one CPU core during playback (HTML5: about 5 %).
 
-## 3. Part A: an LGPL libmpv build
+  The step pattern in the first-frame numbers (about 430 or 630 ms) points at the polling/heartbeat loop. Find the cause by profiling; do not guess.
+- **Hover preview** through a second paused mpv instance: median 505 ms, too slow.
+- **Native frame stepping** was exact (36/36). HTML5 `currentTime` stepping was not (3/18).
+- **A/B:** a `lavfi-complex` hstack has one clock and showed no drift. Two instances drifted by up to one frame.
+- **Licence (Part A) is OPEN.** The prebuilt zhongfly LGPL DLL is 101.5 MB, has no dependency manifest, and must never ship. The MSVC/meson attempt failed because FFmpeg development files and pkg-config were missing.
 
-1. Find or build a Windows x64 `libmpv-2.dll` configured with `-Dgpl=false`.
-   - Prefer building from official mpv sources with a documented, reproducible recipe (for example MSYS2/meson or the mpv-winbuild-cmake project with GPL options off). A prebuilt binary is acceptable only if its build configuration proves `gpl=false` and lists every dependency and its licence.
-   - FFmpeg inside it must be an LGPL configuration (no `--enable-gpl`, no `--enable-nonfree`).
-   - Keep D3D11 output and hardware decoding (`d3d11va`) for H.264, HEVC Main10, AV1 and VP9.
-2. Record: mpv version, FFmpeg version, the full configure options, every bundled DLL with its licence, SHA-256 of each file, and total size.
-3. Store the binaries under `work\cache\mpv-lgpl\` (outside the repository). **Never commit binaries.** Commit only the recipe or a download-and-verify script with pinned versions and checksums, under `spikes/mpv/`.
-4. Write `spikes/mpv/LICENSES.md`: what must ship with the app (licence texts, source offer or source link) for LGPL compliance. Mark anything you are not sure about as open.
+## 3. Part A: a minimal LGPL libmpv built from source (the main goal)
 
-## 4. Part B: embedding approaches
+1. **Toolchain.** Use a **portable MSYS2** from the official `repo.msys2.org` base archive (`msys2-base-x86_64-<date>.tar.xz`, checksum verified). Unpack it under `work\cache\msys2\`.
+   - This is not a system install. Do not run its installer, do not add it to the system PATH, and do not touch the registry.
+   - Use the `UCRT64` or `CLANG64` environment, and install packages only with `pacman` from the official MSYS2 mirrors.
+   - Use MSYS2 packages for build tools only: gcc/clang, meson, ninja, pkgconf, nasm, cmake, python. Build the **libraries** that end up inside the DLL from pinned upstream source yourself, so that their versions, flags and licences are known.
+   - Alternative: `mpv-winbuild-cmake` (the project the prebuilt came from) inside the same MSYS2 or the existing WSL, with every GPL and non-free option off. Choose whichever you can make work; say which you used and why.
+2. **What goes in** (each from a pinned release or commit, checksum recorded):
+   - **FFmpeg, LGPL.** No `--enable-gpl`, no `--enable-nonfree`; `--enable-version3` is allowed only if a dependency needs it (then the result is LGPL-3.0, say so).
+     - Enable only file playback: demuxers mov/mp4, matroska/webm, and the parsers and decoders for h264, hevc, av1 (through libdav1d and/or the native av1 decoder with hwaccel), vp9, aac, opus, vorbis, mp3, flac, pcm.
+     - Enable the d3d11va hwaccels for h264, hevc, vp9 and av1, plus swscale, swresample, and the avfilter pieces mpv needs (including the `hstack` and `split` filters for A/B).
+     - Disable: programs, doc, network, devices, encoders, muxers, and every external library not listed here.
+   - **dav1d** (BSD-2-Clause).
+   - **libplacebo** (LGPL-2.1+), with its d3d11 support. If it needs glslang or shaderc, check their licences: glslang mixes BSD-3-Clause, MIT and Apache-2.0, and no GPL part may be linked.
+   - **libass** (ISC) and what it needs: FreeType (choose the FTL licence option), FriBidi (LGPL-2.1+), HarfBuzz (MIT).
+   - **zlib** (Zlib).
+   - **mpv** at the pinned commit with `-Dgpl=false -Dlibmpv=true -Dcplayer=false`, d3d11 and d3d-hwaccel on, everything optional off. That includes lua, javascript, vapoursynth, libbluray, libarchive, libcurl, sdl2, vulkan, spirv-cross unless libplacebo's d3d11 path needs it, sixel, egl-angle, openal, cuda, uchardet, lcms2, and rubberband.
+3. **Output:** `libmpv-2.dll` plus any DLLs it needs. Prefer static linking into one DLL, but LGPL libraries may stay separate DLLs if that makes replacement simpler; say which.
+   - Store the result under `work\cache\mpv-lgpl\source-build\out\`. **Never commit binaries.**
+   - Report the size. Expect much less than 101.5 MB; there is no hard limit, but explain anything above 40 MB.
+4. **Proof:**
+   - `spikes/mpv/source-manifest.json`: every component's version, source URL, checksum, licence (SPDX), configure flags and patches. Mark nothing as OPEN unless you explain exactly what is missing.
+   - `spikes/mpv/source-build.ps1` (or `.sh`), which rebuilds the DLL from nothing. Run it once more from a clean build folder to show it reproduces. Byte-identical output is not required; report the SHA-256 of both runs.
+   - Check the built DLL itself: it must report the mpv version and `gpl=false`. The FFmpeg it contains must report its configuration with no `--enable-gpl` or `--enable-nonfree`; check this through libmpv's `ffmpeg-version` and the static library's configuration string, not through a separate ffmpeg.exe.
+   - Confirm that each required codec (h264, hevc main10, av1 10-bit, vp9) plays with `hwdec-current=d3d11va` through the B1 prototype, using the P1e-3b fixtures.
+5. **`spikes/mpv/LICENSES.md`:** rewrite it for the built DLL. List the licence texts that must ship, the source offer (an archive of the exact sources and build script, attached to each release), and the user's right to replace the DLL. Close each OPEN item or say exactly why it stays open.
+6. **If the source build fails** after real attempts with both routes, record each exact failure, keep the measurements below on the prebuilt candidate, and set Part A to OPEN. That gives a PARTIAL status for this cycle, because Part A is its main goal.
 
-Build a minimal prototype for each approach below in `spikes/mpv/` (a separate small Tauri 2 app or a Rust example, **not** the product's `gui/` crate). Each prototype plays one file in a window with a transparent HTML control bar (play/pause, seek bar with the hover preview position, time) drawn over the picture.
+## 4. Part B: make B1 fast (in the spike)
 
-- **B1. Composition hosting.** WebView2 with the composition controller (`ICoreWebView2CompositionController`) and a transparent background, in a DirectComposition tree. mpv draws through the libmpv render API (D3D11) into a swap chain for composition placed below the WebView2 visual.
-- **B2. Transparent overlay window.** mpv draws into a child or owned native window (`wid`). A transparent Tauri/WebView2 window owned by it sits on top and follows its position, size, minimise, maximise, fullscreen, DPI change and multi-monitor moves.
-- **B3. Fallback only.** mpv in a child window, with the controls outside the picture. Implement it only if B1 and B2 both fail, and say why.
+Using the source-built DLL (or the prebuilt candidate if Part A failed):
 
-For each approach, report:
-- whether HTML is truly transparent over the moving picture (screenshots outside Git; describe any halo, flicker, tearing or z-order fault);
-- input: pointer, wheel, keyboard and focus reach the HTML controls; the video area passes clicks for play/pause and double-click for fullscreen;
-- resize, maximise, fullscreen, DPI 100/125/150 %, a move between monitors if available, minimise and restore;
-- how much Tauri, wry or WebView2 internals it needs (for example, does B1 need a Tauri fork or a custom wry setup?), and how it would fit the product's current window code (`gui/src-tauri/src/window.rs`, `main.rs`);
-- the risk of breaking with a WebView2 Runtime or Tauri update.
+1. **Profile first.** Find what causes B1's slow first frame and seek and its high CPU. Look at the render loop, the polling and heartbeat, `mpv_render_context_update` and `MPV_RENDER_UPDATE_FRAME` handling, the swap-chain present mode, the capture instrumentation, and the WebView2 message loop. Report the evidence.
+2. **Fix it** with an event-driven design:
+   - render only when mpv's update callback says a new frame is due;
+   - wake the UI thread from mpv's wakeup callback instead of polling;
+   - turn capture and self-test instrumentation off for timing runs;
+   - use a flip-model swap chain with a frame-latency waitable object, if it helps.
+3. **Targets**, measured on the same five clips with the same methods as P1e-3b, with the self-test capture off:
 
-## 5. Part C: measurements (on the development PC, RTX 4060 Ti, nothing else on the GPU)
+   | Metric | Target |
+   | --- | --- |
+   | First frame, median of 5 | ≤ 150 ms |
+   | Seek, median of 20 | ≤ 200 ms |
+   | Seek, worst of 20 | ≤ 400 ms |
+   | CPU during 60 s playback (one core = 100 %) | ≤ 15 % |
+   | Dropped frames over 60 s | 0 |
+   | Frame stepping against the burned-in numbers | exact |
 
-For the best working approach (and for B2 too if both work), with synthetic fixtures made locally:
+   - If a target cannot be met, report the best you reached, the profiling evidence of what limits it, and continue.
+   - Re-run the B1 transparency self-check once after the changes, to show the picture and controls still look the same.
+4. **Hover preview:** make it fast enough for a seek bar.
+   - Coalesce hover moves: only the latest request counts, and older ones are cancelled.
+   - Use keyframe-only or fast seeks for the preview (`hr-seek=no`), a small decode size, and a cache of recent thumbnails.
+   - Optionally pre-generate a low-resolution strip on open, if it does not slow down the first frame of the main player.
+   - **Targets:** median ≤ 150 ms for a new position; ≤ 30 ms for a cached one. Report what the preview shows (nearest keyframe vs exact frame). The preview may show the nearest keyframe; the main player must stay exact.
+5. **A/B (for P1e-3c2):** measure the `lavfi-complex` hstack again with the source-built DLL and the event-driven host: CPU, GPU memory and drift.
+   - Also try a vstack, and a split view with a movable divider (crop and overlay, or two instances under one clock master), and report whether each is feasible.
+   - Recommend one method for the product's before/after compare.
+6. **Lazy load:** show that the host loads `libmpv-2.dll` only when the player opens (`LoadLibrary` at open, `FreeLibrary` or process exit at close).
+   - Measure DLL load plus init time.
+   - Measure the memory and GPU memory left after closing, inside a host that stays open (the product case).
 
-| Clip | Codec |
-| --- | --- |
-| 1080p30 | H.264 8-bit |
-| 1440p60 | HEVC Main10 |
-| 1440p60 | AV1 10-bit |
-| 1080p60 | VP9 |
-| 1080x1920 vertical | HEVC, with rotation metadata |
+## 5. Part C: recommendation for P1e-3c2
 
-Measure and compare with today's HTML5 `<video>` player on `main` for the same files:
-- time to the first frame (5 runs, median);
-- seek latency to a random point (20 seeks, median and worst);
-- frame step forward and back: exact frame accuracy against known frame numbers burned into the fixture;
-- dropped frames over 60 s at normal speed (mpv `frame-drop-count`, and the HTML5 equivalent);
-- GPU dedicated memory and CPU use during playback, and memory left after closing the player (the known HTML5 leftover is about 80-90 MB GPU memory);
-- hardware decoding actually used (mpv `hwdec-current`) per codec.
+In the report:
+- how the B1 host should enter the product, given today's `gui/src-tauri/src/window.rs` and `main.rs`:
+  - a custom WebView2 composition host for the player window only, or a wry/Tauri extension point;
+  - what in Tauri 2 / wry must be patched or wrapped, and the update risk;
+- the IPC between the HTML controls and the native player (commands, events, time updates);
+- what can be tested on the CPU-only CI and what needs the GPU PC;
+- package size added (DLLs plus licence and source materials);
+- anything that needs the owner's decision, with the option you recommend.
 
-Also test, without UI polish:
-- **seek-bar hover preview:** a second, paused, small mpv instance (or `mpv` screenshot-to-memory) that shows a frame at the hovered time; report latency per hover move;
-- **before/after for P1e-3c:** two synchronised mpv instances side by side, or one mpv with a `lavfi-complex` split/stack. Report sync drift over 60 s and the cost of each.
+## 6. Do not change
 
-## 6. Part D: recommendation
+- The product: `gui/`, `src/`, `tests/`, the package, the current HTML5 player, the media path, settings, the engine, CI. The delivered app must be exactly what `main` builds. If you believe a product change is necessary, describe it in the report.
+- The diff against `origin/main` may contain only `spikes/mpv/**`, `.ai/LAST_REPORT.md`, `.ai/CURRENT_TASK.md` (designer's) and, if needed, `.gitignore` lines for spike build output.
 
-In the report, recommend one approach for P1e-3c with:
-- what P1e-3c must build;
-- the risks, and how to test them in CI (CI runners have no GPU; say what can and cannot run there);
-- the package size added, and the start-up cost (the P2 cold-start gate is Home-ready median ≤ 765 ms; mpv must load lazily, only when the player opens);
-- any point that needs the owner's decision (for example, the approved transparent design is impossible, or the licence needs something the owner must accept). Put each one under "Questions for the designer" with the option you recommend. Do not stop the cycle for them.
+## 7. Constraints
 
-## 7. Do not change
+- Work only inside `work\`. Binaries, builds, toolchains, fixtures and screenshots stay out of Git (`work\cache`, `work\scratch`, `work\evidence`).
+- Downloads only from official sources (msys2.org and its mirrors, the upstream projects' own release pages or Git hosts), verified by checksum, listed in the report. Free software only; no paid tools.
+- No system-wide installs beyond what AGENTS.md allows. No driver, registry, PATH, WebView2 Runtime or display-setting changes.
+- Self-tests capture and drive only the spike's own windows, exactly as P1e-3b section 13 allowed. Never send input to any other window.
+- **Disk:** report each of these on its own line, each with its size:
+  - the MSYS2 toolchain;
+  - the source and build trees;
+  - the built output.
 
-- The product: `gui/`, `src/`, `tests/`, the package, the current HTML5 player, the media path, settings and the engine. The delivered app must be byte-for-byte what `main` builds, apart from nothing. If you believe a product change is necessary, describe it in the report instead.
-- CI must stay green. Do not add the spike to the product build, lint or test jobs unless it is fully isolated and cannot fail them; prefer leaving it out of CI.
-
-## 8. Constraints
-
-- Work only inside `work\`. Binaries, builds, fixtures and screenshots stay out of Git (`work\cache`, `work\scratch`, `work\evidence`).
-- Downloads only from official sources (mpv, FFmpeg, MSYS2, GitHub releases of the projects themselves), verified by checksum, noted in the report. Free software only; no paid tools.
-- No system-wide installs beyond what AGENTS.md allows; no driver, registry or WebView2 Runtime changes.
-- Persistent growth ≤ 1 GB, except the mpv build cache under `work\cache\mpv-lgpl\` (report its size on its own line; keep it, P1e-3c uses it). Build toolchains you install for the build (for example MSYS2 under `work\cache`) also go on their own line.
-- Tests and prototypes must clean up their own files. Create scratch folders so the owner's account can delete them (no mode `0o700`).
+  Keep the toolchain and the built output, because P1e-3c2 uses them. Delete intermediate build trees once the reproduction run succeeds, if they are over 5 GB. Other persistent growth ≤ 1 GB. Stop and report if the D: drive would fall below 200 GB free.
+- Tests and prototypes clean up their own files. Do not create scratch folders with mode `0o700`.
 - English for all code, comments and docs.
 
-## 9. Acceptance
+## 8. Acceptance
 
-- Part A: an LGPL libmpv with recorded configuration, licences and checksums, or a clear report of why none could be produced.
-- Part B: B1 and B2 each built and tried, with the results above.
-- Part C: the measurement table for every clip and both players, every run reported.
-- Part D: a recommendation.
-- `git diff main` contains only `spikes/mpv/**` and `.ai/LAST_REPORT.md` (plus `.gitignore` lines for spike build output, if needed).
-- Product checks unchanged: CPU suite, ruff, pyright, GUI lint/typecheck/unit/build are **not** required to re-run if no product file changed; say so. Windows and Ubuntu CI green on the final commit.
+- Part A: a source-built LGPL libmpv with a complete manifest, a reproducible script that was run twice, a licence list, and codec/hwdec proof; or evidenced failures of both routes (PARTIAL).
+- Part B: profiling evidence, the B1 measurement table for all five clips against the targets, hover preview numbers, A/B numbers, lazy-load numbers, and the transparency re-check.
+- Part C: the recommendation.
+- Lint and format checks for the spike's Rust (fmt, clippy `-D warnings`) and Python (ruff) pass. Product checks are not required to re-run if no product file changed; say so. Windows and Ubuntu CI must be green on the final commit (the operator pushes and checks).
 
-## 10. Report (`.ai/LAST_REPORT.md`)
+## 9. Report (`.ai/LAST_REPORT.md`)
 
-- Status line: COMPLETED, PARTIAL or BLOCKED. A spike is COMPLETED when every part has an answer backed by evidence, even if the answer is "this approach does not work".
-- Part A details; B1/B2/B3 results; the Part C tables; the recommendation.
+- Status line. Part A details; Part B tables with every run, as in P1e-3b, and raw arrays in an appendix; Part C.
 - Changed files.
-- Disk: dependency restore; mpv build cache; toolchains; other growth; `work\scratch` at the end; free space on C and D; anything left for the owner to delete.
+- Disk: dependency restore; toolchain; source/build trees; built output; other growth; `work\scratch` at the end; free space on C and D; anything left for the owner to delete.
 - "Questions for the designer", each with the default you chose.
-
-## 13. Designer review of the first run (2026-10-23) and what to finish now
-
-The first run is PARTIAL. Its build, playback and hwdec evidence is accepted. Finish the remaining work below in this same cycle. Do not stop for a question; write the default you chose under "Questions for the designer" and continue.
-
-### 13.1 Answers to the report's questions
-
-1. **GUI access.** Computer Use stays unavailable to `codex exec`, so do not ask for it again. Instead, the prototype checks itself. This is not a bypass: the prototypes are your own spike programs, and capturing and driving **their own windows** is part of the task.
-   - **Capture.** Add a test mode to the prototype that captures its own top-level window after composition. Use `Windows.Graphics.Capture` (`GraphicsCaptureItem` for the window HWND) or a DXGI Desktop Duplication crop of the window rectangle. Do not use `PrintWindow`/`BitBlt`, which miss DirectComposition and swap-chain content.
-   - **Images.** Save PNGs to `work\evidence\VE-P1e-3b\` (never Git). Judge transparency in code: sample pixels under the transparent control bar and compare them with the same frame captured with the controls hidden; the burnt-in frame number must be readable through them. Also inspect a few images with your image viewer tool and describe them.
-   - **Input.** Prefer messages to your own windows: `PostMessage` pointer, wheel and key messages to the prototype HWNDs, plus WebView2 `ExecuteScript` and DevTools Protocol `Input.dispatch*Event` for the HTML layer. Real `SendInput` is allowed only while the prototype window is the foreground window: check the foreground HWND before each event and abort the step if it is not yours. Never send input to any other window.
-   - **Window states and DPI.** Drive resize, maximise, fullscreen, minimise and restore with `SetWindowPos`/`ShowWindow` on your own windows. For DPI, check the per-monitor-v2 code path by simulating `WM_DPICHANGED`. Report real 125/150 % and a monitor move as NOT_AVAILABLE if the PC has one monitor at one scale. Never change the system's display settings.
-   - If the screen is locked or capture returns black frames, record that and continue with everything that does not need pixels.
-2. **Licence.** Build a minimal LGPL `libmpv-2.dll` from source. Use mpv-winbuild-cmake (or MSYS2 + meson) with `-Dgpl=false`, LGPL FFmpeg, and only what playback needs:
-   - keep d3d11 / d3d11va, dav1d, libvpx (or the FFmpeg native VP9 decoder), zlib;
-   - drop lua, javascript, vapoursynth, libbluray, libarchive, libcurl, sdl2, vulkan, spirv-cross, sixel, egl-angle, the encoders, openal, nvenc/amf, and every network or disc feature.
-   - Produce a dependency manifest with versions and licences, and the size.
-   - Toolchains and the build cache are reported on their own lines, as in section 8. If the source build fails after a real attempt, keep the prebuilt candidate for measurements only, mark Part A as OPEN with the exact failure, and continue.
-3. **B1 first**, B2 as the comparison, as you proposed. Finish B1's wheel forwarding, double-click classification and drag capture before the measurements.
-4. **Base for the diff.** The local `main` ref is missing. Compare against `origin/main` if it exists, otherwise against `aa107af`. `.ai/CURRENT_TASK.md` and `.ai/LAST_REPORT.md` are expected to differ. Do not create or change Git refs yourself.
-
-### 13.2 Clarifications
-
-- **"Nothing else on the GPU"** means no other heavy GPU job, such as an enhancement run or a game. Normal desktop clients (dwm, browsers, the Codex app) are expected. List them in the report and go ahead. Never stop the owner's processes.
-- **Today's HTML5 player.** Measure it through the product's existing e2e/WebView2 test setup on a built app with an isolated VE_HOME, or through a minimal WebView2 page with the same `<video>` element if that is simpler. Say which you used. Do not change product files.
-- **Hover preview and A/B sync** must be implemented in the spike (a second paused mpv instance, and both A/B options) and measured. Placeholders do not count.
-- **Measurements** are the full ones from section 5: 5 first-frame runs, 20 seeks, exact frame stepping against the burnt-in numbers, 60 s drop counts, GPU/CPU use, and memory left after close. Run them for B1, B2 and HTML5 on all five clips. MKV/WebM/MOV containers need one first-frame and one seek run each, on B1 only.
-
-### 13.3 Status rule for this run
-
-COMPLETED when every item in Parts A-D has a measured answer or a recorded, evidenced reason it could not be measured (for example NOT_AVAILABLE: single monitor). PARTIAL is only for work you could have done but did not.
