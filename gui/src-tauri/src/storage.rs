@@ -15,6 +15,39 @@ use std::{
 };
 
 pub const OVERRIDE_MESSAGE: &str = "App data is set by VE_HOME. Unset it to use Move.";
+#[cfg(test)]
+std::thread_local! { static HASH_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+static STARTUP_NOTICE: std::sync::OnceLock<std::sync::Mutex<String>> = std::sync::OnceLock::new();
+pub fn startup_notice() -> String {
+    STARTUP_NOTICE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+fn startup_pointer(path: &Path) -> Result<Value> {
+    match read(path) {
+        Ok(value) if value.is_object() => Ok(value),
+        result => {
+            let error = match result {
+                Err(error) if error.starts_with("Invalid storage pointer") => error,
+                Err(error) => return Err(error),
+                _ => "Expected a JSON object at the top level.".into(),
+            };
+            let message = format!(
+                "Skipped damaged JSON file {}: {}. The file was left unchanged.",
+                path.display(),
+                error
+            );
+            eprintln!("{message}");
+            *STARTUP_NOTICE
+                .get_or_init(Default::default)
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = message;
+            Ok(json!({}))
+        }
+    }
+}
 pub fn pointer() -> Result<PathBuf> {
     Ok(
         PathBuf::from(std::env::var_os("APPDATA").ok_or("APPDATA is missing")?)
@@ -31,6 +64,11 @@ pub fn read(path: &Path) -> Result<Value> {
     }
 }
 pub fn write(path: &Path, data: &Value) -> Result<()> {
+    if path.exists() && !read(path)?.is_object() {
+        return Err(
+            "The storage pointer is damaged. Fix or remove it before saving a new location.".into(),
+        );
+    }
     fs::create_dir_all(path.parent().ok_or("Pointer parent missing")?)
         .map_err(|e| e.to_string())?;
     let temp = path.with_extension(format!("{}.tmp", std::process::id()));
@@ -87,8 +125,17 @@ pub fn startup() -> Result<PathBuf> {
         .and_then(Path::parent)
         .ok_or("Pointer parent missing")?
         .join("videoenhancer-desktop/storage-location.json");
-    let migrated = migrate(&file, &legacy)?;
-    let mut value = read(&file)?;
+    let migrated = if !file.exists() && legacy.exists() {
+        let value = startup_pointer(&legacy)?;
+        if value["active"].is_string() {
+            migrate(&file, &legacy)?
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    let mut value = startup_pointer(&file)?;
     let default = PathBuf::from(std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is missing")?)
         .join("VideoEnhancer");
     loop {
@@ -115,6 +162,7 @@ pub fn startup() -> Result<PathBuf> {
             }
             return Ok(home);
         }
+        ensure_available_drive(&home)?;
         let answer = rfd::MessageDialog::new()
             .set_title("VideoEnhancer")
             .set_description(format!(
@@ -137,7 +185,7 @@ pub fn startup() -> Result<PathBuf> {
             _ => return Err("Startup cancelled.".into()),
         };
         if let Some(next) = next.filter(|p| p.is_dir()) {
-            value = json!({"active":next,"previous":home});
+            value = json!({"active":next,"previous":home,"recovered":true});
             write(&file, &value)?;
         }
     }
@@ -203,7 +251,8 @@ impl Drop for BusyGuard<'_> {
 pub fn refresh(state: &State) -> Result<()> {
     let _busy = BusyGuard::acquire(&state.storage_busy)?;
     let saved = read(&pointer()?)?;
-    let checked = verify(state, &saved);
+    let checked =
+        verify(state, &saved).and_then(|(old, entries)| removal_eligibility(&old, &entries));
     *state
         .storage_verification
         .lock()
@@ -212,6 +261,23 @@ pub fn refresh(state: &State) -> Result<()> {
         "reason": checked.err().unwrap_or_default()
     });
     Ok(())
+}
+fn removal_eligibility(old: &Path, entries: &[Value]) -> Result<()> {
+    if entries
+        .iter()
+        .any(|entry| removable_size(old, entry).is_some())
+    {
+        Ok(())
+    } else {
+        Err("No unchanged, accessible files from this move can be removed.".into())
+    }
+}
+fn unverified_location_reason(value: &Value) -> &'static str {
+    if value["recovered"] == true {
+        "This location was recovered by the app. No verified move record is available, so the previous folder is kept."
+    } else {
+        "This folder was moved by an earlier version, so the app can't check it before removing it. Keeping it is safe."
+    }
 }
 pub fn status(state: &State) -> Result<Value> {
     let mut value = read(&pointer()?)?;
@@ -235,7 +301,7 @@ pub fn status(state: &State) -> Result<Value> {
     }
     value["disabled"] = json!(std::env::var_os("VE_HOME").is_some());
     if value["previous"].is_string() && !value["manifest"].is_array() {
-        value["remove_reason"] = json!("This folder was moved by an earlier version, so the app can't check it before removing it. Keeping it is safe.");
+        value["remove_reason"] = json!(unverified_location_reason(&value));
     }
     value["manifest"] = Value::Null;
     Ok(value)
@@ -301,7 +367,7 @@ pub fn remove_old(state: &State, parent: &tauri::WebviewWindow) -> Result<Value>
     let (old, entries) = verify(state, &saved)?;
     let deletable: Vec<_> = entries
         .iter()
-        .filter(|entry| removable_size(&old, entry).is_some())
+        .filter(|entry| candidate_size(&old, entry).is_some())
         .collect();
     let bytes: u64 = deletable.iter().filter_map(|e| e["size"].as_u64()).sum();
     let message=format!("Remove the old app data folder?\n{} · {} files · {:.2} GB\nThis permanently deletes the app's old copy. Your videos are not in this folder.",old.display(),deletable.len(),bytes as f64/1e9);
@@ -334,18 +400,31 @@ pub fn remove_old(state: &State, parent: &tauri::WebviewWindow) -> Result<Value>
         return Ok(json!({"cancelled":true}));
     }
     verify(state, &saved)?;
-    let outcome = remove_entries(&old, &entries);
+    let total: u64 = entries
+        .iter()
+        .filter_map(|entry| entry["size"].as_u64())
+        .sum();
+    let mut checked_bytes = 0;
+    let outcome = remove_entries_progress(&old, &entries, |index, entry| {
+        *state
+            .storage_progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = json!({
+            "phase":format!("Removing old app data: {} ({}/{})",entry["path"].as_str().unwrap_or("file"),index+1,entries.len()),
+            "copied_bytes":checked_bytes,"total_bytes":total
+        });
+        checked_bytes += entry["size"].as_u64().unwrap_or(0);
+    });
     let latest = finish_removal(&file, &saved, &outcome.remaining)?;
     *state
         .storage_verification
         .lock()
-        .map_err(|e| e.to_string())? =
-        json!({"pointer":latest,"can_remove":!outcome.remaining.is_empty(),"reason":""});
+        .map_err(|e| e.to_string())? = json!({"pointer":latest,"can_remove":false,"reason":if outcome.remaining.is_empty() { "There are no old app-data files to remove." } else { "Remaining files were kept because they could not be safely removed. Reopen Settings to check again." }});
     let kept = count_files(&old).ok();
     let _ = fs::remove_dir(&old);
     Ok(
         json!({"removed_files":outcome.files,"removed_bytes":outcome.bytes,"kept_files":kept,"kept_manifest_files":outcome.remaining.len(),"kept_reasons":outcome.reasons,"folder":old,
-        "message":format!("Removed {} files ({:.2} GB). Kept {} move-manifest files: {}. Other unlisted files are kept.\n{}",outcome.files,outcome.bytes as f64/1e9,outcome.remaining.len(),outcome.reasons,old.display())}),
+        "message":format!("Removed {} files ({:.2} GB). Kept {} move-manifest files: {}. Other unlisted files are kept.\n{}",outcome.files,outcome.bytes as f64/1e9,outcome.remaining.len(),reason_sentence(&outcome.reasons),old.display())}),
     )
 }
 fn finish_removal(file: &Path, saved: &Value, remaining: &[Value]) -> Result<Value> {
@@ -369,10 +448,34 @@ fn finish_removal(file: &Path, saved: &Value, remaining: &[Value]) -> Result<Val
     Ok(latest)
 }
 fn removable_size(old: &Path, entry: &Value) -> Option<u64> {
+    candidate_size(old, entry)?;
+    matching_old_size(&old.join(relative(entry["path"].as_str()?).ok()?), entry)
+}
+fn ensure_available_drive(home: &Path) -> Result<()> {
+    if home.ancestors().last().is_some_and(|root| !root.exists()) {
+        return Err("The app data drive is unavailable. Reconnect it and restart VideoEnhancer. The saved location has been kept.".into());
+    }
+    Ok(())
+}
+fn ensure_no_previous(saved: &Value) -> Result<()> {
+    if saved["previous"].is_string() {
+        return Err("An earlier app data folder is still recorded. Remove the old copy before moving again.".into());
+    }
+    Ok(())
+}
+fn candidate_size(old: &Path, entry: &Value) -> Option<u64> {
     let rel = relative(entry["path"].as_str()?).ok()?;
     no_links(old, &rel).ok()?;
     let path = old.join(rel);
-    let size = matching_old_size(&path, entry)?;
+    let meta = fs::symlink_metadata(&path).ok()?;
+    if entry["protected_video"] == true
+        || !meta.is_file()
+        || meta.file_attributes() & 0x400 != 0
+        || Some(meta.len()) != entry["size"].as_u64()
+    {
+        return None;
+    }
+    let size = meta.len();
     // Check current delete access without modifying the file; check again after confirmation.
     fs::OpenOptions::new()
         .access_mode(0x10000)
@@ -387,14 +490,36 @@ struct Removal {
     remaining: Vec<Value>,
     reasons: Value,
 }
+#[cfg(test)]
 fn remove_entries(old: &Path, entries: &[Value]) -> Removal {
+    remove_entries_progress(old, entries, |_, _| {})
+}
+fn reason_sentence(reasons: &Value) -> String {
+    reasons
+        .as_object()
+        .map(|items| {
+            items
+                .iter()
+                .map(|(reason, count)| format!("{count} {reason}"))
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "none".into())
+}
+fn remove_entries_progress(
+    old: &Path,
+    entries: &[Value],
+    mut progress: impl FnMut(usize, &Value),
+) -> Removal {
     let mut result = Removal {
         files: 0,
         bytes: 0,
         remaining: vec![],
         reasons: json!({}),
     };
-    for entry in entries {
+    for (index, entry) in entries.iter().enumerate() {
+        progress(index, entry);
         let rel = entry["path"].as_str().and_then(|p| relative(p).ok());
         let path = rel.as_ref().map(|p| old.join(p));
         if path.as_ref().is_some_and(|p| matches!(fs::symlink_metadata(p), Err(e) if e.kind() == std::io::ErrorKind::NotFound)) { continue; }
@@ -437,6 +562,8 @@ fn matching_old_size(path: &Path, entry: &Value) -> Option<u64> {
         return None;
     }
     if let Some(expected) = entry["sha256"].as_str() {
+        #[cfg(test)]
+        HASH_READS.with(|count| count.set(count.get() + 1));
         let mut stream = fs::File::open(path).ok()?;
         let mut hasher = Sha256::new();
         let mut buffer = [0u8; 65536];
@@ -470,6 +597,7 @@ pub fn relocate(state: &State, target: &str) -> Result<Value> {
     if std::env::var_os("VE_HOME").is_some() {
         return Err(OVERRIDE_MESSAGE.into());
     }
+    ensure_no_previous(&read(&pointer()?)?)?;
     let target = PathBuf::from(target);
     if !target.is_absolute() || target.to_string_lossy().contains('\0') {
         return Err("Choose an absolute folder.".into());
@@ -584,6 +712,90 @@ pub fn relocate(state: &State, target: &str) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removal_requires_an_unchanged_accessible_unprotected_file() {
+        let root = std::env::temp_dir().join(format!("ve-empty-remove-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("record"), b"first").unwrap();
+        let valid =
+            json!({"path":"record","size":5,"sha256":format!("{:x}",Sha256::digest(b"first"))});
+        assert!(removal_eligibility(&root, &[]).is_err());
+        let mut protected = valid.clone();
+        protected["protected_video"] = json!(true);
+        assert!(removal_eligibility(&root, &[protected]).is_err());
+        assert!(removal_eligibility(&root, std::slice::from_ref(&valid)).is_ok());
+        fs::write(root.join("record"), b"other").unwrap();
+        assert!(removal_eligibility(&root, std::slice::from_ref(&valid)).is_err());
+        fs::remove_file(root.join("record")).unwrap();
+        assert!(removal_eligibility(&root, &[valid]).is_err());
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn recovered_location_is_distinct_from_a_legacy_move() {
+        let recovered = unverified_location_reason(&json!({"recovered":true}));
+        assert!(recovered.contains("recovered by the app"));
+        assert!(!recovered.contains("earlier version"));
+        assert!(unverified_location_reason(&json!({})).contains("earlier version"));
+    }
+
+    #[test]
+    fn remove_hashes_once_after_metadata_only_confirmation_and_reports_progress() {
+        let root = std::env::temp_dir().join(format!("ve-one-hash-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("record.json");
+        fs::write(&path, b"first").unwrap();
+        let entry = json!({"path":"record.json","size":5,"sha256":format!("{:x}",Sha256::digest(b"first"))});
+        HASH_READS.with(|count| count.set(0));
+        assert_eq!(candidate_size(&root, &entry), Some(5));
+        let mut progress = vec![];
+        let result = remove_entries_progress(&root, &[entry], |index, entry| {
+            progress.push((index, entry["path"].clone()))
+        });
+        assert_eq!(result.files, 1);
+        assert_eq!(progress.len(), 1);
+        HASH_READS.with(|count| assert_eq!(count.get(), 1));
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn second_move_is_refused_and_result_reasons_are_sentences() {
+        let saved = json!({"active":"new","previous":"old","manifest":[{"path":"kept"}]});
+        let before = saved.clone();
+        assert!(ensure_no_previous(&saved)
+            .unwrap_err()
+            .contains("Remove the old copy"));
+        assert_eq!(saved, before);
+        assert_eq!(reason_sentence(&json!({"locked":2})), "2 locked");
+        assert!(!reason_sentence(&json!({"locked":2})).contains('{'));
+    }
+
+    #[test]
+    fn damaged_pointer_is_preserved_and_cannot_be_silently_overwritten() {
+        let root = std::env::temp_dir().join(format!("ve-damaged-pointer-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("pointer.json");
+        for raw in [b"{torn".as_slice(), b"not JSON", b"[]"] {
+            fs::write(&path, raw).unwrap();
+            assert_eq!(startup_pointer(&path).unwrap(), json!({}));
+            assert!(write(&path, &json!({"active":"replacement"})).is_err());
+            assert_eq!(fs::read(&path).unwrap(), raw);
+        }
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn disconnected_drive_keeps_pointer_bytes() {
+        let letter = ('A'..='Z')
+            .find(|letter| !Path::new(&format!("{letter}:\\")).exists())
+            .unwrap();
+        let home = PathBuf::from(format!("{letter}:\\synthetic\\VideoEnhancer"));
+        assert!(ensure_available_drive(&home)
+            .unwrap_err()
+            .contains("saved location has been kept"));
+    }
     #[test]
     fn pointer_write_rechecks_active_folder_and_keeps_remaining_manifest_for_retry() {
         let root = std::env::temp_dir().join(format!("ve-p1f-pointer-{}", std::process::id()));

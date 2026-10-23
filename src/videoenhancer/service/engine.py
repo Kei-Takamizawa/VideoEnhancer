@@ -78,6 +78,9 @@ class Engine:
         test_lock_order: bool = False,
     ):
         self.home = home.resolve()
+        self._startup_json_notice = os.environ.get("VE_STARTUP_JSON_NOTICE", "")
+        if self._startup_json_notice:
+            get_logger(self.home).warning(self._startup_json_notice)
         self._test_stuck_trial = test_stuck_trial
         self._test_trial_timeout = test_trial_timeout
         self.store = JobStore(home)
@@ -197,7 +200,7 @@ class Engine:
         for entry in self.deletion.completed_outcomes():
             try:
                 job = self.store.load(entry["job_id"])
-            except (FileNotFoundError, KeyError):
+            except (FileNotFoundError, KeyError, ValueError, TypeError):
                 continue
             for key, path in (("original", job["input"]["path"]), ("output", job["output"])):
                 if os.path.normcase(os.path.abspath(path)) == os.path.normcase(
@@ -240,7 +243,24 @@ class Engine:
                 for path in self.store.job_dir(job["id"]).glob("seg_*.tmp.*"):
                     path.unlink(missing_ok=True)
             elif job["state"] == "preparing":
-                job.update(state="failed", error="Preparation was interrupted. Try again.")
+                if job.get("link_unanalysed") and job.get("source", {}).get("downloaded_at"):
+                    job["state"] = "downloading"
+                else:
+                    from videoenhancer.media.admission import color_warning
+
+                    media = job.get("media", {})
+                    reason = color_warning(media)
+                    source = Path(job["input"]["path"])
+                    if not reason and not media.get("bit_depth") and source.is_file():
+                        try:
+                            reason = color_warning(
+                                probe(source, allow_hdr=True, read_timeline=False).to_dict()
+                            )
+                        except (OSError, ValueError, subprocess.SubprocessError):
+                            pass
+                    job.update(
+                        state="failed", error=reason or "Preparation was interrupted. Try again."
+                    )
                 self.store.save(job)
         for folder in (self.home / "previews").glob("*"):
             from videoenhancer.damaged_json import read_object
@@ -248,7 +268,7 @@ class Engine:
             state_path = folder / "state.json"
             if state_path.is_file():
                 try:
-                    op = read_object(state_path, self.home)
+                    op = read_object(state_path, self.home, ("id", "state"))
                 except (ValueError, UnicodeError):
                     continue
                 if op["state"] in {"waiting", "running"}:
@@ -259,7 +279,7 @@ class Engine:
                     )
             elif (folder / "request.json").is_file():
                 try:
-                    saved = read_object(folder / "request.json", self.home)
+                    saved = read_object(folder / "request.json", self.home, ("kind", "request"))
                 except (ValueError, UnicodeError):
                     continue
                 op = dict(
@@ -289,6 +309,8 @@ class Engine:
             "job_id": job_id,
             "message": str(error),
         }
+        if any(item["error"] == str(error) for item in damaged_notices(self.home)):
+            return
         get_logger(self.home, job_id=job_id).error(
             "Controller error: %s", error, exc_info=(type(error), error, error.__traceback__)
         )
@@ -430,7 +452,8 @@ class Engine:
                     from videoenhancer.service.storage import cleanup_expired
 
                     with self._mutation_lock:
-                        cleanup_expired(self.store)
+                        if not any(row.get("record_error") for row in self.store.queue_jobs()):
+                            cleanup_expired(self.store)
                     self._cleanup_checked = time.monotonic()
                 run_queue(
                     home=self.home,
@@ -611,7 +634,12 @@ class Engine:
             "last_error": self.last_error,
             "home": str(self.home),
             "deletion_notices": list(self.deletion.notices),
-            "damaged_file_notices": damaged_notices(self.home),
+            "damaged_file_notices": damaged_notices(self.home)
+            + (
+                [{"path": "storage-location.json", "error": self._startup_json_notice}]
+                if self._startup_json_notice
+                else []
+            ),
             "av1_supported": self.environment.get("av1_supported", False),
             "av1_unavailable_reason": self.environment.get(
                 "av1_unavailable_reason", "Checking AV1 hardware encoding…"
@@ -626,6 +654,14 @@ class Engine:
         self._history_rows.pop(job_id, None)
         row = self.store._record_error(job_id, error, job)
         row["input"] = row["input"]["path"]
+        if row.get("unreadable_record"):
+            try:
+                info = self.store.job_dir(job_id).stat()
+                row["record_folder_date"] = datetime.fromtimestamp(
+                    getattr(info, "st_birthtime", info.st_mtime), UTC
+                ).isoformat()
+            except OSError:
+                row["record_folder_date"] = None
         row.update(
             error=f"This job's record can't be shown: {error}",
             eta=None,
@@ -862,6 +898,7 @@ class Engine:
                         else j["input"].get("size"),
                         "output_folder": str(Path(j["output"]).parent),
                         "failure_reason": j.get("error"),
+                        "gpu_memory_notice": bool(j.get("gpu_memory_notice")),
                         "output_changed": bool(
                             output_info is not None
                             and j.get("output_identity")
@@ -1910,6 +1947,8 @@ class Engine:
         return job
 
     def _finish_cancellations(self) -> None:
+        if any(row.get("record_error") for row in self.store.queue_jobs()):
+            return
         for job in self.store.list_jobs():
             preparing = any(
                 thread.name == f"prepare-{job['id']}" and thread.is_alive()
@@ -2239,7 +2278,8 @@ class Engine:
         self._finish_cancellations()
         from videoenhancer.service.deletion import schedule_original_deletions
 
-        schedule_original_deletions(self.store)
+        if not any(row.get("record_error") for row in self.store.queue_jobs()):
+            schedule_original_deletions(self.store)
         op = next((o for o in self.operations.values() if o["state"] == "waiting"), None)
         if not op or self.stop.is_set():
             return

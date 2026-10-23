@@ -158,6 +158,8 @@ def core_records_load(home: Path, store: JobStore) -> bool:
         from videoenhancer.damaged_json import read_object
 
         read_object(home / "settings.json", home)
+        if (home / "schedule.json").exists():
+            read_object(home / "schedule.json", home)
         if not (home / "settings.json").is_file() or not (home / "jobs").is_dir():
             return False
         if any(not (home / "models" / name / "model.json").is_file() for name in BUILTINS):

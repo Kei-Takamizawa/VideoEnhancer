@@ -365,3 +365,27 @@ immediately. Notices about an ongoing condition and reasons inside rows remain.
 Diagnostics labels a calibration failure from an earlier session with its date
 and offers **Run again**. A Windows startup-entry failure appears beside **Start
 with Windows**, has Copy, and is logged once until the error changes or clears.
+
+### GPU memory, startup notices and storage
+
+Job details keep the copyable notice "Some parts ran slower because GPU memory
+was full." when shared GPU memory rose during processing. The notice remains
+visible. Processing can retry once without its memory cap after the existing
+restoration retry; output settings are preserved.
+
+A damaged JSON file no longer prevents the rest of the engine from starting.
+The condition notice includes Copy details. Settings use session defaults and
+Save refuses to overwrite a damaged settings file until its owner fixes or
+removes it. Unreadable History details show the folder date and keep the ID in
+Copy details.
+
+Inputs above 10 bits are refused with "This video uses <N>-bit color.
+VideoEnhancer accepts 8-bit and 10-bit videos only." The reason is copyable.
+8-bit and 10-bit SDR input remain supported.
+
+Storage disables Remove when no eligible old files remain. Remove shows the
+current file and progress; results use plain sentences with full Copy details.
+A second Move is refused until the earlier old copy is cleaned up. A recovered
+pointer is identified separately from a legacy pointer, and an unavailable drive
+does not clear the saved location. Reopen Settings to recheck kept old files.
+Quit can stop downloaded-video analysis; the next start resumes its preparation.

@@ -16,13 +16,32 @@ import psutil
 import torch
 
 from videoenhancer import proc
+from videoenhancer.jobs.pdh import ProcessMemoryCounters
+
+
+class SpillTracker:
+    def __init__(self) -> None:
+        self.baseline: int | None = None
+        self.spilled: bool | None = None
+        self.peak_dedicated: int | None = None
+        self.peak_shared: int | None = None
+
+    def observe(self, dedicated: int | None, shared: int | None) -> None:
+        if dedicated is not None:
+            self.peak_dedicated = max(self.peak_dedicated or 0, dedicated)
+        if shared is not None:
+            if self.baseline is None:
+                self.baseline, self.spilled = shared, False
+            self.peak_shared = max(self.peak_shared or 0, shared)
+            if shared - self.baseline > 256_000_000:
+                self.spilled = True
 
 
 class JobMemorySampler:
     """Sample engine PID dedicated GPU bytes, Torch reserve, RSS, and NVML."""
 
     def __init__(
-        self, interval_seconds: int = 60, on_sample: Callable[[dict[str, Any]], None] | None = None
+        self, interval_seconds: int = 1, on_sample: Callable[[dict[str, Any]], None] | None = None
     ) -> None:
         self.interval_seconds = interval_seconds
         self.samples: list[dict[str, Any]] = []
@@ -31,6 +50,15 @@ class JobMemorySampler:
         self._thread: threading.Thread | None = None
         self._nvml: Any = None
         self._handle: Any = None
+        self.spill = SpillTracker()
+        self._pdh: ProcessMemoryCounters | None = None
+        self.counter_source = "unavailable"
+        if os.name == "nt":
+            try:
+                self._pdh = ProcessMemoryCounters()
+                self.counter_source = "PDH ctypes"
+            except OSError:
+                self.counter_source = "PowerShell fallback"
         try:
             import pynvml
 
@@ -84,6 +112,20 @@ class JobMemorySampler:
         pid = os.getpid()
         rss = int(psutil.Process(pid).memory_info().rss)
         reserved = int(torch.cuda.memory_reserved()) if torch.cuda.is_available() else 0
+        dedicated = shared = None
+        counter_started = time.perf_counter()
+        if self._pdh is not None:
+            try:
+                dedicated, shared = self._pdh.read(pid)
+            except OSError:
+                self._pdh.close()
+                self._pdh = None
+                self.counter_source = "PowerShell fallback"
+        if self.counter_source == "PowerShell fallback":
+            dedicated = self._dedicated_bytes(pid)
+            shared = self._windows_bytes(pid, "Shared Usage")
+        counter_seconds = time.perf_counter() - counter_started
+        self.spill.observe(dedicated, shared)
         nvml_bytes = None
         if self._nvml is not None:
             try:
@@ -93,14 +135,20 @@ class JobMemorySampler:
         record = {
             "timestamp": time.time(),
             "pid": pid,
-            "process_dedicated_gpu_bytes": self._dedicated_bytes(pid),
-            "process_shared_gpu_bytes": self._windows_bytes(pid, "Shared Usage"),
+            "process_dedicated_gpu_bytes": dedicated,
+            "process_shared_gpu_bytes": shared,
+            "counter_source": self.counter_source if shared is not None else "unavailable",
+            "counter_sample_seconds": counter_seconds,
+            "spilled": self.spill.spilled,
+            "cap_on": torch.cuda.get_per_process_memory_fraction() < 1
+            if torch.cuda.is_initialized()
+            else False,
             "torch_reserved_bytes": reserved,
             "process_rss_bytes": rss,
             "device_nvml_used_bytes": nvml_bytes,
             "sources": {
                 "process_dedicated_gpu_bytes": (
-                    "Windows Get-Counter PDH GPU Process Memory Dedicated Usage for engine PID"
+                    self.counter_source + " GPU Process Memory for processing PID"
                 ),
                 "torch_reserved_bytes": "torch.cuda.memory_reserved",
                 "process_rss_bytes": "psutil.Process(pid).memory_info().rss",
@@ -129,4 +177,6 @@ class JobMemorySampler:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=self.interval_seconds + 2)
+        if self._pdh is not None and (self._thread is None or not self._thread.is_alive()):
+            self._pdh.close()
         return self.samples

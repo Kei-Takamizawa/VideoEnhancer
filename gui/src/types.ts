@@ -78,6 +78,8 @@ export type Job = {
   output_changed?: boolean;
   file_removal_warnings?: string[];
   interpolation_fallback_parts?: number;
+  record_folder_date?: string;
+  gpu_memory_notice?: boolean;
   original_state?: "present" | "missing" | "recycled";
   output_state?: "present" | "missing" | "recycled";
   starts?: string;

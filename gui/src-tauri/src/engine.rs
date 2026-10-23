@@ -153,6 +153,7 @@ pub fn start(home: &Path, hold: bool) -> Result<Connection> {
         .args(["-m", "videoenhancer.cli", "serve"])
         .current_dir(root)
         .env("VE_HOME", home)
+        .env("VE_STARTUP_JSON_NOTICE", crate::storage::startup_notice())
         .env("VE_STORAGE_MOVE_HOLD", if hold { "1" } else { "0" })
         .creation_flags(0x08000000 | 0x00000008 | 0x00000200)
         .stdin(Stdio::null())

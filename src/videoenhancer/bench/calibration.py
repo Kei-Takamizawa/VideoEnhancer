@@ -40,8 +40,13 @@ def calibrate_models(
             progress(f"Installed models: {model_id}", 40 + 25 * index / len(installed_models))
         entry: dict[str, Any] = {"task": task, "backend": backend, "status": "failed"}
         results[model_id] = entry
-        stage = batch = frames = None
+        stage = batch = frames = sampler = None
         try:
+            if backend == "cuda":
+                from videoenhancer.jobs.gpu_memory import JobMemorySampler
+
+                sampler = JobMemorySampler()
+                sampler.start()
             entry["identity"] = registry.snapshot(model_id, task)
             stage = registry.create_stage(model_id, task, {"backend": backend}, Fraction(30), set())
             width, height = restore_size if task == "restore" else interpolate_size
@@ -78,6 +83,13 @@ def calibrate_models(
                 timings.append(time.perf_counter() - started)
                 del result
             # The terminal duplicated source frame does not run RIFE inference.
+            if sampler is not None:
+                sampler.sample()
+                if sampler.spill.spilled:
+                    raise ValueError(
+                        "Calibration sample spilled into shared GPU memory; "
+                        "free GPU memory and retry."
+                    )
             processed = count if task == "restore" else count - 1
             median = statistics.median(timings)
             entry.update(
@@ -106,6 +118,8 @@ def calibrate_models(
         except Exception as exc:
             entry["reason"] = str(exc)
         finally:
+            if sampler is not None:
+                sampler.stop()
             batch = frames = None
             if stage is not None:
                 stage.release()

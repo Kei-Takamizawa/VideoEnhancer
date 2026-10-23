@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import uuid
 from fractions import Fraction
@@ -10,6 +11,18 @@ from pathlib import Path
 import pytest
 
 from videoenhancer.config import executable
+
+
+@pytest.fixture
+def tmp_path(request, tmp_path_factory):
+    """On Windows inherit the shared scratch ACL instead of mkdir(mode=0o700)."""
+    given = request.config.option.basetemp
+    scratch = Path(__file__).resolve().parents[2] / "scratch"
+    if os.name == "nt" and given and Path(given).resolve().is_relative_to(scratch):
+        folder = Path(given).resolve() / uuid.uuid4().hex[:12]
+        folder.mkdir(parents=True, mode=0o777)
+        return folder
+    return tmp_path_factory.mktemp(request.node.name[:50])
 
 
 @pytest.fixture

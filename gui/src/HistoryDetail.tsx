@@ -20,11 +20,12 @@ function HistoryDetailContent({ job, close, action, compare }: {
   useEffect(() => {
     setUnsupported(false);
   }, [job.id]);
-  if (job.record_error) return <div className="modal-shade"><div className="dialog history-detail" role="dialog" aria-modal="true" aria-label="Video details"><h2>{filename(job.input)}</h2><p role="status">{job.error}<CopyMessage text={job.error || "Unreadable record"} /></p><ActionButton onClick={() => action(job, "copy")}>Copy details</ActionButton><ActionButton onClick={() => { action(job, "remove"); close(); }}>Remove</ActionButton><ActionButton onClick={close}>Close</ActionButton></div></div>;
+  if (job.record_error) return <div className="modal-shade"><div className="dialog history-detail" role="dialog" aria-modal="true" aria-label="Video details"><h2>{job.unreadable_record ? `Unreadable record · ${job.record_folder_date ? new Date(job.record_folder_date).toLocaleDateString() : "Date unavailable"}` : filename(job.input)}</h2><p role="status">{job.error}<CopyMessage text={job.error || "Unreadable record"} /></p><ActionButton onClick={() => action(job, "copy")}>Copy details</ActionButton><ActionButton onClick={() => { action(job, "remove"); close(); }}>Remove</ActionButton><ActionButton onClick={close}>Close</ActionButton></div></div>;
   const gone = job.original_state === "missing" || job.original_state === "recycled";
   const fileState = (state?: string) => state === "recycled" ? "Moved to the Recycle Bin" : state === "missing" ? "File not found" : "Present";
   return <div className="modal-shade"><div className="dialog history-detail" role="dialog" aria-modal="true" aria-label="Video details">
     <h2>{filename(job.input)}</h2>
+      {job.gpu_memory_notice && <p role="status">Some parts ran slower because GPU memory was full.<CopyMessage text="Some parts ran slower because GPU memory was full." /></p>}
       {job.source && <p>{job.source.url} <ActionButton onClick={() => window.desktop.sourceLink?.(job.id)}>Source link</ActionButton></p>}
       {hevcMissing && <div role="status"><p>This PC can't play HEVC videos inside the app. Install HEVC Video Extensions from the Microsoft Store, or open the video in your default player.</p><ActionButton onClick={() => window.desktop.openExternal?.(HEVC_STORE)}>Open Microsoft Store</ActionButton><ActionButton onClick={() => window.desktop.play(job.output_state === "present" ? job.output : job.input)}>Open in default player</ActionButton></div>}
       {!unsupported && !hevcMissing && <video ref={player} className="history-player" src={url} controls onError={() => setUnsupported(true)} />}

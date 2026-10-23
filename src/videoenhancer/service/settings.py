@@ -55,6 +55,10 @@ def read_settings(home: Path) -> dict[str, Any]:
 
 
 def write_json(path: Path, data: Any) -> None:
+    from videoenhancer.damaged_json import is_damaged, read_object
+
+    if path.exists() and is_damaged(path):
+        read_object(path, path.parent)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:

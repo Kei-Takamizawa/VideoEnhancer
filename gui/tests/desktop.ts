@@ -1,8 +1,21 @@
-import { chromium, type Browser, type Page } from "@playwright/test";
+import { chromium, test, type Browser, type Page } from "@playwright/test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import net from "node:net";
+
+const launches: { home: string; output(): string }[] = [];
+test.beforeEach(() => { launches.length = 0; });
+test.afterEach(async ({ browserName }, info) => {
+  void browserName;
+  if (info.status === info.expectedStatus) return;
+  for (const [index, launch] of launches.entries()) {
+    writeFileSync(info.outputPath(`app-${index}.log`), launch.output());
+    try { writeFileSync(info.outputPath(`engine-${index}.log`), readFileSync(path.join(launch.home, "videoenhancer.jsonl")).subarray(-2_000_000)); }
+    catch { writeFileSync(info.outputPath(`engine-${index}.log`), "No engine log was available."); }
+    try { writeFileSync(info.outputPath(`engine-start-${index}.log`), readFileSync(path.join(launch.home, "service-start.log")).subarray(-2_000_000)); } catch { /* The engine may have failed before creating its start log. */ }
+  }
+});
 
 export class DesktopApp {
   constructor(private child: ChildProcess, private browser: Browser, private page: Page, private home: string, private keepEngine = false) {}
@@ -57,7 +70,9 @@ export const desktop = {
         WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --autoplay-policy=no-user-gesture-required` }, stdio: ["ignore", "pipe", "pipe"] });
     let failure: Error | undefined; child.once("error", error => { failure = error; });
     let output = "";
-    const capture = (chunk: Buffer) => { output = (output + chunk.toString()).slice(-4000); };
+    const capture = (chunk: Buffer) => { output = (output + chunk.toString()).slice(-2_000_000); };
+    launches.push({ home, output: () => output });
+    child.on("exit", (code, signal) => capture(Buffer.from(`${Date.now()} process exit code=${code} signal=${signal}\n`)));
     child.stdout?.on("data", capture); child.stderr?.on("data", capture);
     let browser: Browser | undefined;
     for (let i = 0; i < 150; i++) { if (failure) throw failure; if (child.exitCode !== null) break; try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`); break; } catch { await new Promise(resolve => setTimeout(resolve, 200)); } }
@@ -69,6 +84,8 @@ export const desktop = {
     try {
       const context = browser.contexts()[0];
       const page = context.pages()[0] || await context.waitForEvent("page", { timeout: 30000 });
+      page.on("close", () => capture(Buffer.from(`${Date.now()} webview closed; origin unknown (see native lifecycle events)\n`)));
+      page.on("crash", () => capture(Buffer.from(`${Date.now()} webview crashed\n`)));
       await page.waitForURL("http://tauri.localhost/**");
       return new DesktopApp(child, browser, page, home, env.VE_KEEP_TEST_ENGINE === "1");
     } catch (error) {

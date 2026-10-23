@@ -139,7 +139,8 @@ def test_a2_local_preparation_has_unknown_media(tmp_path, monkeypatch):
         engine.close()
 
 
-def test_a2_empty_nvdec_thumbnail_pass_falls_back(video_factory, monkeypatch):
+@pytest.mark.parametrize("native_count", [0, 2])
+def test_a2_incomplete_nvdec_thumbnail_pass_falls_back(video_factory, monkeypatch, native_count):
     from videoenhancer.media import analyze as module
 
     source = video_factory(frames=4)
@@ -151,11 +152,15 @@ def test_a2_empty_nvdec_thumbnail_pass_falls_back(video_factory, monkeypatch):
     )
     original = module._thumbnails
     monkeypatch.setattr(
-        module, "_thumbnails", lambda p, m, b: iter(()) if b == "cuda" else original(p, m, b)
+        module,
+        "_thumbnails",
+        lambda p, m, b: (
+            iter(list(original(p, m, "cpu"))[:native_count]) if b == "cuda" else original(p, m, b)
+        ),
     )
     result = module.analyze(source, "cuda")
     assert result["decoder"] == "ffmpeg"
-    assert "0" in result["decoder_reason"]
+    assert str(native_count) in result["decoder_reason"]
     assert result["media"]["source_frame_count"] == 4
 
 

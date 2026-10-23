@@ -73,7 +73,7 @@ def process_segment(
         if progress is not None:
             progress({"memory": memory})
 
-    memory_sampler = JobMemorySampler(interval_seconds=30, on_sample=memory_progress)
+    memory_sampler = JobMemorySampler(interval_seconds=1, on_sample=memory_progress)
     memory_started = time.perf_counter()
     memory_sampler.start()
     first_memory_sample_seconds = time.perf_counter() - memory_started
@@ -434,6 +434,8 @@ def process_segment(
                             "reduce the configured clip length or free GPU memory."
                         ) from None
                     oom_retries += 1
+                    if progress:
+                        progress({"oom_retries": oom_retries})
                     logger.warning(
                         "Job %s segment %s: CUDA OOM on %d-frame clip; retrying once with "
                         "%d-frame clips.",
@@ -777,6 +779,12 @@ def process_segment(
     elapsed = time.perf_counter() - started
     render_seconds = time.perf_counter() - render_started
     return {
+        "spilled": memory_sampler.spill.spilled,
+        "peak_process_dedicated_gpu_bytes": memory_sampler.spill.peak_dedicated,
+        "peak_process_shared_gpu_bytes": memory_sampler.spill.peak_shared,
+        "gpu_cap_on": torch.cuda.get_per_process_memory_fraction() < 1
+        if backend == "cuda"
+        else False,
         "inline_quality": inline_quality,
         "inline_quality_seconds": quality_seconds,
         "seconds": elapsed,

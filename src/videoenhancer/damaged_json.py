@@ -27,11 +27,18 @@ def notices(home: Path) -> list[dict[str, str]]:
         return [dict(value) for value in _errors.values() if value["home"] == str(home.resolve())]
 
 
-def read_object(path: Path, home: Path) -> dict[str, Any]:
+def is_damaged(path: Path) -> bool:
+    with _lock:
+        return path.resolve() in _errors
+
+
+def read_object(path: Path, home: Path, required: tuple[str, ...] = ()) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(value, dict):
             raise ValueError("Expected a JSON object at the top level.")
+        if any(key not in value for key in required):
+            raise ValueError("Missing required fields: " + ", ".join(required))
         return value
     except (ValueError, UnicodeError) as error:
         record(home, path, error)

@@ -2,7 +2,6 @@
 
 import importlib
 import subprocess
-import tempfile
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -11,6 +10,7 @@ import torch
 
 from videoenhancer import proc
 from videoenhancer.config import executable
+from videoenhancer.files import temporary_folder
 from videoenhancer.media.color import rgb_to_nv12
 
 NVENC_SETTINGS = {
@@ -28,7 +28,7 @@ def probe_av1(width: int = 1920, height: int = 1080) -> tuple[bool, str | None]:
     try:
         if not torch.cuda.is_available():
             return False, "CUDA hardware encoding is unavailable."
-        with tempfile.TemporaryDirectory(prefix="ve-av1-probe-") as folder:
+        with temporary_folder("ve-av1-probe-") as folder:
             encoder = Encoder(
                 Path(folder) / "probe.mp4",
                 width,

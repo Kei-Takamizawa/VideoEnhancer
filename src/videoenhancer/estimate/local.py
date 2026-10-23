@@ -1,6 +1,5 @@
 """Bounded local timing observations; no media names or paths are stored here."""
 
-import json
 import math
 import statistics
 from pathlib import Path
@@ -21,7 +20,9 @@ def _key(profile: dict[str, Any]) -> list[Any]:
 
 def read_local(home: Path, profile: dict[str, Any] | None) -> dict[str, Any]:
     try:
-        value = json.loads((home / "timing-observations.json").read_text(encoding="utf-8"))
+        from videoenhancer.damaged_json import read_object
+
+        value = read_object(home / "timing-observations.json", home)
         return (
             value
             if isinstance(value, dict)
@@ -104,10 +105,11 @@ def recent_correction(
         values = [
             job.get("correction_factor", 1)
             for job in sorted(
-                store.list_jobs(include_analysis=False),
+                store.list_jobs(include_analysis=False, skip_damaged=True),
                 key=lambda job: job.get("finished_at", job.get("updated_at", "")),
             )
             if job["state"] == "done"
+            and not job.get("gpu_memory_notice")
             and job["settings"].get("preset") == mode
             and output_class(job.get("media", {}), job["settings"]) == size
             and _key(job.get("machine_profile") or {}) == _key(profile or {})
@@ -121,8 +123,16 @@ def recent_correction(
 
 
 def record_completed(manifest: dict[str, Any], home: Path) -> None:
+    from videoenhancer.damaged_json import is_damaged
+
+    if is_damaged(home / "timing-observations.json"):
+        return
+    if any(s.get("stats", {}).get("spilled") for s in manifest.get("segments", [])):
+        return
     profile = manifest.get("machine_profile") or {}
     value = read_local(home, profile)
+    if is_damaged(home / "timing-observations.json"):
+        return
     rows = [row for row in value.get("jobs", []) if row.get("id") != manifest["id"]]
     row: dict[str, Any] = {
         "id": manifest["id"],

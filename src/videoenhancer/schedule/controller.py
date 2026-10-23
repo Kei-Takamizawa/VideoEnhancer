@@ -71,6 +71,7 @@ class SegmentWatchdog:
         self.last_frame = started
         self.done = 0.0
         self.result_at: float | None = None
+        self.spilled = False
 
     def progress(self, frames: float, now: float) -> None:
         if frames > self.done:
@@ -79,7 +80,7 @@ class SegmentWatchdog:
     def reason(self, now: float) -> str | None:
         if self.result_at is not None:
             return "exit grace" if now - self.result_at >= 15 else None
-        if now - self.started > 3 * self.predicted + 300:
+        if now - self.started > (3 * self.predicted + 300) * (10 if self.spilled else 1):
             return "wall time"
         if not self.done and now - self.started >= 300:
             return "no first frame"
@@ -304,18 +305,33 @@ def _child_run(
         print(f"Segment child executable: {sys.executable}", flush=True)
         send(state)
         heart.start()
+        from videoenhancer.jobs.gpu_budget import run_with_budget
         from videoenhancer.pipeline.runner import process_segment
+
+        # These defaults apply only inside processing children, before CUDA init.
+        # Explicit owner allocator options still take precedence.
+        configuration = os.environ.get(
+            "PYTORCH_ALLOC_CONF", os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
+        )
+        if "expandable_segments:" not in configuration:
+            os.environ["PYTORCH_ALLOC_CONF"] = ",".join(
+                filter(None, [configuration, "expandable_segments:True"])
+            )
 
         child_startup_seconds = time.perf_counter() - manifest.get(
             "_child_spawn_monotonic", time.perf_counter()
         )
         child_call_started = time.perf_counter()
-        stats = process_segment(
-            manifest,
-            segment,
-            Path(output),
-            abort_event.is_set,
-            batch_size=batch_size,
+        stats = run_with_budget(
+            lambda report: process_segment(
+                manifest,
+                segment,
+                Path(output),
+                abort_event.is_set,
+                batch_size=batch_size,
+                progress=report,
+            ),
+            enabled=manifest["settings"].get("backend") == "cuda",
             progress=progress,
         )
         stats["child_startup_seconds"] = child_startup_seconds
@@ -489,6 +505,10 @@ class ProcessExecutor:
                     if isinstance(message, SegmentProgress):
                         last_progress = message
                         watchdog.progress(message.frames_done, now)
+                        if message.memory and message.memory.get("spilled"):
+                            watchdog.spilled = True
+                        if message.step == "Retrying without GPU memory cap":
+                            watchdog.done, watchdog.last_frame = 0, now
                         elapsed = max(0.001, now - started)
                         live = dict(
                             phase="processing",
@@ -900,7 +920,7 @@ def run_queue(
                 if paused_all():
                     clock.sleep(0.5)
                     continue
-                jobs = store.list_jobs()
+                jobs = store.list_jobs(skip_damaged=True)
                 if job_ids is not None:
                     jobs = [job for job in jobs if job["id"] in job_ids]
                 runnable = [job for job in jobs if job["state"] in {"queued", "running"}]
@@ -909,6 +929,14 @@ def run_queue(
 
                     unsupported = job_support_reason(job)
                     if unsupported:
+                        from videoenhancer.media.admission import color_warning
+
+                        if color_warning(job.get("media", {})):
+                            job.update(
+                                state="failed", unsupported_reason=unsupported, error=unsupported
+                            )
+                            store.save(job)
+                            continue
                         if job.get("unsupported_reason") != unsupported:
                             job.update(
                                 unsupported_reason=unsupported,
@@ -1118,7 +1146,7 @@ def run_queue(
                                 store.home / "schedule.json",
                                 queue_complete=all(
                                     j["state"] in {"done", "failed", "cancelled"}
-                                    for j in store.list_jobs()
+                                    for j in store.list_jobs(skip_damaged=True)
                                 ),
                             )
                             job_logger.info(
@@ -1351,7 +1379,15 @@ def run_queue(
                                     json.dumps(memory_samples, separators=(",", ":")),
                                     extra={"job_id": job_id, "segment": index},
                                 )
-                            update_correction(manifest, prediction, elapsed)
+                            if segment["stats"].get("spilled"):
+                                manifest["gpu_memory_notice"] = True
+                                job_logger.warning(
+                                    "Part %d spilled into shared GPU memory; cap_on=%s",
+                                    index + 1,
+                                    segment["stats"].get("gpu_cap_on"),
+                                )
+                            else:
+                                update_correction(manifest, prediction, elapsed)
                             if manifest["state"] == "running":
                                 manifest["state"] = "queued"
                             store.save(manifest)

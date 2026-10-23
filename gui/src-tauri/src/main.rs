@@ -187,6 +187,13 @@ fn main() {
         })
         .on_window_event(|window, event| {
             let state = window.state::<Arc<State>>();
+            #[cfg(feature = "e2e")]
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed) {
+                eprintln!("E2E lifecycle: time_ms={} event={:?} quitting={} reason={}",
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis(),
+                    event, state.quitting.load(Ordering::SeqCst),
+                    if state.quitting.load(Ordering::SeqCst) { "Quit requested" } else { "native window event; origin unknown" });
+            }
             match event {
                 tauri::WindowEvent::CloseRequested { api, .. }
                     if !state.quitting.load(Ordering::SeqCst) =>

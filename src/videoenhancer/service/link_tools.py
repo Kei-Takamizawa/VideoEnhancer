@@ -95,7 +95,12 @@ class ToolManager:
             folder = self._folder(tool)
             metadata = folder / "installed.json"
             if metadata.is_file():
-                item = json.loads(metadata.read_text(encoding="utf-8"))
+                from videoenhancer.damaged_json import read_object
+
+                try:
+                    item = read_object(metadata, self.root.parent, ("executable_bytes",))
+                except (ValueError, UnicodeError):
+                    continue
                 binary = folder / f"{tool}.exe"
                 item["present"] = (
                     binary.is_file() and binary.stat().st_size == item["executable_bytes"]

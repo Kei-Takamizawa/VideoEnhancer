@@ -96,6 +96,10 @@ def calibrate_references(
             }
             started = time.perf_counter()
             stats = process_segment(job, dict(index=0, start=0, end=150), output, lambda: False)
+            if stats.get("spilled"):
+                raise ValueError(
+                    "Calibration sample spilled into shared GPU memory; free GPU memory and retry."
+                )
             seconds = time.perf_counter() - started
             results[f"{model['id']}:{strength}" + (f":{size}" if size != 1080 else "")] = dict(
                 gpu=gpu,

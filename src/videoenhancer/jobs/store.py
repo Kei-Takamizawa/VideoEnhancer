@@ -247,7 +247,9 @@ def load_machine_profile(
 
     def exact_driver(path: Path) -> bool:
         try:
-            return str(json.loads(path.read_text(encoding="utf-8")).get("driver")) == str(driver)
+            from videoenhancer.damaged_json import read_object
+
+            return str(read_object(path, _home(home)).get("driver")) == str(driver)
         except (OSError, ValueError):
             return False
 
@@ -256,7 +258,9 @@ def load_machine_profile(
         candidates.extend((Path(__file__).parents[1] / "estimate" / "profiles").glob("*.json"))
     for path in candidates:
         try:
-            profile = json.loads(path.read_text(encoding="utf-8"))
+            from videoenhancer.damaged_json import read_object
+
+            profile = read_object(path, _home(home))
             if (
                 profile.get("schema_version") == 1
                 and profile.get("backend", "cuda") == backend
@@ -394,10 +398,12 @@ class JobStore:
         if input_identity(source) != job["input"]:
             raise ValueError("The original video changed. Add it again before processing.")
         from videoenhancer.jobs.checks import source_warning
+        from videoenhancer.media.admission import color_warning
 
-        unsupported = source_warning(probe(source, read_timeline=False).to_dict())
+        media = probe(source, read_timeline=False).to_dict()
+        unsupported = source_warning(media)
         if unsupported:
-            raise ValueError(f"No longer supported: {unsupported}")
+            raise ValueError(color_warning(media) or f"No longer supported: {unsupported}")
         analysis = analyze(source, backend=job["settings"]["backend"])
         job.update({key: analysis.get(key, []) for key in ANALYSIS_FIELDS})
         if not (job.get("decoder") == "ffmpeg" and job.get("decoder_events")):
@@ -792,6 +798,13 @@ class JobStore:
     def _write_control_unlocked(self, job: dict[str, Any]) -> None:
         directory = self.job_dir(str(job["id"]))
         target = directory / "control.json"
+        from videoenhancer.damaged_json import read_object
+
+        if target.exists():
+            try:
+                read_object(target, self.home)
+            except (ValueError, UnicodeError):
+                return
         temporary = directory / f"control.{uuid.uuid4().hex}.tmp"
         try:
             with temporary.open("w", encoding="utf-8", newline="\n") as stream:
@@ -812,8 +825,12 @@ class JobStore:
     def read_control_state(self, job_id: str) -> str:
         path = self.job_dir(job_id) / "control.json"
         if path.exists():
-            with path.open("r", encoding="utf-8") as source:
-                return str(json.load(source)["state"])
+            from videoenhancer.damaged_json import read_object
+
+            try:
+                return str(read_object(path, self.home, ("state",))["state"])
+            except (ValueError, UnicodeError):
+                pass
         return str(self.load(job_id)["state"])
 
 
@@ -827,6 +844,7 @@ def add_job(
     target_segment_seconds: float = 180.0,
     job_id: str | None = None,
     source_info: dict[str, Any] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Analyze an input and enqueue a durable, frame-exact conversion plan."""
     source = Path(path).expanduser().resolve(strict=True)
@@ -878,7 +896,9 @@ def add_job(
         raise ValueError("Windows Smart App Control is blocking the video component.")
     from videoenhancer.media.analyze import analyze
 
-    analysis = analyze(source, backend=chosen["backend"])
+    analysis = analyze(
+        source, backend=chosen["backend"], **({"cancelled": cancelled} if cancelled else {})
+    )
     media = analysis["media"]
     from videoenhancer.jobs.checks import geometry_warning
 

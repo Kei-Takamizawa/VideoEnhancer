@@ -3,6 +3,7 @@
 import importlib
 import subprocess
 import time
+from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -97,7 +98,9 @@ def _thumbnails(path: Path, media: dict[str, Any], backend: str):
             process.communicate()
 
 
-def analyze(path: str | Path, backend: str = "auto") -> dict[str, Any]:
+def analyze(
+    path: str | Path, backend: str = "auto", cancelled: Callable[[], bool] | None = None
+) -> dict[str, Any]:
     started = time.perf_counter()
     path = Path(path).resolve()
     selected = choose_backend(backend)
@@ -109,10 +112,36 @@ def analyze(path: str | Path, backend: str = "auto") -> dict[str, Any]:
         raise ValueError("The input lacks presentation timestamps. Remux it before processing.")
     decoder_name = "ffmpeg"
     decoder_reason = "CPU backend requested or CUDA unavailable."
+    cuts: list[int] = []
+    scores: list[dict[str, Any]] = []
+    motion_scores: list[dict[str, Any]] = []
+    previous: np.ndarray | None = None
+    source_count = 0
+
+    def thumbnail(value: np.ndarray) -> None:
+        nonlocal previous, source_count
+        if cancelled is not None and cancelled():
+            raise InterruptedError("Analysis paused.")
+        index = source_count
+        source_count += 1
+        if previous is not None:
+            delta, distance = _cut_score(previous, value)
+            motion_scores.append({"frame": index, "delta": round(delta, 3)})
+            if delta >= 24 and distance >= 0.18:
+                cuts.append(index)
+                scores.append(
+                    {
+                        "frame": index,
+                        "delta": round(delta, 3),
+                        "histogram_distance": round(distance, 3),
+                    }
+                )
+        previous = value
+
     if selected == "cuda":
         native = IndexedDecoder(path, media, selected)
         try:
-            native.verify_timestamps([str(p) for p in pts])
+            native.verify_timestamps([str(p) for p in pts], None, cancelled)
         except TimestampMismatch as error:
             decoder_reason = str(error)
         else:
@@ -122,29 +151,16 @@ def analyze(path: str | Path, backend: str = "auto") -> dict[str, Any]:
             native.close()
     duration = pts[-1] - pts[0] + (durations[-1] or 1 / Fraction(info.average_fps))
     mapping = nearest_mapping(pts, duration, Fraction(info.cfr_fps))
+    # Preserve the established thumbnail decoder and its incomplete-pass fallback.
+    # One-pass reuse is deferred because SimpleDecoder's EOF batches can differ.
     for _attempt in range(2):
         cuts = []
         scores = []
         motion_scores = []
-        previous: np.ndarray | None = None
+        previous = None
         source_count = 0
-        for index, thumbnail in enumerate(
-            _thumbnails(path, media, selected if decoder_name == "nvdec" else "cpu")
-        ):
-            source_count += 1
-            if previous is not None:
-                delta, distance = _cut_score(previous, thumbnail)
-                motion_scores.append({"frame": index, "delta": round(delta, 3)})
-                if delta >= 24 and distance >= 0.18:
-                    cuts.append(index)
-                    scores.append(
-                        {
-                            "frame": index,
-                            "delta": round(delta, 3),
-                            "histogram_distance": round(distance, 3),
-                        }
-                    )
-            previous = thumbnail
+        for value in _thumbnails(path, media, selected if decoder_name == "nvdec" else "cpu"):
+            thumbnail(value)
         if source_count == len(pts):
             break
         if decoder_name == "nvdec":
