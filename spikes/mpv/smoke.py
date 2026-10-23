@@ -21,11 +21,11 @@ def main():
     work = Path(__file__).resolve().parents[3]
     cache = work / "cache/mpv-lgpl"
     scratch = work / "scratch/mpv-spike"
-    evidence = work / "evidence/VE-P1e-3b"
+    evidence = work / "evidence/VE-P1e-3c1"
     if args.rotation_only:
         evidence /= "rotation-fixed"
     if args.generate_only:
-        evidence = work / "evidence/VE-P1e-3b/section13/fixtures"
+        evidence = work / "evidence/VE-P1e-3c1/fixtures"
     scratch.mkdir(parents=True, exist_ok=True)
     evidence.mkdir(parents=True, exist_ok=True)
     ffmpeg = cache / "ffmpeg/ffmpeg.exe"

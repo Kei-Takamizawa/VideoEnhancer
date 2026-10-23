@@ -1,11 +1,13 @@
-# A real minimal native build attempt. Run after repo/local-env.ps1.
+# Historical P1e-3b MSVC diagnostic, not a complete LGPL build recipe.
+# P1e-3c1 portable prerequisite failures: toolchain-probe.ps1 and source-manifest.json.
+# Run after repo/local-env.ps1.
 # Dependencies are deliberately not taken from unverified system binary bundles.
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
 $work = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $root = Join-Path $work 'cache\mpv-lgpl\source-build'
-$evidence = Join-Path $work 'evidence\VE-P1e-3b\section13'
+$evidence = Join-Path $work 'evidence\VE-P1e-3c1\historical-msvc'
 New-Item -ItemType Directory -Force $root, $evidence | Out-Null
 $downloads = @(
     @('https://github.com/mesonbuild/meson/releases/download/1.12.1/meson-1.12.1.tar.gz', 'meson-1.12.1.tar.gz', 'ab0a6ca09f8ef70c564c8241fb5a23957886a0b53fb58412b5e07eaf07dba743'),

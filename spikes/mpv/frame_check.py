@@ -2,13 +2,14 @@
 
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageFont
 
 WORK = Path(__file__).resolve().parents[3]
-EVIDENCE = WORK / "evidence/VE-P1e-3b/section13"
+EVIDENCE = WORK / "evidence" / os.environ.get("VE_MPV_CYCLE", "VE-P1e-3c1")
 SCRATCH = WORK / "scratch/mpv-spike"
 FFMPEG = WORK / "cache/mpv-lgpl/ffmpeg/ffmpeg.exe"
 
@@ -143,10 +144,20 @@ def main():
                 if not sample.get("image"):
                     continue
                 image = Image.open(EVIDENCE / sample["image"]).convert("RGB")
-                expected = round(sample["target"] * 30)
+                reported = sample.get("result", {}).get("time")
+                keyframe = sample.get("result", {}).get("method") == "nearest keyframe"
+                expected = round(float(reported if keyframe else sample["target"]) * 30)
                 refs = references(result["clip"], 30, expected, image.width, image.height)
                 roi = digit_roi(result["clip"], expected, image.width, image.height)
-                checks.append({"image": sample["image"], **identify(image, refs, roi, expected)})
+                checks.append(
+                    {
+                        "image": sample["image"],
+                        "requested_time": sample["target"],
+                        "reported_time": reported,
+                        "keyframe": keyframe,
+                        **identify(image, refs, roi, expected),
+                    }
+                )
         (EVIDENCE / "preview-frame-accuracy.json").write_text(json.dumps(checks, indent=2) + "\n")
     print(
         json.dumps(
