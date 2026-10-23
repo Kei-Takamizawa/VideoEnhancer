@@ -218,3 +218,30 @@ When one item needs a designer decision, choose the safer default that keeps the
 
 - The operator deleted most of `work\scratch` after your first run. 17 empty folders that only the sandbox account can open are still there (`minor-*`, `startup-*`, `tmp\ve-av1-probe-*`). Delete them from inside the sandbox at the end of this run if you can. List any that remain.
 - Create test folders so the owner's account can delete them (see `docs/WORKSPACE.md`), for example by avoiding mode `0o700`, where the test code is yours to change.
+
+## 12. Designer answers after the second run (2026-10-23, at `59a4897`)
+
+The designer reviewed the report and the main code (`jobs/gpu_budget.py`, the controller changes, `media/admission.py`). The A, B, C and D work is accepted except the two points below. Finish them, then the cycle can close.
+
+### 12.1 A4: accepted
+
+The ≤ 50 ms target is for the counter query only. Your direct PDH maximum of 0.88 ms meets it. The whole-record cost (95 ms outlier) runs on the sampler thread and is acceptable. Keep both timings in the stats. Mark A4 done.
+
+### 12.2 C17: adopt the first-pass metrics only if nothing else changes
+
+- The legacy result is a SimpleDecoder end-of-file defect: its last batch repeats one timestamp (667 ms x4), so the last motion deltas are zero. The strict decoder's distinct final frames are the correct values. Replacing the defect is allowed, on these conditions:
+  1. For every GPU analysis fixture and for one synthetic 1080p source of at least 2 minutes, compare the full analysis result old vs new. The only allowed differences are the motion metrics of the final batch. Every derived decision (segment plan, scene cuts, outlier marks, decoder choice, frame counts, timestamps) must be identical. Report the diff.
+  2. Process one short Standard job from each of those sources with old and new analysis: the outputs must be byte-identical (G5).
+- If both hold: adopt one-pass thumbnails, and the two C17 tests must pass.
+- If either fails: keep the two-pass default and **delete the two new C17 one-pass tests** (they test an optimization this cycle does not ship). C17 then moves to P1e-3d. Say which case applied. Never leave a known-failing test in the repository.
+
+### 12.3 Final checks on the final tree
+
+- Run the GPU suite `-m "gpu and not soak"` again on the final tree (the earlier pass was on the prototype tree). Use the checkpoint/resume recipe if a usage limit interrupts it.
+- Run the full CPU suite, ruff, ruff format, pyright, and the GUI and Rust checks again only if files in those areas changed since `59a4897`.
+- The operator deleted all scratch leftovers after your run (38.77 GB in `work\scratch\p1e3a-resume` and 0.34 GB in `scratch\tmp`, nothing left). Record that the growth and empty-scratch gates are met after operator cleanup.
+- **Deletable test folders:** your deletes were refused for 11 targets again. Find why (for example `tempfile.mkdtemp` mode `0o700`, read-only files, or hard links held open) and fix the test helpers you control so the next cycle can clean up from inside the sandbox. Report the cause.
+
+### 12.4 Report
+
+Status COMPLETED only when every item is done (C12 "not reproduced" is fine), the GPU and CPU suites pass with no failure, and only CI is left for the operator. Otherwise PARTIAL with the exact reason.
