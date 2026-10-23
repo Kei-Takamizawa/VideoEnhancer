@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+html,body { margin:0; width:100%; height:100%; background:transparent; color:white; font:16px system-ui; overflow:hidden }
+button,output { color:white; background:transparent; border:0; text-shadow:0 1px 3px black; font:inherit }
+#bar { position:absolute; bottom:20px; left:24px; right:24px; padding-top:12px; display:flex; gap:14px; align-items:center; filter:drop-shadow(0 1px 2px black) }
+#seek { flex:1; min-width:60px }
+#preview { display:none; position:absolute; bottom:60px; text-align:center; pointer-events:none; text-shadow:0 1px 3px black }
+#preview img { width:160px; height:90px; object-fit:contain; display:block }
+#note { position:absolute; top:10px; left:14px; text-shadow:0 1px 3px black; pointer-events:none }
+</style>
+<div id="note">Embedding spike</div>
+<div id="preview"><img alt="Preview pending"><output id="hoverTime"></output></div>
+<div id="bar"><button id="play">Play / pause</button><input id="seek" aria-label="Seek" type="range" min="0" max="1000" value="0"><output id="time">0.00 / 0.00</output><button id="full">Fullscreen</button></div>
+<script>
+const send = value => window.ipc ? window.ipc.postMessage(JSON.stringify(value)) : window.chrome.webview.postMessage(JSON.stringify(value));
+let duration=0;
+window.update = value => { duration=Number(value.duration)||0; const t=Number(value.time)||0; seek.value=duration? t/duration*1000:0; time.value=`${t.toFixed(2)} / ${duration.toFixed(2)}`; note.textContent=`${value.approach} | ${value.hwdec||'decoder pending'}`; };
+play.onclick=()=>send({command:'pause'});
+full.onclick=()=>send({command:'fullscreen'});
+seek.oninput=()=>send({command:'seek',value:Number(seek.value)/1000*duration});
+seek.onpointermove=e=>{ const r=seek.getBoundingClientRect(); const fraction=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)); preview.style.display='block'; preview.style.left=`${Math.max(0,Math.min(innerWidth-160,e.clientX-80))}px`; hoverTime.value=(fraction*duration).toFixed(2); send({command:'hover',value:fraction*duration}); };
+seek.onpointerleave=()=>preview.style.display='none';
+document.body.onclick=e=>{ if(e.target===document.body)send({command:'pause'}); };
+document.body.ondblclick=e=>{ if(e.target===document.body)send({command:'fullscreen'}); };
+document.onkeydown=e=>{ if(e.code==='Space'){e.preventDefault();send({command:'pause'});} if(e.code==='ArrowRight')send({command:'relative',value:10}); if(e.code==='ArrowLeft')send({command:'relative',value:-10}); if(e.code==='KeyF')send({command:'fullscreen'}); };
+document.onwheel=e=>send({command:'volume',value:e.deltaY<0?5:-5});
+</script>
