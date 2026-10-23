@@ -1,0 +1,32 @@
+{
+  "status": "OPEN: minimal source build failed before linking; no minimal DLL exists",
+  "mpv": {
+    "commit": "0fae4695470bf2c0c06762503292ee5379f62f62",
+    "archive_sha256": "a2cb3f3c1ad61b31c8df77aacb5ce106f6f47991df4e8b9e6975f94194fb386a",
+    "licence": "LGPL-2.1-or-later with gpl=false; see source Copyright",
+    "configure": "--auto-features=disabled -Dgpl=false -Dlibmpv=true -Dcplayer=false -Dgl=disabled -Dd3d11=enabled -Dd3d-hwaccel=enabled -Dzlib=enabled"
+  },
+  "meson": {
+    "version": "1.12.1",
+    "licence": "Apache-2.0",
+    "archive_sha256": "ab0a6ca09f8ef70c564c8241fb5a23957886a0b53fb58412b5e07eaf07dba743"
+  },
+  "compiler": "Existing MSVC 19.51.36260 x64; linker 14.51.36260.0; not bundled",
+  "build_dependencies": [
+    {"name": "FFmpeg libavcodec", "required": ">=60.31.102", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not found"},
+    {"name": "FFmpeg libavfilter", "required": ">=9.12.100", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not reached"},
+    {"name": "FFmpeg libavformat", "required": ">=60.16.100", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not reached"},
+    {"name": "FFmpeg libavutil", "required": ">=58.29.100", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not reached"},
+    {"name": "FFmpeg libswresample", "required": ">=4.12.100", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not reached"},
+    {"name": "FFmpeg libswscale", "required": ">=7.5.100", "resolved_version": null, "licence": "OPEN: target LGPL-only configuration", "status": "not reached"},
+    {"name": "libplacebo", "required": ">=7.360.1", "resolved_version": null, "licence": "OPEN: no resolved source/build audit", "status": "mandatory mpv dependency, not reached"},
+    {"name": "libass", "required": ">=0.12.2", "resolved_version": null, "licence": "OPEN: no resolved source/build audit", "status": "mandatory mpv dependency, not reached"},
+    {"name": "zlib", "required": "enabled", "resolved_version": null, "licence": "OPEN: no resolved source/build audit", "status": "not reached"}
+  ],
+  "decoder_plan": "Keep D3D11VA plus dav1d, native FFmpeg VP9 and zlib; resolve their exact sources and licences before any successful binary can be cleared.",
+  "ffmpeg_plan_not_executed": "--disable-gpl --disable-nonfree --disable-programs --disable-doc --disable-network --disable-devices --disable-encoders --disable-muxers; retain file playback demuxers/parsers/decoders and D3D11VA. This is a plan, not a completed FFmpeg build.",
+  "disabled_by_mpv_auto_features": ["lua", "javascript", "vapoursynth", "libbluray", "libarchive", "libcurl", "sdl2", "vulkan", "spirv-cross", "sixel", "egl-angle", "openal", "amf", "cuda"],
+  "failure": "meson.build:23:13: Dependency lookup for libavcodec with method pkg-config failed: Pkg-config for machine host machine not found. Giving up.",
+  "minimal_dll_bytes": 0,
+  "measurement_fallback": "Pinned prebuilt candidate from download.ps1; not cleared for packaging; exact embedded dependency audit remains OPEN."
+}

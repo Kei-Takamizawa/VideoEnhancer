@@ -16,6 +16,13 @@ pub struct Mpv {
 }
 impl Mpv {
     pub unsafe fn new(path: &Path, wid: Option<isize>) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::configured(path, wid, &[])
+    }
+    pub unsafe fn configured(
+        path: &Path,
+        wid: Option<isize>,
+        options: &[(&str, &str)],
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let library = Library::new(path)?;
         let create = library.get::<unsafe extern "C" fn() -> *mut c_void>(b"mpv_create\0")?;
         let handle = create();
@@ -44,11 +51,100 @@ impl Mpv {
         } else {
             this.option("vo", "libmpv")?;
         }
+        for (key, value) in options {
+            this.option(key, value)?;
+        }
         let init = this
             .library
             .get::<unsafe extern "C" fn(*mut c_void) -> i32>(b"mpv_initialize\0")?;
         Self::check(init(handle))?;
         Ok(this)
+    }
+    pub unsafe fn events(&self) -> Vec<i32> {
+        #[repr(C)]
+        struct Event {
+            id: i32,
+            error: i32,
+            userdata: u64,
+            data: *mut c_void,
+        }
+        let Ok(wait) = self
+            .library
+            .get::<unsafe extern "C" fn(*mut c_void, f64) -> *const Event>(b"mpv_wait_event\0")
+        else {
+            return vec![];
+        };
+        let mut result = Vec::new();
+        for _ in 0..100 {
+            let p = wait(self.handle, 0.0);
+            if p.is_null() || (*p).id == 0 {
+                break;
+            }
+            result.push((*p).id);
+        }
+        result
+    }
+    pub unsafe fn create_sw(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut params = [
+            Param {
+                kind: 1,
+                data: c"sw".as_ptr() as _,
+            },
+            Param {
+                kind: 0,
+                data: std::ptr::null_mut(),
+            },
+        ];
+        let f =
+            self.library
+                .get::<unsafe extern "C" fn(*mut *mut c_void, *mut c_void, *mut Param) -> i32>(
+                    b"mpv_render_context_create\0",
+                )?;
+        Self::check(f(&mut self.render, self.handle, params.as_mut_ptr()))
+    }
+    pub unsafe fn sw_pixels(
+        &self,
+        width: i32,
+        height: i32,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let mut dimensions = [width, height];
+        let mut stride = width as usize * 4;
+        // Vec<u32> guarantees the minimum four-byte pixel alignment required by mpv.
+        let mut pixels = vec![0u32; width as usize * height as usize];
+        let mut params = [
+            Param {
+                kind: 17,
+                data: dimensions.as_mut_ptr().cast(),
+            },
+            Param {
+                kind: 18,
+                data: c"rgb0".as_ptr() as _,
+            },
+            Param {
+                kind: 19,
+                data: (&mut stride as *mut usize).cast(),
+            },
+            Param {
+                kind: 20,
+                data: pixels.as_mut_ptr().cast(),
+            },
+            Param {
+                kind: 0,
+                data: std::ptr::null_mut(),
+            },
+        ];
+        let render = self
+            .library
+            .get::<unsafe extern "C" fn(*mut c_void, *mut Param) -> i32>(
+                b"mpv_render_context_render\0",
+            )?;
+        Self::check(render(self.render, params.as_mut_ptr()))?;
+        let mut bytes =
+            std::slice::from_raw_parts(pixels.as_ptr().cast::<u8>(), pixels.len() * 4).to_vec();
+        for pixel in bytes.as_chunks_mut::<4>().0 {
+            pixel[3] = 255;
+        }
+        Ok(bytes)
     }
     fn check(code: i32) -> Result<(), Box<dyn std::error::Error>> {
         if code < 0 {

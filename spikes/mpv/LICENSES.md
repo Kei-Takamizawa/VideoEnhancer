@@ -54,4 +54,15 @@ LGPL libraries. The final package must contain no GPL-only or nonfree code.
 delivery and relinking materials; produce the complete dependency manifest;
 verify the embedded FFmpeg configuration; collect all required licence texts.
 This spike has not established that the prebuilt binary satisfies Part A's
-dependency licence requirement, and has not built an alternative from source.
+dependency licence requirement. A minimal source build was attempted in section
+13 using pinned official mpv and Meson sources, with optional features disabled,
+`gpl=false`, D3D11/D3D11VA and zlib enabled. MSVC was detected, but configuration
+failed at the required `libavcodec` dependency because pkg-config and FFmpeg
+development files were unavailable. No minimal DLL was produced.
+
+See [source-manifest.json](source-manifest.json) for the resolved source/tool
+versions, hashes, required dependency versions, and explicitly unresolved
+licences. [source-build.ps1](source-build.ps1) reproduces the attempt. The measured
+failure is retained outside Git in the cycle evidence. The designer explicitly
+permits the pinned prebuilt DLL for measurements after a failed source attempt;
+that permission does not clear it for redistribution.

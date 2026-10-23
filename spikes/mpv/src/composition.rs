@@ -80,7 +80,7 @@ impl Composition {
         video.SetContent(&swap)?;
         let html = device.CreateVisual()?;
         root.AddVisual(&video, false, None)?;
-        root.AddVisual(&html, true, None)?;
+        root.AddVisual(&html, true, &video)?;
         target.SetRoot(&root)?;
         let (tx, rx) = mpsc::channel();
         let profile = HSTRING::from(profile.to_string_lossy().as_ref());

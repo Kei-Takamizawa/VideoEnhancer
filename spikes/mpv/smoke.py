@@ -16,6 +16,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--approaches", nargs="+", choices=["B1", "B2"], default=["B1", "B2"])
     parser.add_argument("--rotation-only", action="store_true")
+    parser.add_argument("--generate-only", action="store_true")
     args = parser.parse_args()
     work = Path(__file__).resolve().parents[3]
     cache = work / "cache/mpv-lgpl"
@@ -23,6 +24,8 @@ def main():
     evidence = work / "evidence/VE-P1e-3b"
     if args.rotation_only:
         evidence /= "rotation-fixed"
+    if args.generate_only:
+        evidence = work / "evidence/VE-P1e-3b/section13/fixtures"
     scratch.mkdir(parents=True, exist_ok=True)
     evidence.mkdir(parents=True, exist_ok=True)
     ffmpeg = cache / "ffmpeg/ffmpeg.exe"
@@ -86,7 +89,9 @@ def main():
             f"testsrc2=size={size}:rate={fps}:duration=65",
             "-vf",
             "drawtext=fontfile='C\\:/Windows/Fonts/consola.ttf':text='frame %{n}':"
-            "x=40:y=40:fontsize=80:fontcolor=white:box=1:boxcolor=black",
+            "x=40:y=40:fontsize=80:fontcolor=white:box=1:boxcolor=black,"
+            "drawtext=fontfile='C\\:/Windows/Fonts/consola.ttf':text='frame %{n}':"
+            "x=40:y=h-110:fontsize=80:fontcolor=white:shadowcolor=black:shadowx=1:shadowy=1",
             *encoding,
             "-an",
             str(target),
@@ -115,7 +120,7 @@ def main():
             with (evidence / "rotation-remux.log").open("w", encoding="utf-8") as log:
                 subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True)
             target = rotated
-        for approach in args.approaches:
+        for approach in [] if args.generate_only else args.approaches:
             profile = scratch / f"profile-{approach}"
             profile.mkdir(exist_ok=True)
             env = os.environ.copy()
