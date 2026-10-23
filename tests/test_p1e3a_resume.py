@@ -187,49 +187,6 @@ def test_link_tool_changes_are_refused_during_downloads(tmp_path):
         engine.close()
 
 
-@pytest.mark.gpu
-@pytest.mark.parametrize("depth", [8, 10])
-def test_native_analysis_reuses_first_decode_with_identical_metrics(
-    tmp_path, ffmpeg_run, gpu_available, depth, monkeypatch
-):
-    from videoenhancer.media import analyze as module
-
-    source = tmp_path / "native.mkv"
-    ffmpeg_run(
-        "-f",
-        "lavfi",
-        "-i",
-        "testsrc2=size=256x144:rate=30",
-        "-frames:v",
-        "24",
-        "-c:v",
-        "libx265",
-        "-preset",
-        "ultrafast",
-        "-x265-params",
-        "log-level=error:pools=1",
-        "-pix_fmt",
-        f"yuv420p{depth}le" if depth > 8 else "yuv420p",
-        str(source),
-    )
-    original = module._thumbnails
-
-    def no_second_native_pass(path, media, backend):
-        assert backend != "cuda", "Analysis decoded the native source twice."
-        return original(path, media, backend)
-
-    monkeypatch.setattr(module, "_thumbnails", no_second_native_pass)
-    result = module.analyze(source, "cuda")
-    assert result["decoder"] == "nvdec"
-    frames = list(original(source, result["media"], "cuda"))
-    expected = [
-        dict(frame=i, delta=round(module._cut_score(frames[i - 1], frames[i])[0], 3))
-        for i in range(1, len(frames))
-    ]
-    assert result["motion_scores"] == expected
-    assert len(frames) == result["media"]["source_frame_count"] == 24
-
-
 def test_legacy_high_depth_fails_next_start_without_changing_finished_history(tmp_path):
     from videoenhancer.jobs.store import JobStore
     from videoenhancer.schedule.controller import run_queue

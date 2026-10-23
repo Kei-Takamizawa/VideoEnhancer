@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import re
+import shutil
 import subprocess
+import tempfile
 import uuid
 from fractions import Fraction
 from pathlib import Path
@@ -12,17 +16,60 @@ import pytest
 
 from videoenhancer.config import executable
 
+_TEST_FOLDER = pytest.StashKey[Path]()
+_EXTERNAL_TEMP = pytest.StashKey[Path]()
+
 
 @pytest.fixture
-def tmp_path(request, tmp_path_factory):
+def tmp_path(request, tmp_path_factory, monkeypatch):
     """On Windows inherit the shared scratch ACL instead of mkdir(mode=0o700)."""
     given = request.config.option.basetemp
     scratch = Path(__file__).resolve().parents[2] / "scratch"
     if os.name == "nt" and given and Path(given).resolve().is_relative_to(scratch):
         folder = Path(given).resolve() / uuid.uuid4().hex[:12]
         folder.mkdir(parents=True, mode=0o777)
-        return folder
-    return tmp_path_factory.mktemp(request.node.name[:50])
+    else:
+        name = re.sub(r"[^A-Za-z0-9_-]", "_", request.node.name)[:50]
+        folder = tmp_path_factory.mktemp(name)
+    temporary = folder / "tmp"
+    home = folder / "home"
+    if folder.is_relative_to(Path(__file__).resolve().parents[1]):
+        # CI puts basetemp in .venv; trial outputs must stay outside the repo.
+        temporary = scratch / "pytest-temp" / uuid.uuid4().hex[:12]
+        request.node.stash[_EXTERNAL_TEMP] = temporary
+        home = temporary / "home"
+    temporary.mkdir(parents=True, mode=0o777)
+    monkeypatch.setenv("TEMP", str(temporary))
+    monkeypatch.setenv("TMP", str(temporary))
+    monkeypatch.setenv("VE_HOME", str(home))
+    monkeypatch.setattr(tempfile, "tempdir", str(temporary))
+    request.node.stash[_TEST_FOLDER] = folder
+    return folder
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_teardown(item):
+    # Run after every fixture finalizer, including monkeypatch restoration.
+    yield
+    folder = item.stash.get(_TEST_FOLDER, None)
+    if folder is None:
+        return
+    external = item.stash.get(_EXTERNAL_TEMP, None)
+    folders = [folder] if external is None else [folder, external]
+    loggers = [logging.getLogger(), *logging.Logger.manager.loggerDict.values()]
+    for logger in loggers:
+        if not isinstance(logger, logging.Logger):
+            continue
+        for handler in list(logger.handlers):
+            if isinstance(handler, logging.FileHandler) and any(
+                Path(handler.baseFilename).is_relative_to(owned) for owned in folders
+            ):
+                logger.removeHandler(handler)
+                handler.close()
+    # Private staged manifests and service tokens retain their creator ACL.
+    # Release test-owned logs and delete in that same creator process/account.
+    for owned in folders:
+        shutil.rmtree(owned)
 
 
 @pytest.fixture

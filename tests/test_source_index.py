@@ -1,11 +1,11 @@
 """P1c-2 indexes, bounded cuts, cache invalidation and rendered equivalence."""
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
 
+from videoenhancer.files import temporary_folder
 from videoenhancer.media.analyze import analyze
 from videoenhancer.media.source_index import analyze_range, build_source_index, source_index
 from videoenhancer.trial import run_trial
@@ -78,7 +78,7 @@ def test_range_matches_full_index_cuts_and_trial_bytes(
         if any(index["cfr_map"][i - 1] < cut <= index["cfr_map"][i] for cut in cuts)
     ]
     rate = float(__import__("fractions").Fraction(index["media"]["cfr_fps"]))
-    with tempfile.TemporaryDirectory(prefix="ve-d2-") as folder:
+    with temporary_folder(prefix="ve-d2-") as folder:
         base = Path(folder)
         options = dict(
             start=first / rate, seconds=10 / rate, preset="fast", backend=backend, short_side="keep"

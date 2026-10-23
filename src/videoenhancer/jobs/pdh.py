@@ -6,6 +6,10 @@ from ctypes import wintypes
 
 
 class ProcessMemoryCounters:
+    api: ctypes.CDLL
+    query: ctypes.c_void_p
+    counters: list[ctypes.c_void_p]
+
     def __init__(self) -> None:
         if os.name != "nt":
             raise OSError("Windows GPU process counters are unavailable.")
