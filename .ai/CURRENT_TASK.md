@@ -119,3 +119,34 @@ In the report, recommend one approach for P1e-3c with:
 - Changed files.
 - Disk: dependency restore; mpv build cache; toolchains; other growth; `work\scratch` at the end; free space on C and D; anything left for the owner to delete.
 - "Questions for the designer", each with the default you chose.
+
+## 13. Designer review of the first run (2026-10-23) and what to finish now
+
+The first run is PARTIAL. Its build, playback and hwdec evidence is accepted. Finish the remaining work below in this same cycle. Do not stop for a question; write the default you chose under "Questions for the designer" and continue.
+
+### 13.1 Answers to the report's questions
+
+1. **GUI access.** Computer Use stays unavailable to `codex exec`, so do not ask for it again. Instead, the prototype checks itself. This is not a bypass: the prototypes are your own spike programs, and capturing and driving **their own windows** is part of the task.
+   - **Capture.** Add a test mode to the prototype that captures its own top-level window after composition. Use `Windows.Graphics.Capture` (`GraphicsCaptureItem` for the window HWND) or a DXGI Desktop Duplication crop of the window rectangle. Do not use `PrintWindow`/`BitBlt`, which miss DirectComposition and swap-chain content.
+   - **Images.** Save PNGs to `work\evidence\VE-P1e-3b\` (never Git). Judge transparency in code: sample pixels under the transparent control bar and compare them with the same frame captured with the controls hidden; the burnt-in frame number must be readable through them. Also inspect a few images with your image viewer tool and describe them.
+   - **Input.** Prefer messages to your own windows: `PostMessage` pointer, wheel and key messages to the prototype HWNDs, plus WebView2 `ExecuteScript` and DevTools Protocol `Input.dispatch*Event` for the HTML layer. Real `SendInput` is allowed only while the prototype window is the foreground window: check the foreground HWND before each event and abort the step if it is not yours. Never send input to any other window.
+   - **Window states and DPI.** Drive resize, maximise, fullscreen, minimise and restore with `SetWindowPos`/`ShowWindow` on your own windows. For DPI, check the per-monitor-v2 code path by simulating `WM_DPICHANGED`. Report real 125/150 % and a monitor move as NOT_AVAILABLE if the PC has one monitor at one scale. Never change the system's display settings.
+   - If the screen is locked or capture returns black frames, record that and continue with everything that does not need pixels.
+2. **Licence.** Build a minimal LGPL `libmpv-2.dll` from source. Use mpv-winbuild-cmake (or MSYS2 + meson) with `-Dgpl=false`, LGPL FFmpeg, and only what playback needs:
+   - keep d3d11 / d3d11va, dav1d, libvpx (or the FFmpeg native VP9 decoder), zlib;
+   - drop lua, javascript, vapoursynth, libbluray, libarchive, libcurl, sdl2, vulkan, spirv-cross, sixel, egl-angle, the encoders, openal, nvenc/amf, and every network or disc feature.
+   - Produce a dependency manifest with versions and licences, and the size.
+   - Toolchains and the build cache are reported on their own lines, as in section 8. If the source build fails after a real attempt, keep the prebuilt candidate for measurements only, mark Part A as OPEN with the exact failure, and continue.
+3. **B1 first**, B2 as the comparison, as you proposed. Finish B1's wheel forwarding, double-click classification and drag capture before the measurements.
+4. **Base for the diff.** The local `main` ref is missing. Compare against `origin/main` if it exists, otherwise against `aa107af`. `.ai/CURRENT_TASK.md` and `.ai/LAST_REPORT.md` are expected to differ. Do not create or change Git refs yourself.
+
+### 13.2 Clarifications
+
+- **"Nothing else on the GPU"** means no other heavy GPU job, such as an enhancement run or a game. Normal desktop clients (dwm, browsers, the Codex app) are expected. List them in the report and go ahead. Never stop the owner's processes.
+- **Today's HTML5 player.** Measure it through the product's existing e2e/WebView2 test setup on a built app with an isolated VE_HOME, or through a minimal WebView2 page with the same `<video>` element if that is simpler. Say which you used. Do not change product files.
+- **Hover preview and A/B sync** must be implemented in the spike (a second paused mpv instance, and both A/B options) and measured. Placeholders do not count.
+- **Measurements** are the full ones from section 5: 5 first-frame runs, 20 seeks, exact frame stepping against the burnt-in numbers, 60 s drop counts, GPU/CPU use, and memory left after close. Run them for B1, B2 and HTML5 on all five clips. MKV/WebM/MOV containers need one first-frame and one seek run each, on B1 only.
+
+### 13.3 Status rule for this run
+
+COMPLETED when every item in Parts A-D has a measured answer or a recorded, evidenced reason it could not be measured (for example NOT_AVAILABLE: single monitor). PARTIAL is only for work you could have done but did not.
