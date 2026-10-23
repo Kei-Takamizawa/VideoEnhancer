@@ -1,247 +1,121 @@
-# CURRENT_TASK: Cycle P1e-3a (GPU memory cap with spill detection, start-up robustness, deferred minor findings)
+# CURRENT_TASK: Cycle P1e-3b (spike: embedded mpv player in the Tauri window)
 
 > Follow `AGENTS.md` and `CLAUDE.md` on `main` for the workflow. This file defines only the work.
 
-- **Task ID:** VE-P1e-3a
-- **Date:** 2026-10-22
+- **Task ID:** VE-P1e-3b
+- **Date:** 2026-10-23
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
 ## 1. Start
 
-- **Branch:** `claude/project-thread-6lra47`, created from `main` at `c84ce1a` (PR #8 merge). The operator opens a draft PR for it.
-- This file is `.ai/CURRENT_TASK.md` on the branch; do not replace it. Write a new `.ai/LAST_REPORT.md` for this cycle.
-- Restore the dependencies the last cleanup removed (`gui\node_modules` and anything else missing). The restore does not count toward the 1 GB growth limit; report its size on its own line.
+- **Branch:** `claude/project-thread-6lra47`. `main` (`aa107af`, the P1e-3a squash merge) is merged into it at `a2879e8`, so its tree equals `main`. The operator opens a new draft PR.
+- This file is `.ai/CURRENT_TASK.md`. Write a new `.ai/LAST_REPORT.md`.
+- Restore any dependencies the last cleanup removed. The restore does not count toward growth; report its size.
 
 ### Where this cycle sits
 
-P1e-3 is split into four cycles, in this order. Do only P1e-3a now.
+P1e-3a (done, merged) → **P1e-3b (this spike)** → P1e-3c (the real player with an IINA-like UI, and Compare speed) → P1e-3d (speed-ups, warm worker, recalibration).
 
-| Cycle | Content |
+This cycle is a **spike**: it answers whether and how an embedded mpv player works in this app, with measurements, and it leaves a small prototype. **It does not replace the current player.** The delivered app must behave exactly as on `main`.
+
+## 2. Background and fixed decisions
+
+- **Owner decision (2026-10-18):** the player is embedded mpv (libmpv) with an IINA-like UI.
+- **Licence:** the app is MIT. libmpv must be an **LGPL build** (`-Dgpl=false`), loaded dynamically (`libmpv-2.dll`), and every bundled library must be LGPL-compatible or more permissive. No GPL component may be linked or shipped.
+- **Approved design (owner, 2026-10-14, mockup in the cloud project `design/claude_design/player_mockup_v1.html`, summary here):**
+  - controls: play/pause, back/forward 10 s, previous/next frame, seek bar, volume and mute, playback speed, fullscreen, video details, keyboard shortcuts sheet, close;
+  - the seek-bar hover preview sits **above** the bar, YouTube style, with the time under the thumbnail;
+  - **no dark panels over the video**: the controller, title, preview box, menus and the shortcut sheet are transparent, with thin shadows to keep text and icons readable. The letterbox stays black.
+- **Consequence for the architecture:** HTML controls must be drawn **with real transparency over the native video picture**. A layout that puts the controls beside the video, or over an opaque panel, does not meet the approved design. It may be reported only as a fallback.
+- **Today's player (`main`):** an HTML5 `<video>` in `gui/src/HistoryDetail.tsx`, fed through the app's media path (`gui/src-tauri/src/media.rs`, 1 MiB responses, at most 2 fetches at once).
+- **Inputs it must play:** results and sources up to 1440 output (short side), H.264, HEVC Main10 (default output), AV1, VP9; 8-bit and 10-bit SDR; MP4, MKV, WebM, MOV; up to 60 fps; with rotation metadata.
+
+## 3. Part A: an LGPL libmpv build
+
+1. Find or build a Windows x64 `libmpv-2.dll` configured with `-Dgpl=false`.
+   - Prefer building from official mpv sources with a documented, reproducible recipe (for example MSYS2/meson or the mpv-winbuild-cmake project with GPL options off). A prebuilt binary is acceptable only if its build configuration proves `gpl=false` and lists every dependency and its licence.
+   - FFmpeg inside it must be an LGPL configuration (no `--enable-gpl`, no `--enable-nonfree`).
+   - Keep D3D11 output and hardware decoding (`d3d11va`) for H.264, HEVC Main10, AV1 and VP9.
+2. Record: mpv version, FFmpeg version, the full configure options, every bundled DLL with its licence, SHA-256 of each file, and total size.
+3. Store the binaries under `work\cache\mpv-lgpl\` (outside the repository). **Never commit binaries.** Commit only the recipe or a download-and-verify script with pinned versions and checksums, under `spikes/mpv/`.
+4. Write `spikes/mpv/LICENSES.md`: what must ship with the app (licence texts, source offer or source link) for LGPL compliance. Mark anything you are not sure about as open.
+
+## 4. Part B: embedding approaches
+
+Build a minimal prototype for each approach below in `spikes/mpv/` (a separate small Tauri 2 app or a Rust example, **not** the product's `gui/` crate). Each prototype plays one file in a window with a transparent HTML control bar (play/pause, seek bar with the hover preview position, time) drawn over the picture.
+
+- **B1. Composition hosting.** WebView2 with the composition controller (`ICoreWebView2CompositionController`) and a transparent background, in a DirectComposition tree. mpv draws through the libmpv render API (D3D11) into a swap chain for composition placed below the WebView2 visual.
+- **B2. Transparent overlay window.** mpv draws into a child or owned native window (`wid`). A transparent Tauri/WebView2 window owned by it sits on top and follows its position, size, minimise, maximise, fullscreen, DPI change and multi-monitor moves.
+- **B3. Fallback only.** mpv in a child window, with the controls outside the picture. Implement it only if B1 and B2 both fail, and say why.
+
+For each approach, report:
+- whether HTML is truly transparent over the moving picture (screenshots outside Git; describe any halo, flicker, tearing or z-order fault);
+- input: pointer, wheel, keyboard and focus reach the HTML controls; the video area passes clicks for play/pause and double-click for fullscreen;
+- resize, maximise, fullscreen, DPI 100/125/150 %, a move between monitors if available, minimise and restore;
+- how much Tauri, wry or WebView2 internals it needs (for example, does B1 need a Tauri fork or a custom wry setup?), and how it would fit the product's current window code (`gui/src-tauri/src/window.rs`, `main.rs`);
+- the risk of breaking with a WebView2 Runtime or Tauri update.
+
+## 5. Part C: measurements (on the development PC, RTX 4060 Ti, nothing else on the GPU)
+
+For the best working approach (and for B2 too if both work), with synthetic fixtures made locally:
+
+| Clip | Codec |
 | --- | --- |
-| **P1e-3a (this one)** | GPU memory cap with spill detection; engine start survives a damaged JSON file; deferred minor findings; the flaky e2e test |
-| P1e-3b | mpv (libmpv, LGPL build) embedding spike in Tauri |
-| P1e-3c | Embedded mpv player with an IINA-like UI; Compare speed |
-| P1e-3d | Bit-identical speed-ups and a warm worker; recalibration that keeps the long finalization curve; gate rerun |
+| 1080p30 | H.264 8-bit |
+| 1440p60 | HEVC Main10 |
+| 1440p60 | AV1 10-bit |
+| 1080p60 | VP9 |
+| 1080x1920 vertical | HEVC, with rotation metadata |
 
-## 2. Background
+Measure and compare with today's HTML5 `<video>` player on `main` for the same files:
+- time to the first frame (5 runs, median);
+- seek latency to a random point (20 seeks, median and worst);
+- frame step forward and back: exact frame accuracy against known frame numbers burned into the fixture;
+- dropped frames over 60 s at normal speed (mpv `frame-drop-count`, and the HTML5 equivalent);
+- GPU dedicated memory and CPU use during playback, and memory left after closing the player (the known HTML5 leftover is about 80-90 MB GPU memory);
+- hardware decoding actually used (mpv `hwdec-current`) per codec.
 
-- **Spill (confirmed 2026-10-22, P1f-3 A2 run):** Standard, AV1 output, 1440, on the RTX 4060 Ti 8 GB. Dedicated GPU memory peaked at 7.91 GB of 8 GB and shared GPU memory at 2.01 GB. 7 of 29 parts took 1.1x to 2.4x their predicted time.
-- **Why it spills:** the Windows NVIDIA driver (536.40 and later, default "CUDA Sysmem Fallback Policy") moves allocations to shared system memory instead of raising out-of-memory. The job keeps running, 3-10x slower, and can trip the segment watchdog (`schedule/controller.py` `SegmentWatchdog`: wall time > 3x predicted + 300 s), which retries the part in a fresh child that spills again.
-- **Facts from the code (c84ce1a):**
-  - No `torch.cuda.set_per_process_memory_fraction` or other cap anywhere.
-  - Pipeline order is restore (BasicVSR++, `clip_length` 15, overlap 2) → resize → RIFE, so RIFE runs at output size.
-  - BasicVSR++ moves its model to the GPU per clip and back to the CPU afterwards, with `empty_cache()` around it (`models/basicvsr.py`).
-  - On CUDA OOM, `pipeline/runner.py` `restore_with_retry` retries once with half-length clips. That changes the output of that clip.
-  - `jobs/gpu_memory.py` samples dedicated and shared usage through PowerShell `Get-Counter`, about 3 s per sample, every 60 s.
-  - NVDEC, NVENC and the display use GPU memory outside PyTorch's allocator.
-- **Earlier measurements (P1e-2):** 1440 Standard reached 7.2 GB device memory in isolation. 2160 RIFE alone reserved 7.0 GB (2160 output is no longer offered).
+Also test, without UI polish:
+- **seek-bar hover preview:** a second, paused, small mpv instance (or `mpv` screenshot-to-memory) that shows a frame at the hovered time; report latency per hover move;
+- **before/after for P1e-3c:** two synchronised mpv instances side by side, or one mpv with a `lavfi-complex` split/stack. Report sync drift over 60 s and the cost of each.
 
-## 3. Part A: GPU memory cap with spill detection
+## 6. Part D: recommendation
 
-### A1. Measure first
-
-Before changing behaviour, on the development PC, measure per stage (decode, BasicVSR++, resize, RIFE, encode) for Standard 1080 and Standard 1440, each with frame rate Keep and 2x, and Fast 1440 2x:
-- PyTorch allocated peak and reserved peak;
-- process dedicated and shared GPU memory (1 s samples);
-- non-PyTorch GPU memory (process dedicated minus PyTorch reserved).
-
-Use a synthetic or allowed (Wikimedia Commons / Internet Archive) 1080p source of at least 2 minutes. Report the table. The owner's sample is not used in this cycle.
-
-### A2. Cut the peak without changing the output
-
-Try the bit-identical options and keep only those that lower the peak and pass G5 strict equality:
-- PyTorch allocator settings that reduce fragmentation (for example `expandable_segments:True`), set only for the engine's processing children;
-- releasing cached blocks or tensors between stages that are not needed by the next stage;
-- anything else that does not change a single output byte.
-
-Report the peak before and after for each option, and which ones you kept.
-
-### A3. A budget that turns spill into a handled error
-
-- **Budget:** at the start of each part, in the processing child, compute a PyTorch budget from the free dedicated memory at that moment, minus a reserve for NVDEC, NVENC and the display. Measure the reserve from A1 instead of guessing, and report the value and how you chose it.
-- **Cap:** apply the budget with `torch.cuda.set_per_process_memory_fraction` (or an equivalent cap that makes PyTorch raise OOM instead of letting the driver spill).
-- **On OOM under the cap**, in this order:
-  1. the existing BasicVSR++ half-clip retry, unchanged (record it as now);
-  2. if that is exhausted, or the OOM is in RIFE or another stage: run that part once more **without the cap**. That keeps the output identical to today's and lets the job finish. Mark the part "ran over GPU memory".
-  3. A part must never fail only because of the cap.
-- **Never** lower quality settings, tile RIFE, or change any other output-affecting parameter to fit the budget.
-- When the whole part fits under the cap, the output must be byte-identical to the uncapped output (G5).
-
-### A4. Spill detection
-
-- **Sampler:** replace the PowerShell `Get-Counter` path with a direct PDH (or D3DKMT) query through `ctypes`, so one sample costs ≤ 50 ms. Keep the PowerShell path only as a fallback when the direct query fails, and report which one ran. Sample every 1 s during processing.
-- **Detection:** a part has "spilled" when the processing child's shared GPU usage rises more than 256 MB above its value at part start. Record per part: peak dedicated, peak shared, spilled yes/no, and whether the cap was on.
-- **Effects of a spill:**
-  - the segment watchdog does not count spill time as a hang: when spill is detected, scale that part's wall-time limit so a slow but progressing part is not killed and retried (the "no new frame" rule still applies);
-  - spilled parts are excluded from estimate learning and calibration samples;
-  - the job log gets one line per spilled part. The job's details show "Some parts ran slower because GPU memory was full." once, with Copy (P1f-3 B1 style). This is a condition notice: it does not fade.
-- On machines without the counters (non-Windows, no NVIDIA GPU), spill detection reports "unavailable" and the cap still works.
-
-### A5. Tests
-
-- **CPU (CI):** budget arithmetic; the OOM order in A3 with a fake stage that raises OOM under the cap and passes without it; spill detection from a fake counter stream; watchdog scaling; spilled parts excluded from learning; the details notice.
-- **GPU (development PC):**
-  - Standard 1440 2x and Standard 1080 on the A1 source with the cap on: report peak dedicated, peak shared, spilled parts, and wall time per part against the prediction. Target: no spill and no part slower than 1.3x its prediction when nothing else uses the GPU.
-  - **With a competing load:** a test-only helper process that holds 2 GB of GPU memory during the run. The cap must adapt at the next part start; report what happened (OOM retries, uncapped re-runs, spills).
-  - **G5:** capped and uncapped outputs byte-identical for at least one Standard 1080 and one Standard 1440 part that fit.
-  - Report every run, including failures.
-
-## 4. Part B: engine start survives one damaged JSON file
-
-- **Problem:** start-up reads these without a guard, so one damaged file stops the engine:
-  - `service/engine.py:~247` previews `state.json` and `:~255` previews `request.json` in `_recover`;
-  - `service/settings.py:~42` `settings.json`;
-  - job manifests and `analysis.json` loaded at start (`jobs/store.py` `_load_unlocked`, `~374-383`) outside the P1f-2 A1 broken-record path;
-  - any other JSON read on the start path that you find (list them).
-- **Required:**
-  - Skip the damaged file, log it once with path and parse error, and show one condition notice with Copy. Settings fall back to defaults for the session.
-  - **Never repair, rewrite, rename or delete** the damaged file. Saving settings later must not overwrite a damaged `settings.json` silently: refuse the save with a copyable reason until the owner fixes or removes the file. Report how you did it.
-  - The P1f-2 A1 broken-record handling for History stays as it is.
-- **Test:** for each file type, a home with that one file damaged (truncated, not JSON, wrong type at top level): the engine starts, the rest of the data loads, the file is byte-identical afterwards.
-
-## 5. Part C: deferred minor findings
-
-Each item below was found in the P1f and P1f-2 reviews and deferred here. The descriptions are short; find the code, confirm the problem, then fix it with a test. If an item does not reproduce or cannot be identified, report the evidence and leave the code.
-
-### C1. Decoder
-1. **OOM after the decoder retry:** when a part has already used its one decoder retry (NVDEC → FFmpeg) and then hits CUDA OOM, the OOM must go through the A3 order, not be reported as a decoder failure.
-2. **Re-analysis keeps a runtime FFmpeg choice:** a job that switched to FFmpeg at run time (P1f L3 / P1f-3 A2) must keep that choice and its reason after re-analysis, instead of returning to NVDEC.
-3. **12-bit sources:** use `p016le` where 12-bit input is converted, instead of a format that drops bits. 12-bit input stays refused if the spec refuses it today; then only make the refusal reason exact.
-
-### C2. Storage
-4. Remove is offered when nothing can be deleted: hide or disable it, with the reason.
-5. The "earlier version" message must not appear on a pointer this app itself recovered.
-6. Raw JSON appears in a result text: show a sentence instead (keep the detail in Copy details).
-7. A disconnected drive must not clear the storage pointer: show the drive as unavailable and keep the pointer.
-8. The status line during Remove: show what is being removed and progress, not a stale or empty line.
-9. A second Move overwrites `previous`: keep the earlier `previous` record (or refuse the second Move until the first is cleaned up). Report which you chose and why.
-10. Remove hashes files twice: hash once and reuse the result.
-
-### C3. Links
-11. The downloaded tool's bytes are read again before install: verify and install from the same read, so the checked bytes are the installed bytes.
-12. Install and uninstall of link tools must be refused while a link check or download runs, with a reason.
-13. One audio-only choice disables every video format: fix the format filter so audio choices do not affect video eligibility.
-14. Retry after a crash between the rename and the record: recover the finished download instead of downloading again. Also handle names that differ only in letter case (Windows is case-insensitive).
-15. Quit is refused while a downloaded video is being analysed: allow Quit, stop the analysis cleanly, and resume it at the next start.
-16. Reuse mismatches for odd widths: compare the same rounded width the reuse record stores.
-
-### C4. From the P1f-2 review
-17. **Second decode in analysis:** the thumbnail pass decodes the file a second time (17.4 s of 40.7 s for a 10-minute 1080p file). Make thumbnails from the first decode when the result is the same. The strict count check stays.
-18. **Unreadable record title:** the details dialog of an unreadable record shows the 32-character ID as its title. Show "Unreadable record" plus the folder date instead. Keep the ID in Copy details.
-19. **Link estimates:** new finished jobs do not update link-job time estimates until the app restarts. Refresh them when a job finishes.
-
-(The B6 false space refusal was fixed in P1f-3 A3; do not change it.)
-
-## 6. Part D: flaky e2e test `gui/tests/e2e/p1f2-review.spec.ts:68`
-
-- **Failure:** `expect.poll(() => app.clipboardText()).toContain("Parse error:")` after Copy details on the unreadable record, with "page closed". It recurred on hosted Windows CI: run 39737098567, attempt 1 (head `68bef06`); attempt 2 passed. P1f-3 A7 ran it 50 times on the development PC without a failure.
-- **Required:**
-  - Read the failing attempt's log and artifacts (the operator can fetch them; ask under "Questions for the designer" if you need them and cannot reach them) and state what closed the page.
-  - Remove the dependency on the shared system clipboard in e2e builds: read the copied text through the app's own copy path (an e2e-only hook), covering the P1f-3 "Copied" flow. The real-clipboard path keeps one unit or integration test.
-  - Never skip, quarantine or retry-wrap the test. Do not only lengthen timeouts.
-  - Run the spec 50 times locally after the fix and report the count.
+In the report, recommend one approach for P1e-3c with:
+- what P1e-3c must build;
+- the risks, and how to test them in CI (CI runners have no GPU; say what can and cannot run there);
+- the package size added, and the start-up cost (the P2 cold-start gate is Home-ready median ≤ 765 ms; mpv must load lazily, only when the player opens);
+- any point that needs the owner's decision (for example, the approved transparent design is impossible, or the licence needs something the owner must accept). Put each one under "Questions for the designer" with the option you recommend. Do not stop the cycle for them.
 
 ## 7. Do not change
 
-- G5 strict equality of the default pipeline output.
-- The P1f decoder decisions: strict timestamp check, per-job decoder choice, one retry.
-- HEVC as the default output; the M1 media path with 1 MiB responses; the MP4 audio rule.
-- Input ≤ 1080 (short side); outputs Keep, 1080 and 1440.
-- The T6 rules, the L2 reuse rule, the P1f-2 A1 broken-record handling, all P1f-3 and P1f-3b behaviour.
-- The player and Compare (P1e-3b/c), calibration and estimates beyond A4's exclusion of spilled parts (P1e-3d).
+- The product: `gui/`, `src/`, `tests/`, the package, the current HTML5 player, the media path, settings and the engine. The delivered app must be byte-for-byte what `main` builds, apart from nothing. If you believe a product change is necessary, describe it in the report instead.
+- CI must stay green. Do not add the spike to the product build, lint or test jobs unless it is fully isolated and cannot fail them; prefer leaving it out of CI.
 
 ## 8. Constraints
 
-- A separate engine home for every test; TEMP, TMP and `--basetemp` under `work\scratch`.
-- No system, driver, registry or NVIDIA Control Panel changes. Do not change the "CUDA Sysmem Fallback Policy".
-- CI uses only local servers with synthetic media. Local real-network tests may use only Wikimedia Commons and Internet Archive. Never YouTube, TikTok, Instagram or X.
-- The GPU load helper in A5 is test-only and must exit at the end of the test, even on failure.
-- Never commit media, weights, packages, `node_modules`, build output, screenshots, `local-env.ps1`, or the owner's data.
-- English for all code, comments, UI text and docs. Update `docs/API.md`, `docs/GUI.md` and `docs/TROUBLESHOOTING.md` where behaviour changes (the spill notice, the damaged-file notice).
+- Work only inside `work\`. Binaries, builds, fixtures and screenshots stay out of Git (`work\cache`, `work\scratch`, `work\evidence`).
+- Downloads only from official sources (mpv, FFmpeg, MSYS2, GitHub releases of the projects themselves), verified by checksum, noted in the report. Free software only; no paid tools.
+- No system-wide installs beyond what AGENTS.md allows; no driver, registry or WebView2 Runtime changes.
+- Persistent growth ≤ 1 GB, except the mpv build cache under `work\cache\mpv-lgpl\` (report its size on its own line; keep it, P1e-3c uses it). Build toolchains you install for the build (for example MSYS2 under `work\cache`) also go on their own line.
+- Tests and prototypes must clean up their own files. Create scratch folders so the owner's account can delete them (no mode `0o700`).
+- English for all code, comments and docs.
 
 ## 9. Acceptance
 
-- Every A, B, C and D item has a test that failed on `c84ce1a` (or evidence that it does not reproduce) and passes now.
-- **Python:** `ruff`, `ruff format --check`, `pyright`, the CPU suite.
-- **GPU:** the suite `-m "gpu and not soak"`, plus the A5 GPU runs.
-- **GUI:** lint, typecheck, unit tests, build, full e2e.
-- **Rust:** fmt, clippy (default and e2e), unit tests (only if Rust changed; say so either way).
-- **P2 cold start:** 5 launches with nothing else running. Home-ready median ≤ 765 ms, first paint median ≤ 1.0 s.
-- **Package:** rebuilt at `work\package\VideoEnhancer` if delivered code changed, with an isolated start-up smoke and its SHA-256.
-- **CI:** Windows and Ubuntu green on the final commit (the operator pushes; final CI may be reported as pending).
+- Part A: an LGPL libmpv with recorded configuration, licences and checksums, or a clear report of why none could be produced.
+- Part B: B1 and B2 each built and tried, with the results above.
+- Part C: the measurement table for every clip and both players, every run reported.
+- Part D: a recommendation.
+- `git diff main` contains only `spikes/mpv/**` and `.ai/LAST_REPORT.md` (plus `.gitignore` lines for spike build output, if needed).
+- Product checks unchanged: CPU suite, ruff, pyright, GUI lint/typecheck/unit/build are **not** required to re-run if no product file changed; say so. Windows and Ubuntu CI green on the final commit.
 
 ## 10. Report (`.ai/LAST_REPORT.md`)
 
-- Status line: COMPLETED, PARTIAL or BLOCKED.
-- A table of every item (A1-A5, B, C1-C19, D, P2): done / partial / not reproduced / NOT RUN, with tests and evidence files.
-- The failing output on `c84ce1a` and the passing output after, per item.
-- **A:** the A1 memory table; A2 options with before/after peaks; the reserve value and reasoning; the A5 runs (per part: peak dedicated, peak shared, spilled, cap on/off, wall vs predicted); the sampler cost per sample.
-- **D:** what closed the page, and the 50-run count.
+- Status line: COMPLETED, PARTIAL or BLOCKED. A spike is COMPLETED when every part has an answer backed by evidence, even if the answer is "this approach does not work".
+- Part A details; B1/B2/B3 results; the Part C tables; the recommendation.
 - Changed files.
-- **Disk:** the dependency restore size; growth for the rest of the cycle; `work\scratch` at the end; free space on C and D; anything left for the owner to delete.
+- Disk: dependency restore; mpv build cache; toolchains; other growth; `work\scratch` at the end; free space on C and D; anything left for the owner to delete.
 - "Questions for the designer", each with the default you chose.
-
-## 11. Designer answers and resume (2026-10-22, after the first run stopped at `216043d`)
-
-Continue this same cycle on the same branch, from the partial work in `216043d`. Keep that work; do not start over. Everything in sections 1-10 still applies, and every item still marked partial or NOT RUN in your report is still required.
-
-### 11.1 Do not stop the whole cycle for one question
-
-When one item needs a designer decision, choose the safer default that keeps the settled spec, record it under "Questions for the designer", and **continue with every other item**. Stop early only for the reasons in `AGENTS.md` (a conflict between `AGENTS.md` and this task, a usage limit, or an environment failure). BLOCKED is for a cycle that cannot continue at all.
-
-### 11.2 C3 answer: follow the spec and refuse inputs above 10 bits
-
-- The spec allows 8-bit and 10-bit SDR input only (`MIGRATION_HANDOFF.md` section 3). The current acceptance of `yuv420p12le` and other formats above 10 bits is a gap, not a product decision.
-- **Required:**
-  - Refuse local files above 10 bits at admission (the Add dialog and the API), with this reason: "This video uses <N>-bit color. VideoEnhancer accepts 8-bit and 10-bit videos only." Make it copyable (P1f-3 B1).
-  - For links, never choose a format above 10 bits. If only formats above 10 bits exist, refuse the link with the same reason.
-  - A job already in the queue or History from an earlier build with such a source: it is not deleted or changed. If it has not finished, it fails at its next start with the same reason.
-  - Do not add `p016le` conversion. Remove or narrow the code path that accepts 12-bit input, so the refusal cannot be bypassed.
-- **Test:** the synthetic 12-bit HEVC fixture you made is refused, with the exact reason, on `c84ce1a` behaviour (accepted) versus now (refused). An 8-bit and a 10-bit fixture are still accepted.
-- Update `docs/GUI.md` or `docs/TROUBLESHOOTING.md` with the refusal.
-
-### 11.3 D answer: the cause stays unknown; make the next failure leave evidence
-
-- The designer accepts "what closed the page is unknown" for the failure in run 39737098567 attempt 1. No other trace exists: the run kept no artifacts.
-- Keep your e2e-only copy capture. Finish the 50-run local repetition of the whole spec file and report the count.
-- **Add evidence for the future (allowed file: `.github/workflows/ci.yml`):** on an e2e failure, CI uploads the Playwright trace, the app log and the engine log of the failing test as an artifact (kept 7 days, at most 100 MB, no owner data; e2e homes are synthetic). The upload runs only on failure. It must not change pass/fail and must not retry.
-- Also log, in e2e builds only, why a window or webview closes (the Tauri close or destroy event, the reason if known, and the time), so a future "page closed" can be explained.
-
-### 11.4 Measurements in A
-
-- Run A1 again **with nothing else using the GPU** (no GUI e2e or other GPU tests at the same time). The earlier runs that overlapped e2e do not count for choosing the reserve.
-- If exact per-stage attribution is not possible because stages overlap, measure each stage alone in a test harness on the same frames (decode only, BasicVSR++ only, resize, RIFE only, encode only), and report both: the per-stage table from the harness, and the whole-part peaks from real runs.
-
-### 11.5 Cleanup
-
-- The operator deleted most of `work\scratch` after your first run. 17 empty folders that only the sandbox account can open are still there (`minor-*`, `startup-*`, `tmp\ve-av1-probe-*`). Delete them from inside the sandbox at the end of this run if you can. List any that remain.
-- Create test folders so the owner's account can delete them (see `docs/WORKSPACE.md`), for example by avoiding mode `0o700`, where the test code is yours to change.
-
-## 12. Designer answers after the second run (2026-10-23, at `59a4897`)
-
-The designer reviewed the report and the main code (`jobs/gpu_budget.py`, the controller changes, `media/admission.py`). The A, B, C and D work is accepted except the two points below. Finish them, then the cycle can close.
-
-### 12.1 A4: accepted
-
-The ≤ 50 ms target is for the counter query only. Your direct PDH maximum of 0.88 ms meets it. The whole-record cost (95 ms outlier) runs on the sampler thread and is acceptable. Keep both timings in the stats. Mark A4 done.
-
-### 12.2 C17: adopt the first-pass metrics only if nothing else changes
-
-- The legacy result is a SimpleDecoder end-of-file defect: its last batch repeats one timestamp (667 ms x4), so the last motion deltas are zero. The strict decoder's distinct final frames are the correct values. Replacing the defect is allowed, on these conditions:
-  1. For every GPU analysis fixture and for one synthetic 1080p source of at least 2 minutes, compare the full analysis result old vs new. The only allowed differences are the motion metrics of the final batch. Every derived decision (segment plan, scene cuts, outlier marks, decoder choice, frame counts, timestamps) must be identical. Report the diff.
-  2. Process one short Standard job from each of those sources with old and new analysis: the outputs must be byte-identical (G5).
-- If both hold: adopt one-pass thumbnails, and the two C17 tests must pass.
-- If either fails: keep the two-pass default and **delete the two new C17 one-pass tests** (they test an optimization this cycle does not ship). C17 then moves to P1e-3d. Say which case applied. Never leave a known-failing test in the repository.
-
-### 12.3 Final checks on the final tree
-
-- Run the GPU suite `-m "gpu and not soak"` again on the final tree (the earlier pass was on the prototype tree). Use the checkpoint/resume recipe if a usage limit interrupts it.
-- Run the full CPU suite, ruff, ruff format, pyright, and the GUI and Rust checks again only if files in those areas changed since `59a4897`.
-- The operator deleted all scratch leftovers after your run (38.77 GB in `work\scratch\p1e3a-resume` and 0.34 GB in `scratch\tmp`, nothing left). Record that the growth and empty-scratch gates are met after operator cleanup.
-- **Deletable test folders:** your deletes were refused for 11 targets again. Find why (for example `tempfile.mkdtemp` mode `0o700`, read-only files, or hard links held open) and fix the test helpers you control so the next cycle can clean up from inside the sandbox. Report the cause.
-
-### 12.4 Report
-
-Status COMPLETED only when every item is done (C12 "not reproduced" is fine), the GPU and CPU suites pass with no failure, and only CI is left for the operator. Otherwise PARTIAL with the exact reason.
