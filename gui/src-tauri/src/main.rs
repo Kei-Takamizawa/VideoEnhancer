@@ -49,6 +49,8 @@ pub struct State {
     native_drop: Mutex<Vec<PathBuf>>,
     #[cfg(feature = "e2e")]
     remove_confirmation: Mutex<Option<bool>>,
+    #[cfg(feature = "e2e")]
+    copied_text: Mutex<String>,
 }
 #[cfg(windows)]
 impl State {
@@ -103,6 +105,8 @@ mod connection_tests {
             native_drop: Mutex::new(vec![]),
             #[cfg(feature = "e2e")]
             remove_confirmation: Mutex::new(None),
+            #[cfg(feature = "e2e")]
+            copied_text: Mutex::new(String::new()),
         };
         assert!(state.connected().is_ok());
         state.storage_moving.store(true, Ordering::SeqCst);
@@ -159,6 +163,8 @@ fn initial_state() -> Option<(Arc<State>, Value)> {
         native_drop: Mutex::new(vec![]),
         #[cfg(feature = "e2e")]
         remove_confirmation: Mutex::new(None),
+        #[cfg(feature = "e2e")]
+        copied_text: Mutex::new(String::new()),
     });
     Some((state, initial))
 }
@@ -181,6 +187,13 @@ fn main() {
         })
         .on_window_event(|window, event| {
             let state = window.state::<Arc<State>>();
+            #[cfg(feature = "e2e")]
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed) {
+                eprintln!("E2E lifecycle: time_ms={} event={:?} quitting={} reason={}",
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis(),
+                    event, state.quitting.load(Ordering::SeqCst),
+                    if state.quitting.load(Ordering::SeqCst) { "Quit requested" } else { "native window event; origin unknown" });
+            }
             match event {
                 tauri::WindowEvent::CloseRequested { api, .. }
                     if !state.quitting.load(Ordering::SeqCst) =>

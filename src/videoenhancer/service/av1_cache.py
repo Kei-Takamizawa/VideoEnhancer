@@ -1,6 +1,5 @@
 """Persist encoder probes for the exact GPU and driver pair."""
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +11,10 @@ def capabilities(home: Path, gpu: str, driver: str) -> dict[str, Any]:
 
     path = home / "av1-capabilities.json"
     key = {"gpu": gpu, "driver": driver, "schema": 1}
+    from videoenhancer.damaged_json import is_damaged, read_object
+
     try:
-        cached = json.loads(path.read_text(encoding="utf-8"))
+        cached = read_object(path, home, ("key", "value"))
         if (
             cached["key"] == key
             and isinstance(cached["value"]["av1_supported"], bool)
@@ -33,6 +34,6 @@ def capabilities(home: Path, gpu: str, driver: str) -> dict[str, Any]:
     if supported:
         width, height = av1_minimum_size()
         value.update(av1_min_width=width, av1_min_height=height)
-    if gpu and driver:
+    if gpu and driver and not is_damaged(path):
         write_json(path, dict(key=key, value=value))
     return value

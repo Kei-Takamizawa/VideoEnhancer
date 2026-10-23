@@ -495,3 +495,22 @@ thumbnail pass with FFmpeg and persists `decoder: "ffmpeg"` and `decoder_reason`
 for that job. The strict packet/frame-count check still applies to the fallback.
 Unknown link dimensions reserve the download twice plus the existing margin at
 admission; the downloaded file still receives the full output/working-space check.
+
+### GPU memory and damaged records
+
+Processing children budget PyTorch allocations against free dedicated GPU memory,
+with a measured reserve. Existing restoration OOM retry runs first; an exhausted
+capped attempt reruns the part once without the cap. Part statistics include the
+budget, uncapped rerun count, spill status and dedicated/shared memory peaks.
+Unavailable Windows counters report an unknown spill status. Spilled parts do
+not update timing observations or calibration. Queue details expose
+`gpu_memory_notice` for the persistent copyable condition notice.
+
+Startup skips malformed JSON objects independently and exposes path/error notices
+in health diagnostics. Defaults apply for the session; damaged files remain
+unchanged. Saving over damaged settings is refused. History's strict unreadable
+record handling remains available.
+
+Admission refuses input above 10-bit color with the same reason for local files
+and links. Previously queued unfinished jobs fail at their next start; completed
+records are retained. Link-tool install/uninstall refuses active link operations.

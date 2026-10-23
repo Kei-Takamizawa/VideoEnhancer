@@ -266,3 +266,20 @@ failure is logged and retried with short backoff. A persistent failure leaves th
 record for subsequent cleanup; it does not remove the original or output video.
 Use Copy message or Copy details when reporting an error. An old calibration
 failure is labelled as the last attempt; Run again starts a new calibration.
+
+### GPU memory and damaged JSON
+
+Close other GPU workloads if a job reports that GPU memory was full. The engine
+samples processing memory once per second, excludes spilled parts from timing
+learning and retains the copyable notice. A part can run once without its memory
+cap after CUDA OOM recovery; no quality setting is lowered to fit the budget.
+
+For a damaged-file notice, use Copy details to identify its path and parse error.
+The app leaves the file unchanged. Settings use defaults for that session and
+refuse Save over damaged settings. Fix or remove that file yourself before
+saving. A disconnected app-data drive retains its pointer; reconnect the drive.
+
+VideoEnhancer accepts 8-bit and 10-bit SDR input. Sources above 10 bits are
+refused with their exact color depth; convert a separate copy externally if
+needed. Existing unfinished jobs with those sources fail at their next start.
+Completed History records are retained.

@@ -285,20 +285,22 @@ class LinkJobs:
                 home=engine.home,
                 job_id=job_id,
                 source_info=source,
+                cancelled=paused,
             )
         except InterruptedError:
             latest = engine.store.load_existing(job_id)
-            if latest and latest["state"] == "downloading":
+            if latest and latest["state"] in {"downloading", "preparing"}:
                 engine.store.patch_existing(
                     job_id,
                     {
+                        "state": "downloading",
                         "download": {
                             **latest.get("download", {}),
                             "phase": "Paused",
                             "ready_at": None,
                             "bytes_per_second": None,
                             "remaining_seconds": None,
-                        }
+                        },
                     },
                 )
         except Exception as error:

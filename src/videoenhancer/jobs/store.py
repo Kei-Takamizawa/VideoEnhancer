@@ -247,7 +247,9 @@ def load_machine_profile(
 
     def exact_driver(path: Path) -> bool:
         try:
-            return str(json.loads(path.read_text(encoding="utf-8")).get("driver")) == str(driver)
+            from videoenhancer.damaged_json import read_object
+
+            return str(read_object(path, _home(home)).get("driver")) == str(driver)
         except (OSError, ValueError):
             return False
 
@@ -256,7 +258,9 @@ def load_machine_profile(
         candidates.extend((Path(__file__).parents[1] / "estimate" / "profiles").glob("*.json"))
     for path in candidates:
         try:
-            profile = json.loads(path.read_text(encoding="utf-8"))
+            from videoenhancer.damaged_json import read_object
+
+            profile = read_object(path, _home(home))
             if (
                 profile.get("schema_version") == 1
                 and profile.get("backend", "cuda") == backend
@@ -370,8 +374,9 @@ class JobStore:
 
     @staticmethod
     def _load_unlocked(path: Path, *, include_analysis: bool = True) -> dict[str, Any]:
-        with path.open("r", encoding="utf-8") as source:
-            manifest = json.load(source)
+        from videoenhancer.damaged_json import read_object
+
+        manifest = read_object(path, path.parents[2])
         if manifest.get("schema_version") != SCHEMA_VERSION:
             raise ValueError(f"Unsupported manifest schema in {path}; upgrade VideoEnhancer")
         if manifest.get("analysis_file"):
@@ -379,8 +384,7 @@ class JobStore:
                 raise ValueError("Invalid analysis sidecar.")
             if include_analysis:
                 try:
-                    with (path.parent / "analysis.json").open(encoding="utf-8") as stream:
-                        manifest.update(json.load(stream))
+                    manifest.update(read_object(path.parent / "analysis.json", path.parents[2]))
                 except FileNotFoundError:
                     manifest["analysis_missing"] = True
         return manifest
@@ -394,13 +398,18 @@ class JobStore:
         if input_identity(source) != job["input"]:
             raise ValueError("The original video changed. Add it again before processing.")
         from videoenhancer.jobs.checks import source_warning
+        from videoenhancer.media.admission import color_warning
 
-        unsupported = source_warning(probe(source, read_timeline=False).to_dict())
+        media = probe(source, read_timeline=False).to_dict()
+        unsupported = source_warning(media)
         if unsupported:
-            raise ValueError(f"No longer supported: {unsupported}")
+            raise ValueError(color_warning(media) or f"No longer supported: {unsupported}")
         analysis = analyze(source, backend=job["settings"]["backend"])
         job.update({key: analysis.get(key, []) for key in ANALYSIS_FIELDS})
-        job.update(decoder=analysis.get("decoder"), decoder_reason=analysis.get("decoder_reason"))
+        if not (job.get("decoder") == "ffmpeg" and job.get("decoder_events")):
+            job.update(
+                decoder=analysis.get("decoder"), decoder_reason=analysis.get("decoder_reason")
+            )
         job.pop("analysis_missing", None)
         self.save(job)
         return self.load(job["id"])
@@ -507,7 +516,7 @@ class JobStore:
             temporary.unlink(missing_ok=True)
 
     def _cached_jobs(
-        self, *, check_quarantine: bool = True, snapshot: bool = False
+        self, *, check_quarantine: bool = True, snapshot: bool = False, skip_damaged: bool = False
     ) -> list[tuple[Any, dict[str, Any], str]]:
         records = []
         for directory in os.scandir(self.jobs_dir):
@@ -544,7 +553,12 @@ class JobStore:
                 self._manifest_cache.pop(directory.name, None)
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
                 if not snapshot:
-                    raise
+                    if isinstance(error, OSError) or not skip_damaged:
+                        raise
+                    from videoenhancer.damaged_json import record
+
+                    record(self.home, Path(path), error)
+                    continue
                 stamp = ("record-error", str(error))
                 records.append((stamp, self._record_error(directory.name, error), str(stamp)))
         return records
@@ -652,7 +666,9 @@ class JobStore:
         ]
         return revisions, health
 
-    def list_jobs(self, *, include_analysis: bool = True) -> list[dict[str, Any]]:
+    def list_jobs(
+        self, *, include_analysis: bool = True, skip_damaged: bool = False
+    ) -> list[dict[str, Any]]:
         def metadata(job: dict[str, Any]) -> dict[str, Any]:
             result = {
                 k: v
@@ -670,7 +686,10 @@ class JobStore:
             ]
             return result
 
-        jobs = [job if include_analysis else metadata(job) for _, job, _ in self._cached_jobs()]
+        jobs = [
+            job if include_analysis else metadata(job)
+            for _, job, _ in self._cached_jobs(skip_damaged=skip_damaged)
+        ]
         # Manifests contain only JSON values. The C codec makes independent copies.
         copied = json.loads(json.dumps(jobs))
         return sorted(copied, key=lambda job: (job.get("position", 10**9), job["created_at"]))
@@ -779,6 +798,13 @@ class JobStore:
     def _write_control_unlocked(self, job: dict[str, Any]) -> None:
         directory = self.job_dir(str(job["id"]))
         target = directory / "control.json"
+        from videoenhancer.damaged_json import read_object
+
+        if target.exists():
+            try:
+                read_object(target, self.home)
+            except (ValueError, UnicodeError):
+                return
         temporary = directory / f"control.{uuid.uuid4().hex}.tmp"
         try:
             with temporary.open("w", encoding="utf-8", newline="\n") as stream:
@@ -799,8 +825,12 @@ class JobStore:
     def read_control_state(self, job_id: str) -> str:
         path = self.job_dir(job_id) / "control.json"
         if path.exists():
-            with path.open("r", encoding="utf-8") as source:
-                return str(json.load(source)["state"])
+            from videoenhancer.damaged_json import read_object
+
+            try:
+                return str(read_object(path, self.home, ("state",))["state"])
+            except (ValueError, UnicodeError):
+                pass
         return str(self.load(job_id)["state"])
 
 
@@ -814,6 +844,7 @@ def add_job(
     target_segment_seconds: float = 180.0,
     job_id: str | None = None,
     source_info: dict[str, Any] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Analyze an input and enqueue a durable, frame-exact conversion plan."""
     source = Path(path).expanduser().resolve(strict=True)
@@ -865,7 +896,9 @@ def add_job(
         raise ValueError("Windows Smart App Control is blocking the video component.")
     from videoenhancer.media.analyze import analyze
 
-    analysis = analyze(source, backend=chosen["backend"])
+    analysis = analyze(
+        source, backend=chosen["backend"], **({"cancelled": cancelled} if cancelled else {})
+    )
     media = analysis["media"]
     from videoenhancer.jobs.checks import geometry_warning
 

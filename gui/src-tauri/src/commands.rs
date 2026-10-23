@@ -9,6 +9,33 @@ use std::{
 use tauri::Emitter;
 use tauri::Manager;
 
+#[cfg(any(not(feature = "e2e"), test))]
+fn copy_native(value: &str) -> engine::Result<()> {
+    arboard::Clipboard::new()
+        .and_then(|mut clipboard| clipboard.set_text(value))
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod clipboard_tests {
+    #[test]
+    fn real_clipboard_copy_round_trip() {
+        let mut clipboard = arboard::Clipboard::new().unwrap();
+        let previous = clipboard.get_text().ok();
+        super::copy_native("VideoEnhancer synthetic clipboard integration test").unwrap();
+        let copied = clipboard.get_text();
+        if let Some(previous) = previous {
+            clipboard.set_text(previous).unwrap();
+        } else {
+            clipboard.clear().unwrap();
+        }
+        assert_eq!(
+            copied.unwrap(),
+            "VideoEnhancer synthetic clipboard integration test"
+        );
+    }
+}
+
 fn text(args: &Value) -> engine::Result<&str> {
     args.as_str()
         .ok_or_else(|| "Invalid command argument.".into())
@@ -197,9 +224,12 @@ pub fn execute(
             if s.chars().count() > 100000 {
                 return Err("Details are too large.".into());
             }
-            arboard::Clipboard::new()
-                .and_then(|mut c| c.set_text(s))
-                .map_err(|e| e.to_string())?;
+            #[cfg(feature = "e2e")]
+            {
+                *state.copied_text.lock().map_err(|e| e.to_string())? = s.to_owned();
+            }
+            #[cfg(not(feature = "e2e"))]
+            copy_native(s)?;
             Ok(Value::Null)
         }
         "logRendererError" => {
@@ -362,8 +392,9 @@ pub async fn desktop_test(
             Ok(Value::Null)
         }
         "handle" => Ok(json!(window.hwnd().map_err(|e| e.to_string())?.0 as usize)),
-        "clipboard" => Ok(json!(arboard::Clipboard::new()
-            .and_then(|mut c| c.get_text())
+        "clipboard" => Ok(json!(*state
+            .copied_text
+            .lock()
             .map_err(|e| e.to_string())?)),
         "startup" => Ok(
             engine::request(&state.connected()?, "settings", "GET", None)?["start_with_windows"]

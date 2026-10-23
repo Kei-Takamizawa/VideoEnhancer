@@ -65,6 +65,7 @@ test("P1f-2 unknown and damaged records, reuse and nested lists fit both themes"
     await expect(page.getByRole("button", { name: "c".repeat(32), exact: true })).toBeVisible({ timeout: 15000 });
     await page.getByRole("button", { name: "c".repeat(32), exact: true }).click();
     await page.getByRole("dialog", { name: "Video details" }).getByRole("button", { name: "Copy details", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Video details" }).getByText("Copied", { exact: true })).toBeVisible();
     await expect.poll(() => app.clipboardText()).toContain("Parse error:");
     expect(await app.clipboardText()).toContain(record);
     await page.getByRole("button", { name: "Remove", exact: true }).click();

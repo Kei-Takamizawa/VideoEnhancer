@@ -1,6 +1,5 @@
 """Runtime paths; processing never downloads dependencies."""
 
-import json
 import os
 import shutil
 from pathlib import Path
@@ -20,7 +19,12 @@ def get_home() -> Path:
             / "storage-location.json"
         )
         if location.is_file():
-            saved = json.loads(location.read_text(encoding="utf-8"))
+            from videoenhancer.damaged_json import read_object
+
+            try:
+                saved = read_object(location, result)
+            except (ValueError, UnicodeError):
+                saved = {}
             if saved.get("active"):
                 result = Path(saved["active"])
                 if not result.is_dir():

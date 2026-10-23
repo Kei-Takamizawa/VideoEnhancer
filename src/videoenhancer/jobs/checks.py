@@ -4,11 +4,14 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from videoenhancer.media.admission import color_warning
 from videoenhancer.media.timing import output_size
 from videoenhancer.models.registry import ModelRegistry, selected_models
 
 
 def source_warning(media: dict[str, Any]) -> str | None:
+    if reason := color_warning(media):
+        return reason
     width = int(media.get("display_width") or media.get("width") or 0)
     height = int(media.get("display_height") or media.get("height") or 0)
     short = min(width, height)

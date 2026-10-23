@@ -222,13 +222,9 @@ def probe(
             count = len(pts)
         duration = float(pts[-1] - pts[0] + (durations[-1] or 1 / rate))
     pixel_format = video.get("pix_fmt", "unknown")
-    bit_depth = int(video.get("bits_per_raw_sample", "0") or "0")
-    if not bit_depth:
-        bit_depth = (
-            10
-            if any(s in pixel_format for s in ("10", "p010"))
-            else (12 if "12" in pixel_format else 8)
-        )
+    from videoenhancer.media.admission import color_depth
+
+    bit_depth = color_depth(video)
     matrix = video.get("color_space", "unknown")
     if matrix in {"unknown", "unspecified"}:
         matrix = "bt601" if height <= 576 else "bt709"

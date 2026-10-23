@@ -33,6 +33,7 @@ from videoenhancer.jobs.store import (
     load_machine_profile,
     require_disk_space,
 )
+from videoenhancer.media.admission import color_depth, color_warning
 from videoenhancer.media.probe import rational, target_rate
 from videoenhancer.models.registry import ModelRegistry, selected_models
 from videoenhancer.schedule.controller import _kill_process_tree
@@ -316,6 +317,7 @@ def header_probe(
             if stream.get("color_transfer") in {"smpte2084", "arib-std-b67"}
             else "SDR",
             rotation=rotation,
+            bit_depth=color_depth(stream),
         )
     except InterruptedError:
         raise
@@ -329,6 +331,8 @@ def header_probe(
 
 
 def format_reason(item: dict[str, Any]) -> str | None:
+    if reason := color_warning(item):
+        return reason
     if item.get("has_drm"):
         return "DRM-protected videos are not supported."
     if item.get("dynamic_range") not in {None, "SDR"} or item.get("color_transfer") in {
@@ -404,9 +408,18 @@ class VideoLinks:
         self.hardware: dict[str, Any] | None = None
         self._profiles: dict[str, Any] = {}
         self._profile_lock = threading.Lock()
+        self._timing_stamp: tuple[int, int, int] | None = None
 
     def profile(self, settings: dict[str, Any], media: dict[str, Any]) -> Any:
         with self._profile_lock:
+            try:
+                info = (self.home / "timing-observations.json").stat()
+                stamp = (info.st_mtime_ns, info.st_size, info.st_ino)
+            except FileNotFoundError:
+                stamp = None
+            if stamp != self._timing_stamp:
+                self._profiles.clear()
+                self._timing_stamp = stamp
             if self.hardware is None:
                 from videoenhancer.logging import environment_info
 
@@ -503,19 +516,21 @@ class VideoLinks:
         if reason:
             raise ValueError(reason)
         require_encrypted_format(original, video)
-        audio = next(
-            (
-                item
-                for item in reversed(entry["formats"])
-                if item.get("vcodec") == "none"
-                and item.get("acodec") != "none"
-                and not item.get("has_drm")
-            ),
-            None,
-        )
-        if audio:
-            require_encrypted_format(original, audio)
-        return video, audio
+        if video.get("acodec") not in {None, "none"}:
+            return video, None
+        audio_error = None
+        for item in reversed(entry["formats"]):
+            if item.get("vcodec") != "none" or item.get("acodec") == "none" or item.get("has_drm"):
+                continue
+            try:
+                require_encrypted_format(original, item)
+            except ValueError as error:
+                audio_error = error
+                continue
+            return video, item
+        if audio_error is not None:
+            raise audio_error
+        return video, None
 
     def reusable(self, entry: dict[str, Any], store: JobStore) -> dict[str, Any] | None:
         extractor = entry.get("extractor_key") or entry.get("extractor") or "Generic"
@@ -551,7 +566,7 @@ class VideoLinks:
                         (item.get("width"), item.get("height"), duration, media.get("duration"))
                     ):
                         continue
-                    if (item["width"], item["height"]) == (
+                    if (max(2, 2 * round(item["width"] / 2)), item["height"]) == (
                         media.get("display_width", media.get("width")),
                         media.get("display_height", media.get("height")),
                     ) and abs(float(duration or 0) - float(media["duration"])) <= 0.5:
@@ -624,6 +639,26 @@ class VideoLinks:
             raise ValueError("Invalid download job ID.")
         source = job["source"]
         final = Path(job["input"]["path"])
+        commit_path = self.home / "jobs" / job["id"] / "download-commit.json"
+        if commit_path.exists():
+            from videoenhancer.damaged_json import read_object
+
+            commit = read_object(commit_path, self.home, ("identity", "timestamp"))
+            expected_identity = commit["identity"]
+            if str(final.resolve()).casefold() != str(expected_identity["path"]).casefold():
+                raise ValueError("The download recovery destination changed. Its files were kept.")
+            recovered = next(
+                (p for p in final.parent.iterdir() if p.name.casefold() == final.name.casefold()),
+                None,
+            )
+            if recovered is not None and recovered.is_file():
+                actual = input_identity(recovered)
+                if all(
+                    actual[k] == expected_identity[k] for k in ("size", "mtime_ns", "edge_hash")
+                ):
+                    source["timestamp"] = commit["timestamp"]
+                    return recovered
+                raise ValueError("The completed download changed. Its file was kept.")
         if (
             source.get("downloaded_at")
             and final.is_file()
@@ -816,8 +851,11 @@ class VideoLinks:
                     f"The download is incomplete ({actual:g} s of {float(expected):g} s). "
                     "Retry the download."
                 )
-        if final.exists():
+        if any(p.name.casefold() == final.name.casefold() for p in final.parent.iterdir()):
             raise ValueError("A file now exists at the download destination. It was kept.")
+        identity = input_identity(completed)
+        identity["path"] = str(final)
+        write_json(commit_path, dict(identity=identity, timestamp=entry.get("timestamp")))
         completed.rename(final)
         source["timestamp"] = entry.get("timestamp")
         return final
@@ -921,6 +959,11 @@ class VideoLinks:
                     ) and not format_reason(item):
                         extra = header_probe(url, item, cancelled, process_changed)
                         if extra:
+                            # A DASH manifest probe can see audio from another
+                            # representation. Keep the extractor's explicit
+                            # video-only choice so its separate audio is fetched.
+                            if original.get("acodec") == "none":
+                                extra.pop("acodec", None)
                             item.update(extra)
                 except ValueError as error:
                     item["transport_error"] = str(error)

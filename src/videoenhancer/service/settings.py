@@ -39,7 +39,12 @@ DEFAULTS: dict[str, Any] = {
 
 def read_settings(home: Path) -> dict[str, Any]:
     path = home / "settings.json"
-    saved = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    from videoenhancer.damaged_json import read_object
+
+    try:
+        saved = read_object(path, home) if path.exists() else {}
+    except (ValueError, UnicodeError):
+        return {**DEFAULTS, "advanced": {}, "seen_failures": []}
     if saved.get("short_side") == 2160:
         saved["short_side"] = 1440
         write_json(path, saved)
@@ -50,6 +55,10 @@ def read_settings(home: Path) -> dict[str, Any]:
 
 
 def write_json(path: Path, data: Any) -> None:
+    from videoenhancer.damaged_json import is_damaged, read_object
+
+    if path.exists() and is_damaged(path):
+        read_object(path, path.parent)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -63,6 +72,17 @@ def write_json(path: Path, data: Any) -> None:
 
 
 def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
+    from videoenhancer.damaged_json import read_object
+
+    path = home / "settings.json"
+    if path.exists():
+        try:
+            read_object(path, home)
+        except (ValueError, UnicodeError) as error:
+            raise ValueError(
+                f"Settings cannot be saved because {path} is damaged: {error}. "
+                "Fix or remove this file before saving settings."
+            ) from error
     if set(value) - set(DEFAULTS):
         raise ValueError("Unknown setting.")
     if "cleanup_working_files" in value and not isinstance(value["cleanup_working_files"], bool):

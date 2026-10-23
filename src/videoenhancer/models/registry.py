@@ -301,7 +301,13 @@ class ModelRegistry:
             raise ValueError(f"Model is not installed: {model_id}")
         if path.is_symlink():
             raise ValueError("Model manifest cannot be a symbolic link.")
-        value = validate_manifest(json.loads(path.read_text(encoding="utf-8")), task)
+        from videoenhancer.damaged_json import read_object, record
+
+        try:
+            value = validate_manifest(read_object(path, self.home), task)
+        except ValueError as error:
+            record(self.home, path, error)
+            raise
         if value["id"] != model_id:
             raise ValueError("Model manifest id does not match its folder.")
         if model_id in BUILTINS:
@@ -410,7 +416,10 @@ class ModelRegistry:
     def list_models(self) -> list[dict[str, Any]]:
         result = []
         for path in sorted(self.root.glob("*/model.json")):
-            model = self.public_manifest(path.parent.name)
+            try:
+                model = self.public_manifest(path.parent.name)
+            except (ValueError, UnicodeError):
+                continue
             try:
                 self.weights(model)
                 verified = True

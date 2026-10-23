@@ -113,14 +113,16 @@ def read_exact(stream: Any, size: int) -> bytes:
 
 
 def validate_pixel_format(media: dict[str, Any]) -> None:
+    from videoenhancer.media.admission import color_warning
+
+    if reason := color_warning(media):
+        raise ValueError(reason)
     if media.get("pixel_format", "yuv420p") not in {
         "yuv420p",
         "yuvj420p",
         "yuv420p10le",
-        "yuv420p12le",
         "nv12",
         "p010le",
-        "p016le",
     }:
         raise ValueError(
             f"Unsupported decoded pixel format {media['pixel_format']}. "
@@ -164,17 +166,24 @@ class IndexedDecoder:
         if callable(flush):
             yield from cast(Any, flush)()
 
-    def verify_timestamps(self, pts: list[str]) -> None:
+    def verify_timestamps(
+        self,
+        pts: list[str],
+        observer: Callable[[Any], None] | None = None,
+        abort: Callable[[], bool] | None = None,
+    ) -> None:
         """Scan the entire native stream, including the EOF packet and final frame."""
         base = Fraction(self.demuxer.GetTimebaseNum(), self.demuxer.GetTimebaseDen())
         sequence = TimestampSequence(pts)
         count = 0
-        for frame in self._decoded_packets(iter(self.demuxer), lambda: False):
+        for frame in self._decoded_packets(iter(self.demuxer), abort or (lambda: False)):
             stamp = Fraction(frame.getPTS()) * base
             if sequence.accept(stamp) != count:
                 raise TimestampMismatch(
                     f"NVDEC starts at frame {(sequence.next_index or 1) - 1}, expected 0."
                 )
+            if observer is not None:
+                observer(frame)
             count += 1
         if count != len(pts):
             raise TimestampMismatch(f"NVDEC ended after {count} frames; expected {len(pts)}.")

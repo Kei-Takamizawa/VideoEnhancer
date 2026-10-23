@@ -1,12 +1,12 @@
 """Measured fidelity, joints and context-aware CLI trial outputs."""
 
-import tempfile
 from fractions import Fraction
 from pathlib import Path
 
 import pytest
 
 from videoenhancer import cli
+from videoenhancer.files import temporary_folder
 from videoenhancer.media.probe import probe
 from videoenhancer.pipeline.quality import _ratio, measure_quality
 from videoenhancer.trial import run_trial
@@ -14,7 +14,7 @@ from videoenhancer.trial import run_trial
 
 @pytest.fixture
 def trial_output():
-    with tempfile.TemporaryDirectory(prefix="ve-trial-test-") as directory:
+    with temporary_folder(prefix="ve-trial-test-") as directory:
         yield Path(directory)
 
 

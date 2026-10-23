@@ -95,7 +95,12 @@ class ToolManager:
             folder = self._folder(tool)
             metadata = folder / "installed.json"
             if metadata.is_file():
-                item = json.loads(metadata.read_text(encoding="utf-8"))
+                from videoenhancer.damaged_json import read_object
+
+                try:
+                    item = read_object(metadata, self.root.parent, ("executable_bytes",))
+                except (ValueError, UnicodeError):
+                    continue
                 binary = folder / f"{tool}.exe"
                 item["present"] = (
                     binary.is_file() and binary.stat().st_size == item["executable_bytes"]
@@ -218,6 +223,7 @@ class ToolManager:
                 staged = folder / f"verified-{uuid.uuid4().hex}.tmp"
                 try:
                     digest = hashlib.sha256()
+                    checked_bytes = bytearray()
                     received = 0
                     request = urllib.request.Request(
                         official_url(item["url"]), headers={"User-Agent": "VideoEnhancer"}
@@ -238,6 +244,7 @@ class ToolManager:
                                 raise ValueError("Link-tool download exceeds its published size.")
                             sink.write(block)
                             digest.update(block)
+                            checked_bytes.extend(block)
                             done = complete + received
                             speed = done / max(0.001, time.monotonic() - started)
                             progress(
@@ -255,7 +262,7 @@ class ToolManager:
                         )
                     if cancelled():
                         raise InterruptedError("Link-tool installation cancelled.")
-                    data = temporary.read_bytes()
+                    data = bytes(checked_bytes)
                     if item["tool"] == "deno":
                         with zipfile.ZipFile(io.BytesIO(data)) as archive:
                             entries = archive.infolist()

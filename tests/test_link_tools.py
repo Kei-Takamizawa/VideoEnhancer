@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -84,6 +85,21 @@ def test_verified_install_tamper_guard_and_uninstall(publisher, tmp_path):
     downloaded.write_bytes(b"user original")
     assert manager.uninstall()["available"] is False
     assert downloaded.read_bytes() == b"user original"
+
+
+def test_installed_bytes_are_the_bytes_verified_during_download(publisher, monkeypatch):
+    manager, _, _, binaries = publisher
+    plan = manager.check("stable")
+    original_read = Path.read_bytes
+
+    def replaced_read(path):
+        if path.suffix == ".download":
+            return b"MZ substituted unverified file"
+        return original_read(path)
+
+    monkeypatch.setattr(Path, "read_bytes", replaced_read)
+    manager.install("stable", plan["id"], lambda _: None, lambda: False)
+    assert manager.executable("yt-dlp").read_bytes() == binaries["yt-dlp"]
 
 
 def test_bad_checksum_does_not_replace_binary(publisher):

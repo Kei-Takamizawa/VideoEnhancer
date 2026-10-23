@@ -227,3 +227,34 @@ def test_process_diagnostics_survive_fast_failure():
             lambda: False,
             lambda _: None,
         )
+
+
+def test_manifest_probe_keeps_video_only_representation_and_separate_audio(tmp_path, monkeypatch):
+    links = VideoLinks(tmp_path, ToolManager(tmp_path))
+    monkeypatch.setattr(links, "arguments", lambda: (["synthetic-tool"], {}))
+    monkeypatch.setattr(links, "estimate", lambda *args: None)
+    entry = dict(
+        id="synthetic",
+        formats=[
+            dict(format_id="v", vcodec="h264", acodec="none", url="https://site.test/video.mpd"),
+            dict(format_id="a", vcodec="none", acodec="aac", url="https://site.test/audio.mpd"),
+        ],
+    )
+    monkeypatch.setattr(
+        "videoenhancer.service.video_links.run_tool", lambda *a, **k: (json.dumps(entry), "")
+    )
+    monkeypatch.setattr(
+        "videoenhancer.service.video_links.header_probe",
+        lambda *a, **k: dict(width=320, height=180, duration=2, vcodec="h264", acodec="aac"),
+    )
+    checked = links.check(
+        "https://site.test/video.mpd",
+        {"short_side": 1080},
+        lambda: False,
+        lambda _: None,
+        lambda _: None,
+    )
+    enriched = checked["raw_entries"][0]["info"]
+    video, audio = links.selected(checked["url"], enriched, "v")
+    assert video["acodec"] == "none"
+    assert audio is not None and audio["format_id"] == "a"

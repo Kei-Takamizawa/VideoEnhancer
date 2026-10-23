@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import time
-from collections.abc import Callable
+import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
+
+
+@contextmanager
+def temporary_folder(prefix: str) -> Iterator[Path]:
+    """Use inherited directory ACLs; Windows treats mode 0o700 specially."""
+    folder = Path(tempfile.gettempdir()) / f"{prefix}{uuid.uuid4().hex}"
+    folder.mkdir(mode=0o777)
+    try:
+        yield folder
+    finally:
+        shutil.rmtree(folder)
 
 
 def retry_permission(operation: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:

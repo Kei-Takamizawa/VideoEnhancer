@@ -120,7 +120,16 @@ class Schedule:
     @classmethod
     def from_file(cls, path: str | Path, zone: ZoneInfo | None = None) -> Schedule:
         source = Path(path)
-        config = json.loads(source.read_text(encoding="utf-8")) if source.exists() else {}
+        from videoenhancer.damaged_json import read_object
+
+        try:
+            config = read_object(source, source.parent) if source.exists() else {}
+            return cls.from_dict(config, zone)
+        except (ValueError, TypeError, KeyError) as error:
+            from videoenhancer.damaged_json import record
+
+            record(source.parent, source, error)
+            config = {}
         return cls.from_dict(config, zone)
 
     def to_dict(self) -> dict[str, Any]:
@@ -142,7 +151,12 @@ class Schedule:
         source = Path(path)
         if not source.exists():
             return False
-        config = json.loads(source.read_text(encoding="utf-8"))
+        from videoenhancer.damaged_json import read_object
+
+        try:
+            config = read_object(source, source.parent)
+        except ValueError:
+            return False
         if config.get("override_until") != "job-complete" and not (
             queue_complete and config.get("override_until") == "queue-complete"
         ):

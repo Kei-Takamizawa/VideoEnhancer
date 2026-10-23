@@ -147,6 +147,7 @@ jobs:
           VE_LINK_TEST_TOOLS_HOME: ${{ runner.temp }}/ve-link-tools
           VE_HOME: ${{ runner.temp }}/ve-link-test-home
       - name: Tauri CPU end-to-end over CDP
+        id: gui_e2e
         if: runner.os == 'Windows'
         run: npm run test:e2e
         working-directory: gui
@@ -154,3 +155,14 @@ jobs:
           VE_GUI_EVIDENCE: ${{ runner.temp }}/ve-gui-evidence
           VE_GUI_TEST_ROOT: ${{ runner.temp }}/scratch/ve-e2e
           VE_TAURI_EXE: ${{ github.workspace }}/gui/src-tauri/target/debug/VideoEnhancer.exe
+      - name: Collect bounded synthetic e2e failure evidence
+        if: failure() && steps.gui_e2e.outcome == 'failure'
+        run: uv run python scripts/collect_e2e_failure.py gui/test-results "${{ runner.temp }}/ve-e2e-failure"
+      - name: Upload synthetic e2e failure evidence
+        if: failure() && steps.gui_e2e.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-${{ runner.os }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ve-e2e-failure
+          retention-days: 7
+          compression-level: 9
