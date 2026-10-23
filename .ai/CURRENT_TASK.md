@@ -143,3 +143,45 @@ In the report:
 - Changed files.
 - Disk: dependency restore; toolchain; source/build trees; built output; other growth; `work\scratch` at the end; free space on C and D; anything left for the owner to delete.
 - "Questions for the designer", each with the default you chose.
+
+## 10. Designer review of the first run (2026-10-23) and what to finish now
+
+The first run is PARTIAL. Part B is accepted: every B1 target is met, the hover and lazy-load results pass, and the A/B recommendation (a one-clock hstack first, with the divider kept experimental) is accepted. Part C is accepted as input for P1e-3c2. **Do not redo Part B or Part C.** Finish **Part A only**.
+
+### 10.1 The keyring blocker and what the operator does first
+
+- **Cause.** The MSYS2 first-start step (`pacman-key --init`, then gpg's migration) hangs inside the Codex sandbox. Most likely gpg-agent cannot start or reach its socket under the sandbox account; the stray gpg-agent and dirmngr processes the operator found support this.
+- **Fix, done by the operator before Codex resumes.** The operator, running as the owner's normal account, initialises the portable MSYS2 under `work\cache\msys2\` with official keys and normal signature checks:
+  - `pacman-key --init`
+  - `pacman-key --populate msys2`
+  - `pacman -Syuu --noconfirm`, once or twice until it reports nothing to do
+  - installation of the build-tool packages listed in your native UCRT64 command, plus `git`, `patch`, `make` and `autotools` if available.
+
+  The operator stops every gpg-agent or dirmngr it started and reports the result in `work\evidence\VE-P1e-3c1\operator-msys2-init.log`.
+- **What Codex does.** Use that initialised MSYS2. Do not run `pacman-key --init` again and do not change `SigLevel`.
+  - If you must install another package and pacman hangs in the sandbox, stop that step, record the package name under "Questions for the designer", and continue with what you have.
+  - If any step leaves a gpg-agent or dirmngr process running, stop it before you finish.
+
+### 10.2 Then do Part A exactly as section 3 says
+
+- Build FFmpeg (LGPL), dav1d, libplacebo, libass with FreeType, FriBidi and HarfBuzz, zlib, and mpv from pinned sources.
+- Write a complete `source-manifest.json`, and a `source-build` script that rebuilds everything.
+- Do two clean runs and record the SHA-256 of each.
+- Prove from the DLL itself that it reports `gpl=false` and that its embedded FFmpeg configuration has no `--enable-gpl` and no `--enable-nonfree`.
+- Prove that all five fixtures play with `hwdec-current=d3d11va` through the B1 host (`smoke.py` is enough here; do not rerun the full matrix).
+- Re-run only the B1 H.264 first-frame and seek measurement once with the new DLL, to confirm it is not slower.
+- Rewrite `LICENSES.md`.
+- Choose UCRT64 native meson or mpv-winbuild-cmake, whichever gets there first.
+
+### 10.3 Cleanup
+
+The operator deletes the paths listed in `evidence\VE-P1e-3c1\cleanup-candidates.json`, after it re-checks each path and size:
+- the duplicate `p1e3c1-*` files under `evidence\VE-P1e-3b\section13\`;
+- `evidence\VE-P1f-3b`, under the keep-the-last-3-cycles rule.
+
+Do not try these deletions yourself. Scratch is already empty. Clean only what this continuation creates.
+
+### 10.4 Status rule
+
+- **COMPLETED** when Part A is done as above.
+- **PARTIAL** if the source build still fails at a real compile or link step. Then record the exact failing component, its command and the error, and say what would fix it.
