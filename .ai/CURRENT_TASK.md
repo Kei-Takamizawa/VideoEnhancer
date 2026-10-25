@@ -311,3 +311,24 @@ libass/meson.build:337:8: ERROR: Problem encountered: Assembly was requested, bu
 - libass reported `iconv: NO` and `libpng: NO`. Both are optional for subtitle rendering. Leave them off, and list them as disabled in the manifest.
 - Before pushing, read the whole cross file and each library's configure options once more, for other host-tool entries a cross build needs, such as `windres` for mpv's resources and `ld` or `ranlib` if a project asks for them. The aim is that round 4 reaches FFmpeg and mpv.
 - Then end the round with `Awaiting CI build`.
+
+### 11.7 CI round 4 result (designer, 2026-10-25): FAIL at the libplacebo configure step. 4 rounds used; the limit is now 10
+
+This is progress again. Run 40189018187 on ab0a24a built through libass and SPIRV-Cross, then stopped at libplacebo's meson configure:
+
+```text
+Program llvm-dlltool dlltool found: NO
+libplacebo/src/meson.build:28:12: ERROR: Program 'llvm-dlltool dlltool' not found or not executable
+```
+
+**Cause.** `mingw.ini.in` has no `dlltool` entry under `[binaries]`. The mingw binutils package installs it as `x86_64-w64-mingw32-dlltool`.
+
+**What to change:**
+- Add `dlltool = 'x86_64-w64-mingw32-dlltool'` to `[binaries]` in `mingw.ini.in`.
+- While you are in that file, add the other prefixed binutils a project might look up: `ranlib`, `nm`, `objcopy`, `objdump`, `ld`, `windmc` if present. Point each at the `x86_64-w64-mingw32-*` binaries, and check each path exists in `driver.py` before configuring.
+- **Check SPIRV-Cross and shaderc before the next push.**
+  - SPIRV-Cross was built as a shared `libspirv-cross-c-shared.dll`. Decide whether it should be static inside libmpv, which is preferred, or ship as its own DLL. If it ships, list it in the import check and the manifest.
+  - libplacebo is configured with `-Dshaderc=enabled`. shaderc, and the glslang inside it, mixes Apache-2.0, BSD-3-Clause, MIT, and GPL-3.0-or-later with the Bison exception for the generated parser. Record each one in the manifest and say why each is compatible with an LGPL/MIT app. Do not include any component without such an exception.
+  - If libplacebo's d3d11 path can work with SPIRV-Cross alone, without shaderc, say so. The default stays as-is unless you find it is required.
+- **Round limit.** Raise the limit in 11.2 from 6 to 10 rounds; the builds are free on this public repository. Keep fixing one class of problem per round, and look ahead for the next one each time.
+- Then end the round with `Awaiting CI build`.
