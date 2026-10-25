@@ -292,3 +292,22 @@ ValueError: Unexpected Ubuntu source host: mirror+file:/etc/apt/apt-mirrors.txt/
   - Add tests in `test_driver.py` that use the exact strings above: the `mirror+file:` pseudo-URL and the `Get:` line format.
   - Also look through the rest of `driver.py`, `toolchain.sh`, `prepare.sh` and `build.sh` for other assumptions about Ubuntu or apt formats that a GitHub runner breaks, and fix them in the same round. Round 3 should get past the toolchain step into the library builds.
 - Then end the round with `Awaiting CI build`.
+
+### 11.6 CI round 3 result (designer, 2026-10-25): FAIL at the libass configure step. 3 of 6 rounds used
+
+This is real progress. Run 40185905349 on b427551 passed the toolchain step, and FreeType 26.4.20, FriBidi 1.0.17 and HarfBuzz 15.0.0 were found. libass's meson configure then failed:
+
+```text
+Compiler for language nasm for the host machine not found.
+libass/meson.build:268: WARNING: nasm was not found; ASM functions are disabled.
+libass/meson.build:337:8: ERROR: Problem encountered: Assembly was requested, but cannot be built; see prior messages.
+```
+
+**Cause.** `prepare.sh` installs `nasm`, but `mingw.ini.in` has no `nasm` entry under `[binaries]`. In a cross build, meson looks up host-machine tools only in the cross file, so it never finds nasm.
+
+**What to change:**
+- Add `nasm = 'nasm'` to `[binaries]` in `mingw.ini.in`. Keep assembly enabled: it matters for libass, dav1d and FFmpeg speed. Do not switch it off to get green.
+- Check that every other meson project in the build gets nasm the same way. dav1d needs it. Check that FFmpeg's configure gets `--x86asmexe=nasm` (or finds nasm on PATH) with `--enable-x86asm` left on, and that the nasm version meets each project's minimum.
+- libass reported `iconv: NO` and `libpng: NO`. Both are optional for subtitle rendering. Leave them off, and list them as disabled in the manifest.
+- Before pushing, read the whole cross file and each library's configure options once more, for other host-tool entries a cross build needs, such as `windres` for mpv's resources and `ld` or `ranlib` if a project asks for them. The aim is that round 4 reaches FFmpeg and mpv.
+- Then end the round with `Awaiting CI build`.
