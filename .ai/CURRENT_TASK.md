@@ -238,12 +238,12 @@ Add **`.github/workflows/libmpv-lgpl.yml`**. This is an exception to section 6, 
    - rewrite `LICENSES.md` for this build.
 5. **Reproducibility.** The designer re-runs the workflow once with `workflow_dispatch`, and you compare the two runs' `SHA256SUMS`. Byte-identical output is not required; report the result and explain any difference you can.
 
-At most 10 CI rounds in total. If the build still fails after 10, report PARTIAL with the exact failing component and stop.
+No fixed round limit (owner, 2026-10-25): continue until the build is green. The designer stops the loop and reports if two rounds in a row fail at the same step with no progress.
 
 ### 11.3 Status rule for this route
 
 - **COMPLETED** when an artifact from a green workflow run passes every check in 11.2 step 4, and `LICENSES.md` and the manifest are complete.
-- **PARTIAL** for "Awaiting CI build" rounds and for the 10-round stop.
+- **PARTIAL** for "Awaiting CI build" rounds and for a no-progress stop.
 
 ### 11.4 CI round 1 result (designer, 2026-10-25): FAIL in the toolchain step, 1 of 6 rounds used
 
@@ -331,4 +331,25 @@ libplacebo/src/meson.build:28:12: ERROR: Program 'llvm-dlltool dlltool' not foun
   - libplacebo is configured with `-Dshaderc=enabled`. shaderc, and the glslang inside it, mixes Apache-2.0, BSD-3-Clause, MIT, and GPL-3.0-or-later with the Bison exception for the generated parser. Record each one in the manifest and say why each is compatible with an LGPL/MIT app. Do not include any component without such an exception.
   - If libplacebo's d3d11 path can work with SPIRV-Cross alone, without shaderc, say so. The default stays as-is unless you find it is required.
 - **Round limit.** Raise the limit in 11.2 from 6 to 10 rounds; the builds are free on this public repository. Keep fixing one class of problem per round, and look ahead for the next one each time.
+- Then end the round with `Awaiting CI build`.
+
+### 11.8 CI round 5 result (designer, 2026-10-25): FAIL while compiling libplacebo. 5 rounds used; no fixed limit now
+
+Progress again. Run 40192912086 on c07ed2a configured libplacebo (d3d11 YES, shaderc YES, vulkan NO, glslang NO) and compiled 61 of 63 objects, then stopped at the Vulkan stub file:
+
+```text
+FAILED: src/libplacebo.a.p/vulkan_stubs.c.obj
+../../src/libplacebo/src/include/libplacebo/vulkan.h:21:10: fatal error: vulkan/vulkan.h: No such file or directory
+```
+
+**Cause.** With Vulkan disabled, libplacebo still compiles `src/vulkan/stubs.c`, which includes the public `libplacebo/vulkan.h`, which includes `<vulkan/vulkan.h>`. The Khronos Vulkan headers are not in the target prefix. Meson also reported `Run-time dependency vulkan found: NO`.
+
+**Owner decision (2026-10-25):** no fixed round limit; continue until green. Section 11.2 now says so. The designer stops the loop if two rounds in a row fail at the same step with no progress.
+
+**What to change:**
+- Add Khronos **Vulkan-Headers** as a pinned, header-only source in `sources.lock.json` (official KhronosGroup archive by commit, SHA-256 recorded, licence Apache-2.0 OR MIT; record the licence files). Prefer the tag matching the pinned SPIRV-Cross SDK (`vulkan-sdk-1.4.321.0`) if libplacebo 7.360.1 accepts it; otherwise the lowest version libplacebo's meson requires.
+- Install only the headers (`include/vulkan`, `include/vk_video`) into the target prefix before libplacebo, and make sure libplacebo's include path sees them. Do **not** build or link the Vulkan loader, and keep `-Dvulkan=disabled`. Check with objdump that no `vulkan-1.dll` import appears.
+- Record Vulkan-Headers in the manifest as compile-time only (not in any DLL), with its licence.
+- Do not patch libplacebo to drop the stub file; use the headers.
+- Look ahead before pushing: read the remaining recipes (libplacebo install, FFmpeg configure, mpv configure, packaging) for other missing target headers or pkg-config files, for example any D3D11/DXGI, `spirv_cross` or `shaderc` pkg-config names mpv checks, so round 6 gets as far as possible.
 - Then end the round with `Awaiting CI build`.
