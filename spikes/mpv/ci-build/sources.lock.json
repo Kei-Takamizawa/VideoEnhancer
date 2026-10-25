@@ -236,6 +236,26 @@
       "sha256_origin": "Recorded from the official pinned source archive; glslang/SPIRV revisions match shaderc v2025.4 DEPS",
       "commit": "19042c8921f35f7bec56b9e5c96c5f5691588ca8",
       "licence_compatibility": "Apache-2.0 permits use with retained notices and patent terms; combined LGPL components elect LGPL-3.0-or-later. The separate MIT application retains its licence and LGPL replacement/source obligations."
+    },
+    {
+      "name": "vulkan-headers",
+      "version": "vulkan-sdk-1.4.321.0",
+      "commit": "2cd90f9d20df57eac214c148f3aed885372ddcfe",
+      "url": "https://github.com/KhronosGroup/Vulkan-Headers/archive/2cd90f9d20df57eac214c148f3aed885372ddcfe.tar.gz",
+      "sha256": "e3865307e665f6a4ac4f7bbca7b3ba95e4191c7f8adf9f04b084ef514a2454e9",
+      "archive_root": "Vulkan-Headers-2cd90f9d20df57eac214c148f3aed885372ddcfe",
+      "licence_spdx": "Apache-2.0 AND (Apache-2.0 OR MIT)",
+      "licence_files": [
+        "LICENSE.md",
+        "LICENSES/Apache-2.0.txt",
+        "LICENSES/MIT.txt"
+      ],
+      "licence_election": "Apache-2.0 for the installed set; C/vk_video headers are Apache-2.0, C++ headers offer Apache-2.0 OR MIT",
+      "licence_compatibility": "Retain both licence texts and notices. Compile-time-only Vulkan declarations; no Vulkan loader or backend. Apache-2.0 is covered by the existing combined LGPL-3.0-or-later election.",
+      "usage": "compile-time-only headers; no DLL or loader; Vulkan backend disabled",
+      "provides_dll_names": [],
+      "patches": [],
+      "sha256_origin": "Locally computed from the official commit archive resolved from vulkan-sdk-1.4.321.0; rechecked before extraction"
     }
   ]
 }

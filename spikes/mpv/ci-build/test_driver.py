@@ -392,6 +392,48 @@ class MockAptToolchain(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unapproved GPL source"):
             driver.verify_component_licences(self.root, {"name": "glslang"})
 
+    def vulkan_header_tree(self):
+        source = self.root / "src/vulkan-headers/include"
+        for name, text in {
+            "vulkan/vulkan.h": '#include "vulkan_core.h"\n',
+            "vulkan/vulkan_core.h": "#define VK_VERSION_1_4 1\n",
+            "vk_video/vulkan_video_codec_h264std.h": "/* mock codec declarations */\n",
+        }.items():
+            file = source / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(text)
+        shutil.copytree(source, self.root / "prefix/include")
+
+    def test_vulkan_header_only_receipt_records_actual_installed_files(self):
+        self.vulkan_header_tree()
+        driver.complete(self.root, "vulkan-headers")
+        receipt = driver.load(self.root / "receipts/vulkan-headers.json")
+        self.assertEqual(receipt["status"], "header-only")
+        self.assertEqual(receipt["binary_linkage"], "none")
+        self.assertEqual(len(receipt["installed_headers"]), 3)
+        for header in receipt["installed_headers"]:
+            self.assertEqual(
+                header["sha256"], driver.digest(self.root / "prefix/include" / header["file"])
+            )
+
+    def test_missing_or_changed_vulkan_video_header_fails(self):
+        self.vulkan_header_tree()
+        file = self.root / "prefix/include/vk_video/vulkan_video_codec_h264std.h"
+        file.unlink()
+        with self.assertRaisesRegex(ValueError, "header missing or changed"):
+            driver.vulkan_header_receipt(self.root)
+        file.write_text("changed")
+        with self.assertRaisesRegex(ValueError, "header missing or changed"):
+            driver.vulkan_header_receipt(self.root)
+
+    def test_vulkan_header_version_must_meet_libplacebo_requirement(self):
+        self.vulkan_header_tree()
+        (self.root / "src/vulkan-headers/include/vulkan/vulkan_core.h").write_text(
+            "#define VK_VERSION_1_3 1\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Vulkan 1.4"):
+            driver.vulkan_header_receipt(self.root)
+
 
 class AptSourceOrigins(unittest.TestCase):
     def test_exact_round_2_pseudo_uri_and_get_line(self):
@@ -472,6 +514,21 @@ def clean_ffmpeg_defines():
 
 
 class DistributionGates(unittest.TestCase):
+    def test_libplacebo_vulkan_backend_must_stay_disabled(self):
+        options = [
+            {"name": "vulkan", "value": "disabled"},
+            {"name": "d3d11", "value": "enabled"},
+            {"name": "shaderc", "value": "enabled"},
+        ]
+        driver.require_libplacebo_options(options)
+        options[0]["value"] = "enabled"
+        with self.assertRaisesRegex(ValueError, "Actual libplacebo option failed: vulkan"):
+            driver.require_libplacebo_options(options)
+
+    def test_vulkan_loader_import_is_rejected_even_if_bundled(self):
+        with self.assertRaisesRegex(ValueError, "Vulkan loader import is forbidden"):
+            driver.validate_imports("pei-x86-64\nDLL Name: vulkan-1.dll", {"vulkan-1.dll"})
+
     def test_nasm_minimum_for_pinned_projects(self):
         self.assertEqual(
             driver.nasm_version("NASM version 2.16.01 compiled on date")["minimum"], "2.14"
@@ -526,6 +583,7 @@ class DistributionGates(unittest.TestCase):
             "lua": "disabled",
             "shaderc": "enabled",
             "spirv-cross": "enabled",
+            "vulkan": "disabled",
         }
         with self.assertRaises(ValueError):
             driver.require_mpv_options([{"name": k, "value": v} for k, v in values.items()])
@@ -544,6 +602,7 @@ class DistributionGates(unittest.TestCase):
             "lua": "disabled",
             "shaderc": "enabled",
             "spirv-cross": "enabled",
+            "vulkan": "disabled",
             "libarchive": "enabled",
         }
         with self.assertRaises(ValueError):

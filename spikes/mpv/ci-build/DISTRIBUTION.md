@@ -14,6 +14,14 @@ distribution because of the Apache-2.0 shader dependencies. This election does
 not turn off the separate permissive attribution and notice requirements.
 FFmpeg itself needs no --enable-version3 dependency in this recipe.
 
+Vulkan-Headers SDK 1.4.321.0 supplies compile-time declarations for libplacebo's
+disabled Vulkan stubs. Only include/vulkan and include/vk_video are installed;
+no Vulkan loader or backend is built/linked and vulkan-1.dll imports are rejected.
+Its manifest status is header-only, with binary_linkage=none. C/vk_video headers
+are Apache-2.0; C++ headers permit Apache-2.0 OR MIT. The installed set elects
+Apache-2.0. LICENSES/vulkan-headers retains LICENSE.md and both complete licence
+texts, and the exact header archive remains in the source offer.
+
 See LICENSES/ for the full upstream licence and copyright texts. FreeType is
 used under the FreeType Project License (FTL), not its alternative GPL licence:
 this software uses the FreeType Project, https://www.freetype.org/.
@@ -68,7 +76,7 @@ the product must remain dynamically linked to it.
 Compiler and binutils sources are supplementary and are not required by the
 LGPL source offer; those tools are not shipped. Missing toolchain source versions
 are explicitly listed as `unavailable in deb-src` in the manifest. This exception
-does not apply to any of the fourteen required upstream source components.
+does not apply to any of the fifteen required upstream source components.
 
 Attach this exact sources.tar.zst and these notices to every release containing
 the DLLs. A moving Git URL is not the corresponding-source delivery. Validate the

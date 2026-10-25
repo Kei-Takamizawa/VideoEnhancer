@@ -1,227 +1,213 @@
-﻿Task ID: VE-P1e-3c1 / Cycle: GitHub Actions round 5 preparation (4 of 10 CI rounds used)
+﻿Task ID: VE-P1e-3c1 / Cycle: GitHub Actions round 6 preparation (5 CI rounds used)
 Status: PARTIAL
 Awaiting CI build
 
 ## Outcome
 
-Implemented section 11.7. The Meson cross file now names the prefixed dlltool,
-ranlib, nm, objcopy, objdump, ld and windmc binaries. Driver checks executable
-availability during toolchain collection and again before generating cross files
-and configuring any library. Missing required tools stop early; absent optional
-windmc is recorded and omitted from the generated cross file.
+Implemented section 11.8. Pinned Khronos Vulkan-Headers provides only
+include/vulkan and include/vk_video in the target prefix before libplacebo.
+No Vulkan loader, SDK binary, pkg-config alias or upstream stub patch is added.
+libplacebo and mpv explicitly configure Vulkan disabled, with checks on their
+actual Meson options. The DLL import gate explicitly rejects vulkan-1.dll.
 
-SPIRV-Cross remains a separate C API DLL, explicitly allowlisted and recorded
-per component from the actual packaged DLL set. Shaderc remains enabled because
-both the pinned rendering pipeline and mpv's D3D11 contract require compilation
-beyond SPIRV-Cross translation. Shader licence metadata now includes glslang's
-Bison-generated parser exception, exact notice-file hashes and compatibility
-rationale. Actual Linux builds and new-DLL proof are NOT_RUN in this continuation.
-No green artifact or distribution acceptance is claimed.
+The component is recorded as header-only, compile-time-only, binary_linkage=none,
+with actual installed-header hashes in its build receipt. Its source archive and
+licence files are included by the existing manifest/source-offer pipeline.
+Windows tests/static checks pass; actual Linux compilation, packaging and objdump
+proof are NOT_RUN in this continuation. No new DLL or green artifact exists here.
+Accepted Part B/C work was not rerun.
 
-Section 11.2's limit is now ten CI rounds; its matching stop status in 11.3 was
-updated consistently. Historical designer results/counts were preserved. Accepted
-Part B/C work was not rerun.
+The updated 11.2 rule has no fixed round limit. The designer stops after two
+consecutive rounds failing at the same step without progress. This continuation
+prepares round 6; operator commit/push and subsequent CI review remain separate.
 
-## Start and reported CI failure
+## Start and reported failure
 
-Read AGENTS.md, CURRENT_TASK.md completely, CLAUDE.md and docs/WORKSPACE.md.
-Terminal: Windows / PowerShell. Initial read-only Git inspection:
+Read AGENTS.md, CURRENT_TASK.md completely (including updated 11.2 and 11.8),
+CLAUDE.md and docs/WORKSPACE.md. Terminal: Windows / PowerShell.
+Initial read-only Git inspection:
 - Branch: claude/project-thread-6lra47
-- HEAD: 9674da2ae1935c58a99dbdfb43b81153012c6d4e
+- HEAD: 7af99b34eac4950879071934341559c457ea1930
 - Working tree: clean
 
-Section 11.7 reports run 40189018187 on ab0a24a built through libass and
-SPIRV-Cross, then failed at libplacebo configure:
+Section 11.8 reports run 40192912086 on c07ed2a configuring libplacebo with
+d3d11 YES, shaderc YES, vulkan NO, glslang NO, then compiling 61/63 objects before:
 
-    Program llvm-dlltool dlltool found: NO
-    libplacebo/src/meson.build:28:12: ERROR: Program 'llvm-dlltool dlltool' not found or not executable
+    FAILED: src/libplacebo.a.p/vulkan_stubs.c.obj
+    ../../src/libplacebo/src/include/libplacebo/vulkan.h:21:10: fatal error: vulkan/vulkan.h: No such file or directory
 
-This is supplied CI evidence, not a newly executed build. The pinned source uses
-dlltool to generate the UCRT math import library. Cross-file tool discovery was
-missing the installed x86_64-w64-mingw32-dlltool name.
-
-Read-only Git used sandbox escalation. No Git mutation, fetch, commit, push,
-merge, workflow dispatch or paid resource usage occurred. Operator owns Git work.
+Those are supplied CI results, not a local rerun. Pinned libplacebo compiles
+vulkan/stubs.c with Vulkan disabled; its public header still needs Vulkan types.
+CURRENT_TASK.md was preserved unchanged. No Git mutation, fetch, commit, push,
+merge, CI dispatch or paid resource usage occurred. Read-only Git used sandbox
+escalation. Operator owns commit/push.
 
 ## Changed files
 
-- .ai/CURRENT_TASK.md: only ten-round limit/stop consistency changes requested
-  by 11.7; other task instructions and historical results preserved.
+- spikes/mpv/ci-build/sources.lock.json: fifteenth source component,
+  vulkan-headers, with immutable commit/archive SHA-256 and licence scope.
+- spikes/mpv/ci-build/build.sh: copy only the two header directories before
+  libplacebo; explicitly disable Vulkan for libplacebo and mpv.
+- spikes/mpv/ci-build/driver.py: fifteen-component validation; verify Vulkan 1.4
+  declarations and installed header hashes; header-only receipt; actual libplacebo
+  and mpv Vulkan-disabled checks; explicit Vulkan loader import rejection.
+- spikes/mpv/ci-build/test_driver.py: five added tests for header-only receipts,
+  missing/changed headers, insufficient header version, Vulkan option rejection
+  and forbidden loader imports; existing mpv fixtures include disabled Vulkan.
+- spikes/mpv/ci-build/README.md: header-only recipe and updated round rule.
+- spikes/mpv/ci-build/DISTRIBUTION.md: header-only dependency and precise licences.
 - .ai/LAST_REPORT.md: this report.
-- spikes/mpv/ci-build/mingw.ini.in: explicit prefixed dlltool and other binutils.
-- spikes/mpv/ci-build/build.sh: invoke configure-cross instead of sed template
-  substitution; all compiler/library feature choices unchanged.
-- spikes/mpv/ci-build/driver.py: executable lookup/receipts; optional windmc;
-  cross-file generation; source-offer cross-tools.json; licence evidence hashes
-  and Bison exception checks; actual per-component shipped_dlls in manifest.
-- spikes/mpv/ci-build/test_driver.py: six additional preflight, licence and shared
-  dependency tests, plus mocked executable availability for existing apt tests.
-- spikes/mpv/ci-build/sources.lock.json: shader licence/provenance, child-component
-  relationships and shared-DLL policy metadata; archive URLs/hashes unchanged.
-- spikes/mpv/ci-build/README.md: round 5 tool/provenance behavior and ten-round cap.
-- spikes/mpv/ci-build/DISTRIBUTION.md: shader/Bison licence rationale and references.
 
-No workflow, product, ci.yml, upstream patch, cross CMake file, existing
-source-manifest.json, LICENSES.md or B1 implementation changed. No PC MSYS2 tree
-or executable was used or modified; aggregate size metadata only was inventoried.
+No workflow, product, ci.yml, cross file, upstream patch, existing
+source-manifest.json, LICENSES.md or accepted B1 implementation changed. No PC
+MSYS2 executable/tree was used or modified; only aggregate size metadata was
+inventoried for the required disk table.
 
-## Look-ahead: SPIRV-Cross and shaderc
+## Source pin, licence and compatibility
 
-Decision: retain libspirv-cross-c-shared.dll separately. Both pinned libplacebo
-src/d3d11/meson.build and mpv meson.build request spirv-cross-c-shared. Changing to
-static would require dependency/build metadata changes. Preserve the working
-shared configuration rather than aliasing a static library as the shared API.
-The import allowlist already contains libspirv-cross-c-shared.dll and its no-lib
-variant; shaderc_shared variants are also explicit. The source lock identifies
-provided DLL names. package() populates shipped_dlls only from the actual imported
-and packaged closure; root DLL hashes/imports remain actual build output.
+Official tag: vulkan-sdk-1.4.321.0, matching the pinned SPIRV-Cross SDK.
+Resolved commit: 2cd90f9d20df57eac214c148f3aed885372ddcfe.
+Archive: https://github.com/KhronosGroup/Vulkan-Headers/archive/2cd90f9d20df57eac214c148f3aed885372ddcfe.tar.gz
+SHA-256: e3865307e665f6a4ac4f7bbca7b3ba95e4191c7f8adf9f04b084ef514a2454e9
+Downloaded bytes: 2,760,645. The tag was resolved through the official GitHub API;
+the hash was computed locally and rechecked, not claimed to match an independently
+published archive checksum. CI rehashes before extracting like all other sources.
 
-SPIRV-Cross translates SPIR-V to the target shading language. libplacebo's D3D11
-gpu.c calls pl_spirv_create, and src/glsl/meson.build supplies shaderc or glslang
-for GLSL compilation. SPIRV-Cross alone does not replace that stage. Additionally,
-pinned mpv's D3D11 feature explicitly requires shaderc and SPIRV-Cross. Keep
-shaderc=enabled and its glslang/SPIRV-Tools/Headers dependency revisions unchanged.
-No new renderer architecture or target-library feature was introduced.
+The archive exposes VK_VERSION_1_4 and VK_HEADER_VERSION=321. Pinned libplacebo's
+src/vulkan/meson.build checks for Vulkan 1.4, so this SDK meets that source-level
+requirement. Audited archive contents: 37 files under include/vulkan, 12 under
+include/vk_video. Only those directories are copied; no CMake project/loader is
+built. Existing target-prefix C/C++ include flags make them visible to stubs.
 
-Pinned-source review locations:
-- libplacebo cee9b076f2c63104ccfd497fa79c39a867293ec4:
-  src/meson.build (dlltool/UCRT math), src/d3d11/meson.build,
-  src/d3d11/gpu.c and src/glsl/meson.build.
-- mpv 0fae4695470bf2c0c06762503292ee5379f62f62: meson.build D3D11 requirements.
-- glslang d213562e35573012b6348b2d584457c3704ac09b:
-  LICENSE.txt and glslang/MachineIndependent/glslang_tab.cpp / glslang_tab.cpp.h.
+Retained licence files: LICENSE.md, LICENSES/Apache-2.0.txt, LICENSES/MIT.txt.
+Scope precision: Vulkan C and vk_video headers say Apache-2.0; C++ headers offer
+Apache-2.0 OR MIT. The manifest records Apache-2.0 AND (Apache-2.0 OR MIT), electing
+Apache-2.0 for the installed set. It does not claim that every C header can be
+used under MIT. Both texts/notices are retained. The existing LGPL-3.0-or-later
+combined-library election remains; no new runtime library is introduced.
 
-## Shader licences and exception evidence
+## Look-ahead review
 
-Shaderc itself is Apache-2.0; its included glslang, SPIRV-Tools and SPIRV-Headers
-have separate manifest entries. SPIRV-Tools and SPIRV-Cross are Apache-2.0;
-SPIRV-Headers is MIT. glslang's aggregate is BSD-3-Clause AND BSD-2-Clause AND MIT
-AND Apache-2.0 AND (GPL-3.0-or-later WITH Bison-exception-2.2). Earlier aggregate
-metadata omitted the generated parser notices; this round corrects that gap.
+Reviewed pinned libplacebo install/Vulkan-stub code, FFmpeg configure checks,
+mpv dependency checks, shaderc/SPIRV-Cross pkg-config generation and packaging:
+- libplacebo installs its public headers (including vulkan.h) and generates
+  libplacebo.pc. Prefix include flags now cover its Vulkan declarations, while
+  its loader dependency may correctly remain not found with the backend disabled.
+- Shaderc generates shaderc.pc linked to shaderc_shared, installed under the
+  configured lib/pkgconfig. SPIRV-Cross generates spirv-cross-c-shared.pc there.
+  Those names match mpv's dependency checks; no fabricated alias is needed.
+- mpv requires libplacebo >=7.360.1, matching the pin. Its FFmpeg pkg-config
+  requirements are libavcodec >=60.31.102, libavfilter >=9.12.100,
+  libavformat >=60.16.100, libavutil >=58.29.100, libswresample >=4.12.100 and
+  libswscale >=7.5.100. The recipe installs the corresponding FFmpeg 8.0 libraries.
+- FFmpeg checks dxva.h, ID3D11VideoDecoder/Context and codec-specific
+  DXVA_PicParams_AV1/HEVC/VP9. Actual target SDK/probe success remains unverified
+  locally; configure and the existing eight D3D11VA/D3D11VA2 gates must pass in CI.
+  libplacebo's reported D3D11 object compilation is historical evidence only.
+- FFmpeg requires dav1d >=0.5.0 via dav1d.pc (pin 1.5.4), and checks zlib.pc or
+  libz. Existing recipes provide those names under the restricted target prefix.
+- Packaging accepts header-only receipts, requires successful recorded install
+  commands, retains the archive/licences and rejects vulkan-1.dll even if bundled.
+  The new component provides no DLL and has an empty shipped-DLL list.
 
-The immutable glslang archive matches its existing SHA-256 pin. The full archive's
-C/C++ GPL-notice scan found exactly the two parser files, both retaining the
-special exception. Their SHA-256 values:
-- glslang_tab.cpp: 2db4d68463c01be056c78ec80b62a3e814cd573128cf9a7be9b0f5aa417781e9
-- glslang_tab.cpp.h: 12d516759f0e24d59dafc61f4ca8e5405f4bce2066092308f6c4c8b5d91f7891
-
-Their full original source notices are included in the licence-file set; GPLv3
-text is already retained under LICENSES/toolchain/GPL-3. Fetch/package verify
-notice-file hashes and the exception terms. Unapproved plain GPL evidence or
-additional glslang C/C++ GPL sources without verified exception evidence fail.
-The other four pinned shader component archives' C/C++ GPL-notice scan found no
-matches; this bounded text scan is not a substitute for final artifact review.
-
-Compatibility rationale recorded in metadata and DISTRIBUTION.md:
-- BSD/MIT permit this use while retaining notices and BSD endorsement conditions.
-- Apache-2.0 notices and patent conditions remain; the combined LGPL library keeps
-  the LGPL-3.0-or-later election already used for Apache shader dependencies.
-- The retained Bison exception permits this generated parser in a larger work
-  under chosen terms; this rendering/shader compiler is not a parser generator
-  using the skeleton. No exception is removed, and plain GPL shader code without
-  an applicable exception is not an approved dependency.
-- The separate MIT application still must meet LGPL source/replacement obligations;
-  no final product distribution clearance is claimed from this source review.
-
-Primary references consulted:
-[Bison exception](https://spdx.org/licenses/Bison-exception-2.2.html),
-[Apache compatibility](https://www.apache.org/licenses/GPL-compatibility.html),
-[LGPLv3](https://spdx.org/licenses/LGPL-3.0-or-later.html),
-[MIT](https://spdx.org/licenses/MIT.html),
-[BSD](https://spdx.org/licenses/BSD-3-Clause.html).
-Direct GNU documentation requests timed out; the pinned original notices and
-SPDX licence texts supplied the exception evidence. One initial source-inspection
-command used an absent archive member and raised StopIteration; corrected paths
-were read successfully. Neither issue was a compile/test failure.
+No additional confirmed missing dependency was found in this static review.
+This does not establish that FFmpeg, mpv or packaging will succeed in the next run.
 
 ## Validation
 
-Dot-sourced local-env.ps1 before each validation shell. Tests use mode-0755
-scratch directories and remove their own synthetic files.
+Dot-sourced local-env.ps1 before each validation shell. Synthetic tests create
+mode-0755 directories under scratch/tmp and remove their own fixture files.
 
 | Check | Result | Actual |
 | --- | --- | --- |
-| python -B -m unittest discover -s spikes/mpv/ci-build -v | PASS | Initial 49 tests, 0.471 s; final 49 tests, 0.452 s; exit 0 |
+| python -B -m unittest discover -s spikes/mpv/ci-build -v | PASS | Initial 54 tests, 0.539 s; final 54 tests, 0.515 s; exit 0 |
 | ruff check / ruff format --check spikes/mpv/ci-build | PASS | Final exit 0 |
 | actionlint 1.7.12 -shellcheck= dedicated workflow | PASS | Exit 0; external shellcheck unavailable, not run |
 | shfmt 3.14.1 Bash parse/format, six shell scripts | PASS | All exit 0 |
-| Static cross-tool, source-lock, ten-round and YAML assertions | PASS | Expected prefixed keys/preflight, 14 sources, workflow security/trigger constraints preserved |
-| Actual cached glslang archive/evidence audit | PASS | Archive SHA, three notice/evidence hashes, both parser exception texts and bounded GPL C/C++ scan |
-| Other four shader archive GPL C/C++ scans | PASS | No GNU GPL notice matches in inspected C/C++ files |
+| Actual Vulkan-Headers archive audit | PASS | Archive hash, licence paths, Vulkan 1.4/header 321 and both header directory inventories |
+| Recipe order/disabled backends, YAML constraints, updated round rule | PASS | Header install before libplacebo; both backends disabled; workflow constraints unchanged |
 | bash -n | NOT_RUN | No permitted Bash found; MSYS2 excluded |
-| Actual Linux executable paths/toolchain/library build | NOT_RUN | Mocked availability and apt orchestration only |
-| Real packaging/import/manifest/source-offer output | NOT_RUN | No new binary; implemented pipeline requires next CI |
-| DLL runtime/GPU/playback/size and reproducibility | NOT_RUN | Requires green artifact and prescribed later checks |
-| Product tests/build and accepted Part B/C reruns | NOT_RUN | No product/B1 changes |
+| Actual Linux header installation/compilation | NOT_RUN | Unit tests use synthetic header trees; archive audit is read-only |
+| Actual objdump/import/configuration/manifest/source-offer output | NOT_RUN | No new DLL; gates implemented for the CI runner |
+| Windows DLL/GPU/playback/size and reproducibility proof | NOT_RUN | Requires green artifact and later prescribed checks |
+| Product build/tests and Part B/C reruns | NOT_RUN | No product/B1 changes |
 
-New tests check all requested prefixed binutils, present and absent windmc,
-missing required dlltool before configure, hash/exception rejection paths,
-unapproved GPL source rejection and explicit SPIRV-Cross/shaderc DLL imports.
-Existing 43 tests still pass. No test was skipped, loosened or waived; no failed
-test run occurred. Actual Linux paths have not been measured on Windows. No GUI
-operation was performed.
+All existing 49 tests still pass. New tests verify complete() emits header-only
+receipt data from installed bytes, rejects missing/modified vk_video headers,
+requires Vulkan 1.4, rejects enabled libplacebo Vulkan and rejects vulkan-1.dll
+imports even if bundled. No tests were skipped, loosened or waived; no failed
+unit-test run occurred. No GUI operation was performed.
 
-Evidence outside Git: evidence/VE-P1e-3c1/ci-round5 contains initial/final unit
-logs, Ruff/actionlint/shfmt logs, results.json, shader-licence-audit.json,
-other-shader-gpl-scan.json, static-checks.json and disk.json. No tool/source archive
-was downloaded; source inspection used retained caches. Web documentation reads
-were not saved as repository payload. Unit-test receipts are mocks and were
-removed; they are not production manifests.
+Network/error record: the initial sandbox download hit WinError 10013 (socket
+access denied). A reviewed escalation allowed the official API/archive download.
+The download succeeded, then its first inspection command hit AttributeError
+because a licence directory was treated as a file; inspection was corrected to
+filter file members and passed without another download. The browser tool could
+not open the GitHub URLs; the official API/archive were read via Python instead.
+These were retrieval/inspection errors, not library compile or unit-test failures.
+
+Evidence outside Git: evidence/VE-P1e-3c1/ci-round6 contains initial/final unit
+logs, Ruff/actionlint/shfmt logs, results.json, vulkan-headers-audit.json,
+static-checks.json and disk.json. The archive/source.json remain in
+cache/mpv-lgpl/ci-round6-sources for reuse. No binaries or archives were added to
+Git; no local dependency environment was installed/restored. Mock receipts were
+deleted and are not production manifest evidence.
 
 ## Disk and cleanup
 
 Decimal GB; overlapping rows are not summed. Snapshot after checks, before report
-rewrite/bookkeeping. Zero access errors recorded. Logical lengths are not disk
-allocation measurements.
+rewrite/bookkeeping. All inventories reported zero access errors; file lengths
+are not disk allocation measurements.
 
 | Area | Bytes | Decimal GB |
 | --- | ---: | ---: |
-| repo | 3,528,183,977 | 3.528183977 |
+| repo | 3,528,268,314 | 3.528268314 |
 | package | 5,764,162 | 0.005764162 |
-| evidence/VE-P1e-3c1 (includes accepted earlier work) | 45,860,194 | 0.045860194 |
-| evidence/VE-P1e-3c1/ci-round5 (before disk.json itself) | 57,167 | 0.000057167 |
+| evidence/VE-P1e-3c1 (includes accepted previous work) | 46,074,619 | 0.046074619 |
+| evidence/VE-P1e-3c1/ci-round6 (before disk.json itself) | 59,562 | 0.000059562 |
 | scratch | 0 | 0 |
-| cache, total | 8,902,796,139 | 8.902796139 |
+| cache, total | 8,905,557,096 | 8.905557096 |
 | MSYS2 toolchain, cache/msys2 (untouched) | 856,811,931 | 0.856811931 |
 | Historical source/build tree, cache/mpv-lgpl/source-build (untouched) | 36,575,903 | 0.036575903 |
-| Cached review sources, cache/mpv-lgpl/ci-round1-sources (read-only reuse) | 64,181,348 | 0.064181348 |
-| New Linux source/build trees and built DLL output | 0 | 0 |
+| Prior source review cache (read-only reuse) | 64,181,348 | 0.064181348 |
+| New source cache, cache/mpv-lgpl/ci-round6-sources | 2,760,957 | 0.002760957 |
+| New extracted/Linux build trees and built DLL output | 0 | 0 |
 | Dependency restore / new tool downloads | 0 | 0 |
 
 | Drive free | Start bytes / GB | End snapshot bytes / GB |
 | --- | ---: | ---: |
-| C | 354,808,823,808 / 354.808823808 | 354,806,910,976 / 354.806910976 |
-| D | 980,062,707,712 / 980.062707712 | 980,062,310,400 / 980.062310400 |
+| C | 354,804,289,536 / 354.804289536 | 354,801,823,744 / 354.801823744 |
+| D | 980,062,171,136 / 980.062171136 | 980,059,181,056 / 980.059181056 |
 
 D remains above 200 GB free; cache below 40 GB; cycle evidence below 300 MB.
-No initial full-directory baseline was taken; drive-wide changes are not assigned
-to this task. New text edits/logs are below 0.001 GB, with no restore/download or
-compiled output; attributable persistent growth is below the 1 GB limit.
+New persistent source cache is 0.002760957 GB; additional edits/logs are small,
+with attributable growth below 0.004 GB and below the 1 GB limit. No initial full
+workspace baseline was taken; drive-wide changes are not attributed to this task.
 
 Cleanup candidate: only this continuation's empty scratch/tmp, 0 bytes. Tests
-removed fixtures; the initial log was moved to evidence. Remove only that verified
-empty directory after recording it here. No historical evidence/cache, MSYS2,
-package, media, queues or owner data was deleted; no GPG agent/dirmngr started.
+removed their fixtures; the initial log was moved to evidence. Remove only that
+verified empty directory after recording it here. No historical evidence/cache,
+MSYS2, package, owner media or queues were cleaned; no GPG agent/dirmngr started.
 
 ## Questions for the designer
 
-Defaults selected under 11.7: keep the separate SPIRV-Cross C API DLL and shaderc;
-retain all shader notices and verified Bison exception; treat windmc as optional
-and every other cross-file binary as required. No additional design decision is
-needed before this CI round. Final artifact/licence and runtime review remain
-required; this continuation does not replace LICENSES.md acceptance on the PC.
+No new design decision is required. Defaults: matching SDK tag, exact commit and
+SHA pin; compile-time headers only; Apache-2.0 election reflecting the actual
+C-header licence scope; no Vulkan loader or upstream stub patch. Actual artifact
+licence/runtime review and LICENSES.md update remain deferred as prescribed.
 
 ## Remaining / intentionally deferred
 
-Await operator commit/push and CI round 5. Four rounds used; ten-round cap now
-applies. Further compiler/linker/packaging failures cannot be excluded by static
-checks. Designer should append the next failure step/logs before resuming Codex.
-On success the operator downloads and checks SHA256SUMS, then Windows DLL
-properties/D3D11VA/H.264/size proof, LICENSES.md update and a second successful
-build comparison can proceed. No CI dispatch, artifact download, new-DLL runtime
-proof, product integration, distribution approval, paid resources or Git mutation
-was performed.
+Await operator commit/push and CI round 6. Five CI rounds have been used; no fixed
+cap now applies. Designer owns the two-consecutive-no-progress stop decision.
+Further compiler/linker/packaging failures cannot be excluded by these checks.
+On failure, designer records the failing step/logs before resuming Codex. On
+success, operator downloads and verifies SHA256SUMS before Windows property,
+D3D11VA/H.264/size proof, LICENSES.md update and second-build comparison.
+
+No CI dispatch, artifact download, new-DLL runtime proof, product integration,
+distribution clearance, paid resources or Git mutation was performed.
 
 Cleanup result: PASS. Removed only verified empty scratch/tmp (0 bytes); scratch is empty. Nothing from this continuation remains for the owner to delete.
 
-Final scope/whitespace check: PASS. Read-only git status lists exactly the nine changed files above; git diff --check exited 0. Git warned about future LF-to-CRLF conversion for the report, shell recipe, Python helpers and cross file; no whitespace errors were reported.
+Final scope/whitespace check: PASS. Read-only git status lists exactly the seven changed files above; git diff --check exited 0. Git warned about future LF-to-CRLF conversion for the report, build.sh and Python helpers; no whitespace errors were reported.

@@ -92,8 +92,8 @@ def output(*args, cwd=None):
 def lock():
     data = load(SCRIPTS / "sources.lock.json")
     names = [c["name"] for c in data["components"]]
-    if len(names) != 14 or len(set(names)) != len(names):
-        raise ValueError("Expected fourteen unique source components")
+    if len(names) != 15 or len(set(names)) != len(names):
+        raise ValueError("Expected fifteen unique source components")
     for component in data["components"]:
         if not re.fullmatch(r"[0-9a-f]{64}", component["sha256"]):
             raise ValueError("Missing pinned source SHA-256")
@@ -585,6 +585,8 @@ def validate_imports(text, packaged):
         raise ValueError("No DLL import table found")
     for name in imports:
         lower = name.lower()
+        if lower == "vulkan-1.dll":
+            raise ValueError("Vulkan loader import is forbidden")
         if lower in SYSTEM_DLLS or re.fullmatch(r"api-ms-win-[a-z0-9-]+\.dll", lower):
             continue
         if lower not in TARGET_DLLS | RUNTIME_DLLS or lower not in packaged:
@@ -616,6 +618,38 @@ def subtitle_decoder_features(name, text):
     return features
 
 
+def vulkan_header_receipt(root):
+    base = root / "src/vulkan-headers/include"
+    installed = root / "prefix/include"
+    core = (base / "vulkan/vulkan_core.h").read_text()
+    if not re.search(r"^#define VK_VERSION_1_4 1$", core, re.MULTILINE):
+        raise ValueError("Vulkan headers must expose Vulkan 1.4 for pinned libplacebo")
+    headers = []
+    for folder in ("vulkan", "vk_video"):
+        files = sorted(p for p in (base / folder).rglob("*") if p.is_file())
+        if not files:
+            raise ValueError(f"Required Vulkan header directory is empty: {folder}")
+        for source in files:
+            relative = source.relative_to(base)
+            target = installed / relative
+            if not target.is_file() or digest(source) != digest(target):
+                raise ValueError(f"Installed Vulkan header missing or changed: {relative}")
+            headers.append({"file": relative.as_posix(), "sha256": digest(target)})
+    return {
+        "status": "header-only",
+        "usage": "compile-time only; no Vulkan loader or backend",
+        "binary_linkage": "none",
+        "installed_headers": headers,
+    }
+
+
+def require_libplacebo_options(options):
+    values = {option["name"]: option["value"] for option in options}
+    for name, value in {"vulkan": "disabled", "d3d11": "enabled", "shaderc": "enabled"}.items():
+        if values.get(name) != value:
+            raise ValueError(f"Actual libplacebo option failed: {name}={values.get(name)}")
+
+
 def complete(root, name, parent=None):
     receipt = {"component": name, "status": "built"}
     build = root / "build" / name
@@ -629,6 +663,10 @@ def complete(root, name, parent=None):
         receipt["cmake_cache"] = (build / "CMakeCache.txt").read_text()
     if (build / "meson-info/intro-buildoptions.json").exists():
         receipt["meson_options"] = load(build / "meson-info/intro-buildoptions.json")
+    if name == "vulkan-headers":
+        receipt.update(vulkan_header_receipt(root))
+    if name == "libplacebo":
+        require_libplacebo_options(receipt["meson_options"])
     if name in {"libass", "dav1d"}:
         receipt["features"] = subtitle_decoder_features(name, (build / "config.h").read_text())
     if name == "ffmpeg":
@@ -661,6 +699,7 @@ def require_mpv_options(options):
         "lua": "disabled",
         "shaderc": "enabled",
         "spirv-cross": "enabled",
+        "vulkan": "disabled",
     }
     for name, value in expected.items():
         if values.get(name) != value:
@@ -690,8 +729,10 @@ def package(root):
     if {c["name"] for c in components} != {c["name"] for c in lock()["components"]}:
         raise ValueError("Manifest does not cover every pinned component")
     mpv = next(c for c in components if c["name"] == "mpv")
+    placebo = next(c for c in components if c["name"] == "libplacebo")
     ffmpeg = next(c for c in components if c["name"] == "ffmpeg")
     require_mpv_options(mpv["meson_options"])
+    require_libplacebo_options(placebo["meson_options"])
     validate_ffmpeg(ffmpeg["configuration"], ffmpeg["defines"])
     artifact = root / "artifact"
     artifact.mkdir()

@@ -84,7 +84,13 @@ cmake_component spirv-cross -DSPIRV_CROSS_SHARED=ON -DSPIRV_CROSS_STATIC=OFF \
     -DSPIRV_CROSS_CLI=OFF -DSPIRV_CROSS_ENABLE_TESTS=OFF \
     -DSPIRV_CROSS_ENABLE_MSL=OFF -DSPIRV_CROSS_ENABLE_CPP=OFF \
     -DSPIRV_CROSS_ENABLE_REFLECT=OFF
-meson_component libplacebo -Dd3d11=enabled -Dshaderc=enabled -Dglslang=disabled -Ddemos=false \
+# Even disabled Vulkan stubs include the public Vulkan types. Install headers only.
+component=vulkan-headers
+run install -d "$PREFIX/include/vulkan" "$PREFIX/include/vk_video"
+run cp -R "$ROOT/src/vulkan-headers/include/vulkan/." "$PREFIX/include/vulkan/"
+run cp -R "$ROOT/src/vulkan-headers/include/vk_video/." "$PREFIX/include/vk_video/"
+done_component
+meson_component libplacebo -Dd3d11=enabled -Dshaderc=enabled -Dglslang=disabled -Dvulkan=disabled -Ddemos=false \
     -Dtests=false -Dbench=false -Dfuzz=false
 
 component=ffmpeg
@@ -115,4 +121,4 @@ cd "$ROOT"
 meson_component mpv -Dgpl=false -Dlibmpv=true \
     -Dcplayer=false -Dbuild-date=false -Dd3d11=enabled -Dd3d-hwaccel=enabled \
     -Dwasapi=enabled -Dwin32-threads=enabled -Dzlib=enabled -Dlua=disabled \
-    -Dshaderc=enabled -Dspirv-cross=enabled -Dgl=disabled
+    -Dshaderc=enabled -Dspirv-cross=enabled -Dgl=disabled -Dvulkan=disabled

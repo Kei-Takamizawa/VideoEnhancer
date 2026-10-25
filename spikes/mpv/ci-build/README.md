@@ -1,7 +1,7 @@
 # GitHub Actions LGPL libmpv build
 
 Route (b): Ubuntu 24.04 MinGW-w64 packages supply the compiler, SDK and compiler
-runtimes. All fourteen source components (including shader headers) come from
+runtimes. All fifteen source components (including shader headers) come from
 pinned upstream source archives. This avoids bootstrapping GCC and keeps the dependency
 graph smaller than mpv-winbuild-cmake. No PC MSYS2 tree is used.
 
@@ -102,7 +102,29 @@ when bash is unavailable; this is not execution of the shell or Linux build. No 
 green, the operator downloads and verifies the artifact, then a later round
 checks Windows libmpv properties, five D3D11VA fixtures and the H.264 regression.
 The designer dispatches the second clean workflow for reproduction comparison.
-At most ten CI rounds are allowed (section 11.7). Current state: **Awaiting CI build**.
+No fixed round limit (section 11.8); the designer stops after two consecutive
+rounds failing at the same step without progress. Current state: **Awaiting CI build**.
+
+## Round 6 Vulkan declarations without a Vulkan backend
+
+libplacebo's disabled Vulkan stubs still include public Vulkan types. Install
+only include/vulkan and include/vk_video from Khronos Vulkan-Headers SDK
+1.4.321.0, commit 2cd90f9d20df57eac214c148f3aed885372ddcfe, before libplacebo.
+The existing target-prefix C/C++ include flags expose them; no loader, Vulkan
+pkg-config alias, SDK binary or upstream stub patch is introduced. Both
+libplacebo and mpv explicitly set vulkan=disabled, and actual options are gated.
+
+The component receipt is header-only and compile-time-only, records all installed
+header hashes and has no binary linkage. The archive and licence texts remain in
+the source offer. Every DLL's objdump imports must exclude vulkan-1.dll, including
+if someone places a loader in the bundle. This gate requires the real CI DLLs;
+Windows unit tests only exercise its rejection behavior.
+
+Vulkan C/vk_video headers are Apache-2.0; C++ headers offer Apache-2.0 OR MIT.
+The installed set elects Apache-2.0, with both licence texts retained and exact
+scopes recorded in the lock/manifest. The SDK tag exposes Vulkan 1.4, satisfying
+the pinned libplacebo check. Header version/installation tests are distinct from
+compiling the actual libplacebo stubs on Linux.
 
 ## Round 5 binutils and shader provenance
 
