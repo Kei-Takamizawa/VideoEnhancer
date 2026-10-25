@@ -268,3 +268,27 @@ The installed package was `binutils-mingw-w64-x86-64 2.41.90.20240122-1ubuntu1+1
 - **Find further toolchain-step problems before the next round:** run as much of `driver.py plan` / `toolchain` locally as you can with mocked apt output.
 
 Then end the round with `Awaiting CI build` again, as in 11.2.
+
+### 11.5 CI round 2 result (designer, 2026-10-25): FAIL, still in the toolchain step. 2 of 6 rounds used
+
+Run 40182513951, job `build`, on 41efdc3. The PR run 40182515731 failed the same way. The 11.4 fix worked: `Toolchain source binutils=2.41.90.20240122-1ubuntu1: unavailable in deb-src` was logged and the step continued. The step then failed here:
+
+```text
+Get:2 http://azure.archive.ubuntu.com/ubuntu noble/universe binutils-mingw-w64 11.4 (dsc) [1898 B]
+  File "spikes/mpv/ci-build/driver.py", line 270, in toolchain
+    raise ValueError(f"Unexpected Ubuntu source host: {url}")
+ValueError: Unexpected Ubuntu source host: mirror+file:/etc/apt/apt-mirrors.txt/pool/universe/b/binutils-mingw-w64/binutils-mingw-w64_11.4.dsc
+```
+
+**Cause.** GitHub runners configure apt with the `mirror+file:/etc/apt/apt-mirrors.txt` method, so `apt-get source --print-uris` returns that pseudo-URL instead of an http URL. The real host appears only in the `Get:` lines (here `azure.archive.ubuntu.com`).
+
+**What to change:**
+- **Trust follows the hashes, not the URL.** The authority for a source file is its SHA-256 from apt's signed index (`Checksums-Sha256` in `apt-cache showsrc`, which apt authenticates through InRelease). Keep that hash check exactly as strict as now.
+- **Change the host check.**
+  - Accept `mirror+file:` URIs. Resolve them to the real host by parsing the `Get:` lines of the actual `apt-get source --download-only` output.
+  - Accept hosts that are `archive.ubuntu.com`, `security.ubuntu.com` or end in `.archive.ubuntu.com` (`azure.archive.ubuntu.com` qualifies). Also accept the hosts listed in `/etc/apt/apt-mirrors.txt` if they are under `ubuntu.com`.
+  - Record the resolved host in the manifest. Fail only if a resolved host is outside those, or a hash does not match.
+- **Before the next push:**
+  - Add tests in `test_driver.py` that use the exact strings above: the `mirror+file:` pseudo-URL and the `Get:` line format.
+  - Also look through the rest of `driver.py`, `toolchain.sh`, `prepare.sh` and `build.sh` for other assumptions about Ubuntu or apt formats that a GitHub runner breaks, and fix them in the same round. Round 3 should get past the toolchain step into the library builds.
+- Then end the round with `Awaiting CI build`.
