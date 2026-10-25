@@ -23,15 +23,24 @@ exception and the mixed permissive MinGW-w64/winpthreads copyright texts are in
 LICENSES/toolchain. They are compiler infrastructure under the approved Ubuntu
 toolchain route, not unrelated optional media libraries. No GPL-only media or
 shader component is enabled. The runtime exception does not impose GPL licensing
-on the application; retain its text and the exact corresponding runtime sources.
+on the application; retain its text. CRT/headers are recorded under ZPL/public
+domain notices and winpthreads under MIT. The manifest records each installed
+runtime input's owning package, exact version, licence and source URL. Available
+exact runtime sources are included; where deb-src no longer has that version,
+the exact Launchpad source reference is recorded instead. The GCC Runtime Library
+Exception permits distribution without corresponding runtime source.
 
 libmpv is a separate dynamically loaded DLL. Users must be allowed to replace it
 and debug their modified library. Do not add an integrity restriction that blocks
 these rights. Keep the additional dependency DLLs beside it if the manifest
 lists them. The source archive includes the exact upstream source archives,
-Ubuntu compiler/runtime sources and distro patches, scripts, cross files and
+available Ubuntu compiler/runtime sources and distro patches, scripts, cross files and
 actual command/configuration receipts. Rebuilding yields a replacement library;
 the product must remain dynamically linked to it.
+Compiler and binutils sources are supplementary and are not required by the
+LGPL source offer; those tools are not shipped. Missing toolchain source versions
+are explicitly listed as `unavailable in deb-src` in the manifest. This exception
+does not apply to any of the fourteen required upstream source components.
 
 Attach this exact sources.tar.zst and these notices to every release containing
 the DLLs. A moving Git URL is not the corresponding-source delivery. Validate the

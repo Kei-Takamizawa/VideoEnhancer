@@ -4,6 +4,7 @@ import ast
 import hashlib
 import json
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -79,7 +80,12 @@ def digest(path):
 
 
 def output(*args, cwd=None):
-    return subprocess.check_output(args, cwd=cwd, text=True)
+    try:
+        return subprocess.check_output(args, cwd=cwd, text=True, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as error:
+        if error.stderr:
+            print(error.stderr, file=sys.stderr, end="")
+        raise
 
 
 def lock():
@@ -119,7 +125,14 @@ def plan(root):
 
 
 def ubuntu_source_metadata(package, version):
-    text = output("apt-cache", "showsrc", "--only-source", package)
+    try:
+        text = output("apt-cache", "showsrc", "--only-source", package)
+    except subprocess.CalledProcessError as error:
+        # Missing packages are expected in rolling Ubuntu source indexes.
+        # Authentication/index/transport failures must still stop the build.
+        if re.search(r"Unable to (?:locate|find a) source package", error.stderr or ""):
+            return None
+        raise
     for stanza in text.split("\n\n"):
         if f"Version: {version}\n" not in stanza + "\n":
             continue
@@ -135,39 +148,103 @@ def ubuntu_source_metadata(package, version):
                 in_hashes = False
         if checksums:
             return checksums
-    raise ValueError(f"No authenticated source metadata for {package}={version}")
+        raise ValueError(f"Missing source SHA-256 metadata for {package}={version}")
+    return None
+
+
+def source_reference(package, version):
+    return "https://launchpad.net/ubuntu/+source/" + "/".join(
+        urllib.parse.quote(value, safe="") for value in (package, version)
+    )
+
+
+def installed_package(package):
+    fields = output(
+        "dpkg-query",
+        "-W",
+        "-f",
+        "${Version}\t${source:Package}\t${source:Version}\t${Built-Using}",
+        package,
+    ).split("\t")
+    if len(fields) != 4 or not all(fields[:3]):
+        raise ValueError(f"Incomplete installed package metadata: {package}")
+    return {
+        "package": package,
+        "version": fields[0],
+        "source_package": fields[1],
+        "source_version": fields[2],
+        "built_using": fields[3],
+        "source_url": source_reference(fields[1], fields[2]),
+    }
+
+
+def runtime_components():
+    """Identify installed owners, including transitive packages, of linked inputs."""
+    inputs = [
+        ("mingw-w64 CRT", "libmingw32.a", "ZPL-2.1 AND LicenseRef-Public-Domain"),
+        (
+            "mingw-w64 headers",
+            "/usr/x86_64-w64-mingw32/include/_mingw.h",
+            "ZPL-2.1 AND LicenseRef-Public-Domain",
+        ),
+        ("winpthreads", "libwinpthread.a", "MIT"),
+        ("libgcc", "libgcc.a", "GPL-3.0-or-later WITH GCC-exception-3.1"),
+        ("libstdc++", "libstdc++.a", "GPL-3.0-or-later WITH GCC-exception-3.1"),
+    ]
+    records = []
+    for name, filename, licence in inputs:
+        file = (
+            filename
+            if filename.startswith("/")
+            else output("x86_64-w64-mingw32-g++-posix", "-print-file-name=" + filename).strip()
+        )
+        if not file.startswith("/"):
+            raise ValueError(f"Compiler cannot locate runtime input: {filename}")
+        # GCC may return /usr/lib/gcc/.../../../../../x86_64-w64-mingw32/lib/...
+        file = posixpath.normpath(file)
+        owners = output("dpkg-query", "-S", file).strip().splitlines()
+        if len(owners) != 1 or ": " not in owners[0]:
+            raise ValueError(f"Ambiguous runtime input ownership: {file}")
+        package = owners[0].rsplit(": ", 1)[0]
+        records.append(
+            {
+                "component": name,
+                "input": file,
+                "licence_spdx": licence,
+                "linkage": "headers" if name.endswith("headers") else "static input",
+                **installed_package(package),
+            }
+        )
+    return records
 
 
 def toolchain(root):
     records, sources = [], set()
     for pin in (root / "toolchain-plan.txt").read_text().splitlines():
         package, version = pin.split("=", 1)
-        fields = output(
-            "dpkg-query",
-            "-W",
-            "-f",
-            "${Version}\t${source:Package}\t${source:Version}\t${Built-Using}",
-            package,
-        ).split("\t")
-        if fields[0] != version:
+        record = installed_package(package)
+        if record["version"] != version:
             raise ValueError(f"Installed toolchain does not match plan: {pin}")
-        source_package, source_version = fields[1:3]
-        sources.add((source_package, source_version))
-        sources.update(re.findall(r"([a-z0-9.+-]+) \(= ([^)]+)\)", fields[3]))
-        records.append(
-            {
-                "package": package,
-                "version": version,
-                "source_package": source_package,
-                "source_version": source_version,
-                "built_using": fields[3],
-            }
-        )
-    fetched = []
+        records.append(record)
+    runtimes = runtime_components()
+    for record in records + runtimes:
+        sources.add((record["source_package"], record["source_version"]))
+        sources.update(re.findall(r"([a-z0-9.+-]+) \(= ([^)]+)\)", record["built_using"]))
+    fetched, source_packages = [], []
     uri_dir = root / "source-uri-plan"
     uri_dir.mkdir(exist_ok=True)
     for package, version in sorted(sources):
         checksums = ubuntu_source_metadata(package, version)
+        source_record = {
+            "package": package,
+            "version": version,
+            "source_url": source_reference(package, version),
+            "status": "available" if checksums is not None else "unavailable in deb-src",
+        }
+        source_packages.append(source_record)
+        if checksums is None:
+            print(f"Toolchain source {package}={version}: unavailable in deb-src", flush=True)
+            continue
         uris = output(
             "apt-get",
             "source",
@@ -207,6 +284,8 @@ def toolchain(root):
         {
             "packages": records,
             "sources": fetched,
+            "source_packages": source_packages,
+            "runtime_components": runtimes,
             "compiler": output("x86_64-w64-mingw32-gcc-posix", "--version"),
             "cxx": output("x86_64-w64-mingw32-g++-posix", "--version"),
             "compiler_configuration": subprocess.run(
@@ -481,9 +560,10 @@ def package(root):
             texts.append({"file": str(dest.relative_to(artifact)), "sha256": digest(dest)})
         component["shipped_licence_texts"] = texts
     tool = load(root / "toolchain.json")
-    for record in tool["packages"]:
+    notices = {r["package"]: r for r in tool["packages"] + tool["runtime_components"]}
+    for record in notices.values():
         name = record["package"]
-        source = Path("/usr/share/doc") / name / "copyright"
+        source = Path("/usr/share/doc") / name.split(":", 1)[0] / "copyright"
         dest = licence_root / "toolchain" / (name + ".copyright")
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, dest)

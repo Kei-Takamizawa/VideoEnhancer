@@ -1,4 +1,4 @@
-# GitHub Actions LGPL libmpv build, round 1
+# GitHub Actions LGPL libmpv build
 
 Route (b): Ubuntu 24.04 MinGW-w64 packages supply the compiler, SDK and compiler
 runtimes. All fourteen source components (including shader headers) come from
@@ -21,8 +21,17 @@ the product's CI, package or player. The operator commits and pushes this round.
 2. toolchain.sh installs those exact packages. The cache contains downloaded
    compiler packages and their corresponding source archives, not target build
    output. apt verifies packages normally. For each compiler package's source
-   and Built-Using records, the script downloads the exact Ubuntu source version
-   and independently checks its files against the signed Sources SHA-256 index.
+   and Built-Using records, the script downloads available exact Ubuntu sources
+   and checks their files against the signed Sources SHA-256 index. A version
+   absent from deb-src is recorded as `unavailable in deb-src`, with its exact
+   name/version and Launchpad source URL, without stopping the build. Compiler
+   and binutils sources are supplementary, not part of the LGPL source offer.
+   Authentication, download and checksum failures remain fatal.
+   `toolchain.runtime_components` separately records the actual installed owners
+   and versions of CRT/header, winpthreads and static GCC/libstdc++ inputs,
+   their licences and exact source references. Available runtime sources are
+   archived too; unavailable ones retain the Launchpad reference. Package notices
+   are retained even for runtime owners installed as transitive dependencies.
 3. build.sh requires fresh src/, build/ and prefix/ trees. Each cached upstream
    archive is rehashed before safe extraction. Libraries are built in dependency
    order; Meson wraps cannot download unpinned subprojects. Target pkg-config
@@ -41,7 +50,7 @@ kept as separate permissive DLLs because the pinned mpv D3D11 render API explici
 libplacebo also needs their shader compilation/translation functions.
 GCC/libstdc++ runtimes are requested static;
 the strict import closure copies any required MinGW runtime DLLs and accounts
-for their corresponding sources and runtime-exception/permissive licences.
+for their source references and runtime-exception/permissive licences.
 The DLL allowlist is explicit; an unexpected DLL cannot be legalized by merely
 copying it into the output folder. See DISTRIBUTION.md for source/replacement
 obligations and the LGPL-3.0-or-later election for Apache shader dependencies.
@@ -78,7 +87,7 @@ an Ubuntu 24.04 container (mount the checkout and a separate output directory),
 or port only prepare.sh/toolchain.sh. Build/package scripts have no dependency
 on GitHub context, credentials or the Actions cache service.
 
-The workflow must not be run from the development Windows PC. Round 1 can check
+The workflow must not be run from the development Windows PC. Each round can check
 YAML/actionlint, Python checks/tests and bash -n only if a non-MSYS2-tree bash
 already exists. shfmt can parse Bash syntax with its native Windows binary
 when bash is unavailable; this is not execution of the shell or Linux build. No Linux compilation is claimed from those checks. When CI is
@@ -86,6 +95,16 @@ green, the operator downloads and verifies the artifact, then a later round
 checks Windows libmpv properties, five D3D11VA fixtures and the H.264 regression.
 The designer dispatches the second clean workflow for reproduction comparison.
 At most six CI rounds are allowed. Current state: **Awaiting CI build**.
+
+## Round 2 toolchain regression coverage
+
+Section 11.4 reports round 1 failing on the unavailable Built-Using source
+`binutils=2.41.90.20240122-1ubuntu1`. Windows unit tests run the real `plan` and
+`toolchain` Python orchestration with mocked apt/dpkg/compiler output and source
+downloads. They check missing Built-Using/compiler/runtime sources, available
+source hashing, exact package versions, runtime ownership/licences, cache-key
+outputs and failure paths. They do not install Ubuntu packages or execute a
+cross-compiler. Actual Linux installation/build remains for the next CI run.
 
 
 ## Pinned upstream build contracts
