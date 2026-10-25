@@ -1,0 +1,40 @@
+# Experimental LGPL libmpv source-build artifact
+
+This artifact is for validation. A green cross build does not establish Windows
+playback, hardware decoding or product packaging acceptance. The operator must
+verify SHA256SUMS and the designer must review the manifest and runtime proof.
+The prebuilt measurement candidate is never a shipping fallback.
+
+The target libraries are built from the exact SHA-256-pinned upstream sources
+in sources.lock.json. FFmpeg is built without GPL, nonfree or version3 options.
+mpv is built with gpl=false. D3D11 requires libplacebo, shaderc (glslang, SPIRV-Tools and SPIRV-Headers)
+and SPIRV-Cross.
+The LGPL-2.1-or-later components are elected to LGPL-3.0-or-later for the combined
+distribution because of the Apache-2.0 shader dependencies. This election does
+not turn off the separate permissive attribution and notice requirements.
+FFmpeg itself needs no --enable-version3 dependency in this recipe.
+
+See LICENSES/ for the full upstream licence and copyright texts. FreeType is
+used under the FreeType Project License (FTL), not its alternative GPL licence:
+this software uses the FreeType Project, https://www.freetype.org/.
+glslang's BSD, MIT and Apache notices and SPIRV-Cross's Apache notice are retained.
+The Ubuntu MinGW compiler runtimes have their own notices: GCC's runtime-library
+exception and the mixed permissive MinGW-w64/winpthreads copyright texts are in
+LICENSES/toolchain. They are compiler infrastructure under the approved Ubuntu
+toolchain route, not unrelated optional media libraries. No GPL-only media or
+shader component is enabled. The runtime exception does not impose GPL licensing
+on the application; retain its text and the exact corresponding runtime sources.
+
+libmpv is a separate dynamically loaded DLL. Users must be allowed to replace it
+and debug their modified library. Do not add an integrity restriction that blocks
+these rights. Keep the additional dependency DLLs beside it if the manifest
+lists them. The source archive includes the exact upstream source archives,
+Ubuntu compiler/runtime sources and distro patches, scripts, cross files and
+actual command/configuration receipts. Rebuilding yields a replacement library;
+the product must remain dynamically linked to it.
+
+Attach this exact sources.tar.zst and these notices to every release containing
+the DLLs. A moving Git URL is not the corresponding-source delivery. Validate the
+final distribution and source/relinking arrangement before shipping. This file
+does not replace the build-specific LICENSES.md review required on the PC.
+
