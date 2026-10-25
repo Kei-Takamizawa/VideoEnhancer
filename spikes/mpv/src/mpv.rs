@@ -40,7 +40,12 @@ impl Mpv {
         options: &[(&str, &str)],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let started = std::time::Instant::now();
-        let library = Library::new(path)?;
+        // Resolve bundled dependencies beside the selected DLL, not via PATH.
+        let library: Library = libloading::os::windows::Library::load_with_flags(
+            path,
+            0x00000100 | 0x00001000, // DLL_LOAD_DIR | DEFAULT_DIRS
+        )?
+        .into();
         let create = library.get::<unsafe extern "C" fn() -> *mut c_void>(b"mpv_create\0")?;
         let handle = create();
         if handle.is_null() {
@@ -56,13 +61,22 @@ impl Mpv {
         };
         for (key, value) in [
             ("config", "no"),
-            ("load-scripts", "no"),
             ("terminal", "no"),
             ("hwdec", "d3d11va"),
             ("keep-open", "yes"),
             ("input-default-bindings", "no"),
         ] {
             this.option(key, value)?;
+        }
+        // Builds without scripting omit this option entirely (-5: not found).
+        let set_option =
+            this.library
+                .get::<unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> i32>(
+                    b"mpv_set_option_string\0",
+                )?;
+        let scripts = set_option(handle, c"load-scripts".as_ptr(), c"no".as_ptr());
+        if scripts != -5 {
+            Self::check(scripts)?;
         }
         if let Some(wid) = wid {
             this.option("wid", &wid.to_string())?;

@@ -1,232 +1,236 @@
-﻿Task ID: VE-P1e-3c1 / Cycle: GitHub Actions round 7 preparation (6 CI rounds used)
-Status: PARTIAL
-Awaiting CI build
+Task ID: VE-P1e-3c1 / CI round 7 Windows artifact acceptance
+Status: COMPLETED
 
-## Outcome
+## Outcome and scope
 
-Implemented section 11.9 using an installed shaderc_combined.pc build-recipe
-change. Libs.private gains the compiler-discovered library directory and
--l:libstdc++.a, so a C-driver link explicitly selects the static C++ runtime.
-A Linux shaderc C-driver link probe determines whether static winpthread is
-actually needed; it is added only after a pthread/sem undefined-symbol failure.
-Unrelated failures stop immediately. Every probe attempt is retained.
+Section 11.2 step 4 is complete for the green CI artifact from run 40202006764,
+commit b65a4ccb7fb139500b8909031151f4b6c71441e2, on
+`claude/project-thread-6lra47`. Initial working tree was clean. Windows PC proof
+passes after two small spike-host compatibility fixes. The build artifact was
+not modified. Product files and the build workflow/recipes are unchanged.
 
-Before mpv compilation, a new check reads Ninja's generated libmpv link command
-and requires the static runtime after the observed static C++ archives. It also
-checks the separate SPIRV-Cross import-library decision. The recipe modification,
-actual pkg-config output and generated link evidence enter the manifest and
-sources.tar.zst. Upstream source archives and patches are unchanged.
+Step 5 reproducibility is **PENDING**: only run 40202006764 is available under
+`cache/mpv-lgpl/ci-build/`. The designer has started the same-branch manual run;
+its artifact is not available locally. No second hash or reproducibility claim
+is fabricated. The owner explicitly permits this pending item without blocking
+step 4. No workflow was dispatched, no Git mutation/commit/push was performed.
+Final-commit CI remains the operator/designer's responsibility.
 
-Windows tests/static checks pass. Actual Linux probe/link/packaging and final
-DLL imports remain NOT_RUN here. No green artifact or new-DLL proof is claimed.
-Part B/C remain accepted from earlier work and were not rerun.
+## Part A: DLL proof
 
-## Start and verified historical CI evidence
+- PASS: all 59 SHA256SUMS entries rehashed locally before loading.
+- PASS: libmpv properties return `mpv v0.41.0-UNKNOWN`, `mpv-configuration`
+  containing `-Dgpl=false`, and `ffmpeg-version=8.0`. There is no standalone
+  `options/gpl` runtime property (returns null); proof is mpv-configuration.
+- PASS: embedded FFmpeg configuration read from the libmpv binary itself,
+  containing `--disable-gpl --disable-nonfree`, no enable-gpl/nonfree/version3.
+  No companion ffmpeg.exe was used as configuration proof.
+- PASS: local PE import parsing matches each checksum-verified CI objdump receipt.
+  Non-system imports are only bundled SPIRV-Cross and winpthread. No Vulkan,
+  libstdc++ or libgcc DLL imports. Full lists are in the manifest and evidence.
+- PASS: 15 pinned source components with versions, URLs, hashes, licences,
+  configure/build commands, recipe changes and toolchain receipts are recorded
+  in the generated manifest. The checked-in manifest adds PC proof and retains
+  the SHA-256 of the unmodified artifact manifest for provenance.
+- PASS: `sources.tar.zst` checksum and archive listing (73 entries): fifteen
+  exact source archives, build scripts/cross files, receipts, recipe-change and
+  link evidence, and available Ubuntu source/distro patch archives are present.
+  Archive size: 70,739,309 bytes. The second clean build is not yet compared.
 
-Read AGENTS.md, CURRENT_TASK.md completely (including 11.9 and updated 11.2),
-CLAUDE.md and docs/WORKSPACE.md. Terminal: Windows / PowerShell.
-Initial read-only Git inspection:
-- Branch: claude/project-thread-6lra47
-- HEAD: 52c5006e14233dcca64ac933cf33c3cea5d649ab
-- Working tree: clean
+| DLL | Bytes | SHA-256 |
+| --- | ---: | --- |
+| libmpv-2.dll | 33266600 | `d7126e232340dcd767f0a2197ec0ab60ac32146aa7a1291bcd172c57c49a5b4c` |
+| libspirv-cross-c-shared.dll | 2965767 | `a0d43e62453adfed48e42d152c92ed382facfdf5d38da3615acbdea430d49ef9` |
+| libwinpthread-1.dll | 324451 | `fc9f14551f6609dd51801daec2c194579d35345551ef84fe465cbdb3339c2a6f` |
 
-Read-only Git used sandbox escalation. CURRENT_TASK.md remains unchanged.
-No Git mutation, fetch, commit, push, merge, CI dispatch or paid resource usage
-occurred. Operator owns commit/push.
+Total: **36,556,818 bytes (36.557 decimal MB)**; 64.0% smaller than the
+101,511,680-byte prebuilt. libmpv alone is 33.267 MB, below 40 MB.
+SPIRV-Cross and winpthread must remain beside libmpv. Both libmpv and SPIRV-Cross
+import winpthread; its `.a` build input is an import library, not proof it was
+statically incorporated. GCC/libstdc++ are static under the runtime exception.
 
-The GitHub connector was used read-only to inspect run 40197198723, job
-121180493033. It confirms the build step failed and packaging/upload were skipped.
-This is historical CI evidence, not a new build. Meson version in that log is
-1.3.2. The final link used gcc-posix and contained, in order:
+`LICENSES.md` now covers this exact build, the LGPL-3.0-or-later combined-library
+election for Apache shader dependencies, FreeType FTL attribution, all notices,
+Bison and GCC exceptions, exact source delivery, rebuild/relink and DLL
+replacement/debugging rights. The product remains MIT and dynamically separate.
+The prebuilt is permanently measurement-only. Historical MSYS/MSVC diagnostics
+are explicitly distinguished from the successful Ubuntu recipe in the README.
 
-    ... libharfbuzz.a ... libplacebo.a ... libshaderc_combined.a ... -lspirv-cross-c-shared ...
+## Five-fixture B1 smoke
 
-No libstdc++ archive or -lstdc++ appeared. The undefined symbols included operator
-new, std::__throw_length_error and C++ ABI type-info vtables. No pthread/sem
-undefined-symbol diagnostics were found in that historical failure; the next
-real link probe determines whether adding the C++ runtime exposes such a need.
-The log also confirms installation of libspirv-cross-c-shared.dll.a and
-libspirv-cross-c-shared.dll. Only a minimal link-tail excerpt was retained locally;
-the full job log was not saved to disk or committed.
+Each smoke plays for approximately five seconds. Expected: host exit 0,
+`current-vo=libmpv`, positive progressing time-pos and hwdec-current=d3d11va.
+Actual on the final host: all five pass, with four telemetry samples per clip.
 
-Historical run: https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/40197198723
+| Fixture | Result | Actual hwdec |
+| --- | --- | --- |
+| H.264 1080p30 | PASS | d3d11va |
+| HEVC Main10 1440p60 | PASS | d3d11va |
+| AV1 10-bit 1440p60 | PASS | d3d11va |
+| VP9 1080p60 | PASS | d3d11va |
+| HEVC rotation display-matrix fixture | PASS | d3d11va |
+
+Every attempt is retained, including failures:
+
+1. `ci-acceptance`: generation PASS; all five playback launches FAIL with
+   LoadLibraryExW error 126 (bundled dependencies not found by the old host).
+   The old smoke runner returned shell exit 0 despite child failures; this was
+   not treated as PASS.
+2. `ci-acceptance-smoke2`: process-local artifact PATH resolves dependencies;
+   all five fail with libmpv error -5. Direct option probing isolated
+   `load-scripts=no`: absent when scripting is compiled out. Other startup
+   options returned 0. Again the old runner's shell exit 0 did not mean PASS.
+3. `ci-acceptance-smoke3`: final rebuilt host, no artifact PATH workaround:
+   all five child exits 0 and telemetry confirms d3d11va playback.
+4. `ci-acceptance-smoke4`: confirmation after adding automated telemetry
+   assertions and failure exit codes to smoke.py. All five PASS, shell exit 0.
+   Fixtures were reused for attempts 2-4, not regenerated.
+
+The loader now uses DLL_LOAD_DIR | DEFAULT_DIRS against the canonical absolute
+DLL path. Only MPV_ERROR_OPTION_NOT_FOUND (-5) for `load-scripts=no` is tolerated;
+all other option failures remain fatal. Builds without scripting cannot load
+scripts; builds with scripting still receive load-scripts=no.
+
+## B1 H.264 comparison: one successful run per DLL
+
+Same synthetic 65-second H.264 file, same rebuilt host and machine, D3D11VA,
+capture/profiling off, five loadfile samples and twenty exact seeks at Random(1337)
+targets, timed to MPV_EVENT_PLAYBACK_RESTART after render/present handling.
+These are software event timings, not physical display photon measurements or
+cold process-start measurements. The `timing` phase uses the existing bench
+sampling loop, stopping before stepping/capture/CPU sampling.
+
+| DLL | First-frame median / 5 ms | Seek median / 20 ms | Seek maximum ms |
+| --- | ---: | ---: | ---: |
+| source | 34.1226 | 155.6909 | 235.1891 |
+| prebuilt | 38.1102 | 159.8737 | 230.0736 |
+
+Both meet first-frame <=150 ms, seek median <=200 ms and maximum <=400 ms.
+Source medians are lower; its seek maximum is 5.12 ms higher. One run per DLL
+cannot establish statistical equivalence or claim every individual seek is
+faster. All 25 successful samples per DLL report D3D11VA and no sample errors.
+Prebuilt SHA-256: b9f3ddd1ef2d43d6424addb835824ddb4e1e5f72c067e2816f0e09b19a6c4752.
+
+Failed timing setup attempts are also retained:
+`ci-h264-source` timed out waiting for the JavaScript control bridge before
+collecting timing samples; `ci-h264-prebuilt` returned WebView ExecuteScript
+0x8007139F before samples. Native playback itself was running. Both are FAIL,
+not valid measurements, despite host exit 0. The new timing-only path avoids
+unneeded JavaScript control setup and uses native load/seek commands. The
+successful labels are `ci-h264-source2` and `ci-h264-prebuilt2`; no full Part B
+matrix was rerun and failed raw logs were not overwritten.
+
+## Validation and commands
+
+Every test/build shell dot-sourced local-env.ps1. TEMP/TMP/VE_HOME, GUI roaming
+and local app data, and WebView profiles were isolated under work/scratch.
+
+| Check | Result |
+| --- | --- |
+| cargo build --offline --locked --manifest-path spikes/mpv/Cargo.toml | PASS |
+| cargo fmt --check --manifest-path spikes/mpv/Cargo.toml | PASS |
+| cargo clippy --offline --locked --manifest-path spikes/mpv/Cargo.toml -- -D warnings | PASS |
+| ruff check spikes/mpv | PASS |
+| ruff format --check spikes/mpv | PASS, 11 files |
+| python -m unittest discover -s spikes/mpv/ci-build -p test_driver.py | PASS, 60 tests |
+| Product build/tests; full Part B/C, alpha/capture recheck | NOT_RUN, outside this continuation's scope |
+| Final-commit Windows/Ubuntu CI | NOT_RUN locally; operator pushes/checks |
+| Second workflow artifact comparison | PENDING, artifact unavailable locally |
+| git diff --check | PASS (read-only) |
+
+Smoke reproduction (from work/repo, after session isolation):
+`python spikes/mpv/smoke.py --approaches B1 --dll <artifact>/libmpv-2.dll --label unique`
+After fixtures exist, add --skip-generate. For the bounded timing pair set
+VE_MPV_DLL per DLL and VE_MPV_CAPTURE=0, then run
+`python spikes/mpv/measure.py --mode B1 --phase timing --clip h264-1080p30.mp4 --label unique`.
+No input was sent to other applications. These tests drove only the spike's
+native command interface. No screenshots, manual visual/DPI checks or physical
+screen timing were performed. Previously accepted Part B and Part C remain
+accepted historical work, not new proof in this report.
+
+Warnings: a CIM disk query was denied (0x80041003); Python disk_usage provided
+actual free-space values. Read-only escalated Git status/diff succeeded; Git
+reported LF-to-CRLF conversion warnings for Python/Rust working files. No new
+downloads or dependency restores were needed. No PC MSYS2 tool was executed or
+modified; its tree was enumerated only for aggregate disk accounting.
 
 ## Changed files
 
-- spikes/mpv/ci-build/driver.py: installed .pc edit; static C-driver shaderc probe;
-  conditional static winpthread; actual pkg-config/link-order validation;
-  generated Ninja link check; build-recipe/manifest/source-offer receipts;
-  explicit Windows system pathcch.dll allowance.
-- spikes/mpv/ci-build/build.sh: invoke the recipe change after shaderc install,
-  refresh its receipt, and verify the generated mpv link after setup/before compile.
-- spikes/mpv/ci-build/test_driver.py: six added metadata/probe/order/import-library
-  tests, preserving the existing 54 tests.
-- spikes/mpv/ci-build/README.md: runtime recipe, evidence and validation boundaries.
+- spikes/mpv/src/mpv.rs: bundled DLL loading and scripting-disabled compatibility.
+- spikes/mpv/smoke.py: DLL/label/reuse options, hardware-playback assertions and failure exit.
+- spikes/mpv/measure.py: bounded native-only timing phase using bench samples.
+- spikes/mpv/source-manifest.json: actual generated CI manifest plus PC supplement.
+- spikes/mpv/LICENSES.md: replace obsolete OPEN/prebuilt audit with this build's inventory/obligations.
+- spikes/mpv/README.md: successful route, proof and bounded validation commands.
 - .ai/LAST_REPORT.md: this report.
 
-No workflow, source pin/lock, upstream patch, cross file, product, ci.yml,
-existing source-manifest.json, LICENSES.md or accepted B1 implementation changed.
-No PC MSYS2 tree/executable was used or modified; aggregate size metadata only
-was inventoried for disk reporting.
+## Disk and cleanup (decimal GB)
 
-## Why this recipe and how it is recorded
+No restores: 0 bytes. Artifact was already downloaded before this continuation.
+Source/build and artifact rows overlap cache; do not sum them.
 
-Meson 1.3.2's shaderc dependency factory prefers shaderc_combined/shaderc_static
-when prefer_static=true, matching the observed CI link. Pinned shaderc's
-shaderc_combined.pc template has no Libs.private. Fixing this leaf dependency
-puts its runtime after the archive rather than placing a C++ flag near the
-start of a gcc link or before libplacebo's dependent archives.
+| Item | GB |
+| --- | ---: |
+| repo | 3.528863222 |
+| package | 0.005764162 |
+| evidence/VE-P1e-3c1 | 0.047015708 |
+| scratch | 0.273792461 |
+| cache | 9.020108695 |
+| cache/msys2 | 0.856811931 |
+| cache/mpv-lgpl/source-build | 0.036575903 |
+| cache/mpv-lgpl/ci-round1-sources | 0.064181348 |
+| cache/mpv-lgpl/ci-round6-sources | 0.002760957 |
+| cache/mpv-lgpl/ci-build/40202006764 | 0.114551559 |
+| C free at first Python measurement | 354.791964672 |
+| D free at first Python measurement | 979.943776256 |
 
-The edit preserves public Libs, Requires.private and existing private flags.
-The compiler supplies the actual libstdc++.a directory; -l:libstdc++.a selects
-that archive explicitly rather than a DLL import library. static-libgcc remains
-in effect. No unconditional pthread flag is added.
+The successful Linux source/build trees live on the GitHub runner, not this PC.
+The retained artifact includes its 70.739 MB source archive; older local failed
+build/download trees are retained unchanged. Before/after measurements do not
+attribute drive-wide free-space variation to this task. An exact initial folder
+baseline was not captured. A conservative current-file-length upper bound for
+persistent files modified since 07:49 local (before this continuation) is
+131,977,363 bytes (0.131977 GB), including overwrites; it is not exact net growth. The final inventory uses PowerShell -Force; earlier Python
+logical traversal totals are retained as their own measurement, not net deltas.
+Cache is under 40 GB; evidence is under 300 MB; D stays above 200 GB free.
 
-The runner links a small C source using shaderc_compiler_initialize/release,
-libshaderc_combined.a and the static runtime. It does not execute the output DLL.
-If missing pthread/sem symbols occur, it checks the actual libwinpthread.a path,
-adds that static archive and retries once. A second failure or any unrelated
-first failure stops the job. The original failure and successful retry, if any,
-are both recorded rather than erased.
+Cleanup candidates measured independently before deletion (all created by this
+continuation; initial scratch was empty):
 
-recipe-changes.json stores component/kind, the installed .pc path, before/after
-contents, resulting SHA-256, private flags, actual pkg-config --static --libs
-output, probe source and every command/exit/stdout/stderr. It is attached to the
-shaderc receipt and manifest build_recipe_changes, and retained in sources.tar.zst.
-The change is explicitly an installed pkg-config build recipe, not an upstream
-patch; all source-lock patch lists remain empty.
+- work/scratch/ci-appdata: 0 bytes.
+- work/scratch/mpv-spike: 273,788,059 bytes (fixtures and isolated profiles).
+- work/scratch/tmp: 5,644 bytes.
 
-mpv-link.json stores the actual Ninja-generated link argv and ordering proof.
-It requires static libstdc++ after libharfbuzz, libplacebo and shaderc_combined;
-plain -lstdc++ alone is not accepted as static proof. It rejects static SPIRV-Cross
-archives and requires its shared C API and unshadowed .dll.a import library.
-The command and import-library hash enter the manifest/source offer. Package
-checks revalidate the edited metadata hash and recorded link ordering.
+Cleanup PASS: all three verified paths were deleted with native PowerShell;
+273,793,703 logical bytes removed from the measured items. Scratch is empty
+(0 bytes). No deletion refusal and nothing left for the owner to delete.
 
-## Look-ahead and packaging review
+Final C free: 354.78372352 GB; D free: 979.828097024 GB.
+Final package: 0.005764162 GB; cycle evidence:
+0.046722017 GB; cache: 9.069357625 GB.
+Recorded spike host PIDs were all exited before cleanup. No final test recreated scratch.
 
-The historical link's C++ archives were libharfbuzz.a, libplacebo.a and
-libshaderc_combined.a. Shaderc_combined contains its glslang/SPIRV-Tools children;
-SPIRV-Cross was not a static C++ archive on that line. Keep its separate DLL
-choice from 11.7. Its real import-library installation was confirmed in the log.
+## Questions for the designer and deferred work
 
-Pinned mpv calls PathCchCanonicalizeEx and PathCchRemoveFileSpec and explicitly
-links the Windows pathcch library. Added pathcch.dll to the explicit system DLL
-list as a concrete post-link look-ahead fix; no wildcard for unknown DLLs was
-introduced. The existing runtime import closure still requires any imported
-libstdc++-6.dll, libgcc_s_seh-1.dll or libwinpthread-1.dll to be copied and licensed.
-Missing or unknown imported DLLs remain fatal; vulkan-1.dll remains forbidden.
+- No design question blocks this proof. Default: complete step 4 under 11.3;
+  leave second-run hash comparison PENDING as the owner requested.
+- Review/attach the second manual-run artifact when available. No waiting loop
+  or additional dispatch was performed.
+- Product packaging/integration and ensuring the released app preserves the
+  documented LGPL rights belong to P1e-3c2. No app/package change was made.
+- Previous owner-managed cleanup candidates were intentionally not touched.
 
-Read package.sh and all package() checks. They retain: complete source/build
-receipts, SHA rechecks, actual mpv gpl=false/options, FFmpeg GPL/nonfree/version3
-and codec/hwaccel gates, embedded configuration strings, exact DLL import closure,
-licence texts/runtime exception notices, manifest generation, exact source offer
-and SHA256SUMS. The two new JSON receipts are copied into the source offer.
-SHA256SUMS is computed after sources.tar.zst and covers every artifact file except
-itself; each DLL hash remains printed before upload. No check was bypassed.
-Actual licensing/manifest/source-offer packaging has not yet run on a successful
-DLL, and the existing PC acceptance work remains required.
+## Raw timing arrays (ms)
 
-Primary references consulted for the link review:
-[Meson shaderc selection](https://github.com/mesonbuild/meson/blob/1.3.2/mesonbuild/dependencies/misc.py),
-[Meson static dependency defaults](https://github.com/mesonbuild/meson/blob/1.3.2/mesonbuild/dependencies/base.py),
-[Meson static pkg-config handling](https://github.com/mesonbuild/meson/blob/1.3.2/mesonbuild/dependencies/pkgconfig.py),
-[GCC link order](https://gcc.gnu.org/onlinedocs/gcc/Link-Options.html), and
-[Windows PathCch API](https://learn.microsoft.com/en-us/windows/win32/api/pathcch/nf-pathcch-pathcchcanonicalizeex).
-The pkg-config guide endpoints were unavailable; the pinned templates and Meson
-implementation supplied the relevant behavior. No dependency/tool was downloaded.
+source first_frame: `[21.3357, 38.6769, 34.122600000000006, 32.495000000000005, 40.5377]`
 
-## Validation
+source seeks: `[92.5006, 203.2388, 171.8624, 47.5225, 91.37950000000001, 187.7642, 186.4296, 127.5216, 115.275, 71.8765, 210.3716, 155.983, 154.69740000000002, 93.44919999999999, 225.48319999999998, 186.0374, 220.22990000000001, 155.3988, 235.18910000000002, 138.2529]`
 
-Dot-sourced local-env.ps1 before validation shells. Tests use mode-0755 directories
-under scratch/tmp and remove their synthetic files. Compiler/archive/pkg-config
-outputs in these tests are mocked, not actual Windows/Linux links.
+prebuilt first_frame: `[22.6815, 46.178200000000004, 39.0712, 38.1102, 36.0676]`
 
-| Check | Result | Actual |
-| --- | --- | --- |
-| python -B -m unittest discover -s spikes/mpv/ci-build -v | PASS | Initial 60 tests, 0.594 s; final 60 tests, 0.587 s; exit 0 |
-| ruff check / ruff format --check spikes/mpv/ci-build | PASS | Final exit 0 |
-| actionlint 1.7.12 -shellcheck= dedicated workflow | PASS | Exit 0; external shellcheck unavailable, not run |
-| shfmt 3.14.1 Bash parse/format, six shell scripts | PASS | All exit 0 |
-| Static recipe order/generated-link-hook/YAML constraints | PASS | Edit before consumers, mpv hook wired, workflow constraints preserved |
-| Historical CI link/install inspection | PASS | Actual old C-driver link, absent C++ runtime and shared SPIRV-Cross confirmed |
-| bash -n | NOT_RUN | No permitted Bash available; MSYS2 excluded |
-| Actual pkg-config edit and C-driver link probe on Linux | NOT_RUN | Unit-test fixtures only locally; next CI runs real commands |
-| Actual generated round-7 Ninja link/order and final DLL imports | NOT_RUN | No new Linux build or DLL |
-| Actual packaging, SHA256SUMS and sources.tar.zst output | NOT_RUN | Requires successful link |
-| Windows properties/GPU/playback/size and reproducibility | NOT_RUN | Requires green artifact and later prescribed checks |
-| Product checks and Part B/C reruns | NOT_RUN | No product/B1 changes |
+prebuilt seeks: `[81.4255, 207.38590000000002, 171.8665, 45.5649, 79.75319999999999, 185.7217, 193.3751, 132.4169, 109.8292, 75.2992, 208.7168, 149.5206, 158.0689, 91.3659, 230.0736, 180.1201, 216.61849999999998, 161.6785, 223.2561, 139.3355]`
 
-Six new tests cover preserving/deduplicating Libs.private, rejection of duplicate
-fields, runtime position/static form, retaining SPIRV-Cross shared linkage,
-recipe/manifest evidence, adding winpthread only after a mock thread-symbol
-failure, and rejecting an unrelated mock failure. Existing 54 tests also pass.
-Negative-case linker diagnostics in unit logs are synthetic expected fixtures;
-they are not newly observed compiler failures. No unit run failed; no tests were
-skipped, loosened or waived. No GUI operation was performed.
-
-Evidence outside Git: evidence/VE-P1e-3c1/ci-round7 contains historical
-round6-link-excerpt.txt, initial/final unit logs, Ruff/actionlint/shfmt logs,
-results.json, static-checks.json and disk.json. Mock receipts were deleted and
-are not production manifests. No source archive or local tool was downloaded.
-
-## Disk and cleanup
-
-Decimal GB; overlapping rows are not summed. Snapshot after checks and before
-report rewrite/bookkeeping. Zero inventory access errors; logical file lengths
-are not allocated disk space.
-
-| Area | Bytes | Decimal GB |
-| --- | ---: | ---: |
-| repo | 3,528,345,481 | 3.528345481 |
-| package | 5,764,162 | 0.005764162 |
-| evidence/VE-P1e-3c1 (includes accepted earlier work) | 46,338,226 | 0.046338226 |
-| evidence/VE-P1e-3c1/ci-round7 (before disk.json itself) | 77,588 | 0.000077588 |
-| scratch | 0 | 0 |
-| cache, total | 8,905,557,096 | 8.905557096 |
-| MSYS2 toolchain, cache/msys2 (untouched) | 856,811,931 | 0.856811931 |
-| Historical source/build tree, cache/mpv-lgpl/source-build (untouched) | 36,575,903 | 0.036575903 |
-| Prior round-1 source review cache (read-only reuse) | 64,181,348 | 0.064181348 |
-| Prior round-6 source cache (untouched) | 2,760,957 | 0.002760957 |
-| New Linux source/build trees and built DLL output | 0 | 0 |
-| Dependency restore / new tool downloads | 0 | 0 |
-
-| Drive free | Start bytes / GB | End snapshot bytes / GB |
-| --- | ---: | ---: |
-| C | 354,800,934,912 / 354.800934912 | 354,794,618,880 / 354.794618880 |
-| D | 980,059,082,752 / 980.059082752 | 980,058,849,280 / 980.058849280 |
-
-D remains above 200 GB free; cache below 40 GB; cycle evidence below 300 MB.
-New text edits/logs are below 0.001 GB, with no restore/download/compiled output;
-attributable persistent growth is below the 1 GB limit. No initial full-workspace
-baseline was taken; drive-wide changes are not equated with this task's growth.
-
-Cleanup candidate: this continuation's empty scratch/tmp, 0 bytes. Tests removed
-their mock archives/receipts; the initial log was moved to evidence. Remove only
-that verified empty directory after recording it here. No historical cache or
-evidence, MSYS2, package, owner media or queues were cleaned; no GPG agent/dirmngr
-was started.
-
-## Questions for the designer
-
-Default chosen under 11.9: leaf shaderc_combined.pc Libs.private change with an
-explicit static archive; conditional static winpthread based on an actual C-driver
-probe; keep SPIRV-Cross shared and all final import/licence checks. No new design
-decision is required before this CI round. A green artifact still needs the
-prescribed PC and licence acceptance checks.
-
-## Remaining / intentionally deferred
-
-Await operator commit/push and CI round 7. Six rounds have been used; no fixed
-cap applies. Designer owns the two-consecutive-no-progress stop rule. Further
-compiler/linker or previously unexecuted packaging failures remain possible.
-On failure, designer records step/logs before resuming Codex. On success, operator
-downloads and verifies SHA256SUMS, then Windows DLL/property/D3D11VA/H.264/size
-proof, LICENSES.md update and second-build comparison can proceed.
-
-No CI dispatch, artifact download, new-DLL runtime proof, product integration,
-distribution clearance, paid resource usage or Git mutation was performed.
-
-Cleanup result: PASS. Removed only verified empty scratch/tmp (0 bytes); scratch is empty. Nothing from this continuation remains for the owner to delete.
-
-Final scope/whitespace check: PASS. Read-only git status lists exactly the five changed files above; git diff --check exited 0. Git warned about future LF-to-CRLF conversion for the report, build.sh and Python helpers; no whitespace errors were reported.
+Raw successful/failed NDJSON, stderr, result JSON, audit, local import tables,
+source archive listing, disk and cleanup inventories remain outside Git under
+work/evidence/VE-P1e-3c1 (ci-acceptance and smoke2/3/4 subdirectories). No private
+media, compiled binaries, profiles or screenshots are added to Git.

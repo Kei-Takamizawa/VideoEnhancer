@@ -450,7 +450,7 @@ def gui_test(client):
     return results
 
 
-def playback(client, clip, fps, base_url, duration):
+def playback(client, clip, fps, base_url, duration, timing_only=False):
     result = {
         "mode": client.mode,
         "clip": clip,
@@ -460,7 +460,8 @@ def playback(client, clip, fps, base_url, duration):
         "steps": [],
         "playback_samples": [],
     }
-    client.js("(()=>{seek.onpointermove=null;return true})()")
+    if not timing_only:
+        client.js("(()=>{seek.onpointermove=null;return true})()")
     for run in range(5):
         if client.mode == "HTML5":
             value = client.html("load", base_url + "/" + clip + f"?run={run}")
@@ -481,6 +482,8 @@ def playback(client, clip, fps, base_url, duration):
         else:
             value = attempt(client.call, op="track", args=["seek", str(target), "absolute+exact"])
         result["seeks"].append({"target": target, "sample": value})
+    if timing_only:
+        return result
     # Exactness is judged independently with captured burned-in frame numbers.
     if client.mode == "HTML5":
         client.js("(()=>{video.pause();return true})()")
@@ -698,6 +701,7 @@ def main():
         choices=[
             "gui",
             "bench",
+            "timing",
             "preview",
             "sync",
             "probe",
@@ -726,9 +730,11 @@ def main():
         client = Client(args.mode, args.clip, args.label, base_url)
         if args.phase == "gui":
             result.update(gui_test(client))
-        elif args.phase == "bench":
+        elif args.phase in ("bench", "timing"):
             fps = dict(CLIPS).get(args.clip, 30)
-            result.update(playback(client, args.clip, fps, base_url, args.seconds))
+            result.update(
+                playback(client, args.clip, fps, base_url, args.seconds, args.phase == "timing")
+            )
         elif args.phase == "preview":
             result.update(preview(client))
         elif args.phase == "sync":

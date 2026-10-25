@@ -180,13 +180,29 @@ open time and five post-close CPU/RSS/PDH samples. libloading owns the native
 module handle; all mpv instances and render contexts are dropped at close.
 Callbacks are unregistered before their boxed contexts and DLL are released.
 
-## P1e-3c1 source-build limitation
+## P1e-3c1 source build accepted on Windows
 
-Part A remains OPEN. The official portable MSYS2 archives passed checksum
-verification, but both native UCRT64 and mpv-winbuild-cmake prerequisite routes
-stopped at GnuPG key initialization/import. WSL is absent. Neither source
-compilation nor a second clean reproduction happened. `toolchain-probe.ps1`
-reproduces the bounded prerequisite probe; `source-build.ps1` remains the
-historical MSVC diagnostic. Neither is a complete successful source-build
-recipe. See the manifest for exact versions, hashes, commands and missing proof.
-The prebuilt DLL is measurement-only and must never ship.
+CI run 40202006764 at b65a4cc produced the three DLLs documented in
+[LICENSES.md](LICENSES.md). The generated [source-manifest.json](source-manifest.json)
+contains build receipts and Windows acceptance proof. All five fixtures played
+through B1 using D3D11VA. The successful rebuild route is [ci-build/README.md](ci-build/README.md);
+`source-build.ps1` and `toolchain-probe.ps1` remain historical failed-route
+diagnostics. Do not use the PC MSYS2 trees. The prebuilt remains measurement-only.
+The second workflow artifact comparison is pending and does not block PC acceptance.
+
+After dot-sourcing local-env.ps1 and isolating APPDATA/LOCALAPPDATA under scratch:
+
+```powershell
+python .\repo\spikes\mpv\smoke.py --approaches B1 --dll <absolute-artifact-path>\libmpv-2.dll --label unique-smoke
+$env:VE_MPV_DLL = '<absolute-artifact-path>\libmpv-2.dll'
+$env:VE_MPV_CAPTURE = '0'
+python .\repo\spikes\mpv\measure.py --mode B1 --phase timing --clip h264-1080p30.mp4 --label unique-timing
+```
+
+`smoke.py --skip-generate` reuses existing scratch fixtures; it fails when the
+host fails or telemetry does not confirm D3D11VA playback. `--phase timing`
+uses the same five load / twenty exact-seek samples and playback-restart endpoint
+as bench, stopping before frame stepping, captures and CPU sampling. It uses
+native commands and does not depend on JavaScript controls. Bundled DLLs resolve
+beside the selected absolute DLL path. When scripting is compiled out, the host
+accepts only the missing `load-scripts` option; other option errors remain fatal.
