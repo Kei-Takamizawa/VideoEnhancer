@@ -244,3 +244,27 @@ At most 6 CI rounds in total. If the build still fails after 6, report PARTIAL w
 
 - **COMPLETED** when an artifact from a green workflow run passes every check in 11.2 step 4, and `LICENSES.md` and the manifest are complete.
 - **PARTIAL** for "Awaiting CI build" rounds and for the 6-round stop.
+
+### 11.4 CI round 1 result (designer, 2026-10-25): FAIL in the toolchain step, 1 of 6 rounds used
+
+Run 40167238004, job `build`, failed about 1 minute after start in `driver.py toolchain`. The PR-triggered run 40167239065 has the same commit:
+
+```text
+File "spikes/mpv/ci-build/driver.py", line 170, in toolchain
+    checksums = ubuntu_source_metadata(package, version)
+File "spikes/mpv/ci-build/driver.py", line 138, in ubuntu_source_metadata
+    raise ValueError(f"No authenticated source metadata for {package}={version}")
+ValueError: No authenticated source metadata for binutils=2.41.90.20240122-1ubuntu1
+```
+
+The installed package was `binutils-mingw-w64-x86-64 2.41.90.20240122-1ubuntu1+11.4`. Its `Built-Using` field names `binutils (= 2.41.90.20240122-1ubuntu1)`, and the runner's `deb-src` index does not offer that exact source version.
+
+**What to change:**
+- **Toolchain sources are not part of the LGPL source offer.** The compiler and binutils are not shipped. Do not fail the build because a toolchain package's source, or a source named in its `Built-Using` field, is not in the `deb-src` index. Record each such package with its name, version and `unavailable in deb-src` in the manifest's toolchain section, and continue. Archive the sources that are available, as now.
+- **Pieces of the toolchain that end up inside the shipped DLLs are a different matter.** These are the mingw-w64 CRT and headers, winpthreads, and libgcc / libstdc++ if they are linked statically.
+  - Record each one's exact package version and licence: ZPL/public domain, MIT, and GPL-3.0 with the GCC Runtime Library Exception. The exception allows shipping without source.
+  - Keep fetching their sources when the index has them. When it does not, record the package's `Vcs`/Launchpad URL instead of failing.
+- **Check this path before the next push.** Add a unit test in `test_driver.py` for the missing-source path.
+- **Find further toolchain-step problems before the next round:** run as much of `driver.py plan` / `toolchain` locally as you can with mocked apt output.
+
+Then end the round with `Awaiting CI build` again, as in 11.2.
