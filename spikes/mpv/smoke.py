@@ -17,15 +17,22 @@ def main():
     parser.add_argument("--approaches", nargs="+", choices=["B1", "B2"], default=["B1", "B2"])
     parser.add_argument("--rotation-only", action="store_true")
     parser.add_argument("--generate-only", action="store_true")
+    parser.add_argument("--dll", type=Path)
+    parser.add_argument("--label", default="smoke")
+    parser.add_argument("--skip-generate", action="store_true")
     args = parser.parse_args()
+    if not args.label.replace("-", "").replace("_", "").isalnum():
+        parser.error("Label must be a safe directory name")
     work = Path(__file__).resolve().parents[3]
     cache = work / "cache/mpv-lgpl"
     scratch = work / "scratch/mpv-spike"
-    evidence = work / "evidence/VE-P1e-3b"
+    evidence = work / "evidence/VE-P1e-3c1"
+    if args.dll:
+        evidence /= args.label
     if args.rotation_only:
         evidence /= "rotation-fixed"
     if args.generate_only:
-        evidence = work / "evidence/VE-P1e-3b/section13/fixtures"
+        evidence = work / "evidence/VE-P1e-3c1/fixtures"
     scratch.mkdir(parents=True, exist_ok=True)
     evidence.mkdir(parents=True, exist_ok=True)
     ffmpeg = cache / "ffmpeg/ffmpeg.exe"
@@ -97,11 +104,20 @@ def main():
             str(target),
         ]
         with (evidence / f"{name}-generate.log").open("w", encoding="utf-8") as log:
-            run = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
+            run = (
+                subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
+                if not args.skip_generate
+                else None
+            )
         results.append(
-            {"step": "generate", "clip": name, "command": command, "returncode": run.returncode}
+            {
+                "step": "generate",
+                "clip": name,
+                "command": command,
+                "returncode": run.returncode if run else None,
+            }
         )
-        if run.returncode:
+        if run and run.returncode:
             continue
         if name == "hevc-rotation":
             rotated = scratch / "hevc-rotation-display.mp4"
@@ -117,9 +133,12 @@ def main():
                 "copy",
                 str(rotated),
             ]
-            with (evidence / "rotation-remux.log").open("w", encoding="utf-8") as log:
-                subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True)
+            if not args.skip_generate:
+                with (evidence / "rotation-remux.log").open("w", encoding="utf-8") as log:
+                    subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True)
             target = rotated
+        if args.skip_generate and not target.is_file():
+            raise FileNotFoundError(target)
         for approach in [] if args.generate_only else args.approaches:
             profile = scratch / f"profile-{approach}"
             profile.mkdir(exist_ok=True)
@@ -128,7 +147,7 @@ def main():
             command = [
                 str(executable),
                 approach,
-                str(cache / "libmpv-2.dll"),
+                str(args.dll.resolve() if args.dll else cache / "libmpv-2.dll"),
                 str(target),
                 str(profile),
             ]
@@ -145,10 +164,26 @@ def main():
                     "returncode": run.returncode,
                 }
             )
+            rows = [
+                json.loads(line)
+                for line in (evidence / f"{name}-{approach}.jsonl").read_text().splitlines()
+            ]
+            telemetry = [r["properties"] for r in rows if r.get("event") == "telemetry"]
+            results[-1]["d3d11va_playback"] = (
+                bool(telemetry)
+                and all(p.get("hwdec-current") == "d3d11va" for p in telemetry)
+                and any(float(p.get("time-pos") or 0) > 0 for p in telemetry)
+            )
             print(json.dumps(results[-1]), flush=True)
         (evidence / "smoke-results.json").write_text(
             json.dumps(results, indent=2) + "\n", encoding="utf-8"
         )
+    if any(
+        r.get("returncode") not in (None, 0)
+        or (r["step"] == "playback_smoke" and not r["d3d11va_playback"])
+        for r in results
+    ):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

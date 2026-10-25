@@ -1,0 +1,8 @@
+binutils-mingw-w64-x86-64
+gcc-mingw-w64-base
+gcc-mingw-w64-x86-64-posix
+gcc-mingw-w64-x86-64-posix-runtime
+g++-mingw-w64-x86-64-posix
+mingw-w64-common
+mingw-w64-x86-64-dev
+

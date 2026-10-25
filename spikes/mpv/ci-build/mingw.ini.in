@@ -1,0 +1,32 @@
+[binaries]
+c = 'x86_64-w64-mingw32-gcc-posix'
+cpp = 'x86_64-w64-mingw32-g++-posix'
+ar = 'x86_64-w64-mingw32-ar'
+dlltool = 'x86_64-w64-mingw32-dlltool'
+ranlib = 'x86_64-w64-mingw32-ranlib'
+nm = 'x86_64-w64-mingw32-nm'
+objcopy = 'x86_64-w64-mingw32-objcopy'
+objdump = 'x86_64-w64-mingw32-objdump'
+ld = 'x86_64-w64-mingw32-ld'
+windmc = 'x86_64-w64-mingw32-windmc'
+nasm = 'nasm'
+strip = 'x86_64-w64-mingw32-strip'
+windres = 'x86_64-w64-mingw32-windres'
+pkg-config = 'pkg-config'
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+pkg_config_libdir = ['@PREFIX@/lib/pkgconfig', '@PREFIX@/share/pkgconfig']
+
+[built-in options]
+c_args = ['-O2', '-I@PREFIX@/include']
+cpp_args = ['-O2', '-I@PREFIX@/include']
+c_link_args = ['-L@PREFIX@/lib', '-static-libgcc']
+cpp_link_args = ['-L@PREFIX@/lib', '-static-libgcc', '-static-libstdc++']
+

@@ -1,0 +1,50 @@
+name: Source-built LGPL libmpv
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'spikes/mpv/ci-build/**'
+      - '.github/workflows/libmpv-lgpl.yml'
+  pull_request:
+    paths:
+      - 'spikes/mpv/ci-build/**'
+      - '.github/workflows/libmpv-lgpl.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare native tools and pin Ubuntu toolchain versions
+        id: plan
+        run: bash spikes/mpv/ci-build/prepare.sh
+      - name: Cache verified source downloads and compiler packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/libmpv-lgpl/cache/downloads
+            ${{ runner.temp }}/libmpv-lgpl/cache/toolchain
+          key: libmpv-ubuntu24-x86_64-${{ steps.plan.outputs.toolchain_key }}-${{ hashFiles('spikes/mpv/ci-build/**') }}
+      - name: Install the pinned cross toolchain and retain its sources
+        run: bash spikes/mpv/ci-build/toolchain.sh
+      - name: Build all target libraries from verified sources
+        run: bash spikes/mpv/ci-build/build.sh
+      - name: Verify imports and licence configuration, then package
+        run: bash spikes/mpv/ci-build/package.sh
+      - name: Upload DLLs and exact corresponding sources
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.plan.outputs.artifact_name }}
+          path: ${{ runner.temp }}/libmpv-lgpl/artifact/
+          if-no-files-found: error
+          retention-days: 30
+

@@ -21,7 +21,7 @@ sys.dont_write_bytecode = True
 
 WORK = Path(__file__).resolve().parents[3]
 SPIKE = WORK / "repo/spikes/mpv"
-EVIDENCE = WORK / "evidence/VE-P1e-3b/section13"
+EVIDENCE = WORK / "evidence" / os.environ.get("VE_MPV_CYCLE", "VE-P1e-3c1")
 SCRATCH = WORK / "scratch/mpv-spike"
 CACHE = WORK / "cache/mpv-lgpl"
 EXE = CACHE / "spike-target/debug/mpv-embedding-spike.exe"
@@ -100,9 +100,18 @@ class Client:
         env.pop("VE_MPV_SPIKE_AUTOCLOSE_MS", None)
         env["VE_MPV_SPIKE_TEST"] = "1"
         env["VE_MPV_HTML_URL"] = base_url + "/player"
+        if mode == "STACK":
+            env["VE_MPV_EXTERNAL"] = str(SCRATCH / clip)
+            env.setdefault("VE_MPV_GRAPH", "[vid1][vid2]hstack=inputs=2[vo]")
         self.started = time.perf_counter()
         self.process = subprocess.Popen(
-            [str(EXE), mode, str(CACHE / "libmpv-2.dll"), str(SCRATCH / clip), str(profile)],
+            [
+                str(EXE),
+                mode,
+                os.environ.get("VE_MPV_DLL", str(CACHE / "libmpv-2.dll")),
+                str(SCRATCH / clip),
+                str(profile),
+            ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self.err,
@@ -441,7 +450,7 @@ def gui_test(client):
     return results
 
 
-def playback(client, clip, fps, base_url, duration):
+def playback(client, clip, fps, base_url, duration, timing_only=False):
     result = {
         "mode": client.mode,
         "clip": clip,
@@ -451,7 +460,8 @@ def playback(client, clip, fps, base_url, duration):
         "steps": [],
         "playback_samples": [],
     }
-    client.js("(()=>{seek.onpointermove=null;return true})()")
+    if not timing_only:
+        client.js("(()=>{seek.onpointermove=null;return true})()")
     for run in range(5):
         if client.mode == "HTML5":
             value = client.html("load", base_url + "/" + clip + f"?run={run}")
@@ -472,6 +482,8 @@ def playback(client, clip, fps, base_url, duration):
         else:
             value = attempt(client.call, op="track", args=["seek", str(target), "absolute+exact"])
         result["seeks"].append({"target": target, "sample": value})
+    if timing_only:
+        return result
     # Exactness is judged independently with captured burned-in frame numbers.
     if client.mode == "HTML5":
         client.js("(()=>{video.pause();return true})()")
@@ -493,7 +505,9 @@ def playback(client, clip, fps, base_url, duration):
             {
                 "direction": direction,
                 "sample": value,
-                "capture": attempt(client.capture, "step-" + str(index)),
+                "capture": attempt(client.capture, "step-" + str(index))
+                if os.environ.get("VE_MPV_CAPTURE") != "0"
+                else {"status": "NOT_RUN", "reason": "Capture disabled for timing run"},
             }
         )
     if client.mode == "HTML5":
@@ -539,29 +553,60 @@ def preview(client):
             value = client.call(op="preview-frame")
             if (
                 value.get("time") is not None
-                and abs(float(value["time"]) - at) < 0.05
                 and value.get("seeking") == "no"
                 and value.get("bytes", 0) > 1000
             ):
                 break
             time.sleep(0.01)
-        # Allow the queued render and HTML image decode to complete, then retain
-        # the actual returned pixels for burned-in-number verification.
-        time.sleep(0.05)
-        value = client.call(op="preview-frame")
-        uri = client.js("document.querySelector('#preview img').src")
+        # Wait for the actual image decode rather than a fixed grace period.
+        image = client.js(
+            "(()=>{const im=document.querySelector('#preview img');"
+            "return im.decode().then(()=>({src:im.src,width:im.naturalWidth,"
+            "height:im.naturalHeight}));})()"
+        )
+        shown_ms = (time.perf_counter() - started) * 1000
+        uri = image["src"]
         name = client.label + "-hover-" + str(at) + ".png"
         (EVIDENCE / name).write_bytes(base64.b64decode(uri.split(",", 1)[1]))
         samples.append(
             {
                 "target": at,
-                "latency_ms": (time.perf_counter() - started) * 1000,
+                "latency_ms": shown_ms,
                 "result": value,
                 "image": name,
+                "decoded_width": image["width"],
             }
         )
+        cached_start = time.perf_counter()
+        cached = client.call(op="preview", time=at)
+        decoded = client.js("document.querySelector('#preview img').decode().then(()=>true)")
+        samples[-1]["cached_ms"] = (time.perf_counter() - cached_start) * 1000
+        samples[-1]["cached_result"] = cached
+        samples[-1]["cached_image_complete"] = decoded
     client.js("(()=>{preview.style.display='block';preview.style.left='250px';return true})()")
-    return {"samples": samples, "capture": attempt(client.capture, "preview")}
+    positions = [(index * 17) % 60 + 0.1 for index in range(99)] + [41.1]
+    keys = [client.send(op="preview", time=at) for at in positions]
+    replies = [client.wait(lambda r, key=key: r.get("reply") == key) for key in keys]
+    deadline = time.monotonic() + 10
+    latest = {}
+    while time.monotonic() < deadline:
+        latest = client.call(op="preview-frame")
+        if latest.get("key") == 411 and latest.get("seeking") == "no":
+            break
+        time.sleep(0.01)
+    return {
+        "samples": samples,
+        "burst": {
+            "requests": len(keys),
+            "cancelled": sum(
+                isinstance(r.get("result"), dict) and r["result"].get("cancelled", False)
+                for r in replies
+            ),
+            "latest": latest,
+            "status": "PASS" if latest.get("key") == 411 else "FAIL",
+        },
+        "capture": attempt(client.capture, "preview"),
+    }
 
 
 def sync(client, duration):
@@ -569,9 +614,28 @@ def sync(client, duration):
     client.command("set", "pause", "no")
     counter = memory(client.process.pid)
     rows = []
+    changes = []
+    state = client.call(op="state")
     start = time.perf_counter()
     try:
         for _ in range(duration):
+            if os.environ.get("VE_MPV_MOVABLE_DIVIDER") and len(rows) in (20, 40):
+                divider = 0.25 if len(rows) == 20 else 0.75
+                graph = (
+                    f"[vid1]crop=iw*{divider}:ih:0:0[l];"
+                    f"[vid2]crop=iw*{1 - divider}:ih:iw*{divider}:0[r];"
+                    "[l][r]hstack=inputs=2[vo]"
+                )
+                begin = time.perf_counter()
+                reply = client.call(op="track", args=["set", "lavfi-complex", graph])
+                changes.append(
+                    {
+                        "divider": divider,
+                        "graph": graph,
+                        "reply": reply,
+                        "wall_ms": (time.perf_counter() - begin) * 1000,
+                    }
+                )
             props = client.props()
             row = {
                 "elapsed": time.perf_counter() - start,
@@ -580,13 +644,52 @@ def sync(client, duration):
             }
             if props.get("second-time") is not None:
                 row["drift_ms"] = abs(float(props["time-pos"]) - float(props["second-time"])) * 1000
-            if client.mode == "STACK" and (len(rows) + 1) % 10 == 0:
+            if (
+                client.mode == "STACK"
+                and (len(rows) + 1) % 10 == 0
+                and os.environ.get("VE_MPV_CAPTURE") != "0"
+            ):
                 row["capture"] = attempt(client.capture, "sync-" + str(len(rows) + 1))
             rows.append(row)
             time.sleep(max(0, start + len(rows) - time.perf_counter()))
     finally:
         counter.close()
-    return {"samples": rows, "capture": attempt(client.capture, "sync")}
+    return {
+        "samples": rows,
+        "state": state,
+        "graph": os.environ.get("VE_MPV_GRAPH", "[vid1][vid2]hstack=inputs=2[vo]"),
+        "divider_changes": changes,
+        "capture": attempt(client.capture, "sync")
+        if os.environ.get("VE_MPV_CAPTURE") != "0"
+        else {"status": "NOT_RUN", "reason": "Capture disabled"},
+    }
+
+
+def lazy(client):
+    process = psutil.Process(client.process.pid)
+
+    def loaded():
+        return [m.path for m in process.memory_maps() if Path(m.path).name == "libmpv-2.dll"]
+
+    counter = memory(client.process.pid)
+    try:
+        result = {"before": sample(process.pid, counter), "dll_before": loaded()}
+        result["open"] = client.call(op="open-player")
+        time.sleep(1)
+        result["dll_open"] = loaded()
+        result["playing"] = sample(process.pid, counter)
+        result["properties"] = client.props()
+        result["versions"] = client.call(op="versions")
+        result["close"] = client.call(op="close-player")
+        result["after_close"] = []
+        for _ in range(5):
+            time.sleep(1)
+            result["after_close"].append(sample(process.pid, counter))
+        result["dll_after"] = loaded()
+        result["host_alive"] = process.is_running()
+        return result
+    finally:
+        counter.close()
 
 
 def main():
@@ -598,6 +701,7 @@ def main():
         choices=[
             "gui",
             "bench",
+            "timing",
             "preview",
             "sync",
             "probe",
@@ -605,6 +709,7 @@ def main():
             "codec",
             "overlay",
             "focus",
+            "lazy",
         ],
         default="probe",
     )
@@ -620,16 +725,22 @@ def main():
     client = None
     result = {"phase": args.phase, "mode": args.mode, "clip": args.clip}
     try:
+        if args.phase == "lazy":
+            os.environ["VE_MPV_DEFER_OPEN"] = "1"
         client = Client(args.mode, args.clip, args.label, base_url)
         if args.phase == "gui":
             result.update(gui_test(client))
-        elif args.phase == "bench":
+        elif args.phase in ("bench", "timing"):
             fps = dict(CLIPS).get(args.clip, 30)
-            result.update(playback(client, args.clip, fps, base_url, args.seconds))
+            result.update(
+                playback(client, args.clip, fps, base_url, args.seconds, args.phase == "timing")
+            )
         elif args.phase == "preview":
             result.update(preview(client))
         elif args.phase == "sync":
             result.update(sync(client, args.seconds))
+        elif args.phase == "lazy":
+            result.update(lazy(client))
         elif args.phase == "container":
             result["first_frame"] = attempt(
                 client.call, op="track", args=["loadfile", str(SCRATCH / args.clip)]

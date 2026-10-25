@@ -32,6 +32,13 @@ use windows::{
 use wry::{WebContext, WebView, WebViewBuilder, WebViewExtWindows};
 
 struct Host {
+    proxy: tao::event_loop::EventLoopProxy<()>,
+    sender: mpsc::Sender<String>,
+    profile: PathBuf,
+    preview_key: i64,
+    preview_active_key: i64,
+    preview_ready: bool,
+    thumbnails: std::collections::VecDeque<(i64, String, Value)>,
     composed: Option<composition::Composition>,
     native: Option<mpv::Mpv>,
     second: Option<mpv::Mpv>,
@@ -98,6 +105,7 @@ impl Host {
         self.second.take();
         self.native.take();
         self.composed.take();
+        self.thumbnails.clear();
     }
 }
 
@@ -128,6 +136,31 @@ unsafe fn request(
 ) -> Result<Value, Box<dyn std::error::Error>> {
     let hwnd = HWND(window.hwnd() as _);
     match v["op"].as_str().unwrap_or("") {
+        "open-player" => {
+            if host.player().is_some() {
+                return Err("Player already open".into());
+            }
+            let start = Instant::now();
+            let mut composition = composition::Composition::new(
+                hwnd,
+                dll,
+                &host.profile,
+                host.sender.clone(),
+                host.proxy.clone(),
+            )?;
+            composition.mpv.callbacks(host.proxy.clone())?;
+            let init_ms = start.elapsed().as_secs_f64() * 1000.;
+            let dll_init_ms = composition.mpv.init_ms;
+            host.composed = Some(composition);
+            host.command(&["loadfile", file.to_str().ok_or("path")?])?;
+            Ok(json!({"open_ms":init_ms,"dll_init_ms":dll_init_ms, "properties":host.properties()}))
+        }
+        "versions" => {
+            let p = host.player().ok_or("No player")?;
+            Ok(
+                json!({"mpv-version":p.property("mpv-version"),"mpv-configuration":p.property("mpv-configuration"),"ffmpeg-version":p.property("ffmpeg-version")}),
+            )
+        }
         "cdp" => {
             let core = if let Some(c) = &host.composed {
                 c.web.clone()
@@ -282,8 +315,25 @@ unsafe fn request(
             Ok(json!(true))
         }
         "preview" => {
+            let at = v["time"].as_f64().unwrap_or(0.0).max(0.0);
+            host.preview_key = (at * 10.).round() as i64;
+            if let Some((_, uri, result)) = host
+                .thumbnails
+                .iter()
+                .find(|(key, _, _)| *key == host.preview_key)
+            {
+                host.eval(&format!(
+                    "document.querySelector('#preview img').src={};",
+                    json!(uri)
+                ))?;
+                let mut result = result.clone();
+                result["cached"] = json!(true);
+                return Ok(result);
+            }
             if host.preview.is_none() {
-                let at = v["time"].as_f64().unwrap_or(0.0).to_string();
+                host.preview_ready = false;
+                host.preview_active_key = host.preview_key;
+                let at = at.to_string();
                 let mut p = mpv::Mpv::configured(
                     dll,
                     None,
@@ -291,21 +341,54 @@ unsafe fn request(
                         ("hwdec", "no"),
                         ("pause", "yes"),
                         ("audio", "no"),
+                        ("hr-seek", "no"),
+                        ("vf", "scale=w=320:h=-2"),
                         ("start", &at),
                     ],
                 )?;
                 p.create_sw()?;
+                p.callbacks(host.proxy.clone())?;
                 p.command(&["loadfile", file.to_str().ok_or("path")?])?;
                 host.preview = Some(p);
                 return Ok(json!({"loading":true}));
             }
+            if !host.preview_ready {
+                return Ok(json!({"queued":true}));
+            }
             let p = host.preview.as_ref().unwrap();
+            let _ = p.events();
+            host.preview_ready = false;
+            host.preview_active_key = host.preview_key;
             let at = v["time"].as_f64().unwrap_or(0.0);
-            p.command(&["seek", &at.to_string(), "absolute+exact"])?;
+            p.command(&["seek", &at.to_string(), "absolute+keyframes"])?;
             Ok(json!(true))
         }
         "preview-frame" => {
+            if let Some((_, _, result)) = host
+                .thumbnails
+                .iter()
+                .find(|(key, _, _)| *key == host.preview_key)
+            {
+                let mut result = result.clone();
+                result["cached"] = json!(true);
+                return Ok(result);
+            }
             let p = host.preview.as_ref().ok_or("Preview not started")?;
+            if !host.preview_ready {
+                return Ok(json!({"loading":true}));
+            }
+            if host.preview_active_key != host.preview_key {
+                // Finish/discard the old in-flight decode before issuing only
+                // the newest queued seek. Never cache its pixels under a new key.
+                p.command(&[
+                    "seek",
+                    &(host.preview_key as f64 / 10.).to_string(),
+                    "absolute+keyframes",
+                ])?;
+                host.preview_active_key = host.preview_key;
+                host.preview_ready = false;
+                return Ok(json!({"loading":true}));
+            }
             let pixels = p.sw_pixels(320, 180)?;
             let png = capture::png_bytes(320, 180, &pixels)?;
             let uri = format!(
@@ -313,9 +396,15 @@ unsafe fn request(
                 base64::engine::general_purpose::STANDARD.encode(&png)
             );
             host.eval(&format!("document.querySelector('#preview img').src={};hoverTime.value=Number({}).toFixed(2);",json!(uri),json!(p.property("time-pos"))))?;
-            Ok(
-                json!({"time":p.property("time-pos"),"seeking":p.property("seeking"),"bytes":png.len()}),
-            )
+            let result = json!({"time":p.property("time-pos"),"seeking":p.property("seeking"),"bytes":png.len(),"cached":false,"method":"nearest keyframe","key":host.preview_key});
+            if result["seeking"] == "no" && result["time"].is_string() {
+                host.thumbnails
+                    .push_back((host.preview_key, uri, result.clone()));
+                if host.thumbnails.len() > 32 {
+                    host.thumbnails.pop_front();
+                }
+            }
+            Ok(result)
         }
         "close-player" => {
             host.eval(
@@ -341,11 +430,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let dll = PathBuf::from(&args[2]).canonicalize()?;
         let file = PathBuf::from(&args[3]).canonicalize()?;
         let profile = PathBuf::from(&args[4]).canonicalize()?;
-        let work = dll
-            .parent()
+        let work = profile
+            .ancestors()
+            .find(|p| p.file_name().is_some_and(|n| n == "scratch"))
             .and_then(|p| p.parent())
-            .and_then(|p| p.parent())
-            .ok_or("Invalid cache path")?;
+            .ok_or("Profile must be inside work/scratch")?;
         if !profile.starts_with(work.join("scratch")) {
             return Err("Profile must be inside work/scratch".into());
         }
@@ -354,7 +443,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::fs::create_dir_all(&isolated)?;
             std::env::set_var(key, isolated);
         }
-        let evidence = work.join("evidence/VE-P1e-3b/section13");
+        let evidence = work
+            .join("evidence")
+            .join(std::env::var("VE_MPV_CYCLE").unwrap_or_else(|_| "VE-P1e-3c1".into()));
         std::fs::create_dir_all(&evidence)?;
         let events = EventLoop::new();
         let window = WindowBuilder::new()
@@ -362,17 +453,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_inner_size(LogicalSize::new(960., 540.))
             .with_position(PhysicalPosition::new(100, 100))
             .build(&events)?;
-        let heartbeat = events.create_proxy();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(Duration::from_millis(8));
-            if heartbeat.send_event(()).is_err() {
-                break;
-            }
-        });
         let hwnd = HWND(window.hwnd() as _);
         let (tx, rx) = mpsc::channel::<String>();
         let mut context = WebContext::new(Some(profile.clone()));
         let mut host = Host {
+            proxy: events.create_proxy(),
+            sender: tx.clone(),
+            profile: profile.clone(),
+            preview_key: 0,
+            preview_active_key: 0,
+            preview_ready: false,
+            thumbnails: std::collections::VecDeque::new(),
             composed: None,
             native: None,
             second: None,
@@ -382,12 +473,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             overlay: None,
             children: vec![],
         };
-        if approach == "B1" {
+        if approach == "B1" && std::env::var_os("VE_MPV_DEFER_OPEN").is_some() {
+            // The host remains alive without loading libmpv until open-player.
+        } else if approach == "B1" || approach == "STACK" {
             host.composed = Some(composition::Composition::new(
                 hwnd,
                 &dll,
                 &profile,
                 tx.clone(),
+                events.create_proxy(),
             )?);
         } else {
             let target = if approach == "HTML5" {
@@ -426,10 +520,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 host.overlay.as_ref().unwrap()
             };
             let sender = tx.clone();
+            let proxy = events.create_proxy();
             let builder = WebViewBuilder::new_with_web_context(&mut context)
                 .with_transparent(true)
                 .with_ipc_handler(move |r| {
                     let _ = sender.send(r.body().clone());
+                    let _ = proxy.send_event(());
                 });
             host.view = Some(if approach == "HTML5" {
                 builder
@@ -472,6 +568,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if std::env::var_os("VE_MPV_SPIKE_TEST").is_some() {
             let sender = tx.clone();
+            let proxy = events.create_proxy();
             std::thread::spawn(move || {
                 for line in io::stdin().lock().lines() {
                     match line {
@@ -479,11 +576,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if sender.send(line).is_err() {
                                 break;
                             }
+                            let _ = proxy.send_event(());
                         }
                         Err(_) => break,
                     }
                 }
             });
+        }
+        if let Some(c) = &mut host.composed {
+            c.mpv.callbacks(events.create_proxy())?;
+        }
+        if let Some(p) = &mut host.native {
+            p.callbacks(events.create_proxy())?;
+        }
+        if let Some(p) = &mut host.second {
+            p.callbacks(events.create_proxy())?;
         }
         host.command(&["loadfile", file.to_str().ok_or("path")?])?;
         println!(
@@ -495,6 +602,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ok()
             .and_then(|s| s.parse::<u64>().ok());
         let mut telemetry = Instant::now();
+        let profiling = std::env::var_os("VE_MPV_PROFILE").is_some();
+        let mut render_calls = 0u64;
+        let mut render_us = 0u128;
+        let mut render_max_us = 0u128;
+        let mut loop_count = 0u64;
         let mut last = Instant::now();
         let mut cursor = POINT::default();
         let mut pressed = false;
@@ -502,12 +614,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut click = Instant::now() - Duration::from_secs(2);
         let mut pending: Option<(Value, Instant)> = None;
         events.run(move |event,_,flow| {
-        *flow=ControlFlow::WaitUntil(Instant::now()+Duration::from_millis(2));
-        while let Ok(message)=rx.try_recv(){
+        *flow=ControlFlow::WaitUntil(Instant::now()+Duration::from_millis(100));
+        let messages: Vec<_> = rx.try_iter().collect();
+        let latest_hover = messages.iter().rposition(|m| serde_json::from_str::<Value>(m).is_ok_and(|v|v["command"]=="hover" || v["op"]=="preview"));
+        for (index, message) in messages.into_iter().enumerate(){
             let Ok(v)=serde_json::from_str::<Value>(&message) else {continue};
+            if (v["command"]=="hover" || v["op"]=="preview") && Some(index)!=latest_hover {if v.get("id").is_some(){println!("{}",json!({"reply":v["id"],"result":{"cancelled":true}}));}continue}
             if v["op"]=="quit" {*flow=ControlFlow::Exit;println!("{}",json!({"reply":v["id"],"result":true}));continue}
             if v["op"]=="await-frame" {pending=Some((v,Instant::now()));continue}
-            if v["op"]=="track" {if let Some(p)=host.player(){let _=p.events();} let mut tracked=v.clone();tracked["_before"]=host.player().map(|p|json!(p.property("time-pos"))).unwrap_or(Value::Null);pending=Some((tracked,Instant::now()));let strings:Vec<_>=v["args"].as_array().unwrap().iter().filter_map(|s|s.as_str()).collect();if let Err(e)=host.command(&strings){pending.take();println!("{}",json!({"reply":v["id"],"error":e.to_string()}));}continue}
+            if v["op"]=="track" {if let Some(p)=host.player(){let _=p.events();} let mut tracked=v.clone();tracked["_before"]=if v["args"][0].as_str().is_some_and(|s|s.starts_with("frame-")){host.player().map(|p|json!(p.property("time-pos"))).unwrap_or(Value::Null)}else{Value::Null};pending=Some((tracked,Instant::now()));let strings:Vec<_>=v["args"].as_array().unwrap().iter().filter_map(|s|s.as_str()).collect();if let Err(e)=host.command(&strings){pending.take();println!("{}",json!({"reply":v["id"],"error":e.to_string()}));}continue}
             if v.get("op").is_some(){let r=request(&v,&mut host,&window,&dll,&file,&evidence,&mut fullscreen);println!("{}",match r{Ok(value)=>json!({"reply":v["id"],"result":value}),Err(e)=>json!({"reply":v["id"],"error":e.to_string()})});continue}
             if v.get("test_result").is_some(){println!("{}",v);continue}
             println!("{}",json!({"event":"input","data":v}));
@@ -538,15 +653,17 @@ WindowEvent::MouseWheel{delta,..}=>{if let Some(c)=&host.composed{let y=match de
                 _=>{}
             },
             Event::WindowEvent{event:WindowEvent::CloseRequested,..}=>*flow=ControlFlow::Exit,
-            Event::MainEventsCleared=>{
+            Event::MainEventsCleared=>{loop_count+=1;
                 if autoclose.is_some_and(|ms|started.elapsed()>=Duration::from_millis(ms)){*flow=ControlFlow::Exit;}
-                if let Some(c)=&host.composed {if let Err(e)=c.draw(){eprintln!("draw: {e}")}}
+                if let Some(c)=&host.composed {if c.mpv.needs_render().unwrap_or(false){let t=profiling.then(Instant::now);if let Err(e)=c.draw(){eprintln!("draw: {e}")}
+if let Some(t)=t {let us=t.elapsed().as_micros();render_calls+=1;render_us+=us;render_max_us=render_max_us.max(us);}}}
                 if let Some(p)=host.player(){for id in p.events(){println!("{}",json!({"event":"mpv-event","kind":id,"elapsed_ms":started.elapsed().as_secs_f64()*1000.}));if id==21 {if let Some((v,t))=pending.take(){println!("{}",json!({"reply":v["id"],"result":{"latency_ms":t.elapsed().as_secs_f64()*1000.,"properties":host.properties()}}));}}}}
-                if let Some((v,t))=&pending {let stepping=v["args"][0].as_str().is_some_and(|s|s.starts_with("frame-"));let changed=host.player().is_some_and(|p|json!(p.property("time-pos"))!=v["_before"]);if stepping && changed && t.elapsed()>Duration::from_millis(40){let(v,t)=pending.take().unwrap();println!("{}",json!({"reply":v["id"],"result":{"latency_ms":t.elapsed().as_secs_f64()*1000.,"method":"time-pos change after frame step; capture needed for exactness","properties":host.properties()}}));}}
-if let Some(p)=&host.preview{let mut ready=false;for id in p.events(){if id==21{ready=true;}}if ready{let _=request(&json!({"op":"preview-frame"}),&mut host,&window,&dll,&file,&evidence,&mut fullscreen);}}
+                if let Some((v,t))=&pending {let stepping=v["args"][0].as_str().is_some_and(|s|s.starts_with("frame-"));let changed=stepping && host.player().is_some_and(|p|json!(p.property("time-pos"))!=v["_before"]);if stepping && changed && t.elapsed()>Duration::from_millis(40){let(v,t)=pending.take().unwrap();println!("{}",json!({"reply":v["id"],"result":{"latency_ms":t.elapsed().as_secs_f64()*1000.,"method":"time-pos change after frame step; capture needed for exactness","properties":host.properties()}}));}}
+if let Some(p)=&host.preview{for id in p.events(){if id==21{host.preview_ready=true;}}if p.needs_render().unwrap_or(false){let _=p.sw_pixels(320,180);}
+if host.preview_ready{let _=request(&json!({"op":"preview-frame"}),&mut host,&window,&dll,&file,&evidence,&mut fullscreen);}}
                 if pending.as_ref().is_some_and(|(_,t)|t.elapsed()>Duration::from_secs(15)){let(v,_)=pending.take().unwrap();println!("{}",json!({"reply":v["id"],"error":"playback-restart timeout"}));}
-                if telemetry.elapsed()>=Duration::from_secs(1){println!("{}",json!({"event":"telemetry","elapsed_ms":started.elapsed().as_millis(),"properties":host.properties()}));telemetry=Instant::now();}
-                if last.elapsed()>Duration::from_millis(100){if approach!="HTML5"{let p=host.properties();let value=json!({"approach":approach,"time":p["time-pos"],"duration":p["duration"],"hwdec":p["hwdec-current"]});let _=host.eval(&format!("window.update && window.update({value})"));}
+                if pending.is_none() && telemetry.elapsed()>=Duration::from_secs(1){println!("{}",json!({"event":"telemetry","elapsed_ms":started.elapsed().as_millis(),"properties":host.properties()}));if profiling {println!("{}",json!({"event":"profile","loops":loop_count,"draw_calls":render_calls,"draw_us":render_us,"draw_max_us":render_max_us}));}loop_count=0;render_calls=0;render_us=0;render_max_us=0;telemetry=Instant::now();}
+                if pending.is_none() && last.elapsed()>Duration::from_millis(100){if approach!="HTML5"{let p=host.properties();let value=json!({"approach":approach,"time":p["time-pos"],"duration":p["duration"],"hwdec":p["hwdec-current"]});let _=host.eval(&format!("window.update && window.update({value})"));}
                 if host.preview.is_some(){let _=request(&json!({"op":"preview-frame"}),&mut host,&window,&dll,&file,&evidence,&mut fullscreen);}last=Instant::now();}
             },
             Event::LoopDestroyed=>{host.view.take();host.close_players();},
