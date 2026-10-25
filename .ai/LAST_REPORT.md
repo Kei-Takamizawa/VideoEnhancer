@@ -234,3 +234,9 @@ Raw successful/failed NDJSON, stderr, result JSON, audit, local import tables,
 source archive listing, disk and cleanup inventories remain outside Git under
 work/evidence/VE-P1e-3c1 (ci-acceptance and smoke2/3/4 subdirectories). No private
 media, compiled binaries, profiles or screenshots are added to Git.
+
+## Designer closure note (2026-10-25)
+
+- Review: accepted. Part A step 4 passed: gpl=false, embedded FFmpeg `--disable-gpl --disable-nonfree`, strict imports, five-fixture d3d11va smoke, and B1 H.264 timing within targets. The DLLs total 36.6 MB against the 101.5 MB prebuilt. Parts B and C were already accepted.
+- Step 5, reproducibility: the designer started workflow_dispatch run 40203859946 on b65a4cc and it succeeded. The operator downloaded both artifacts (60 files, 114,551,559 bytes each) and compared their `SHA256SUMS`: they match exactly, so the build reproduces byte for byte. Codex did not run this comparison; the operator did, outside Git.
+- Carried to P1e-3c2: product packaging of the three DLLs (libmpv-2, SPIRV-Cross, winpthread) with LICENSES.md and the source offer, and the player integration.
