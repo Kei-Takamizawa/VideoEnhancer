@@ -326,7 +326,19 @@ def fetch_toolchain_sources(root, package, version, checksums, urls, mirrors):
     ]
 
 
+def nasm_version(text):
+    match = re.search(r"NASM version (\d+)\.(\d+)(?:\.(\d+))?", text)
+    if not match or tuple(int(v or 0) for v in match.groups()) < (2, 14, 0):
+        raise ValueError("NASM >= 2.14 required by pinned dav1d (libass needs >= 2.10)")
+    return {
+        "version_output": text.strip(),
+        "minimum": "2.14",
+        "ffmpeg_check": "FFmpeg configure must pass its x86asm instruction probes",
+    }
+
+
 def toolchain(root):
+    assembler = nasm_version(output("nasm", "-v"))
     records, sources = [], set()
     for pin in (root / "toolchain-plan.txt").read_text().splitlines():
         package, version = pin.split("=", 1)
@@ -373,6 +385,7 @@ def toolchain(root):
             "sources": fetched,
             "source_packages": source_packages,
             "runtime_components": runtimes,
+            "nasm": assembler,
             "compiler": output("x86_64-w64-mingw32-gcc-posix", "--version"),
             "cxx": output("x86_64-w64-mingw32-g++-posix", "--version"),
             "compiler_configuration": subprocess.run(
@@ -443,10 +456,17 @@ def execute(root, component, argv):
 
 
 def validate_ffmpeg(configuration, defines):
-    forbidden = {"--enable-gpl", "--enable-nonfree", "--enable-version3"}
+    forbidden = {
+        "--enable-gpl",
+        "--enable-nonfree",
+        "--enable-version3",
+        "--disable-asm",
+        "--disable-x86asm",
+    }
     if any(arg.split("=", 1)[0] in forbidden for arg in shlex.split(configuration)):
-        raise ValueError("Forbidden FFmpeg licence flag")
+        raise ValueError("Forbidden FFmpeg configuration flag")
     required = {
+        "HAVE_X86ASM": 1,
         "CONFIG_GPL": 0,
         "CONFIG_NONFREE": 0,
         "CONFIG_VERSION3": 0,
@@ -455,7 +475,7 @@ def validate_ffmpeg(configuration, defines):
     }
     for name, value in required.items():
         if defines.get(name) != value:
-            raise ValueError(f"FFmpeg licence/network/device gate failed: {name}")
+            raise ValueError(f"FFmpeg configuration gate failed: {name}")
     for codec in ("H264", "HEVC", "VP9", "AV1"):
         for variant in ("D3D11VA", "D3D11VA2"):
             if defines.get(f"CONFIG_{codec}_{variant}_HWACCEL") != 1:
@@ -516,6 +536,23 @@ def macro(text, name):
     return ast.literal_eval(match[1])
 
 
+def subtitle_decoder_features(name, text):
+    defines = {
+        k: int(v) for k, v in re.findall(r"^#define\s+(\w+)\s+([01])\s*$", text, re.MULTILINE)
+    }
+    assembly = "CONFIG_ASM" if name == "libass" else "HAVE_ASM"
+    if defines.get(assembly) != 1:
+        raise ValueError(f"{name} assembly was not built")
+    features = {"assembly": True}
+    if name == "libass":
+        for feature in ("iconv", "libpng"):
+            enabled = bool(defines.get("CONFIG_" + feature.upper(), 0))
+            if enabled:
+                raise ValueError(f"Unrequested libass dependency enabled: {feature}")
+            features[feature] = False
+    return features
+
+
 def complete(root, name, parent=None):
     receipt = {"component": name, "status": "built"}
     build = root / "build" / name
@@ -529,10 +566,13 @@ def complete(root, name, parent=None):
         receipt["cmake_cache"] = (build / "CMakeCache.txt").read_text()
     if (build / "meson-info/intro-buildoptions.json").exists():
         receipt["meson_options"] = load(build / "meson-info/intro-buildoptions.json")
+    if name in {"libass", "dav1d"}:
+        receipt["features"] = subtitle_decoder_features(name, (build / "config.h").read_text())
     if name == "ffmpeg":
         text = (build / "config.h").read_text() + (build / "config_components.h").read_text()
         defines = {
-            k: int(v) for k, v in re.findall(r"^#define (CONFIG_\w+) ([01])$", text, re.MULTILINE)
+            k: int(v)
+            for k, v in re.findall(r"^#define (CONFIG_\w+|HAVE_X86ASM) ([01])$", text, re.MULTILINE)
         }
         configuration = macro(text, "FFMPEG_CONFIGURATION")
         validate_ffmpeg(configuration, defines)

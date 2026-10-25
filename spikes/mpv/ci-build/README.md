@@ -104,6 +104,27 @@ checks Windows libmpv properties, five D3D11VA fixtures and the H.264 regression
 The designer dispatches the second clean workflow for reproduction comparison.
 At most six CI rounds are allowed. Current state: **Awaiting CI build**.
 
+## Round 4 assembly and host tools
+
+The shared Meson cross file explicitly supplies `nasm = 'nasm'`, alongside the
+target C/C++ compilers, ar, strip and windres. Every Meson component uses that
+same file. libass keeps `asm=enabled`, dav1d explicitly sets `enable_asm=true`,
+and FFmpeg selects `--x86asmexe=nasm --enable-asm --enable-x86asm`. Target GCC
+selects its linker; CMake uses the target compilers/resource compiler and native
+build-time programs. No target executable is run to discover these tools.
+
+The toolchain receipt records actual `nasm -v` output and rejects versions older
+than 2.14 (pinned libass needs 2.10, pinned dav1d needs 2.14). Pinned FFmpeg uses
+instruction probes rather than a numeric minimum; those configure probes must
+pass and the generated `HAVE_X86ASM` must be 1. Actual generated libass/dav1d
+headers must also confirm assembly. libass's optional iconv and libpng remain
+absent; `components[].features` records both as false from the built config,
+and rejects unexpected enablement. Assembly cannot silently fall back off.
+
+Windows tests verify those gates and receipt contents. The runner's actual NASM
+version and assembly compilation still require the next CI build; simulated
+version output in tests is not runner evidence.
+
 ## Round 2 toolchain regression coverage
 
 Section 11.4 reports round 1 failing on the unavailable Built-Using source

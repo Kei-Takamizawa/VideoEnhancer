@@ -63,7 +63,7 @@ meson_component harfbuzz -Dfreetype=enabled -Dzlib=enabled -Dtests=disabled \
     -Dgpu=disabled -Dwith_libstdcxx=true
 meson_component libass -Ddirectwrite=enabled -Dasm=enabled
 meson_component dav1d -Denable_tools=false -Denable_tests=false \
-    -Denable_examples=false -Denable_docs=false
+    -Denable_examples=false -Denable_docs=false -Denable_asm=true
 # The pinned mpv D3D11 render API requires shaderc as well as SPIRV-Cross.
 # Use exactly shaderc's DEPS revisions, supplied without git-sync-deps.
 cmake_component shaderc -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON \
@@ -94,6 +94,7 @@ cd "$ROOT/build/ffmpeg"
 run "$ROOT/src/ffmpeg/configure" \
     --prefix="$PREFIX" --target-os=mingw32 --arch=x86_64 --enable-cross-compile \
     --cross-prefix="$TARGET-" --cc="$CC" --cxx="$CXX" \
+    --x86asmexe=nasm --enable-asm --enable-x86asm \
     --pkg-config=pkg-config --pkg-config-flags=--static \
     --extra-cflags="$CFLAGS" --extra-ldflags="$LDFLAGS" \
     --disable-autodetect --disable-everything --disable-gpl --disable-nonfree \

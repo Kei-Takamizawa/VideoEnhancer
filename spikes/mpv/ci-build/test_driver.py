@@ -64,6 +64,8 @@ class MockAptToolchain(unittest.TestCase):
         return filename, data
 
     def apt_output(self, *args, cwd=None):
+        if args == ("nasm", "-v"):
+            return "NASM version 2.16.01 compiled on mock date\n"
         if args[:2] == ("apt-cache", "policy"):
             return "  Candidate: " + self.installed[args[2]][0] + "\n"
         if args[:2] == ("dpkg-query", "-W"):
@@ -310,6 +312,22 @@ class MockAptToolchain(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unexpected Ubuntu source host"):
             self.run_toolchain()
 
+    def test_complete_records_generated_libass_and_dav1d_features(self):
+        for name, text, expected in (
+            (
+                "libass",
+                "#define CONFIG_ASM 1\n",
+                {"assembly": True, "iconv": False, "libpng": False},
+            ),
+            ("dav1d", "#define HAVE_ASM 1\n", {"assembly": True}),
+        ):
+            build = self.root / "build" / name
+            build.mkdir(parents=True)
+            (build / "config.h").write_text(text)
+            driver.complete(self.root, name)
+            receipt = driver.load(self.root / "receipts" / (name + ".json"))
+            self.assertEqual(receipt["features"], expected)
+
 
 class AptSourceOrigins(unittest.TestCase):
     def test_exact_round_2_pseudo_uri_and_get_line(self):
@@ -354,6 +372,7 @@ class AptSourceOrigins(unittest.TestCase):
 
 def clean_ffmpeg_defines():
     values = {
+        "HAVE_X86ASM": 1,
         "CONFIG_GPL": 0,
         "CONFIG_NONFREE": 0,
         "CONFIG_VERSION3": 0,
@@ -389,6 +408,48 @@ def clean_ffmpeg_defines():
 
 
 class DistributionGates(unittest.TestCase):
+    def test_nasm_minimum_for_pinned_projects(self):
+        self.assertEqual(
+            driver.nasm_version("NASM version 2.16.01 compiled on date")["minimum"], "2.14"
+        )
+        driver.nasm_version("NASM version 2.14")
+        for text in ("NASM version 2.13.03", "NASM version 2.9", "yasm 1.3"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                driver.nasm_version(text)
+
+    def test_libass_disabled_optional_features_and_required_assembly(self):
+        self.assertEqual(
+            driver.subtitle_decoder_features(
+                "libass",
+                "#define CONFIG_ASM 1\n/* #undef CONFIG_ICONV */\n/* #undef CONFIG_LIBPNG */\n",
+            ),
+            {"assembly": True, "iconv": False, "libpng": False},
+        )
+        for text in (
+            "#define CONFIG_ASM 0\n",
+            "",
+            "#define CONFIG_ASM 1\n#define CONFIG_ICONV 1\n",
+            "#define CONFIG_ASM 1\n#define CONFIG_LIBPNG 1\n",
+        ):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                driver.subtitle_decoder_features("libass", text)
+
+    def test_dav1d_assembly_is_required(self):
+        self.assertEqual(
+            driver.subtitle_decoder_features("dav1d", "#define HAVE_ASM 1\n"), {"assembly": True}
+        )
+        with self.assertRaisesRegex(ValueError, "assembly was not built"):
+            driver.subtitle_decoder_features("dav1d", "#define HAVE_ASM 0\n")
+
+    def test_ffmpeg_external_assembly_cannot_be_disabled(self):
+        values = clean_ffmpeg_defines()
+        values["HAVE_X86ASM"] = 0
+        with self.assertRaisesRegex(ValueError, "HAVE_X86ASM"):
+            driver.validate_ffmpeg("--enable-x86asm", values)
+        for flag in ("--disable-x86asm", "--disable-asm"):
+            with self.subTest(flag=flag), self.assertRaises(ValueError):
+                driver.validate_ffmpeg(flag, clean_ffmpeg_defines())
+
     def test_mpv_requires_gpl_false_in_actual_build_options(self):
         values = {
             "gpl": True,
