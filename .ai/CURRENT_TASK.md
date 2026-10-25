@@ -353,3 +353,26 @@ FAILED: src/libplacebo.a.p/vulkan_stubs.c.obj
 - Do not patch libplacebo to drop the stub file; use the headers.
 - Look ahead before pushing: read the remaining recipes (libplacebo install, FFmpeg configure, mpv configure, packaging) for other missing target headers or pkg-config files, for example any D3D11/DXGI, `spirv_cross` or `shaderc` pkg-config names mpv checks, so round 6 gets as far as possible.
 - Then end the round with `Awaiting CI build`.
+
+### 11.9 CI round 6 result (designer, 2026-10-25): FAIL at the final libmpv link. 6 rounds used
+
+Big progress. Run 40197198723 on a8e73ab built every dependency, FFmpeg included, and reached the mpv build in `build/mpv`. The final link then failed with thousands of undefined C++ runtime symbols, all from the static shaderc archive:
+
+```text
+x86_64-w64-mingw32-ld: .../prefix/lib/libshaderc_combined.a(loop_fusion.cpp.obj): undefined reference to `operator new(unsigned long long)'
+... undefined reference to `std::__throw_length_error(char const*)'
+... undefined reference to `vtable for __cxxabiv1::__class_type_info'
+collect2: error: ld returned 1 exit status
+```
+
+**Cause.** mpv is a C project, so meson links libmpv with `gcc`, not `g++`. `-static-libstdc++` in `cpp_link_args` and `LDFLAGS` has no effect on a `gcc` link, and nothing puts the C++ runtime after `libshaderc_combined.a` on the link line. The `.pc` files for shaderc_combined and/or libplacebo do not list it in `Libs.private`.
+
+**What to change:**
+- Make the static C++ runtime appear on the libmpv link line **after** the shaderc and libplacebo archives. The usual fix, also used by other mingw libmpv builds, is to add the C++ runtime to `Libs.private` in the installed `shaderc_combined.pc` (or `libplacebo.pc`). Use a static form such as `-l:libstdc++.a` (or `-lstdc++` with the static archive guaranteed). Add `-lpthread`/winpthread only if needed. Do the edit in `build.sh` or `driver.py` after install, record it in the manifest as a build-recipe change (not an upstream patch), and test it.
+- An alternative is mpv's own link arguments, if you can show the runtime then lands after the archives. Choose one and say why.
+- The result must not import `libstdc++-6.dll`, `libgcc_s_seh-1.dll` or `libwinpthread-1.dll`, unless the manifest ships and licenses that DLL. Keep the objdump import check strict.
+- Look ahead before pushing:
+  - check the rest of the mpv link line for other C++ static archives, for example SPIRV-Cross if it is linked statically;
+  - check that the `libspirv-cross-c-shared.dll` decision from 11.7 holds at link time;
+  - read `package.sh` and the post-build checks (imports, the gpl/nonfree checks, `SHA256SUMS`, `sources.tar.zst`), so round 7 can reach a green artifact.
+- Then end the round with `Awaiting CI build`.
