@@ -102,7 +102,32 @@ when bash is unavailable; this is not execution of the shell or Linux build. No 
 green, the operator downloads and verifies the artifact, then a later round
 checks Windows libmpv properties, five D3D11VA fixtures and the H.264 regression.
 The designer dispatches the second clean workflow for reproduction comparison.
-At most six CI rounds are allowed. Current state: **Awaiting CI build**.
+At most ten CI rounds are allowed (section 11.7). Current state: **Awaiting CI build**.
+
+## Round 5 binutils and shader provenance
+
+The cross file names dlltool, ranlib, nm, objcopy, objdump, ld and windmc using
+their x86_64-w64-mingw32 prefixes. driver.py checks every configured binary with
+executable lookup during toolchain collection and again before rendering cross
+files. Missing required tools stop configuration. windmc is optional; if absent,
+its entry is omitted from the generated file and its absence is recorded.
+cross-tools.json is retained with the build scripts in the source offer.
+
+SPIRV-Cross stays a separate C API DLL: pinned libplacebo and mpv require the
+spirv-cross-c-shared dependency. Static linking would require changing upstream
+dependency/build metadata; this round keeps the working shared build. Its DLL
+names are in the explicit import allowlist, the component lists its provided DLL
+names, and shipped_dlls is populated only from actual packaged DLLs.
+
+SPIRV-Cross translates SPIR-V; it does not replace GLSL-to-SPIR-V compilation.
+Pinned libplacebo's D3D11 backend creates a GLSL compiler and needs shaderc or
+glslang. Pinned mpv's D3D11 feature explicitly requires both shaderc and
+SPIRV-Cross. Keep shaderc enabled. The updated source lock includes glslang's
+BSD-2-Clause/BSD-3-Clause/MIT/Apache notices and GPL-3.0-or-later WITH
+Bison-exception-2.2 for the two generated parser files. Licence evidence is
+hashed and checked before building and packaging; extra GPL C/C++ sources in
+glslang without verified exception evidence are rejected. See DISTRIBUTION.md
+for the licence rationale, retained notices and replacement/source obligations.
 
 ## Round 4 assembly and host tools
 

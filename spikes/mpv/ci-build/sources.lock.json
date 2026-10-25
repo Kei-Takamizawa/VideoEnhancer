@@ -97,7 +97,13 @@
       ],
       "patches": [],
       "sha256_origin": "Recorded from the pinned official source archive during round 1; rechecked before every extraction",
-      "commit": "d8e3e2b141b8c8a167b2e3984736a6baacff316c"
+      "commit": "d8e3e2b141b8c8a167b2e3984736a6baacff316c",
+      "provides_dll_names": [
+        "libspirv-cross-c-shared.dll",
+        "spirv-cross-c-shared.dll"
+      ],
+      "linkage_policy": "Separate Apache-2.0 C API DLL: pinned libplacebo and mpv request spirv-cross-c-shared. Keep upstream metadata unchanged; actual shipped_dlls are recorded after import-closure checking.",
+      "licence_compatibility": "Apache-2.0 permits use with retained notices and patent terms; combined LGPL components elect LGPL-3.0-or-later. The separate MIT application retains its licence and LGPL replacement/source obligations."
     },
     {
       "name": "libplacebo",
@@ -155,7 +161,17 @@
         "LICENSE"
       ],
       "patches": [],
-      "sha256_origin": "Recorded from the official pinned source archive; glslang/SPIRV revisions match shaderc v2025.4 DEPS"
+      "sha256_origin": "Recorded from the official pinned source archive; glslang/SPIRV revisions match shaderc v2025.4 DEPS",
+      "included_components": [
+        "glslang",
+        "spirv-tools",
+        "spirv-headers"
+      ],
+      "licence_compatibility": "Own code is Apache-2.0; included child components and their exact licences are separate manifest entries. Preserve notices and LGPL-3.0-or-later election; glslang Bison-generated parser retains Bison-exception-2.2.",
+      "provides_dll_names": [
+        "libshaderc_shared.dll",
+        "shaderc_shared.dll"
+      ]
     },
     {
       "name": "glslang",
@@ -163,13 +179,33 @@
       "url": "https://github.com/KhronosGroup/glslang/archive/d213562e35573012b6348b2d584457c3704ac09b.tar.gz",
       "sha256": "9537e5896d10bc493775675153687e078d83aead3a5a3b90e9ac28af2bc966fc",
       "archive_root": "glslang-d213562e35573012b6348b2d584457c3704ac09b",
-      "licence_spdx": "BSD-3-Clause AND MIT AND Apache-2.0",
+      "licence_spdx": "BSD-3-Clause AND BSD-2-Clause AND MIT AND Apache-2.0 AND (GPL-3.0-or-later WITH Bison-exception-2.2)",
       "licence_files": [
-        "LICENSE.txt"
+        "LICENSE.txt",
+        "glslang/MachineIndependent/glslang_tab.cpp",
+        "glslang/MachineIndependent/glslang_tab.cpp.h"
       ],
       "patches": [],
       "sha256_origin": "Recorded from the official pinned source archive; glslang/SPIRV revisions match shaderc v2025.4 DEPS",
-      "commit": "d213562e35573012b6348b2d584457c3704ac09b"
+      "commit": "d213562e35573012b6348b2d584457c3704ac09b",
+      "licence_compatibility": "BSD/MIT retain notices; Apache-2.0 uses the combined LGPL-3.0-or-later election. The Bison skeleton exception permits this non-parser-generator larger work under chosen terms; keep its notice and GPL text. No exception is removed.",
+      "licence_evidence": [
+        {
+          "path": "LICENSE.txt",
+          "sha256": "adb783e734e906d1f46db5df29991dbde84bdb0ceab502ac2febb44fe3c2b5f4",
+          "licence_spdx": "BSD-3-Clause AND BSD-2-Clause AND MIT AND Apache-2.0"
+        },
+        {
+          "path": "glslang/MachineIndependent/glslang_tab.cpp",
+          "sha256": "2db4d68463c01be056c78ec80b62a3e814cd573128cf9a7be9b0f5aa417781e9",
+          "licence_spdx": "GPL-3.0-or-later WITH Bison-exception-2.2"
+        },
+        {
+          "path": "glslang/MachineIndependent/glslang_tab.cpp.h",
+          "sha256": "12d516759f0e24d59dafc61f4ca8e5405f4bce2066092308f6c4c8b5d91f7891",
+          "licence_spdx": "GPL-3.0-or-later WITH Bison-exception-2.2"
+        }
+      ]
     },
     {
       "name": "spirv-headers",
@@ -183,7 +219,8 @@
       ],
       "patches": [],
       "sha256_origin": "Recorded from the official pinned source archive; glslang/SPIRV revisions match shaderc v2025.4 DEPS",
-      "commit": "01e0577914a75a2569c846778c2f93aa8e6feddd"
+      "commit": "01e0577914a75a2569c846778c2f93aa8e6feddd",
+      "licence_compatibility": "MIT permits inclusion with its copyright and permission notice retained; it does not impose copyleft on the LGPL library or MIT application."
     },
     {
       "name": "spirv-tools",
@@ -197,7 +234,8 @@
       ],
       "patches": [],
       "sha256_origin": "Recorded from the official pinned source archive; glslang/SPIRV revisions match shaderc v2025.4 DEPS",
-      "commit": "19042c8921f35f7bec56b9e5c96c5f5691588ca8"
+      "commit": "19042c8921f35f7bec56b9e5c96c5f5691588ca8",
+      "licence_compatibility": "Apache-2.0 permits use with retained notices and patent terms; combined LGPL components elect LGPL-3.0-or-later. The separate MIT application retains its licence and LGPL replacement/source obligations."
     }
   ]
 }

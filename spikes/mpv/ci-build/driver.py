@@ -1,6 +1,7 @@
 """Pinned-source receipts, fail-closed checks and packaging for the Linux cross build."""
 
 import ast
+import configparser
 import hashlib
 import json
 import os
@@ -337,7 +338,33 @@ def nasm_version(text):
     }
 
 
+def cross_tools():
+    config = configparser.ConfigParser(interpolation=None)
+    config.read_string((SCRIPTS / "mingw.ini.in").read_text())
+    tools = {}
+    for name, literal in config["binaries"].items():
+        command = ast.literal_eval(literal)
+        path = shutil.which(command)
+        if not path and name != "windmc":
+            raise ValueError(f"Required cross tool not found or executable: {name}={command}")
+        tools[name] = {"command": command, "path": path, "optional": name == "windmc"}
+    return tools
+
+
+def configure_cross(root):
+    tools = cross_tools()
+    text = (SCRIPTS / "mingw.ini.in").read_text()
+    if not tools["windmc"]["path"]:
+        text = re.sub(r"^windmc = .*\n", "", text, flags=re.MULTILINE)
+    (root / "mingw.ini").write_text(text.replace("@PREFIX@", str(root / "prefix")))
+    (root / "mingw.cmake").write_text(
+        (SCRIPTS / "mingw.cmake.in").read_text().replace("@PREFIX@", str(root / "prefix"))
+    )
+    save(root / "cross-tools.json", tools)
+
+
 def toolchain(root):
+    tools = cross_tools()
     assembler = nasm_version(output("nasm", "-v"))
     records, sources = [], set()
     for pin in (root / "toolchain-plan.txt").read_text().splitlines():
@@ -386,6 +413,7 @@ def toolchain(root):
             "source_packages": source_packages,
             "runtime_components": runtimes,
             "nasm": assembler,
+            "cross_tools": tools,
             "compiler": output("x86_64-w64-mingw32-gcc-posix", "--version"),
             "cxx": output("x86_64-w64-mingw32-g++-posix", "--version"),
             "compiler_configuration": subprocess.run(
@@ -400,6 +428,39 @@ def toolchain(root):
             },
         },
     )
+
+
+def verify_component_licences(base, component):
+    verified = []
+    for evidence in component.get("licence_evidence", []):
+        file = base / evidence["path"]
+        if not file.is_file() or digest(file) != evidence["sha256"]:
+            raise ValueError(f"Licence evidence changed or missing: {file}")
+        licence = evidence["licence_spdx"]
+        if "GPL-" in licence:
+            if licence != "GPL-3.0-or-later WITH Bison-exception-2.2":
+                raise ValueError(f"Unapproved shader GPL licence: {licence}")
+            text = " ".join(file.read_text().split())
+            for required in (
+                "either version 3 of the License",
+                "any later version",
+                "As a special exception",
+                "under terms of your choice",
+                "parser generator using the skeleton",
+                "version 2.2 of Bison",
+            ):
+                if required not in text:
+                    raise ValueError(f"Bison exception evidence missing: {file}")
+        verified.append({**evidence, "verified_sha256": digest(file)})
+    if component["name"] == "glslang":
+        approved = {e["path"] for e in verified if "WITH Bison-exception-2.2" in e["licence_spdx"]}
+        for file in base.rglob("*"):
+            if file.suffix not in {".c", ".cpp", ".h", ".hpp"} or not file.is_file():
+                continue
+            if "GNU General Public License" in file.read_text(errors="replace"):
+                if file.relative_to(base).as_posix() not in approved:
+                    raise ValueError(f"Unapproved GPL source without verified exception: {file}")
+    return verified
 
 
 def fetch(root):
@@ -426,11 +487,13 @@ def fetch(root):
         for licence in component["licence_files"]:
             if not (source_dir / name / licence).is_file():
                 raise ValueError(f"Required licence text missing: {name}/{licence}")
+        licence_evidence = verify_component_licences(source_dir / name, component)
         receipts.append(
             {
                 **component,
                 "archive": str(archive.relative_to(root)),
                 "verified_sha256": digest(archive),
+                "verified_licence_evidence": licence_evidence,
             }
         )
         print(f"Verified {name}: {component['sha256']}", flush=True)
@@ -615,6 +678,7 @@ def package(root):
     for source in fetched:
         if digest(root / source["archive"]) != source["verified_sha256"]:
             raise ValueError("Source archive changed after extraction")
+        verify_component_licences(root / "src" / source["name"], source)
         receipt = load(root / "receipts" / (source["name"] + ".json"))
         if receipt["status"] not in {"built", "header-only"}:
             raise ValueError("Incomplete component")
@@ -663,6 +727,10 @@ def package(root):
         imports[file.name] = validate_imports(text, dlls)
         (artifact / (file.name + ".imports.txt")).write_text(text)
         print(f"{digest(file)}  {file.name}", flush=True)
+    for component in components:
+        component["shipped_dlls"] = [
+            name for name in sorted(dlls) if name in component.get("provides_dll_names", [])
+        ]
     dll = artifact / "libmpv-2.dll"
     config = macro((root / "build/mpv/config.h").read_text(), "CONFIGURATION")
     if "-Dgpl=false" not in shlex.split(config):
@@ -739,6 +807,7 @@ def package(root):
     for name in (
         "toolchain-plan.txt",
         "toolchain.json",
+        "cross-tools.json",
         "fetched.json",
         "commands.jsonl",
         "mingw.ini",
@@ -776,7 +845,13 @@ def package(root):
 def main():
     command, folder, *args = sys.argv[1:]
     root = Path(folder).resolve()
-    actions = {"plan": plan, "toolchain": toolchain, "fetch": fetch, "package": package}
+    actions = {
+        "plan": plan,
+        "toolchain": toolchain,
+        "fetch": fetch,
+        "package": package,
+        "configure-cross": configure_cross,
+    }
     if command == "exec":
         execute(root, args[0], args[1:])
     elif command == "complete":

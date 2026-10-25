@@ -18,6 +18,34 @@ See LICENSES/ for the full upstream licence and copyright texts. FreeType is
 used under the FreeType Project License (FTL), not its alternative GPL licence:
 this software uses the FreeType Project, https://www.freetype.org/.
 glslang's BSD, MIT and Apache notices and SPIRV-Cross's Apache notice are retained.
+The glslang aggregate also includes BSD-2-Clause and the two generated
+glslang_tab.cpp / glslang_tab.cpp.h parser files under
+GPL-3.0-or-later WITH Bison-exception-2.2. Their complete source notices are
+included under LICENSES/glslang, with full GPLv3 text under LICENSES/toolchain/GPL-3.
+The source lock records exact file hashes and the build rejects missing/changed
+exception evidence or extra unapproved GPL C/C++ source in glslang.
+
+Compatibility rationale for the selected rendering library and MIT application:
+
+- BSD-2-Clause, BSD-3-Clause and MIT permit this use with their notices retained;
+  the BSD endorsement restriction remains applicable.
+- Shaderc/SPIRV-Tools/SPIRV-Cross Apache-2.0 notices and patent terms remain
+  applicable. The combined LGPL library uses the LGPL-3.0-or-later election
+  above, whose GPLv3 base accommodates Apache-2.0; this does not relicense the
+  application or remove Apache notices.
+- Bison-exception-2.2 permits the generated parser skeleton in a larger work
+  under chosen terms when that work is not a parser generator using the skeleton.
+  This shader compiler/rendering library meets that stated use, and the exception
+  is retained unchanged. Plain GPL shader/parser code without an applicable
+  exception is not an approved dependency. The application remains separate and
+  must still satisfy the LGPL DLL replacement/source requirements below.
+
+References: [Bison exception text](https://spdx.org/licenses/Bison-exception-2.2.html),
+[Apache compatibility](https://www.apache.org/licenses/GPL-compatibility.html),
+[LGPLv3 terms](https://spdx.org/licenses/LGPL-3.0-or-later.html),
+[MIT terms](https://spdx.org/licenses/MIT.html), and
+[BSD terms](https://spdx.org/licenses/BSD-3-Clause.html).
+
 The Ubuntu MinGW compiler runtimes have their own notices: GCC's runtime-library
 exception and the mixed permissive MinGW-w64/winpthreads copyright texts are in
 LICENSES/toolchain. They are compiler infrastructure under the approved Ubuntu

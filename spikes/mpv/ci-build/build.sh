@@ -14,8 +14,7 @@ export CFLAGS="-O2 -I$PREFIX/include"
 export CXXFLAGS="$CFLAGS"
 export LDFLAGS="-L$PREFIX/lib -static-libgcc -static-libstdc++"
 python3 "$CI_SCRIPTS/driver.py" fetch "$ROOT"
-sed "s|@PREFIX@|$PREFIX|g" "$CI_SCRIPTS/mingw.ini.in" >"$ROOT/mingw.ini"
-sed "s|@PREFIX@|$PREFIX|g" "$CI_SCRIPTS/mingw.cmake.in" >"$ROOT/mingw.cmake"
+python3 "$CI_SCRIPTS/driver.py" configure-cross "$ROOT"
 component=
 run() { python3 "$CI_SCRIPTS/driver.py" exec "$ROOT" "$component" "$@"; }
 done_component() { python3 "$CI_SCRIPTS/driver.py" complete "$ROOT" "$component"; }

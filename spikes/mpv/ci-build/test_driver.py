@@ -20,6 +20,9 @@ class MockAptToolchain(unittest.TestCase):
         base = Path(os.environ.get("TMPDIR") or os.environ.get("TEMP") or "/tmp")
         self.root = base / ("mpv-apt-test-" + uuid.uuid4().hex)
         self.root.mkdir(mode=0o755)
+        tools = patch.object(driver.shutil, "which", side_effect=lambda name: "/usr/bin/" + name)
+        tools.start()
+        self.addCleanup(tools.stop)
         self.packages = (driver.SCRIPTS / "toolchain-packages.txt").read_text().splitlines()
         self.packages = list(filter(None, self.packages))
         self.missing = {("binutils", "2.41.90.20240122-1ubuntu1")}
@@ -328,6 +331,67 @@ class MockAptToolchain(unittest.TestCase):
             receipt = driver.load(self.root / "receipts" / (name + ".json"))
             self.assertEqual(receipt["features"], expected)
 
+    def test_prefixed_binutils_are_checked_and_recorded(self):
+        tools = driver.cross_tools()
+        for name in ("dlltool", "ranlib", "nm", "objcopy", "objdump", "ld", "windmc"):
+            self.assertEqual(tools[name]["command"], "x86_64-w64-mingw32-" + name)
+            self.assertEqual(tools[name]["path"], "/usr/bin/x86_64-w64-mingw32-" + name)
+        driver.configure_cross(self.root)
+        self.assertIn("windmc = 'x86_64-w64-mingw32-windmc'", (self.root / "mingw.ini").read_text())
+
+    def test_missing_dlltool_fails_before_configure(self):
+        with patch.object(
+            driver.shutil,
+            "which",
+            side_effect=lambda name: None if name.endswith("-dlltool") else "/usr/bin/" + name,
+        ):
+            with self.assertRaisesRegex(ValueError, "dlltool"):
+                driver.configure_cross(self.root)
+        self.assertFalse((self.root / "mingw.ini").exists())
+
+    def test_optional_windmc_is_omitted_when_absent(self):
+        with patch.object(
+            driver.shutil,
+            "which",
+            side_effect=lambda name: None if name.endswith("-windmc") else "/usr/bin/" + name,
+        ):
+            driver.configure_cross(self.root)
+        text = (self.root / "mingw.ini").read_text()
+        self.assertNotIn("windmc =", text)
+        self.assertIn("dlltool = 'x86_64-w64-mingw32-dlltool'", text)
+        self.assertNotIn("@PREFIX@", text)
+        self.assertIsNone(driver.load(self.root / "cross-tools.json")["windmc"]["path"])
+
+    def test_bison_exception_evidence_is_required_and_hashed(self):
+        text = (
+            "GNU General Public License either version 3 of the License any later version "
+            "As a special exception under terms of your choice "
+            "parser generator using the skeleton version 2.2 of Bison"
+        )
+        file = self.root / "parser.cpp"
+        file.write_text(text)
+        evidence = {
+            "path": "parser.cpp",
+            "sha256": driver.digest(file),
+            "licence_spdx": "GPL-3.0-or-later WITH Bison-exception-2.2",
+        }
+        component = {"name": "glslang", "licence_evidence": [evidence]}
+        self.assertEqual(len(driver.verify_component_licences(self.root, component)), 1)
+        file.write_text("GNU General Public License")
+        with self.assertRaisesRegex(ValueError, "evidence changed"):
+            driver.verify_component_licences(self.root, component)
+        evidence["sha256"] = driver.digest(file)
+        with self.assertRaisesRegex(ValueError, "Bison exception evidence missing"):
+            driver.verify_component_licences(self.root, component)
+        evidence["licence_spdx"] = "GPL-3.0-or-later"
+        with self.assertRaisesRegex(ValueError, "Unapproved shader GPL"):
+            driver.verify_component_licences(self.root, component)
+
+    def test_additional_gpl_source_without_exception_is_rejected(self):
+        (self.root / "unexpected.cpp").write_text("GNU General Public License")
+        with self.assertRaisesRegex(ValueError, "Unapproved GPL source"):
+            driver.verify_component_licences(self.root, {"name": "glslang"})
+
 
 class AptSourceOrigins(unittest.TestCase):
     def test_exact_round_2_pseudo_uri_and_get_line(self):
@@ -521,6 +585,11 @@ class DistributionGates(unittest.TestCase):
     def test_windows_system_and_explicit_bundled_dependency(self):
         text = "file format pei-x86-64\nDLL Name: KERNEL32.dll\nDLL Name: libwinpthread-1.dll"
         self.assertEqual(len(driver.validate_imports(text, {"libwinpthread-1.dll"})), 2)
+
+    def test_separate_spirv_cross_and_shaderc_imports_are_explicitly_allowed(self):
+        dlls = {"libspirv-cross-c-shared.dll", "libshaderc_shared.dll"}
+        text = "pei-x86-64\n" + "\n".join("DLL Name: " + name for name in sorted(dlls))
+        self.assertEqual(set(driver.validate_imports(text, dlls)), dlls)
 
     def test_missing_runtime_dll_is_rejected(self):
         with self.assertRaises(ValueError):

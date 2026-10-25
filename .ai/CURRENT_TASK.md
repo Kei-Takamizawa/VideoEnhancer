@@ -238,12 +238,12 @@ Add **`.github/workflows/libmpv-lgpl.yml`**. This is an exception to section 6, 
    - rewrite `LICENSES.md` for this build.
 5. **Reproducibility.** The designer re-runs the workflow once with `workflow_dispatch`, and you compare the two runs' `SHA256SUMS`. Byte-identical output is not required; report the result and explain any difference you can.
 
-At most 6 CI rounds in total. If the build still fails after 6, report PARTIAL with the exact failing component and stop.
+At most 10 CI rounds in total. If the build still fails after 10, report PARTIAL with the exact failing component and stop.
 
 ### 11.3 Status rule for this route
 
 - **COMPLETED** when an artifact from a green workflow run passes every check in 11.2 step 4, and `LICENSES.md` and the manifest are complete.
-- **PARTIAL** for "Awaiting CI build" rounds and for the 6-round stop.
+- **PARTIAL** for "Awaiting CI build" rounds and for the 10-round stop.
 
 ### 11.4 CI round 1 result (designer, 2026-10-25): FAIL in the toolchain step, 1 of 6 rounds used
 
