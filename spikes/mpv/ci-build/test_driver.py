@@ -25,6 +25,8 @@ class MockAptToolchain(unittest.TestCase):
         self.missing = {("binutils", "2.41.90.20240122-1ubuntu1")}
         self.bad_hash = False
         self.host = "archive.ubuntu.com"
+        self.mirror_uri = False
+        self.no_get_lines = False
         self.installed = {}
         for package in self.packages:
             if package.startswith("binutils"):
@@ -88,7 +90,10 @@ class MockAptToolchain(unittest.TestCase):
         if args[:2] == ("apt-get", "source"):
             name, version = args[-1].split("=", 1)
             filename, _ = self.archive(name, version)
-            return f"'http://{self.host}/ubuntu/pool/{filename}' {filename} 100 SHA256:mock\n"
+            url = f"http://{self.host}/ubuntu/pool/{filename}"
+            if self.mirror_uri:
+                url = "mirror+file:/etc/apt/apt-mirrors.txt/pool/universe/b/" + filename
+            return f"'{url}' {filename} 100 SHA256:mock\n"
         if args[0].endswith("gcc-posix") or args[0].endswith("g++-posix"):
             return "mock compiler 13.2.0\n"
         raise AssertionError(f"Unexpected output command: {args}")
@@ -99,7 +104,10 @@ class MockAptToolchain(unittest.TestCase):
             filename, data = self.archive(name, version)
             (kwargs["cwd"] / filename).write_bytes(data)
             self.downloads.append((name, version))
-            return SimpleNamespace(returncode=0)
+            transcript = (
+                f"Get:2 http://{self.host}/ubuntu noble/universe {name} {version} (tar) [100 B]\n"
+            )
+            return SimpleNamespace(returncode=0, stdout="" if self.no_get_lines else transcript)
         if args == ["x86_64-w64-mingw32-gcc-posix", "-v"]:
             return SimpleNamespace(stderr="mock GCC configuration", returncode=0)
         raise AssertionError(f"Unexpected run command: {args}")
@@ -223,6 +231,125 @@ class MockAptToolchain(unittest.TestCase):
             driver.plan(self.root)
             with self.assertRaises(subprocess.CalledProcessError):
                 driver.toolchain(self.root)
+
+    def test_mirror_method_download_records_resolved_hosts(self):
+        self.mirror_uri = True
+        self.host = "azure.archive.ubuntu.com"
+        result = self.run_toolchain()
+        self.assertTrue(result["sources"])
+        for source in result["sources"]:
+            self.assertTrue(source["url"].startswith("mirror+file:"))
+            self.assertEqual(source["resolved_hosts"], [self.host])
+            self.assertTrue(source["apt_get_lines"])
+
+    def test_mirror_method_cache_hit_uses_verified_recorded_origin_without_download(self):
+        self.mirror_uri = True
+        self.host = "azure.archive.ubuntu.com"
+        first = self.run_toolchain()
+        self.downloads.clear()
+        self.no_get_lines = True
+        second = self.run_toolchain()
+        self.assertEqual(first["sources"], second["sources"])
+        self.assertEqual(self.downloads, [])
+
+    def test_old_cache_without_origin_receipt_is_refetched(self):
+        self.mirror_uri = True
+        self.run_toolchain()
+        for receipt in (self.root / "cache/toolchain/sources").rglob("download-origin.json"):
+            receipt.unlink()
+        self.downloads.clear()
+        self.run_toolchain()
+        self.assertTrue(self.downloads)
+
+    def test_corrupt_cached_source_still_fails_before_reuse(self):
+        result = self.run_toolchain()
+        (self.root / result["sources"][0]["file"]).write_bytes(b"corrupt")
+        with self.assertRaisesRegex(ValueError, "hash mismatch"):
+            self.run_toolchain()
+
+    def test_mirror_method_does_not_bypass_hash_gate(self):
+        self.mirror_uri = True
+        self.host = "azure.archive.ubuntu.com"
+        self.bad_hash = True
+        with self.assertRaisesRegex(ValueError, "hash mismatch"):
+            self.run_toolchain()
+
+    def test_mirror_method_missing_get_lines_cannot_invent_a_resolved_host(self):
+        self.mirror_uri = True
+        self.no_get_lines = True
+        with self.assertRaisesRegex(ValueError, "Cannot resolve"):
+            self.run_toolchain()
+
+    def test_runner_mirror_list_only_extends_allowlist_under_ubuntu_com(self):
+        mirrors = self.root / "apt-mirrors.txt"
+        mirrors.write_text(
+            "# runner mirrors\nhttps://mirror.ubuntu.com/ubuntu priority:1\n"
+            "http://notubuntu.com/ubuntu\nhttps://ubuntu.com.evil.example/\n"
+            "file:/local\n"
+        )
+        hosts = driver.ubuntu_mirror_hosts(mirrors)
+        self.assertEqual(hosts, {"mirror.ubuntu.com"})
+        self.assertEqual(
+            driver.source_download_hosts(
+                "mirror+file:/etc/apt/apt-mirrors.txt/file",
+                "Get:1 https://mirror.ubuntu.com/ubuntu x (tar)\n",
+                hosts,
+            ),
+            ["mirror.ubuntu.com"],
+        )
+        with self.assertRaisesRegex(ValueError, "Unexpected Ubuntu source host"):
+            driver.source_download_hosts("https://unlisted.ubuntu.com/file", "", hosts)
+
+    def test_tampered_cached_origin_host_is_rejected(self):
+        self.run_toolchain()
+        receipt = next((self.root / "cache/toolchain/sources").rglob("download-origin.json"))
+        origin = driver.load(receipt)
+        for file in origin.values():
+            file["resolved_hosts"] = ["evil.example"]
+        driver.save(receipt, origin)
+        with self.assertRaisesRegex(ValueError, "Unexpected Ubuntu source host"):
+            self.run_toolchain()
+
+
+class AptSourceOrigins(unittest.TestCase):
+    def test_exact_round_2_pseudo_uri_and_get_line(self):
+        uri = (
+            "mirror+file:/etc/apt/apt-mirrors.txt/pool/universe/b/"
+            "binutils-mingw-w64/binutils-mingw-w64_11.4.dsc"
+        )
+        text = (
+            "Get:2 http://azure.archive.ubuntu.com/ubuntu noble/universe "
+            "binutils-mingw-w64 11.4 (dsc) [1898 B]\n"
+        )
+        self.assertEqual(
+            driver.source_download_hosts(uri, text, set()), ["azure.archive.ubuntu.com"]
+        )
+
+    def test_direct_urls_still_work_without_get_lines(self):
+        for host in ("archive.ubuntu.com", "security.ubuntu.com", "us.archive.ubuntu.com"):
+            self.assertEqual(
+                driver.source_download_hosts(f"https://{host}/file", "", set()), [host]
+            )
+
+    def test_untrusted_resolved_host_rejected_even_with_official_planned_url(self):
+        with self.assertRaisesRegex(ValueError, "Unexpected Ubuntu source host"):
+            driver.source_download_hosts(
+                "https://archive.ubuntu.com/file",
+                "Get:1 https://archive.ubuntu.com.evil.example/ubuntu x\n",
+                set(),
+            )
+
+    def test_multiple_hosts_are_all_checked(self):
+        text = (
+            "Get:1 http://azure.archive.ubuntu.com/ubuntu x (dsc)\n"
+            "Get:2 http://evil.example/ubuntu x (tar)\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Unexpected Ubuntu source host"):
+            driver.source_download_hosts("mirror+file:/etc/apt/apt-mirrors.txt/file", text, set())
+
+    def test_non_http_source_method_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported Ubuntu source URI"):
+            driver.source_download_hosts("file:/tmp/local-source", "", set())
 
 
 def clean_ffmpeg_defines():

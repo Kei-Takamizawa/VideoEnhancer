@@ -32,6 +32,14 @@ the product's CI, package or player. The operator commits and pushes this round.
    their licences and exact source references. Available runtime sources are
    archived too; unavailable ones retain the Launchpad reference. Package notices
    are retained even for runtime owners installed as transitive dependencies.
+   GitHub's `mirror+file:` source URIs are resolved using actual download `Get:`
+   lines. The receipt retains the planned URI, all hosts reported for that source
+   download and those log lines. Hosts must be official Ubuntu archive hosts or
+   ubuntu.com hosts listed in `/etc/apt/apt-mirrors.txt`; SHA-256 from the signed
+   source index remains the authority for every file. Reused cache files are
+   rehashed and their recorded origins revalidated. Old cache entries without
+   origin receipts are downloaded once into a fresh staging directory, because
+   apt emits no `Get:` lines for existing files. Shell stages force `LC_ALL=C`.
 3. build.sh requires fresh src/, build/ and prefix/ trees. Each cached upstream
    archive is rehashed before safe extraction. Libraries are built in dependency
    order; Meson wraps cannot download unpinned subprojects. Target pkg-config
@@ -105,6 +113,18 @@ downloads. They check missing Built-Using/compiler/runtime sources, available
 source hashing, exact package versions, runtime ownership/licences, cache-key
 outputs and failure paths. They do not install Ubuntu packages or execute a
 cross-compiler. Actual Linux installation/build remains for the next CI run.
+
+## Round 3 mirror-method regression coverage
+
+Section 11.5 reports a `mirror+file:/etc/apt/apt-mirrors.txt/...` URI and a
+`Get:2 http://azure.archive.ubuntu.com/ubuntu ... (dsc) [1898 B]` download line.
+Tests use those exact strings and also run mocked plan/toolchain orchestration
+for mirrored downloads, cache hits with no new download lines, old caches with
+no receipt, corrupt cache bytes and rejected origins. All reported download hosts
+must pass the allowlist, including when more than one mirror serves a source
+package. A mirror URI without actual or cached host evidence fails explicitly;
+the script never invents a resolved host from the mirror-list name. Available
+toolchain source hashes remain mandatory, as do all upstream library hashes.
 
 
 ## Pinned upstream build contracts

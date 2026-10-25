@@ -218,6 +218,114 @@ def runtime_components():
     return records
 
 
+def ubuntu_mirror_hosts(path=Path("/etc/apt/apt-mirrors.txt")):
+    hosts = set()
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            url = urllib.parse.urlparse(line.split()[0])
+            host = url.hostname or ""
+            if url.scheme in {"http", "https"} and (
+                host == "ubuntu.com" or host.endswith(".ubuntu.com")
+            ):
+                hosts.add(host)
+    return hosts
+
+
+def validate_source_hosts(hosts, mirrors):
+    if not hosts:
+        raise ValueError("Cannot resolve Ubuntu source host from apt Get lines")
+    for host in hosts:
+        if not (
+            host in {"archive.ubuntu.com", "security.ubuntu.com"}
+            or host.endswith(".archive.ubuntu.com")
+            or host in mirrors
+        ):
+            raise ValueError(f"Unexpected Ubuntu source host: {host}")
+
+
+def source_download_hosts(url, transcript, mirrors):
+    parsed = urllib.parse.urlparse(url or "")
+    if parsed.scheme not in {"http", "https", "mirror+file"}:
+        raise ValueError(f"Unsupported Ubuntu source URI: {url}")
+    get_urls = re.findall(r"^Get:\d+\s+(https?://\S+)", transcript, re.MULTILINE)
+    hosts = sorted({urllib.parse.urlparse(value).hostname or "" for value in get_urls})
+    if not hosts and parsed.scheme in {"http", "https"}:
+        hosts = [parsed.hostname or ""]
+    validate_source_hosts(hosts, mirrors)
+    return hosts
+
+
+def fetch_toolchain_sources(root, package, version, checksums, urls, mirrors):
+    folder = root / "cache/toolchain/sources" / package / version
+    folder.mkdir(parents=True, exist_ok=True)
+    origin_file = folder / "download-origin.json"
+    # A cache hit emits no Get lines. Reuse only a recorded actual origin whose
+    # bytes still match the current authenticated index; old caches refetch once.
+    cached_origin = load(origin_file) if origin_file.is_file() else {}
+    cached = all((folder / name).is_file() for name in checksums)
+    if cached:
+        for name, expected in checksums.items():
+            if digest(folder / name) != expected["sha256"]:
+                raise ValueError(f"Ubuntu source hash mismatch: {folder / name}")
+        cached = all(
+            cached_origin.get(name, {}).get("sha256") == expected["sha256"]
+            for name, expected in checksums.items()
+        )
+    if cached:
+        origins = cached_origin
+        for name in checksums:
+            validate_source_hosts(origins[name]["resolved_hosts"], mirrors)
+    else:
+        # Never let apt silently reuse an archive with no origin receipt.
+        stage = root / "source-downloads" / package / version
+        stage.mkdir(parents=True)
+        try:
+            result = subprocess.run(
+                ["apt-get", "source", "--download-only", f"{package}={version}"],
+                cwd=stage,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+        except subprocess.CalledProcessError as error:
+            print(error.stdout or "", end="", flush=True)
+            raise
+        transcript = result.stdout
+        print(transcript, end="", flush=True)
+        origins = {}
+        for name, expected in checksums.items():
+            file = stage / name
+            if not file.is_file() or digest(file) != expected["sha256"]:
+                raise ValueError(f"Ubuntu source hash mismatch: {file}")
+            origins[name] = {
+                "sha256": expected["sha256"],
+                "resolved_hosts": source_download_hosts(urls.get(name), transcript, mirrors),
+                "apt_get_lines": [
+                    line for line in transcript.splitlines() if line.startswith("Get:")
+                ],
+            }
+        for name in checksums:
+            shutil.move(stage / name, folder / name)
+        stage.rmdir()
+        save(origin_file, origins)
+    return [
+        {
+            "package": package,
+            "version": version,
+            "url": urls.get(name),
+            "file": str((folder / name).relative_to(root)),
+            **expected,
+            "resolved_hosts": origins[name]["resolved_hosts"],
+            "apt_get_lines": origins[name]["apt_get_lines"],
+        }
+        for name, expected in sorted(checksums.items())
+    ]
+
+
 def toolchain(root):
     records, sources = [], set()
     for pin in (root / "toolchain-plan.txt").read_text().splitlines():
@@ -231,6 +339,7 @@ def toolchain(root):
         sources.add((record["source_package"], record["source_version"]))
         sources.update(re.findall(r"([a-z0-9.+-]+) \(= ([^)]+)\)", record["built_using"]))
     fetched, source_packages = [], []
+    mirrors = ubuntu_mirror_hosts()
     uri_dir = root / "source-uri-plan"
     uri_dir.mkdir(exist_ok=True)
     for package, version in sorted(sources):
@@ -256,29 +365,7 @@ def toolchain(root):
         urls = dict(
             (filename, url) for url, filename in re.findall(r"^'([^']+)' (\S+)", uris, re.MULTILINE)
         )
-        folder = root / "cache/toolchain/sources" / package / version
-        folder.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["apt-get", "source", "--download-only", f"{package}={version}"], cwd=folder, check=True
-        )
-        for filename, expected in sorted(checksums.items()):
-            file = folder / filename
-            url = urls.get(filename)
-            host = urllib.parse.urlparse(url or "").hostname or ""
-            official = host in {"archive.ubuntu.com", "security.ubuntu.com"}
-            if not official and not host.endswith(".archive.ubuntu.com"):
-                raise ValueError(f"Unexpected Ubuntu source host: {url}")
-            if not file.is_file() or digest(file) != expected["sha256"]:
-                raise ValueError(f"Ubuntu source hash mismatch: {file}")
-            fetched.append(
-                {
-                    "package": package,
-                    "version": version,
-                    "url": url,
-                    "file": str(file.relative_to(root)),
-                    **expected,
-                }
-            )
+        fetched.extend(fetch_toolchain_sources(root, package, version, checksums, urls, mirrors))
     save(
         root / "toolchain.json",
         {

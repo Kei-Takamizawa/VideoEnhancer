@@ -2,6 +2,8 @@
 # Shared environment; never execute the development PC's MSYS2 toolchain.
 set -Eeuo pipefail
 umask 022
+# apt policy/showsrc/Get parsers require stable English field names.
+export LC_ALL=C LANG=C
 CI_SCRIPTS=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=${MPV_CI_ROOT:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/libmpv-lgpl}
 export CI_SCRIPTS ROOT
