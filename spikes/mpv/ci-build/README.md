@@ -105,6 +105,31 @@ The designer dispatches the second clean workflow for reproduction comparison.
 No fixed round limit (section 11.8); the designer stops after two consecutive
 rounds failing at the same step without progress. Current state: **Awaiting CI build**.
 
+## Round 7 C-driver link closure
+
+Meson 1.3.2 selects shaderc_combined for `prefer_static=true`. Its installed
+shaderc_combined.pc lacks the C++ runtime. After shaderc installation, driver.py
+adds the compiler-discovered runtime directory and `-l:libstdc++.a` to
+Libs.private. Existing public/private metadata is preserved. This is an installed
+pkg-config build-recipe edit, not an upstream source patch.
+
+A C-driver shaderc DLL link probe runs on Linux, without executing its output.
+Only if it reports missing pthread/sem symbols does the recipe add static
+libwinpthread.a and retry once. Other failures stop immediately. All attempts,
+before/after metadata, actual pkg-config flags and hashes are retained in
+recipe-changes.json and the generated manifest/source offer. Compiler runtime
+versions/notices remain in the existing toolchain records.
+
+Before mpv compilation, Ninja's actual generated link command must put the static
+C++ runtime after libharfbuzz/libplacebo/shaderc_combined. SPIRV-Cross must still
+use its separate shared C API/import library. mpv-link.json records that command
+and the import-library hash. The final objdump dependency closure remains strict;
+any imported GCC/libstdc++/winpthread DLL must be packaged and licensed. Pathcch
+is an explicit Windows system DLL, used by the pinned mpv's path functions.
+
+Windows tests use mock archives/compiler output and validate metadata/order
+handling. Actual GNU link success and final imports require the next CI run.
+
 ## Round 6 Vulkan declarations without a Vulkan backend
 
 libplacebo's disabled Vulkan stubs still include public Vulkan types. Install

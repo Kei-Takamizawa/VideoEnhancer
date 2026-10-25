@@ -27,6 +27,9 @@ meson_component() {
         --prefix "$PREFIX" --libdir lib --cross-file "$ROOT/mingw.ini" \
         --wrap-mode=nodownload --auto-features=disabled --buildtype=release \
         -Ddefault_library="$library" -Dprefer_static=true "$@"
+    if [[ $component == mpv ]]; then
+        run python3 "$CI_SCRIPTS/driver.py" check-mpv-link "$ROOT"
+    fi
     run meson compile -C "$ROOT/build/$component" -j "$BUILD_JOBS"
     run meson install -C "$ROOT/build/$component" --no-rebuild
     done_component
@@ -75,6 +78,8 @@ cmake_component shaderc -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON \
     -DSPIRV_SKIP_TESTS=ON -DSPIRV_SKIP_EXECUTABLES=ON \
     -DSPIRV_WERROR=OFF -DGLSLANG_TESTS=OFF -DENABLE_GLSLANG_BINARIES=OFF \
     -DENABLE_SPVREMAPPER=OFF -DENABLE_PCH=OFF
+run python3 "$CI_SCRIPTS/driver.py" static-cxx "$ROOT"
+done_component
 for child in glslang spirv-tools spirv-headers; do
     python3 "$CI_SCRIPTS/driver.py" complete "$ROOT" "$child" shaderc
 done

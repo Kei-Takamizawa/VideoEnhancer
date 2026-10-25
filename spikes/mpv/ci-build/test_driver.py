@@ -434,6 +434,106 @@ class MockAptToolchain(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Vulkan 1.4"):
             driver.vulkan_header_receipt(self.root)
 
+    def cxx_fixture(self):
+        pc = self.root / "prefix/lib/pkgconfig/shaderc_combined.pc"
+        pc.parent.mkdir(parents=True)
+        pc.write_text(
+            "Name: shaderc\nLibs: -L${libdir} -lshaderc_combined\nRequires.private: zlib\n"
+        )
+        runtime = self.root / "compiler/libstdc++.a"
+        runtime.parent.mkdir()
+        runtime.write_bytes(b"mock static C++ archive")
+        (runtime.parent / "libwinpthread.a").write_bytes(b"mock static thread archive")
+        return pc, runtime
+
+    def cxx_output(self, runtime, *args, cwd=None):
+        if args[0].endswith("g++-posix"):
+            return str(runtime.parent / args[-1].split("=", 1)[1])
+        if args[:2] == ("pkg-config", "--static"):
+            return "-lshaderc_combined -l:libstdc++.a"
+        raise AssertionError(args)
+
+    def test_shaderc_private_runtime_recipe_and_manifest_evidence(self):
+        pc, runtime = self.cxx_fixture()
+        with (
+            patch.object(
+                driver, "output", side_effect=lambda *a, **kw: self.cxx_output(runtime, *a, **kw)
+            ),
+            patch.object(
+                driver.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
+            ),
+        ):
+            driver.static_cxx_recipe(self.root)
+        text = pc.read_text()
+        self.assertIn("Libs: -L${libdir} -lshaderc_combined\n", text)
+        self.assertIn("Requires.private: zlib", text)
+        self.assertIn("-l:libstdc++.a", text)
+        changes = driver.load(self.root / "recipe-changes.json")
+        self.assertEqual(changes[0]["sha256"], driver.digest(pc))
+        self.assertNotIn("-l:libwinpthread.a", changes[0]["added_private_flags"])
+        self.assertEqual(len(changes[0]["probe_attempts"]), 1)
+        driver.complete(self.root, "shaderc")
+        self.assertEqual(
+            driver.load(self.root / "receipts/shaderc.json")["recipe_changes"], changes
+        )
+
+    def test_winpthread_is_added_only_after_a_real_thread_symbol_failure(self):
+        _, runtime = self.cxx_fixture()
+        with (
+            patch.object(
+                driver, "output", side_effect=lambda *a, **kw: self.cxx_output(runtime, *a, **kw)
+            ),
+            patch.object(
+                driver.subprocess,
+                "run",
+                side_effect=[
+                    SimpleNamespace(
+                        returncode=1, stdout="", stderr="undefined reference to `pthread_once'"
+                    ),
+                    SimpleNamespace(returncode=0, stdout="", stderr=""),
+                ],
+            ),
+        ):
+            driver.static_cxx_recipe(self.root)
+        change = driver.load(self.root / "recipe-changes.json")[0]
+        self.assertIn("-l:libwinpthread.a", change["added_private_flags"])
+        self.assertEqual([a["exit_code"] for a in change["probe_attempts"]], [1, 0])
+
+    def test_unrelated_link_failure_does_not_add_pthread_or_hide_failure(self):
+        pc, runtime = self.cxx_fixture()
+        before = pc.read_text()
+        with (
+            patch.object(
+                driver, "output", side_effect=lambda *a, **kw: self.cxx_output(runtime, *a, **kw)
+            ),
+            patch.object(
+                driver.subprocess,
+                "run",
+                return_value=SimpleNamespace(
+                    returncode=1, stdout="", stderr="undefined reference to `unrelated_symbol'"
+                ),
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "probe failed"):
+                driver.static_cxx_recipe(self.root)
+        self.assertEqual(pc.read_text(), before)
+
+    def test_generated_mpv_link_checks_runtime_order_and_shared_spirv_cross(self):
+        import_lib = self.root / "prefix/lib/libspirv-cross-c-shared.dll.a"
+        import_lib.parent.mkdir(parents=True)
+        import_lib.write_bytes(b"mock import archive")
+        command = (
+            "x86_64-w64-mingw32-gcc-posix -o libmpv-2.dll main.o libharfbuzz.a "
+            "libplacebo.a libshaderc_combined.a -l:libstdc++.a -lspirv-cross-c-shared"
+        )
+        with patch.object(driver, "output", return_value=command):
+            driver.check_mpv_link(self.root)
+        proof = driver.load(self.root / "mpv-link.json")
+        self.assertTrue(proof["static_cxx_runtime_after_archives"])
+        self.assertEqual(proof["spirv_cross_import_library_sha256"], driver.digest(import_lib))
+
 
 class AptSourceOrigins(unittest.TestCase):
     def test_exact_round_2_pseudo_uri_and_get_line(self):
@@ -514,6 +614,26 @@ def clean_ffmpeg_defines():
 
 
 class DistributionGates(unittest.TestCase):
+    def test_pc_private_edit_preserves_flags_and_deduplicates(self):
+        text = "Name: shaderc\nLibs: -lshaderc_combined\nLibs.private: -lm\n"
+        patched = driver.add_pc_private(text, ["-l:libstdc++.a"])
+        self.assertIn("Libs.private: -lm -l:libstdc++.a", patched)
+        self.assertEqual(patched, driver.add_pc_private(patched, ["-l:libstdc++.a"]))
+        with self.assertRaisesRegex(ValueError, "Duplicate Libs.private"):
+            driver.add_pc_private(text + "Libs.private: -ldummy\n", [])
+
+    def test_cxx_runtime_must_follow_all_static_cxx_archives(self):
+        good = ["libharfbuzz.a", "libplacebo.a", "libshaderc_combined.a", "-l:libstdc++.a"]
+        driver.validate_cxx_link_order(good, require_placebo=True)
+        for bad in (
+            ["-l:libstdc++.a", *good[:-1]],
+            [*good[:-1], "-lstdc++"],
+            [*good, "libharfbuzz.a"],
+            [*good, "libspirv-cross-c-shared.a"],
+        ):
+            with self.subTest(args=bad), self.assertRaises(ValueError):
+                driver.validate_cxx_link_order(bad, require_placebo=True)
+
     def test_libplacebo_vulkan_backend_must_stay_disabled(self):
         options = [
             {"name": "vulkan", "value": "disabled"},

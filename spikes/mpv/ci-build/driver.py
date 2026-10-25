@@ -40,6 +40,7 @@ SYSTEM_DLLS = {
     "ntdll.dll",
     "ole32.dll",
     "oleaut32.dll",
+    "pathcch.dll",
     "powrprof.dll",
     "propsys.dll",
     "psapi.dll",
@@ -363,6 +364,164 @@ def configure_cross(root):
     save(root / "cross-tools.json", tools)
 
 
+def add_pc_private(text, flags):
+    lines = text.splitlines()
+    matches = [i for i, line in enumerate(lines) if line.startswith("Libs.private:")]
+    if len(matches) > 1:
+        raise ValueError("Duplicate Libs.private fields")
+    existing = shlex.split(lines[matches[0]].partition(":")[2]) if matches else []
+    private = existing.copy()
+    for flag in flags:
+        if flag not in private:
+            private.append(flag)
+    line = "Libs.private: " + shlex.join(private)
+    if matches:
+        lines[matches[0]] = line
+    else:
+        lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
+def validate_cxx_link_order(args, require_placebo=False):
+    names = [Path(arg).name for arg in args]
+    shader = [
+        i
+        for i, name in enumerate(names)
+        if name in {"libshaderc_combined.a", "-lshaderc_combined", "-l:libshaderc_combined.a"}
+    ]
+    cpp = [
+        i
+        for i, name in enumerate(names)
+        if name
+        in {
+            "libplacebo.a",
+            "-lplacebo",
+            "libharfbuzz.a",
+            "-lharfbuzz",
+            "libshaderc_combined.a",
+            "-lshaderc_combined",
+            "-l:libshaderc_combined.a",
+        }
+    ]
+    runtime = [i for i, name in enumerate(names) if name in {"libstdc++.a", "-l:libstdc++.a"}]
+    if not shader or not runtime or max(runtime) <= max(cpp):
+        raise ValueError("Static C++ runtime must follow shaderc and the other C++ archives")
+    if require_placebo and not any(name in {"libplacebo.a", "-lplacebo"} for name in names):
+        raise ValueError("mpv link is missing static libplacebo")
+    if any(
+        "spirv-cross" in name and name.endswith(".a") and not name.endswith(".dll.a")
+        for name in names
+    ):
+        raise ValueError("SPIRV-Cross must keep its separate shared C API")
+    return {
+        "static_cxx_runtime_after_archives": True,
+        "cxx_archives": [args[i] for i in cpp],
+        "runtime": args[max(runtime)],
+    }
+
+
+def static_cxx_recipe(root):
+    pc = root / "prefix/lib/pkgconfig/shaderc_combined.pc"
+    before = pc.read_text()
+    if "-lshaderc_combined" not in before:
+        raise ValueError("Unexpected installed shaderc_combined.pc")
+    runtime = Path(output("x86_64-w64-mingw32-g++-posix", "-print-file-name=libstdc++.a").strip())
+    if not runtime.is_absolute() or not runtime.is_file():
+        raise ValueError("Static libstdc++.a not found in the pinned toolchain")
+    flags = ["-L" + str(runtime.parent), "-l:libstdc++.a"]
+    folder = root / "build/cxx-runtime-probe"
+    folder.mkdir(parents=True)
+    source = folder / "probe.c"
+    source.write_text(
+        "#include <shaderc/shaderc.h>\n"
+        "int main(void) { shaderc_compiler_t c = shaderc_compiler_initialize(); "
+        "shaderc_compiler_release(c); return 0; }\n"
+    )
+    attempts = []
+    for attempt in range(2):
+        argv = [
+            "x86_64-w64-mingw32-gcc-posix",
+            "-shared",
+            "-static-libgcc",
+            "-I" + str(root / "prefix/include"),
+            str(source),
+            str(root / "prefix/lib/libshaderc_combined.a"),
+            *flags,
+            "-o",
+            str(folder / "probe.dll"),
+        ]
+        result = subprocess.run(argv, capture_output=True, text=True, check=False)
+        attempts.append(
+            {
+                "argv": argv,
+                "exit_code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+        )
+        print("+ " + shlex.join(argv), flush=True)
+        print(result.stdout + result.stderr, end="", flush=True)
+        if result.returncode == 0:
+            break
+        if attempt == 0 and re.search(r"undefined reference[^\n]*(pthread_|sem_)", result.stderr):
+            pthread = Path(
+                output("x86_64-w64-mingw32-g++-posix", "-print-file-name=libwinpthread.a").strip()
+            )
+            if not pthread.is_absolute() or not pthread.is_file():
+                raise ValueError("Probe needs static winpthread, but its archive is unavailable")
+            flags += ["-L" + str(pthread.parent), "-l:libwinpthread.a"]
+        else:
+            raise ValueError("Static shaderc C-driver probe failed; see linker output")
+    after = add_pc_private(before, flags)
+    pc.write_text(after)
+    pkg_args = shlex.split(output("pkg-config", "--static", "--libs", "shaderc_combined"))
+    validate_cxx_link_order(pkg_args)
+    save(
+        root / "recipe-changes.json",
+        [
+            {
+                "component": "shaderc",
+                "kind": "installed-pkg-config build recipe; not upstream patch",
+                "file": "prefix/lib/pkgconfig/shaderc_combined.pc",
+                "before": before,
+                "after": after,
+                "sha256": digest(pc),
+                "added_private_flags": flags,
+                "pkg_config_static_libs": pkg_args,
+                "probe_source": source.read_text(),
+                "probe_attempts": attempts,
+            }
+        ],
+    )
+
+
+def check_mpv_link(root):
+    commands = output("ninja", "-C", str(root / "build/mpv"), "-t", "commands", "libmpv-2.dll")
+    links = []
+    for line in commands.splitlines():
+        args = shlex.split(line)
+        if "-o" in args and args[args.index("-o") + 1] == "libmpv-2.dll":
+            links.append(args)
+    if len(links) != 1:
+        raise ValueError("Cannot identify the generated libmpv link command")
+    args = links[0]
+    proof = validate_cxx_link_order(args, require_placebo=True)
+    if not any("spirv-cross-c-shared" in arg for arg in args):
+        raise ValueError("mpv link is missing the separate SPIRV-Cross C API")
+    import_lib = root / "prefix/lib/libspirv-cross-c-shared.dll.a"
+    if not import_lib.is_file() or (import_lib.parent / "libspirv-cross-c-shared.a").exists():
+        raise ValueError(
+            "SPIRV-Cross shared import library is missing or shadowed by a static archive"
+        )
+    save(
+        root / "mpv-link.json",
+        {"argv": args, **proof, "spirv_cross_import_library_sha256": digest(import_lib)},
+    )
+    print(
+        "Verified generated mpv link: static C++ runtime follows C++ archives; SPIRV-Cross shared"
+    )
+
+
 def toolchain(root):
     tools = cross_tools()
     assembler = nasm_version(output("nasm", "-v"))
@@ -667,6 +826,10 @@ def complete(root, name, parent=None):
         receipt.update(vulkan_header_receipt(root))
     if name == "libplacebo":
         require_libplacebo_options(receipt["meson_options"])
+    if name == "shaderc":
+        changes = root / "recipe-changes.json"
+        if changes.is_file():
+            receipt["recipe_changes"] = load(changes)
     if name in {"libass", "dav1d"}:
         receipt["features"] = subtitle_decoder_features(name, (build / "config.h").read_text())
     if name == "ffmpeg":
@@ -711,6 +874,12 @@ def require_mpv_options(options):
 
 
 def package(root):
+    recipe_changes = load(root / "recipe-changes.json")
+    for change in recipe_changes:
+        if digest(root / change["file"]) != change["sha256"]:
+            raise ValueError("Installed pkg-config recipe changed after configuration")
+    link = load(root / "mpv-link.json")
+    validate_cxx_link_order(link["argv"], require_placebo=True)
     fetched = load(root / "fetched.json")
     commands = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
     components = []
@@ -818,6 +987,8 @@ def package(root):
             "mpv_commit": lock()["mpv_commit"],
             "components": components,
             "toolchain": tool,
+            "build_recipe_changes": recipe_changes,
+            "mpv_link": link,
             "dll_imports": imports,
             "dlls": [
                 {"file": p.name, "bytes": p.stat().st_size, "sha256": digest(p)}
@@ -849,6 +1020,8 @@ def package(root):
         "toolchain-plan.txt",
         "toolchain.json",
         "cross-tools.json",
+        "recipe-changes.json",
+        "mpv-link.json",
         "fetched.json",
         "commands.jsonl",
         "mingw.ini",
@@ -892,6 +1065,8 @@ def main():
         "fetch": fetch,
         "package": package,
         "configure-cross": configure_cross,
+        "static-cxx": static_cxx_recipe,
+        "check-mpv-link": check_mpv_link,
     }
     if command == "exec":
         execute(root, args[0], args[1:])
