@@ -352,3 +352,18 @@ List any difference that remains, and why.
 - Rewrite `.ai/LAST_REPORT.md` for run 3. Keep the accepted results by reference to 2d996bc and 0fd7293.
 - Set **COMPLETED** only if all of these pass: the 11.1 divider measurement, 11.2 with its captures, the final lint/unit/e2e suites, and the package build.
 - Update the owner-check list.
+
+### 11.4 CI: `test_cancelled_transfer_resumes_partial_file[cancel]` fails on Windows (added after round 3 started)
+
+On 0fd7293, and on c3e712c (same code), Windows CI fails in the "Local synthetic link media acceptance" step:
+
+```text
+tests/test_link_download.py:365: assert partials and partials[0].stat().st_size > 0
+AssertionError: ... .ve-<id>.mp4.part ... st_size=0
+```
+
+It failed twice in a row on the same code. That is a real failure, not a flake. On 2d996bc this step passed. On a04bcf0 the step never ran, because the 403 stopped the setup step before it. A possible cause, **unverified**: the setup now downloads whatever yt-dlp/deno release is `latest` at run time, and a newer release may handle cancellation or the `.part` file differently. Also check whether this PR's own changes touch the download path.
+
+- Reproduce it on the PC. Record the yt-dlp and deno versions CI installed (the setup step prints `status()`) and the ones the PC uses.
+- Find the root cause and fix it in the code at fault. If the product's resume of a partial file really broke with a new tool release, fix the product, because users get the same release. **Do not** loosen or skip the assertion.
+- If the cause is in the test's assumption (for example, the size is checked before the tool flushes), make the test deterministic without weakening what it proves: a cancelled transfer keeps a non-empty partial file, and the next attempt resumes it.
