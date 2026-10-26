@@ -290,3 +290,13 @@ The operator records that `work\ops\codex-supervisor.ps1` missed this cycle's us
 - Rewrite `.ai/LAST_REPORT.md` for this run, with the 10.1-10.4 tables.
 - Keep the first run's accepted results by reference to commit 2d996bc instead of repeating them.
 - Update the Changed files list and the owner-check list.
+
+### 10.7 CI: GitHub API rate limit in the link-tools setup step (added 2026-10-26 18:5x, after round 2 started)
+
+On a04bcf0, Windows CI failed in "Prepare verified optional tools for local media tests". `scripts/prepare_link_test_tools.py` calls `https://api.github.com/repos/.../releases/latest` with no token. The hosted runner's shared IP hit the anonymous limit: `HTTP Error 403: rate limit exceeded`. The same commit's first attempt failed earlier, in `packaged.spec.ts` ("Tauri CDP attachment failed"). That spec passed on 2d996bc.
+
+- Make the CI setup authenticated:
+  - in `ci.yml`, pass `GITHUB_TOKEN: ${{ github.token }}` to that step only;
+  - in `scripts/prepare_link_test_tools.py`, send `Authorization: Bearer <token>` to `api.github.com` only, and only when the variable is set.
+- **Do not** change the product's own update check in `link_tools.py`. The app must never read `GITHUB_TOKEN`. If the request needs a seam to add a header, add a narrow one and test that the product path sends no `Authorization` header.
+- `packaged.spec.ts` CDP attach: if you can reproduce a failure locally, find the cause. If you cannot, add the startup-diagnostics output the spec already collects to the CI failure artifact, so the next failure can be diagnosed. Do not add retries that hide it.
