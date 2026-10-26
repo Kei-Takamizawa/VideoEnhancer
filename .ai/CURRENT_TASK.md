@@ -203,3 +203,90 @@ P1e-3c1 (merged: source-built LGPL libmpv, fast B1 spike) → **P1e-3c2 (this cy
 - Disk: dependency restore; package; evidence; other growth; `work\scratch` at the end; free space on C and D; anything left for the owner to delete.
 - "Questions for the designer", each with the default you chose.
 - A short owner-check list (about 10 steps, plain English) for trying the player by hand. The designer will turn it into the owner check.
+
+## 10. Designer review of the first run (2026-10-26) and what to do now
+
+The first run, 2d996bc, is PARTIAL. **Accepted, do not redo:**
+- the helper-process architecture;
+- the IPC, the allowlist and the origin rules;
+- the fallbacks;
+- lazy loading and exit on close;
+- the memory return after close;
+- seek, reload and preview numbers;
+- packaging, the lock file and licences;
+- the Compare work in Part C, with its bit-identical hashes and P1e-3d proposals;
+- the flaky retry test fix.
+
+Do only the items below. Re-run only the checks they affect, plus the final lint, unit and e2e suites.
+
+### 10.1 Cold start (target missed: 717-813 ms in the harness, 1,366 ms in one History click)
+
+1. **Profile first.** Break one cold open into phases, five runs each:
+   - process spawn;
+   - window, D3D11 device and DComp creation;
+   - WebView2 environment and composition-controller creation;
+   - controls-page load;
+   - DLL load and `mpv_initialize`;
+   - file open to first rendered frame.
+2. **Then shorten the critical path.**
+   - Start the mpv open at helper start, in parallel with the WebView2 and page setup. The controls can attach when ready.
+   - Show the poster in the player window at once, before mpv's first frame.
+   - **Pre-warm:** you may start the helper with no file, hidden, when the pointer enters a History thumbnail or the detail view opens. A pre-warmed helper that is not used exits after 30 s.
+   - Exit on close stays.
+   - Report the idle cost of a pre-warmed helper (private bytes and GPU memory).
+3. **Targets, measured from the real History click:**
+   - poster visible ≤ 100 ms;
+   - first frame, median of 5, ≤ 500 ms cold and ≤ 300 ms pre-warmed.
+
+   Report the phase table before and after.
+
+### 10.2 Before/After CPU (33.5 % at 720p, above 15 %)
+
+The hstack needs copy-back decoding and CPU scaling. At real output sizes it will cost more. **Measure first, at real sizes:**
+- an original 1080p30 against an enhanced 1440p60;
+- an original 720p30 against an enhanced 1080p60.
+
+Report CPU, GPU memory and dropped frames for 60 s.
+
+If the hstack is above 15 % CPU at 1440p60, **implement the alternative and keep the better one:**
+- two mpv instances in the same helper, each with zero-copy d3d11va;
+- two composition visuals clipped at the divider, as now;
+- the enhanced side is the clock master; the original follows it.
+  - While paused or stepping, both sides show the same timestamp exactly, because both do an exact seek.
+  - While playing, correct the original with small speed changes or a re-seek when its error passes one frame.
+
+**Targets for the alternative:**
+- paused or stepped: identical timestamp, every time;
+- playing: drift median ≤ 1 output frame and worst ≤ 2 over 60 s, measured from the burned-in numbers;
+- CPU ≤ 15 % at 1440p60;
+- no drops.
+
+The owner's design asks only for a split picture, so a drift of up to one frame while playing is acceptable. Report both methods' numbers and say which ships.
+
+### 10.3 Visual and frame proof by self-capture (all NOT_RUN in the first run)
+
+- **Computer Use is not needed and is not the method.** Capture only the player's own window with Windows.Graphics.Capture, as P1e-3b section 13 and P1e-3c1 did. Drive it only through its own IPC. This is the approved method, not a workaround. Never capture or send input to any other window.
+- **Prove each of these from the captured pixels:**
+  - transparent controls with no dark panel, and a black letterbox;
+  - the preview sits above the bar with the time under it;
+  - autohide after 2 s while playing, and controls visible while paused;
+  - exact frame stepping against the burned-in numbers, 36 steps;
+  - Before/After drift over 60 s;
+  - divider input-to-picture latency (target ≤ 50 ms).
+- **Mockup parity:** compare captures of the player with `design/player/player_mockup.html`. Render the mockup by capturing a Tauri/WebView2 test window that the test itself creates, which also counts as an own window. List the visible differences, and fix any that the mockup's design notes name as binding (section 2).
+- Captures stay in `work\evidence`, never in Git.
+
+### 10.4 The HTTP 400 in `test_cpu_queue_sse_controls_and_completed_output`
+
+- Run that test 20 times on this branch, capturing the response body on failure.
+- If it fails again, find the cause. If this cycle's changes caused it, fix them. If the test or the engine has an older race, report it with evidence; do not loosen the test.
+
+### 10.5 Supervisor note (operator side, not yours)
+
+The operator records that `work\ops\codex-supervisor.ps1` missed this cycle's usage limit, because the session's `rate_limits` record was null. Do not change the supervisor.
+
+### 10.6 Report
+
+- Rewrite `.ai/LAST_REPORT.md` for this run, with the 10.1-10.4 tables.
+- Keep the first run's accepted results by reference to commit 2d996bc instead of repeating them.
+- Update the Changed files list and the owner-check list.
