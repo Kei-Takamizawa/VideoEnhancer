@@ -733,7 +733,7 @@ export function HistoryPage({
               data-job-id={job.id}
               data-failed={job.state === "failed"}
             >
-              <button className="history-image" aria-label={selectMode ? `Select ${filename(job.input)}` : filename(job.input)}
+              <button onPointerEnter={() => { if (!selectMode) void window.desktop.prewarmPlayer?.(job.id).catch(() => {}); }} className="history-image" aria-label={selectMode ? `Select ${filename(job.input)}` : filename(job.input)}
                 style={{ width: (row.height - 12) * historyAspect(job), height: row.height - 12 }}
                 onClick={() => selectMode ? setSelected(old => old.includes(job.id) ? old.filter(id => id !== job.id) : [...old, job.id]) : setDetail(job.id)}>
                 <Thumbnail job={job} api={api} small />

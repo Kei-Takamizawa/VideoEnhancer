@@ -2,10 +2,10 @@ use crate::mpv::Mpv;
 use std::{path::Path, sync::mpsc};
 use webview2_com::{
     CreateCoreWebView2CompositionControllerCompletedHandler,
-    CreateCoreWebView2EnvironmentCompletedHandler, Microsoft::Web::WebView2::Win32::*,
-    NavigationCompletedEventHandler, NavigationStartingEventHandler,
-    NewWindowRequestedEventHandler, ProcessFailedEventHandler, WebMessageReceivedEventHandler,
-    WebResourceRequestedEventHandler,
+    CreateCoreWebView2EnvironmentCompletedHandler, CursorChangedEventHandler,
+    Microsoft::Web::WebView2::Win32::*, NavigationCompletedEventHandler,
+    NavigationStartingEventHandler, NewWindowRequestedEventHandler, ProcessFailedEventHandler,
+    WebMessageReceivedEventHandler, WebResourceRequestedEventHandler,
 };
 use windows::{
     core::{Interface, HSTRING, PCWSTR},
@@ -22,6 +22,11 @@ use windows::{
 };
 
 pub struct Composition {
+    pub follower: Option<crate::follower::Follower>,
+    d3d: ID3D11Device,
+    dll: std::path::PathBuf,
+    pub initial_state: serde_json::Value,
+    pub profile: serde_json::Value,
     pub mpv: Mpv,
     pub web: ICoreWebView2,
     pub controller: ICoreWebView2Controller,
@@ -35,6 +40,7 @@ pub struct Composition {
     before: IDCompositionVisual,
     _html: IDCompositionVisual,
     video_size: (u32, u32),
+    original_size: (u32, u32),
 }
 impl Composition {
     pub unsafe fn new(
@@ -44,11 +50,14 @@ impl Composition {
         events: mpsc::Sender<String>,
         proxy: tao::event_loop::EventLoopProxy<()>,
         video_size: (u32, u32),
+        boot: &videoenhancer_player::Bootstrap,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         #[cfg(feature = "test-faults")]
         if std::env::var("VE_PLAYER_TEST_FAIL_D3D").as_deref() == Ok("1") {
             return Err("Simulated D3D11 device creation failure (test build only).".into());
         }
+        let native_started = std::time::Instant::now();
+        let prepared = crate::startup::prepare(dll.to_owned());
         let mut d3d = None;
         D3D11CreateDevice(
             None,
@@ -96,6 +105,28 @@ impl Composition {
         root.AddVisual(&before, true, &video)?;
         root.AddVisual(&html, true, &before)?;
         target.SetRoot(&root)?;
+        let mut rect = RECT::default();
+        windows::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rect)?;
+        let fit =
+            (rect.right as f32 / video_size.0 as f32).min(rect.bottom as f32 / video_size.1 as f32);
+        let scale = device.CreateScaleTransform()?;
+        scale.SetScaleX2(fit)?;
+        scale.SetScaleY2(fit)?;
+        video.SetTransform(&scale)?;
+        video.SetOffsetX2((rect.right as f32 - video_size.0 as f32 * fit) / 2.)?;
+        video.SetOffsetY2((rect.bottom as f32 - video_size.1 as f32 * fit) / 2.)?;
+        // Keep the GDI poster until the first decoded frame commits this tree.
+        let (ready, worker) = crate::startup::begin(
+            prepared,
+            boot.resolve(&boot.output)?,
+            d3d.clone(),
+            swap.clone(),
+            proxy.clone(),
+            crate::startup::CommitDevice::new(device.clone()),
+            serde_json::json!({"hwnd":hwnd.0 as isize,"title":boot.title,"original":boot.original.is_some(),"prewarm":boot.prewarm}),
+        );
+        let native_ms = native_started.elapsed().as_secs_f64() * 1000.;
+        let web_started = std::time::Instant::now();
         let (tx, rx) = mpsc::channel();
         let profile = HSTRING::from(profile.to_string_lossy().as_ref());
         CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
@@ -109,6 +140,8 @@ impl Composition {
                 Ok(())
             }),
         )?;
+        let environment_ms = web_started.elapsed().as_secs_f64() * 1000.;
+        let controller_started = std::time::Instant::now();
         let environment: ICoreWebView2Environment3 =
             rx.recv()?.ok_or("WebView2 environment missing")?.cast()?;
         let (tx, rx) = mpsc::channel();
@@ -126,7 +159,21 @@ impl Composition {
             }),
         )?;
         let input = rx.recv()?.ok_or("Composition controller missing")?;
+        let controller_ms = controller_started.elapsed().as_secs_f64() * 1000.;
         input.SetRootVisualTarget(&html)?;
+        let cursor_input = input.clone();
+        let mut cursor_token = 0;
+        input.add_CursorChanged(
+            &CursorChangedEventHandler::create(Box::new(move |_, _| {
+                if windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() == hwnd {
+                    let mut cursor = windows::Win32::UI::WindowsAndMessaging::HCURSOR::default();
+                    cursor_input.Cursor(&mut cursor)?;
+                    windows::Win32::UI::WindowsAndMessaging::SetCursor(Some(cursor));
+                }
+                Ok(())
+            })),
+            &mut cursor_token,
+        )?;
         let controller: ICoreWebView2Controller = input.cast()?;
         let background: ICoreWebView2Controller2 = controller.cast()?;
         background.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
@@ -169,13 +216,15 @@ impl Composition {
             &mut token,
         )?;
         let settings = web.Settings()?;
+        let page_started = std::time::Instant::now();
         web.add_NavigationCompleted(
-            &NavigationCompletedEventHandler::create(Box::new(|_, args| {
+            &NavigationCompletedEventHandler::create(Box::new(move |_, args| {
                 if let Some(args) = args {
                     let mut success = windows::core::BOOL::default();
                     let mut status = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
                     args.IsSuccess(&mut success)?;
                     args.WebErrorStatus(&mut status)?;
+                    println!("{}",serde_json::json!({"version":1,"event":"pageProfile","elapsed_ms":page_started.elapsed().as_secs_f64()*1000.,"success":success.as_bool()}));
                     eprintln!(
                         "Player navigation: success={} status={}",
                         success.as_bool(),
@@ -216,6 +265,8 @@ impl Composition {
             COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
         )?;
         let environment: ICoreWebView2Environment = resource_environment.cast()?;
+        #[cfg(feature = "test-faults")]
+        let mockup = std::env::var("VE_PLAYER_TEST_MOCKUP").as_deref() == Ok("1");
         web.add_WebResourceRequested(&WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
             if let Some(args) = args {
                 let request = args.Request()?;
@@ -226,9 +277,14 @@ impl Composition {
                 let asset = value.strip_prefix("https://player.videoenhancer.invalid")
                     .and_then(|path| crate::host::ASSETS.iter().find(|asset| asset.0 == path));
                 let (status, mime, bytes) = asset.map(|a| (200, a.1, a.2)).unwrap_or((403, "text/plain", b"Blocked"));
+                #[cfg(feature="test-faults")]
+                let bytes=if mockup && value=="https://player.videoenhancer.invalid/player.html" {include_bytes!("../../../../design/player/player_mockup.html").as_slice()} else {bytes};
                 let stream = SHCreateMemStream(Some(bytes));
+                let policy="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+                #[cfg(feature="test-faults")]
+                let policy=if mockup {"default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'"} else {policy};
                 let response = environment.CreateWebResourceResponse(stream.as_ref(), status, &HSTRING::from("OK"),
-                    &HSTRING::from(format!("Content-Type: {mime}\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\r\n")))?;
+                    &HSTRING::from(format!("Content-Type: {mime}\r\nCache-Control: no-store\r\nContent-Security-Policy: {policy}\r\n")))?;
                 args.SetResponse(&response)?;
             }
             Ok(())
@@ -236,10 +292,15 @@ impl Composition {
         web.Navigate(&HSTRING::from(
             "https://player.videoenhancer.invalid/player.html",
         ))?;
-        device.Commit()?;
-        let mut mpv = Mpv::configured(dll, None, &[])?;
-        mpv.create_render(d3d.as_raw())?;
+        ready.store(true, std::sync::atomic::Ordering::Release);
+        let startup = worker.join().map_err(|_| "Startup worker panicked")??;
+        let mpv = startup.mpv;
         Ok(Self {
+            follower: None,
+            d3d,
+            dll: dll.to_owned(),
+            initial_state: startup.state,
+            profile: serde_json::json!({"native_ms":native_ms,"webview_environment_ms":environment_ms,"webview_controller_ms":controller_ms,"mpv_initialize_ms":mpv.init_ms,"file_first_present_ms":startup.first_present_ms}),
             mpv,
             web,
             controller,
@@ -252,23 +313,29 @@ impl Composition {
             before,
             _html: html,
             video_size,
+            original_size: if boot.original_width >= 16 && boot.original_height >= 16 {
+                (boot.original_width, boot.original_height)
+            } else {
+                video_size
+            },
         })
     }
     pub unsafe fn enable_pair(
-        &self,
-        _original: &Path,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        self.swap.ResizeBuffers(
-            0,
-            self.video_size.0 * 2,
-            self.video_size.1,
-            DXGI_FORMAT_UNKNOWN,
-            DXGI_SWAP_CHAIN_FLAG(0),
+        &mut self,
+        original: &Path,
+        proxy: tao::event_loop::EventLoopProxy<()>,
+        position: f64,
+        paused: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut desc = self.swap.GetDesc1()?;
+        desc.Width = self.original_size.0;
+        desc.Height = self.original_size.1;
+        let follower = crate::follower::Follower::new(
+            &self.d3d, &desc, &self.dll, original, proxy, position, paused,
         )?;
-        Ok(format!(
-            "[vid2]scale=w={}:h={}[original];[vid1][original]hstack=inputs=2[vo]",
-            self.video_size.0, self.video_size.1
-        ))
+        self.before.SetContent(&follower.surface)?;
+        self.follower = Some(follower);
+        Ok(())
     }
     pub unsafe fn layout(
         &self,
@@ -295,12 +362,12 @@ impl Composition {
             })?;
         self.before
             .SetClip2(&windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F {
-                left: w,
+                left: 0.,
                 top: 0.,
                 right: if pair && enabled {
-                    w * (1. + divider)
+                    self.original_size.0 as f32 * divider
                 } else {
-                    w
+                    0.
                 },
                 bottom: h,
             })?;
@@ -308,10 +375,13 @@ impl Composition {
         transform.SetScaleX2(effective)?;
         transform.SetScaleY2(effective)?;
         self._video.SetTransform(&transform)?;
-        self.before.SetTransform(&transform)?;
+        let original_transform = self.device.CreateScaleTransform()?;
+        original_transform.SetScaleX2(effective * w / self.original_size.0 as f32)?;
+        original_transform.SetScaleY2(effective * h / self.original_size.1 as f32)?;
+        self.before.SetTransform(&original_transform)?;
         self._video.SetOffsetX2(offset_x)?;
         self._video.SetOffsetY2(offset_y)?;
-        self.before.SetOffsetX2(offset_x - w * effective)?;
+        self.before.SetOffsetX2(offset_x)?;
         self.before.SetOffsetY2(offset_y)?;
         self.device.Commit()?;
         Ok(())

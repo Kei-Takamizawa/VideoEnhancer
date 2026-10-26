@@ -125,6 +125,7 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo build --release --manifest-path gui/src-tauri/Cargo.toml --features cdp
       - name: Release command isolation over CDP
+        id: packaged_e2e
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -153,6 +154,8 @@ jobs:
       - name: Prepare verified optional tools for local media tests
         if: runner.os == 'Windows'
         run: uv run python scripts/prepare_link_test_tools.py "${{ runner.temp }}/ve-link-tools"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Local synthetic link media acceptance
         if: runner.os == 'Windows'
         run: uv run pytest tests/test_link_download.py -q --basetemp=.venv/link-testtmp
@@ -170,10 +173,10 @@ jobs:
           VE_TAURI_EXE: ${{ github.workspace }}/gui/src-tauri/target/debug/VideoEnhancer.exe
           VE_PLAYER_FAULT_TEST_EXE: ${{ github.workspace }}/gui/src-tauri/target/debug/VideoEnhancer-Player.exe
       - name: Collect bounded synthetic e2e failure evidence
-        if: failure() && steps.gui_e2e.outcome == 'failure'
+        if: failure() && (steps.gui_e2e.outcome == 'failure' || steps.packaged_e2e.outcome == 'failure')
         run: uv run python scripts/collect_e2e_failure.py gui/test-results "${{ runner.temp }}/ve-e2e-failure"
       - name: Upload synthetic e2e failure evidence
-        if: failure() && steps.gui_e2e.outcome == 'failure'
+        if: failure() && (steps.gui_e2e.outcome == 'failure' || steps.packaged_e2e.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: e2e-failure-${{ runner.os }}-${{ github.run_attempt }}

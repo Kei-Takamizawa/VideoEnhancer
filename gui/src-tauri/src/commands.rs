@@ -107,6 +107,7 @@ pub fn execute(
             }
             Ok(Value::Null)
         }
+        "prewarmPlayer" => crate::player::prewarm(app, state, text(&args)?),
         "openPlayer" => crate::player::open(app, state, text(&args)?),
         "closePlayer" => {
             crate::player::close();

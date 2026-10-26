@@ -13,8 +13,11 @@ def main():
     work = Path(__file__).resolve().parents[3]
     parent = psutil.Process(int(sys.argv[1]))
     executable = Path(parent.exe()).resolve()
-    if executable.name != "VideoEnhancer.exe" or not executable.is_relative_to(work):
-        raise ValueError("Only this work folder's desktop test process may be sampled")
+    if executable.name not in {
+        "VideoEnhancer.exe",
+        "VideoEnhancer-Player.exe",
+    } or not executable.is_relative_to(work):
+        raise ValueError("Only this work folder's desktop/player test process may be sampled")
     children = parent.children(recursive=True)
     helpers = [process for process in children if process.name() == "VideoEnhancer-Player.exe"]
     excluded = {

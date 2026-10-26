@@ -2,7 +2,7 @@ use crate::{composition::Composition, mpv::Mpv};
 use base64::Engine;
 use serde_json::{json, Value};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     io::{self, BufRead},
     path::Path,
     sync::mpsc,
@@ -157,6 +157,7 @@ impl Preview {
 }
 
 pub fn run() -> Result<()> {
+    let process_started = Instant::now();
     let mut line = String::new();
     io::stdin().read_line(&mut line)?;
     if line.len() > 64 * 1024 {
@@ -167,6 +168,9 @@ pub fn run() -> Result<()> {
     let original = boot.original.as_ref().and_then(|h| boot.resolve(h).ok());
     if !(16..=16384).contains(&boot.video_width) || !(16..=16384).contains(&boot.video_height) {
         return Err("Invalid video size".into());
+    }
+    if boot.original_width > 16384 || boot.original_height > 16384 {
+        return Err("Invalid original size".into());
     }
     std::fs::create_dir_all(&boot.profile)?;
     // The helper's profile is explicitly supplied by the trusted parent.
@@ -180,8 +184,10 @@ pub fn run() -> Result<()> {
         .ok_or("Missing player folder")?
         .join("libmpv-2.dll");
     let events = EventLoop::new();
+    let window_started = Instant::now();
     let window = WindowBuilder::new()
         .with_title("VideoEnhancer Player")
+        .with_visible(!boot.prewarm)
         .with_background_color((0, 0, 0, 255))
         .with_inner_size(PhysicalSize::new(
             boot.width.clamp(320, 7680),
@@ -191,6 +197,16 @@ pub fn run() -> Result<()> {
         .with_owner_window(boot.owner)
         .build(&events)?;
     let hwnd = HWND(window.hwnd() as _);
+    if let Ok(poster) = boot.resolve("poster") {
+        if let Err(error) = unsafe { crate::startup::poster(hwnd, &poster) } {
+            eprintln!("Poster: {error}");
+        } else {
+            println!(
+                "{}",
+                json!({"version":1,"event":"poster","hwnd":window.hwnd(),"elapsed_ms":process_started.elapsed().as_secs_f64()*1000.})
+            );
+        }
+    }
     if boot.owner != 0 {
         let mut owner = windows::Win32::Foundation::RECT::default();
         let mut own = windows::Win32::Foundation::RECT::default();
@@ -205,6 +221,7 @@ pub fn run() -> Result<()> {
             }
         }
     }
+    let window_ms = window_started.elapsed().as_secs_f64() * 1000.;
     let (sender, receiver) = mpsc::channel::<String>();
     let proxy = events.create_proxy();
     let mut c = unsafe {
@@ -215,16 +232,16 @@ pub fn run() -> Result<()> {
             sender.clone(),
             proxy.clone(),
             (boot.video_width, boot.video_height),
+            &boot,
         )?
     };
     unsafe {
         let size = window.inner_size();
         c.resize(size.width, size.height)?;
         c.layout((size.width, size.height), false, false, 0.5, (1., 0., 0.))?;
-        c.mpv.callbacks(proxy.clone())?;
+
         c.controller
             .MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)?;
-        c.mpv.observe()?;
     }
     let closed = sender.clone();
     let wake = proxy.clone();
@@ -243,18 +260,29 @@ pub fn run() -> Result<()> {
         let _ = closed.send("parent-closed".into());
         let _ = wake.send_event(());
     });
+    println!(
+        "{}",
+        json!({"version":1,"event":"startupProfile","window_ms":window_ms,"phases":c.profile,"total_ms":process_started.elapsed().as_secs_f64()*1000.})
+    );
     let mut lifecycle = Lifecycle::default();
     let mut requests = HashMap::<u64, (Instant, bool)>::new();
+    let mut native_ack = HashSet::<u64>::new();
+    let mut restarted = HashSet::<u64>::new();
+    let mut seek_targets = HashMap::<u64, f64>::new();
     let mut steps = HashMap::<u64, (f64, u64)>::new();
-    let mut pair_commands = HashMap::<u64, (String, u8)>::new();
+
     let mut rendered = 0u64;
     let mut click = Instant::now() - Duration::from_secs(2);
-    let mut state = json!({"event":"state","position":0,"duration":0,"paused":false,"decoder":""});
+    let mut state = c.initial_state.clone();
     let mut next_state = Instant::now();
-    let mut first_frame = false;
+    let mut first_frame = !boot.prewarm;
+    let mut playback_restarted = false;
+    let mut activated = !boot.prewarm;
+    let mut attached = false;
     let mut pair = false;
     let mut before = false;
     let mut divider = 0.5f32;
+    let mut playback_rate = 1.;
     let mut transform = (1f32, 0f32, 0f32);
     let mut fullscreen = false;
     #[cfg(feature = "test-faults")]
@@ -269,11 +297,23 @@ pub fn run() -> Result<()> {
         cache: VecDeque::new(),
     };
     let mut started = Instant::now();
+    if boot.prewarm {
+        println!(
+            "{}",
+            json!({"version":1,"event":"ready","hwnd":window.hwnd()})
+        );
+    }
     events.run(move |event, _, flow| unsafe {
         *flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(100));
         let size = window.inner_size();
         for message in receiver.try_iter() {
             if message == "webview-failed" { emit(&c, json!({"event":"error"})); *flow = ControlFlow::Exit; break; }
+            if message == "parent-activate" && !activated {
+                activated=true;window.set_visible(true);let _=SetForegroundWindow(hwnd);started=Instant::now();first_frame=false;playback_restarted=false;lifecycle=Lifecycle::Opening;
+                if let Ok(path)=boot.resolve("poster") {if let Ok(bytes)=std::fs::read(path) {emit(&c,json!({"event":"poster","image":format!("data:image/jpeg;base64,{}",base64::engine::general_purpose::STANDARD.encode(bytes))}));}}
+                if let Some(path)=file.to_str() {if c.mpv.command(&["loadfile",path]).is_err() {emit(&c,json!({"event":"error"}));*flow=ControlFlow::Exit;}}
+                continue;
+            }
             if message == "parent-closed" { *flow = ControlFlow::Exit; break; }
             let request = match Request::parse(&message) {
                 Ok(request) => request,
@@ -284,17 +324,44 @@ pub fn run() -> Result<()> {
             };
             let id = request.id;
             if requests.contains_key(&id) { reply(&c, id, Some("Duplicate player request.")); continue; }
+            #[cfg(feature = "test-faults")]
+            let mut completed = false;
+            #[cfg(not(feature = "test-faults"))]
+            let completed = false;
             let mut native = false;
             let mut waits_frame = false;
             let result = (|| -> Result<()> {
                 let mut args: Vec<String> = vec![];
                 match request.command {
+                    #[cfg(feature = "test-faults")]
+                    Command::SelfCapture { name } => {
+                        let path=boot.profile.join(format!("{name}.png"));
+                        let value=crate::capture::save_wgc(hwnd,&path)?;
+                        emit(&c,json!({"reply":id,"result":value})); completed=true;
+                    }
+                    #[cfg(feature = "test-faults")]
+                    Command::TestUi { action } => {
+                        let script=match action.as_str() {
+                         "clean"=>"document.querySelector('.controls').style.visibility='hidden';document.querySelector('header').style.visibility='hidden'",
+                         "mockup"=>"document.querySelector('#segL').click()",
+                         "letterbox"=>{window.set_inner_size(PhysicalSize::new(960,if size.height==640 {540}else{640}));"void 0"},
+                         "show" => {let _=c.input.SendMouseInput(COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE,COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,0,POINT{x:450,y:300});"document.querySelector('.controls').style.visibility='';document.querySelector('header').style.visibility='';document.querySelector('main').dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:450,clientY:300}))"},
+                         "blur" => "document.activeElement.blur()",
+                         "preview" => "(()=>{const e=document.querySelector('[aria-label=Seek]'),r=e.getBoundingClientRect();e.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width*.4,clientY:r.y+4}));})()",
+                         "help"=>"document.querySelector('[aria-label=\"Keyboard shortcuts\"]').click()",
+                         "details"=>"document.querySelector('[aria-label=Details]').click()",
+                         "speed"=>"document.querySelector('[aria-label=\"Playback speed\"]').click()",
+                         "before"=>"document.querySelector('[aria-label=\"Before / After\"]').click()",
+                         _=>return Err("Unsupported self-test action".into())};
+                        c.web.ExecuteScript(&HSTRING::from(script),None)?;
+                    }
                     Command::Open { handle } => {
                         let path = boot.resolve(&handle)?;
                         if handle != boot.output { return Err("This handle is not a playable output.".into()); }
                         #[cfg(feature = "test-faults")]
                         { idle_since = None; window.set_visible(true); }
-                        lifecycle.open()?; first_frame = false; started = Instant::now();
+                        if !attached { attached=true; if !boot.prewarm {lifecycle.open()?;lifecycle.loaded()?;} emit(&c,json!({"event":"configured","title":boot.title,"original":original.is_some(),"hwnd":window.hwnd()})); return Ok(()); }
+                        lifecycle.open()?; first_frame = false; playback_restarted=false; started = Instant::now();seek_targets.insert(id,0.);
                         args = vec!["loadfile".into(), path.to_str().ok_or("Invalid media path")?.into()]; waits_frame = true;
                     }
                     Command::Close => {
@@ -308,18 +375,18 @@ pub fn run() -> Result<()> {
                             args = vec!["stop".into()];
                         } else { let _ = c.controller.Close(); lifecycle = Lifecycle::Closed; *flow = ControlFlow::Exit; }
                     }
-                    Command::Pause { paused } => args = vec!["set".into(), "pause".into(), if paused { "yes" } else { "no" }.into()],
-                    Command::Seek { seconds } => { args = vec!["seek".into(), seconds.to_string(), "absolute+exact".into()]; waits_frame = true; }
+                    Command::Pause { paused } => {if let Some(follower)=&mut c.follower {follower.set_paused(paused)?;} args = vec!["set".into(), "pause".into(), if paused { "yes" } else { "no" }.into()];},
+                    Command::Seek { seconds } => { if let Some(f)=&mut c.follower {f.exact(seconds,state["paused"]==true)?;} seek_targets.insert(id,seconds); args = vec!["seek".into(), seconds.to_string(), "absolute+exact".into()]; waits_frame = true; }
                     Command::Step { forward } => {
                         if state["paused"] != true { return Err("Pause the video before stepping.".into()); }
                         args = vec![if forward { "frame-step" } else { "frame-back-step" }.into()]; waits_frame = true; steps.insert(id,(state["position"].as_f64().unwrap_or(0.),rendered));
                     }
-                    Command::Speed { rate } => args = vec!["set".into(), "speed".into(), rate.to_string()],
+                    Command::Speed { rate } => {playback_rate=rate;if let Some(f)=&mut c.follower {f.set_speed(rate)?;}args = vec!["set".into(), "speed".into(), rate.to_string()];},
                     Command::Volume { percent } => args = vec!["set".into(), "volume".into(), percent.to_string()],
                     Command::Mute { muted } => args = vec!["set".into(), "mute".into(), if muted { "yes" } else { "no" }.into()],
                     Command::Fullscreen { enabled } => { fullscreen = enabled; window.set_fullscreen(if enabled { Some(Fullscreen::Borderless(None)) } else { None }); }
                     Command::Transform { scale, x, y } => { transform = (scale as f32, x as f32, y as f32); }
-                    Command::BeforeAfter { enabled } => { if original.is_none() { return Err("Before / After needs the original video.".into()); } before = enabled; if enabled && !pair { if !pair_commands.is_empty() { return Err("Before / After is still loading.".into()); } let path = original.as_deref().ok_or("Original missing")?; let graph = c.enable_pair(path)?; args = vec!["video-add".into(), path.to_str().ok_or("Invalid original path")?.into(), "auto".into()]; waits_frame = true; pair_commands.insert(id, (graph, 0)); } }
+                    Command::BeforeAfter { enabled } => { if original.is_none() { return Err("Before / After needs the original video.".into()); } before = enabled; if enabled && !pair { c.enable_pair(original.as_deref().ok_or("Original missing")?,proxy.clone(),state["position"].as_f64().unwrap_or(0.),state["paused"]==true)?; if let Some(f)=&mut c.follower {f.set_speed(playback_rate)?;}pair=true; } }
                     Command::Divider { fraction } => divider = fraction as f32,
                     Command::Preview { seconds, generation } => { preview.request(generation, seconds, &c, &dll, &file, proxy.clone())?; }
                 }
@@ -332,6 +399,7 @@ pub fn run() -> Result<()> {
             })();
             match result {
                 Err(error) => { eprintln!("Player request {id}: {error}"); reply(&c,id,Some("The player could not complete this action. Close it and try again.")); },
+                Ok(()) if completed => {},
                 Ok(()) if native => { requests.insert(id, (Instant::now(), waits_frame)); }
                 Ok(()) => reply(&c, id, None),
             }
@@ -363,10 +431,15 @@ pub fn run() -> Result<()> {
                 _ => {}
             },
             Event::MainEventsCleared => {
+                if !activated && process_started.elapsed()>=Duration::from_secs(30) {*flow=ControlFlow::Exit;}
+
                 #[cfg(feature = "test-faults")]
                 if idle_since.is_some_and(|at| at.elapsed() >= Duration::from_secs(29)) { let _ = c.controller.Close(); *flow = ControlFlow::Exit; }
+                let rendered_before=rendered;
                 match c.mpv.needs_render().and_then(|dirty| if dirty { rendered += 1; c.draw() } else { Ok(()) }) {
-                    Ok(()) => {}
+                    Ok(()) => {if !first_frame && playback_restarted && activated && rendered>rendered_before {
+                        first_frame=true;let _=lifecycle.loaded();emit(&c,json!({"event":"loaded","title":boot.title,"original":original.is_some(),"first_frame_ms":started.elapsed().as_secs_f64()*1000.,"hwnd":window.hwnd(),"method":"render/present after playback restart"}));
+                    }}
                     Err(error) => { eprintln!("Player device/render: {error}"); emit(&c, json!({"event":"error"})); *flow = ControlFlow::Exit; }
                 }
                 for event in c.mpv.events() {
@@ -374,8 +447,8 @@ pub fn run() -> Result<()> {
                     if kind == 22 {
                         let value = event["value"].as_str().unwrap_or("");
                         match event["name"].as_str().unwrap_or("") {
-                            "time-pos" => { if let Ok(n) = value.parse::<f64>() { state["position"] = json!(n); } }
-                            "duration" => { if let Ok(n) = value.parse::<f64>() { state["duration"] = json!(n); } }
+                            "time-pos" => { if let Some(n) = event["value"].as_f64().or_else(||value.parse::<f64>().ok()) { state["position"] = json!(n); } }
+                            "duration" => { if let Some(n) = event["value"].as_f64().or_else(||value.parse::<f64>().ok()) { state["duration"] = json!(n); } }
                             "pause" => state["paused"] = json!(value == "yes"),
                             "hwdec-current" => state["decoder"] = json!(value),
                             "frame-drop-count" => state["dropped"] = json!(value),
@@ -385,40 +458,39 @@ pub fn run() -> Result<()> {
                     }
                     if kind == 5 {
                         let id = event["reply"].as_u64().unwrap_or(0);
-                        if event["error"].as_i64().unwrap_or(0) < 0 { requests.remove(&id); steps.remove(&id); pair_commands.remove(&id); reply(&c, id, Some("The player could not complete this action.")); }
-                        else if let Some((graph, stage)) = pair_commands.get_mut(&id) {
-                            // Each asynchronous command must finish before the graph can use vid2.
-                            let result = if *stage == 0 {
-                                *stage = 1;
-                                c.mpv.command_id(id, &["set", "hwdec", "d3d11va-copy"])
-                            } else {
-                                c.mpv.command_id(id, &["set", "lavfi-complex", graph])
-                            };
-                            if result.is_err() { pair_commands.remove(&id); requests.remove(&id); reply(&c,id,Some("Before / After could not load.")); }
-                            else if *stage == 2 { pair_commands.remove(&id); pair = true; let _ = c.layout((size.width,size.height),pair,before,divider,transform); }
-                            else { *stage = 2; }
-                        }
+                        if requests.get(&id).is_some_and(|(_,frame)|*frame) && event["error"].as_i64().unwrap_or(0)>=0 {native_ack.insert(id);}
+                        if event["error"].as_i64().unwrap_or(0) < 0 { native_ack.remove(&id); restarted.remove(&id); seek_targets.remove(&id); requests.remove(&id); steps.remove(&id); reply(&c, id, Some("The player could not complete this action.")); }
                         else if requests.get(&id).is_some_and(|(_, frame)| !frame) { requests.remove(&id); reply(&c, id, None); }
                     }
                     if kind == 21 {
-                        if !first_frame {
-                            first_frame = true; let _ = lifecycle.loaded();
-                            emit(&c, json!({"event":"loaded","title":boot.title,"original":original.is_some(),"first_frame_ms":started.elapsed().as_secs_f64()*1000.,"hwnd":window.hwnd()}));
-                        }
-                        let ready: Vec<_> = requests.iter().filter(|(id, (_, frame))| *frame && !steps.contains_key(id) && !pair_commands.contains_key(id)).map(|(id, _)| *id).collect();
+                        for (id,(_,frame)) in &requests {if *frame && native_ack.contains(id) && seek_targets.get(id).is_none_or(|target|(state["position"].as_f64().unwrap_or(0.)-target).abs()<0.1) {restarted.insert(*id);}}
+
+                        playback_restarted=true;
+                        let ready: Vec<_> = requests.iter().filter(|(id, (_, frame))| *frame && native_ack.contains(id) && seek_targets.get(id).is_none_or(|target| (state["position"].as_f64().unwrap_or(0.)-target).abs()<0.1) && !steps.contains_key(id) && c.follower.as_ref().is_none_or(|f|f.aligned(state["position"].as_f64().unwrap_or(0.),state["paused"]==true))).map(|(id, _)| *id).collect();
                         for id in ready { if let Some((at, _)) = requests.remove(&id) { emit(&c, json!({"reply":id,"result":{"latency_ms":at.elapsed().as_secs_f64()*1000.}})); } }
                     }
                     if kind == 7 && event["reason"] == 4 { emit(&c, json!({"event":"error"})); *flow = ControlFlow::Exit; }
                 }
-                let finished_steps: Vec<_> = steps.iter().filter(|(_, (before, serial))| rendered > *serial && state["position"].as_f64().is_some_and(|now| (now-*before).abs()>0.00001)).map(|(id,_)| *id).collect();
-                for id in finished_steps { steps.remove(&id); if let Some((at,_))=requests.remove(&id) { emit(&c,json!({"reply":id,"result":{"latency_ms":at.elapsed().as_secs_f64()*1000.},"event":"stepDone"})); } }
+                if let Some(follower)=&mut c.follower {
+                    if let Err(error)=follower.poll().and_then(|_|follower.synchronize(state["position"].as_f64().unwrap_or(0.),state["paused"]==true)) {eprintln!("Original: {error}");emit(&c,json!({"event":"error"}));*flow=ControlFlow::Exit;}
+                    if let Some(follower)=&c.follower {state["original_position"]=json!(follower.position);state["original_decoder"]=json!(follower.decoder);state["original_dropped"]=json!(follower.dropped);}
+                }
+                if c.follower.as_ref().is_some_and(|f|f.aligned(state["position"].as_f64().unwrap_or(0.),state["paused"]==true)) {
+                    let ready:Vec<_>=requests.iter().filter(|(id,(_,frame))|*frame && native_ack.contains(id) && restarted.contains(id) && !steps.contains_key(id)).map(|(id,_)|*id).collect();
+                    for id in ready {if let Some((at,_))=requests.remove(&id) {emit(&c,json!({"reply":id,"result":{"latency_ms":at.elapsed().as_secs_f64()*1000.}}));}}
+                }
+                let finished_steps: Vec<_> = steps.iter().filter(|(id, (before, serial))| native_ack.contains(id) && c.follower.as_ref().is_none_or(|f| f.aligned(state["position"].as_f64().unwrap_or(0.),state["paused"]==true)) && rendered > *serial && state["position"].as_f64().is_some_and(|now| (now-*before).abs()>0.00001)).map(|(id,_)| *id).collect();
+                for id in finished_steps { steps.remove(&id); if let Some((at,_))=requests.remove(&id) { emit(&c,json!({"reply":id,"result":{"latency_ms":at.elapsed().as_secs_f64()*1000.},"event":"stepDone","target_seconds":state["position"],"original_target_seconds":c.follower.as_ref().map(|f|f.target)})); } }
                 let timed_out: Vec<_> = requests.iter().filter(|(_, (at, _))| at.elapsed() > Duration::from_secs(10)).map(|(id, _)| *id).collect();
-                for id in timed_out { requests.remove(&id); steps.remove(&id); pair_commands.remove(&id); reply(&c, id, Some("The player did not respond.")); }
-                if !first_frame && started.elapsed() > Duration::from_secs(12) { emit(&c, json!({"event":"error"})); *flow = ControlFlow::Exit; }
+                for id in timed_out { requests.remove(&id); steps.remove(&id); reply(&c, id, Some("The player did not respond.")); }
+                if activated && !first_frame && started.elapsed() > Duration::from_secs(12) { emit(&c, json!({"event":"error"})); *flow = ControlFlow::Exit; }
+                native_ack.retain(|id|requests.contains_key(id));restarted.retain(|id|requests.contains_key(id));seek_targets.retain(|id,_|requests.contains_key(id));
                 if next_state.elapsed() >= Duration::from_millis(100) { emit(&c, state.clone()); next_state = Instant::now(); }
                 if let Err(error) = preview.poll(&c) { eprintln!("Hover preview: {error}"); }
             }
             Event::LoopDestroyed => {
+                #[cfg(feature="test-faults")]
+                crate::capture::shutdown();
                 println!("{}", json!({"version":1,"event":"closed"}));
                 let mut owner = windows::Win32::Foundation::RECT::default();
                 if GetWindowRect(HWND(boot.owner as _), &mut owner).is_ok() { let _ = SetForegroundWindow(HWND(boot.owner as _)); }

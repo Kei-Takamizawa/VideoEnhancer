@@ -25,19 +25,54 @@ pub struct Request {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Command {
-    Open { handle: String },
+    #[cfg(feature = "test-faults")]
+    SelfCapture {
+        name: String,
+    },
+    #[cfg(feature = "test-faults")]
+    TestUi {
+        action: String,
+    },
+    Open {
+        handle: String,
+    },
     Close,
-    Pause { paused: bool },
-    Seek { seconds: f64 },
-    Step { forward: bool },
-    Speed { rate: f64 },
-    Volume { percent: f64 },
-    Mute { muted: bool },
-    Fullscreen { enabled: bool },
-    Transform { scale: f64, x: f64, y: f64 },
-    BeforeAfter { enabled: bool },
-    Divider { fraction: f64 },
-    Preview { seconds: f64, generation: u64 },
+    Pause {
+        paused: bool,
+    },
+    Seek {
+        seconds: f64,
+    },
+    Step {
+        forward: bool,
+    },
+    Speed {
+        rate: f64,
+    },
+    Volume {
+        percent: f64,
+    },
+    Mute {
+        muted: bool,
+    },
+    Fullscreen {
+        enabled: bool,
+    },
+    Transform {
+        scale: f64,
+        x: f64,
+        y: f64,
+    },
+    BeforeAfter {
+        enabled: bool,
+    },
+    Divider {
+        fraction: f64,
+    },
+    Preview {
+        seconds: f64,
+        generation: u64,
+    },
 }
 
 impl Request {
@@ -50,6 +85,22 @@ impl Request {
             return Err("Unsupported player protocol.".into());
         }
         let valid = match &request.command {
+            #[cfg(feature = "test-faults")]
+            Command::SelfCapture { name } => valid_handle(name),
+            #[cfg(feature = "test-faults")]
+            Command::TestUi { action } => [
+                "show",
+                "blur",
+                "preview",
+                "help",
+                "details",
+                "speed",
+                "before",
+                "letterbox",
+                "mockup",
+                "clean",
+            ]
+            .contains(&action.as_str()),
             Command::Open { handle } => valid_handle(handle),
             Command::Seek { seconds } | Command::Preview { seconds, .. } => {
                 seconds.is_finite() && (0.0..=864000.0).contains(seconds)
@@ -93,6 +144,12 @@ pub struct Bootstrap {
     pub y: i32,
     pub profile: PathBuf,
     pub handles: HashMap<String, PathBuf>,
+    #[serde(default)]
+    pub prewarm: bool,
+    #[serde(default)]
+    pub original_width: u32,
+    #[serde(default)]
+    pub original_height: u32,
     pub output: String,
     pub original: Option<String>,
     pub title: String,
@@ -160,6 +217,37 @@ impl Hover {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn prewarm_requires_an_explicit_trusted_bootstrap_flag() {
+        let mut value = serde_json::json!({"version":1,"owner":0,"width":960,"height":540,"x":0,"y":0,"profile":"scratch","handles":{},"output":"output","original":null,"title":"Synthetic","video_width":1920,"video_height":1080});
+        let cold: Bootstrap = serde_json::from_value(value.clone()).unwrap();
+        assert!(!cold.prewarm);
+        value["prewarm"] = serde_json::json!(true);
+        let warm: Bootstrap = serde_json::from_value(value).unwrap();
+        assert!(warm.prewarm);
+    }
+    #[cfg(not(feature = "test-faults"))]
+    #[test]
+    fn production_rejects_capture_and_test_ui_commands() {
+        assert!(Request::parse(
+            r#"{"version":1,"id":1,"command":{"type":"selfCapture","name":"own"}}"#
+        )
+        .is_err());
+        assert!(Request::parse(
+            r#"{"version":1,"id":1,"command":{"type":"testUi","action":"show"}}"#
+        )
+        .is_err());
+    }
+    #[cfg(feature = "test-faults")]
+    #[test]
+    fn capture_names_and_test_actions_cannot_escape_the_test_surface() {
+        assert!(Request::parse(
+            r#"{"version":1,"id":1,"command":{"type":"selfCapture","name":"../../outside"}}"#
+        )
+        .is_err());
+        assert!(Request::parse(r#"{"version":1,"id":1,"command":{"type":"testUi","action":"execute arbitrary script"}}"#).is_err());
+    }
+
     #[test]
     fn replies_route_out_of_order_success_and_error_to_their_callers() {
         let first =
@@ -232,6 +320,9 @@ mod tests {
             y: 0,
             profile: folder.clone(),
             handles: HashMap::from([("output".into(), file.clone())]),
+            prewarm: false,
+            original_width: 0,
+            original_height: 0,
             output: "output".into(),
             original: None,
             title: "Synthetic".into(),

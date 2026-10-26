@@ -49,9 +49,16 @@ class Player:
             text=True,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
+        self.spawn_ms = (time.perf_counter() - self.started) * 1000
         handles = {"output": str(SCRATCH / clip)}
+        if (SCRATCH / "review-poster.jpg").exists():
+            handles["poster"] = str(SCRATCH / "review-poster.jpg")
         if original:
             handles["original"] = str(SCRATCH / original)
+        import re
+
+        size_match = re.search(r"review-original-(\d+)", original or "")
+        original_height = int(size_match.group(1)) if size_match else height
         boot = dict(
             version=1,
             owner=0,
@@ -64,6 +71,8 @@ class Player:
             output="output",
             original="original" if original else None,
             title="Synthetic acceptance",
+            original_width=original_height * 16 // 9,
+            original_height=original_height,
             video_width=width,
             video_height=height,
         )

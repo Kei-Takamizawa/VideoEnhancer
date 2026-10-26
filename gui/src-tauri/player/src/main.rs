@@ -1,9 +1,15 @@
+#[cfg(all(windows, feature = "test-faults"))]
+mod capture;
 #[cfg(windows)]
 mod composition;
+#[cfg(windows)]
+mod follower;
 #[cfg(windows)]
 mod host;
 #[cfg(windows)]
 mod mpv;
+#[cfg(windows)]
+mod startup;
 fn main() {
     #[cfg(windows)]
     if let Err(error) = host::run() {

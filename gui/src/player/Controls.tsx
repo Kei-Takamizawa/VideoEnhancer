@@ -11,6 +11,7 @@ export function Controls() {
   const [before, setBefore] = useState(false), [divider, setDivider] = useState(0.5);
   const [original, setOriginal] = useState(false), [title, setTitle] = useState("VideoEnhancer");
   const [details, setDetails] = useState(false), [help, setHelp] = useState(false), [fullscreen, setFullscreen] = useState(false);
+  const [poster, setPoster] = useState<string>();
   const [decoder, setDecoder] = useState(""), [error, setError] = useState("");
   const [speedMenu, setSpeedMenu] = useState(false);
   const speedButton = useRef<HTMLButtonElement>(null);
@@ -28,13 +29,15 @@ export function Controls() {
   const poke = useCallback(() => { activity.current = Date.now(); setVisible(true); }, []);
   useEffect(() => {
     const stop = onPlayerEvent(event => {
-      if (event.event === "loaded") {
+      if (event.event === "poster") setPoster(String(event.image));
+      if (event.event === "loaded") setPoster(undefined);
+      if ((event.event === "loaded" || event.event === "configured")) {
         setTitle(String(event.title || "VideoEnhancer")); setOriginal(event.original === true);
       }
       if (event.event === "state") {
         if (typeof event.position === "number") setPosition(event.position);
         if (typeof event.duration === "number") setDuration(event.duration);
-        if (typeof event.paused === "boolean") setPaused(event.paused);
+        if (typeof event.paused === "boolean") { setPaused(event.paused); if (event.paused) setVisible(true); }
         if (typeof event.decoder === "string") setDecoder(event.decoder);
       }
       if (event.event === "error") setError("This video can't be played here. Open it in your default player instead.");
@@ -106,6 +109,7 @@ export function Controls() {
     return () => element.removeEventListener("wheel", wheel);
   }, [before, changeTransform, divider, poke, split, transform]);
   return <main ref={surface} aria-label="Video player" className={visible ? "player" : "player hidden-controls"} onPointerMove={poke} onDoubleClick={e => { if (e.target === e.currentTarget) toggleFullscreen(); }}>
+    {poster && <img className="startup-poster" src={poster} alt="Video poster" />}
     <header className="floating"><span>{title}</span><button aria-label="Close player" onClick={() => command("close")}>×</button></header>
     {error && <p role="alert" className="error">{error}</p>}
     <div className="controls floating">

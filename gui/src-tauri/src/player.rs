@@ -4,9 +4,9 @@ use serde_json::{json, Value};
 use std::{
     fs,
     io::{BufRead, BufReader, Write},
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStdin, Command, Stdio},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     time::Duration,
@@ -14,11 +14,21 @@ use std::{
 use tauri::{Emitter, Manager};
 use videoenhancer_player::Bootstrap;
 
+struct Warm {
+    id: String,
+    input: Arc<Mutex<ChildStdin>>,
+    loaded: Arc<AtomicBool>,
+    generation: u64,
+}
+static WARM: Mutex<Option<Warm>> = Mutex::new(None);
 static HELPER: Mutex<Option<Arc<Mutex<Child>>>> = Mutex::new(None);
 static SESSION: AtomicU64 = AtomicU64::new(0);
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const FALLBACK: &str = "This video can't be played here. Open it in your default player instead.";
 pub fn close() {
+    if let Ok(mut warm) = WARM.lock() {
+        warm.take();
+    }
     SESSION.fetch_add(1, Ordering::SeqCst);
     if let Ok(mut helper) = HELPER.lock() {
         if let Some(child) = helper.take() {
@@ -28,7 +38,51 @@ pub fn close() {
         }
     }
 }
+pub fn prewarm(app: &tauri::AppHandle, state: &State, id: &str) -> engine::Result<Value> {
+    let alive = HELPER
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_ref()
+        .is_some_and(|child| {
+            child
+                .lock()
+                .ok()
+                .is_some_and(|mut child| matches!(child.try_wait(), Ok(None)))
+        });
+    if alive
+        && WARM
+            .lock()
+            .map_err(|e| e.to_string())?
+            .as_ref()
+            .is_some_and(|w| w.id == id && SESSION.load(Ordering::SeqCst) == w.generation)
+    {
+        return Ok(json!(true));
+    }
+    launch(app, state, id, true)
+}
 pub fn open(app: &tauri::AppHandle, state: &State, id: &str) -> engine::Result<Value> {
+    let warm = WARM.lock().map_err(|e| e.to_string())?.take();
+    if let Some(warm) =
+        warm.filter(|w| w.id == id && SESSION.load(Ordering::SeqCst) == w.generation)
+    {
+        let mut input = warm.input.lock().map_err(|e| e.to_string())?;
+        if writeln!(input, "parent-activate")
+            .and_then(|_| input.flush())
+            .is_ok()
+        {
+            drop(input);
+            let started = std::time::Instant::now();
+            while started.elapsed() < Duration::from_secs(5) {
+                if warm.loaded.load(Ordering::Acquire) {
+                    return Ok(json!(true));
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }
+    }
+    launch(app, state, id, false)
+}
+fn launch(app: &tauri::AppHandle, state: &State, id: &str, prewarm: bool) -> engine::Result<Value> {
     close();
     let generation = SESSION.fetch_add(1, Ordering::SeqCst) + 1;
     if !media::valid_id(id) {
@@ -56,7 +110,7 @@ pub fn open(app: &tauri::AppHandle, state: &State, id: &str) -> engine::Result<V
         .as_array()
         .and_then(|rows| rows.iter().find(|row| row["id"] == id))
         .ok_or("This video is no longer in History.")?;
-    let handles = media::player_handles(job)?;
+    let mut handles = media::player_handles(job)?;
     let window = app
         .get_webview_window("main")
         .ok_or("Main window missing")?;
@@ -90,8 +144,34 @@ pub fn open(app: &tauri::AppHandle, state: &State, id: &str) -> engine::Result<V
             std::process::id(),
             SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
+    fs::create_dir_all(&profile).map_err(|e| e.to_string())?;
+    // Fetch only this authenticated job's existing thumbnail, never a path from HTML.
+    if let Ok(connection) = state.connected() {
+        if let Ok(response) = engine::client()?
+            .get(format!("{}/queue/{id}/thumbnail", connection.base_url))
+            .bearer_auth(&connection.token)
+            .timeout(Duration::from_millis(500))
+            .send()
+        {
+            if response.status().is_success()
+                && response
+                    .content_length()
+                    .is_some_and(|n| n <= 2 * 1024 * 1024)
+            {
+                if let Ok(bytes) = response.bytes() {
+                    let poster = profile.join("poster.jpg");
+                    if fs::write(&poster, bytes).is_ok() {
+                        handles.insert("poster".into(), poster);
+                    }
+                }
+            }
+        }
+    }
     let boot = Bootstrap {
         version: 1,
+        prewarm,
+        original_width: input_w as u32,
+        original_height: input_h as u32,
         owner: window.hwnd().map_err(|e| e.to_string())?.0 as isize,
         width,
         height,
@@ -146,6 +226,8 @@ pub fn open(app: &tauri::AppHandle, state: &State, id: &str) -> engine::Result<V
     )
     .map_err(|_| FALLBACK)?;
     input.flush().map_err(|_| FALLBACK)?;
+    let input = Arc::new(Mutex::new(input));
+    let loaded = Arc::new(AtomicBool::new(false));
     let child = Arc::new(Mutex::new(child));
     {
         let mut helper = HELPER.lock().map_err(|e| e.to_string())?;
@@ -154,6 +236,14 @@ pub fn open(app: &tauri::AppHandle, state: &State, id: &str) -> engine::Result<V
                 let _ = child.kill();
             }
             return Err("Player closed.".into());
+        }
+        if prewarm {
+            *WARM.lock().map_err(|e| e.to_string())? = Some(Warm {
+                id: id.to_owned(),
+                input: input.clone(),
+                loaded: loaded.clone(),
+                generation,
+            });
         }
         *helper = Some(child.clone());
     }
@@ -172,8 +262,23 @@ pub fn open(app: &tauri::AppHandle, state: &State, id: &str) -> engine::Result<V
             let Ok(event) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
+            #[cfg(feature = "e2e")]
+            if SESSION.load(Ordering::SeqCst) == generation
+                && matches!(
+                    event["event"].as_str(),
+                    Some("poster" | "loaded" | "startupProfile")
+                )
+            {
+                let _ = app.emit("player-metric", json!({"id":job_id,"event":event.clone()}));
+            }
             match event["event"].as_str() {
                 Some("loaded") => {
+                    loaded.store(true, Ordering::Release);
+                    if let Some(ready) = ready.take() {
+                        let _ = ready.send(Ok(()));
+                    }
+                }
+                Some("ready") if prewarm => {
                     if let Some(ready) = ready.take() {
                         let _ = ready.send(Ok(()));
                     }
@@ -206,7 +311,7 @@ pub fn open(app: &tauri::AppHandle, state: &State, id: &str) -> engine::Result<V
         if SESSION.load(Ordering::SeqCst) == generation {
             let _ = app.emit("player-closed", json!({"id":job_id}));
         }
-        if SESSION.load(Ordering::SeqCst) == generation {
+        if SESSION.load(Ordering::SeqCst) == generation && loaded.load(Ordering::Acquire) {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
             }

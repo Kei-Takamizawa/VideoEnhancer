@@ -30,6 +30,9 @@ pub struct Mpv {
     wake: Option<Box<Notify>>,
     update: Option<Box<Notify>>,
 }
+// libmpv permits thread handoff. Startup joins before the UI thread accesses it;
+// the render context is never used concurrently. Mpv deliberately remains !Sync.
+unsafe impl Send for Mpv {}
 impl Mpv {
     pub unsafe fn configured(
         path: &Path,
@@ -171,7 +174,11 @@ impl Mpv {
                 self.handle,
                 id as u64,
                 CString::new(*name)?.as_ptr(),
-                1,
+                if ["time-pos", "duration"].contains(name) {
+                    5
+                } else {
+                    1
+                },
             ))?;
         }
         Ok(())
@@ -235,6 +242,9 @@ impl Mpv {
                 if !property.name.is_null() {
                     event["name"] =
                         serde_json::json!(CStr::from_ptr(property.name).to_string_lossy());
+                }
+                if property.format == 5 && !property.data.is_null() {
+                    event["value"] = serde_json::json!(*property.data.cast::<f64>());
                 }
                 if property.format == 1 && !property.data.is_null() {
                     let value = *property.data.cast::<*const c_char>();

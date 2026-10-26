@@ -9,6 +9,18 @@ vi.mock("../src/player/ipc", () => ({ send: bridge.send, onPlayerEvent: (listene
 afterEach(() => { vi.useRealTimers(); bridge.send.mockClear(); });
 function event(value: Record<string, unknown>) { act(() => bridge.receive({ version: 1, ...value })); }
 describe("native player controls", () => {
+  it("attaches prewarmed metadata without another open and retains the poster until video is ready", () => {
+    render(<Controls />);
+    expect(bridge.send).toHaveBeenCalledTimes(1);
+    event({ event: "configured", title: "Synthetic", original: true });
+    expect(bridge.send).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole("button", { name: "Before / After" }) as HTMLButtonElement).disabled).toBe(false);
+    event({ event: "poster", image: "data:image/jpeg;base64,c3ludGhldGlj" });
+    expect(screen.getByAltText("Video poster").getAttribute("src")).toContain("data:image/jpeg");
+    event({ event: "loaded", title: "Synthetic", original: true });
+    expect(screen.queryByAltText("Video poster")).toBeNull();
+  });
+
   it("hides after two seconds, reveals on movement and stays visible while paused", () => {
     vi.useFakeTimers(); render(<Controls />);
     const player = screen.getByRole("main");
