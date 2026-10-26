@@ -300,3 +300,55 @@ On a04bcf0, Windows CI failed in "Prepare verified optional tools for local medi
   - in `scripts/prepare_link_test_tools.py`, send `Authorization: Bearer <token>` to `api.github.com` only, and only when the variable is set.
 - **Do not** change the product's own update check in `link_tools.py`. The app must never read `GITHUB_TOKEN`. If the request needs a seam to add a header, add a narrow one and test that the product path sends no `Authorization` header.
 - `packaged.spec.ts` CDP attach: if you can reproduce a failure locally, find the cause. If you cannot, add the startup-diagnostics output the spec already collects to the CI failure artifact, so the next failure can be diagnosed. Do not add retries that hide it.
+
+## 11. Designer review of run 2 (2026-10-26) and the last round
+
+Run 2, 0fd7293, is PARTIAL. **Accepted, do not redo:**
+- startup: cold 463 ms and pre-warmed 190 ms, from real History clicks;
+- the two-decoder Before/After;
+  - its drift: median 0, worst 2;
+  - its 36/36 steps;
+  - no pause on divider moves;
+- the own-window visual proofs;
+- 10.4;
+- 10.7.
+
+### 11.1 Target decisions (designer)
+
+- **Before/After CPU:** the target is now **≤ 25 %** of one core at 1440p60. Two hardware decoders plus the follower measured 20.7 %, which is about 2.6 % of this 8-core CPU. That passes; no more work.
+- **Cold poster:** the target is now a **median of 5 ≤ 100 ms**. The run measured 70.1 ms, which passes. The first-ever open (165.8 ms, which includes a cold thumbnail fetch) is reported and accepted.
+- **Divider latency:** the WGC readback stalls the render thread, so it cannot measure this. **Measure it instead without capture:** use QPC timestamps from the input event in the page, through the IPC receipt in the helper, to the DComp `Commit` that carries the new clip, plus the next `GetFrameStatistics` present time.
+  - **Target:** median ≤ 34 ms (two 60 Hz frames) and worst ≤ 50 ms, over 20 moves while playing.
+  - Keep the WGC numbers as an upper bound in the report.
+  - If the target is missed, find which hop is slow and fix it. A likely cause is position messages queued behind 10 Hz position updates, or the WebView2 message pump.
+
+### 11.2 Match the approved mockup's layout (the main item)
+
+The owner approved the mockup's look, not only its behaviour. Run 2 lists differences that this round must remove:
+- **two control rows with icons,** as in the mockup:
+  - the seek bar on its own row;
+  - a row of icon buttons below it, using the mockup's SVG icons, not text buttons;
+- the **large play/pause button** in the mockup's accent style;
+- the separate **10-second back/forward buttons**;
+- the mockup's **slider spacing and preview size**;
+- the Before/After row (`xrow`): the split slider, its labels and the zoom chip, laid out as in the mockup;
+- the title row with the round close button.
+
+**How to work:**
+- Use `design/player/player_mockup.html` as the source of CSS values, icons and structure. Copy what fits, rather than re-drawing it.
+- Its demo toolbar (theme, sample shape, status chip) is not product UI; leave it out.
+- Keep every behaviour and every accessible name already built.
+- The native window frame may stay. Report it if the mockup's frameless title row would need more work.
+
+**Prove it** with own-window captures of the product next to the mockup:
+- 16:9 and 9:16;
+- playing, paused and hover states;
+- Before/After on.
+
+List any difference that remains, and why.
+
+### 11.3 Report and status
+
+- Rewrite `.ai/LAST_REPORT.md` for run 3. Keep the accepted results by reference to 2d996bc and 0fd7293.
+- Set **COMPLETED** only if all of these pass: the 11.1 divider measurement, 11.2 with its captures, the final lint/unit/e2e suites, and the package build.
+- Update the owner-check list.
