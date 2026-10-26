@@ -315,7 +315,7 @@ Run 2, 0fd7293, is PARTIAL. **Accepted, do not redo:**
 
 ### 11.1 Target decisions (designer)
 
-- **Before/After CPU:** the target is now **≤ 25 %** of one core at 1440p60. Two hardware decoders plus the follower measured 20.7 %, which is about 2.6 % of this 8-core CPU. That passes; no more work.
+- **Before/After CPU:** the target is now **≤ 25 %** of one core at 1440p60. Two hardware decoders plus the follower measured 20.7 % of one core, which passes. Report the PC's logical core count once, so the share of the whole CPU is known. No more work.
 - **Cold poster:** the target is now a **median of 5 ≤ 100 ms**. The run measured 70.1 ms, which passes. The first-ever open (165.8 ms, which includes a cold thumbnail fetch) is reported and accepted.
 - **Divider latency:** the WGC readback stalls the render thread, so it cannot measure this. **Measure it instead without capture:** use QPC timestamps from the input event in the page, through the IPC receipt in the helper, to the DComp `Commit` that carries the new clip, plus the next `GetFrameStatistics` present time.
   - **Target:** median ≤ 34 ms (two 60 Hz frames) and worst ≤ 50 ms, over 20 moves while playing.
