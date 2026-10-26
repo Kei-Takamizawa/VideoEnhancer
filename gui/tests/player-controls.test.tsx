@@ -21,6 +21,28 @@ describe("native player controls", () => {
     expect(screen.queryByAltText("Video poster")).toBeNull();
   });
 
+  it("keeps ten-second skips clamped and uses the portrait preview dimensions", () => {
+    render(<Controls />); event({ event: "configured", original: true, video_width: 540, video_height: 960 });
+    event({ event: "state", position: 5, duration: 60, paused: true });
+    fireEvent.click(screen.getByRole("button", { name: "Back 10 seconds" }));
+    expect(bridge.send).toHaveBeenLastCalledWith({ type: "seek", seconds: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "Forward 10 seconds" }));
+    expect(bridge.send).toHaveBeenLastCalledWith({ type: "seek", seconds: 15 });
+    fireEvent.pointerMove(screen.getByRole("slider", { name: "Seek" }), { clientX: 50 });
+    const image = screen.getByAltText("Seek preview") as HTMLImageElement;
+    expect([image.width, image.height]).toEqual([90, 160]);
+    for (const name of ["Back 10 seconds", "Forward 10 seconds", "Play", "Close player", "Details"])
+      expect(screen.getByRole("button", { name }).querySelector("svg")).toBeTruthy();
+  });
+  it("shows a reset control for zoom and returns the native picture to 100 percent", () => {
+    render(<Controls />);
+    fireEvent.wheel(screen.getByRole("main"), { ctrlKey: true, deltaY: -100, clientX: 0, clientY: 0 });
+    expect(screen.getByText(/Zoom 122/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reset zoom" }));
+    expect(bridge.send).toHaveBeenLastCalledWith({ type: "transform", scale: 1, x: 0, y: 0 });
+    expect(screen.queryByRole("button", { name: "Reset zoom" })).toBeNull();
+  });
+
   it("hides after two seconds, reveals on movement and stays visible while paused", () => {
     vi.useFakeTimers(); render(<Controls />);
     const player = screen.getByRole("main");

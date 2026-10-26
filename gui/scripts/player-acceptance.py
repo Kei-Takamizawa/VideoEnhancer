@@ -24,7 +24,9 @@ EVIDENCE = WORK / "evidence/VE-P1e-3c2"
 
 
 class Player:
-    def __init__(self, clip, label, width, height, original=None):
+    def __init__(
+        self, clip, label, width, height, original=None, window_size=(960, 540), original_size=None
+    ):
         self.events = queue.Queue()
         self.rows = []
         self.state = {}
@@ -62,8 +64,8 @@ class Player:
         boot = dict(
             version=1,
             owner=0,
-            width=960,
-            height=540,
+            width=window_size[0],
+            height=window_size[1],
             x=100,
             y=100,
             profile=str(self.profile),
@@ -71,8 +73,8 @@ class Player:
             output="output",
             original="original" if original else None,
             title="Synthetic acceptance",
-            original_width=original_height * 16 // 9,
-            original_height=original_height,
+            original_width=original_size[0] if original_size else original_height * 16 // 9,
+            original_height=original_size[1] if original_size else original_height,
             video_width=width,
             video_height=height,
         )

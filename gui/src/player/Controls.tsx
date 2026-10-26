@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { onPlayerEvent, send } from "./ipc";
 import { clamp, previewLeft, timecode, zoomAt } from "./math";
+import { Icon } from "./Icons";
+import type { CSSProperties } from "react";
 import type { Transform } from "./math";
 
 const rates = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
@@ -11,6 +13,9 @@ export function Controls() {
   const [before, setBefore] = useState(false), [divider, setDivider] = useState(0.5);
   const [original, setOriginal] = useState(false), [title, setTitle] = useState("VideoEnhancer");
   const [details, setDetails] = useState(false), [help, setHelp] = useState(false), [fullscreen, setFullscreen] = useState(false);
+  const [videoSize, setVideoSize] = useState({ width: 1920, height: 1080 });
+  const [viewport, setViewport] = useState({ width: innerWidth, height: innerHeight });
+  const [portrait, setPortrait] = useState(false);
   const [poster, setPoster] = useState<string>();
   const [decoder, setDecoder] = useState(""), [error, setError] = useState("");
   const [speedMenu, setSpeedMenu] = useState(false);
@@ -25,10 +30,16 @@ export function Controls() {
     surface.current?.querySelector<HTMLButtonElement>(".shortcuts button")?.focus();
     return () => { if (previous instanceof HTMLElement) previous.focus(); };
   }, [help]);
+  useEffect(() => {
+    const resize = () => setViewport({ width: innerWidth, height: innerHeight });
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
   const command = useCallback((type: string, args = {}) => { void send({ type, ...args }).catch((e: Error) => setError(e.message)); }, []);
   const poke = useCallback(() => { activity.current = Date.now(); setVisible(true); }, []);
   useEffect(() => {
     const stop = onPlayerEvent(event => {
+      if (typeof event.video_width === "number" && typeof event.video_height === "number") { setPortrait(event.video_height > event.video_width); setVideoSize({ width: event.video_width, height: event.video_height }); }
       if (event.event === "poster") setPoster(String(event.image));
       if (event.event === "loaded") setPoster(undefined);
       if ((event.event === "loaded" || event.event === "configured")) {
@@ -59,7 +70,14 @@ export function Controls() {
   const seek = useCallback((seconds: number) => command("seek", { seconds: clamp(seconds, 0, duration) }), [command, duration]);
   const togglePause = useCallback(() => { command("pause", { paused: !paused }); }, [command, paused]);
   const toggleFullscreen = useCallback(() => { setFullscreen(!fullscreen); command("fullscreen", { enabled: !fullscreen }); }, [command, fullscreen]);
-  const split = useCallback((fraction: number) => { setDivider(clamp(fraction, 0, 1)); command("divider", { fraction: clamp(fraction, 0, 1) }); }, [command]);
+  const split = useCallback((fraction: number) => {
+    setDivider(clamp(fraction, 0, 1));
+    const probe = (window as unknown as { __dividerProbe?: { input_ms: number; resolve(value: unknown): void; reject(error: unknown): void } }).__dividerProbe;
+    if (probe) {
+      delete (window as unknown as { __dividerProbe?: unknown }).__dividerProbe;
+      send({ type: "divider", fraction: clamp(fraction, 0, 1), input_ms: probe.input_ms }).then(probe.resolve, probe.reject);
+    } else command("divider", { fraction: clamp(fraction, 0, 1) });
+  }, [command]);
   const changeTransform = useCallback((value: Transform) => { setTransform(value); command("transform", value); }, [command]);
   const toggleBefore = useCallback(() => { if (original) { setBefore(!before); command("beforeAfter", { enabled: !before }); } }, [before, original, command]);
   const changeVolume = useCallback((percent: number) => { setVolume(clamp(percent, 0, 100)); command("volume", { percent: clamp(percent, 0, 100) }); }, [command]);
@@ -93,7 +111,7 @@ export function Controls() {
     const fraction = clamp((event.clientX - rect.left) / rect.width, 0, 1);
     const seconds = fraction * duration;
     activeHover.current = true;
-    setPreview({ seconds, left: previewLeft(fraction, rect.width) });
+    setPreview({ seconds, left: previewLeft(fraction, rect.width, (portrait ? 90 : 160) + 8) });
     command("preview", { seconds, generation: ++generation.current });
   };
   useEffect(() => {
@@ -108,22 +126,31 @@ export function Controls() {
     element.addEventListener("wheel", wheel, { passive: false });
     return () => element.removeEventListener("wheel", wheel);
   }, [before, changeTransform, divider, poke, split, transform]);
+  const labelInset = (viewport.width - videoSize.width * Math.min(viewport.width / videoSize.width, Math.max(10, viewport.height - 76) / videoSize.height)) / 2;
   return <main ref={surface} aria-label="Video player" className={visible ? "player" : "player hidden-controls"} onPointerMove={poke} onDoubleClick={e => { if (e.target === e.currentTarget) toggleFullscreen(); }}>
     {poster && <img className="startup-poster" src={poster} alt="Video poster" />}
-    <header className="floating"><span>{title}</span><button aria-label="Close player" onClick={() => command("close")}>×</button></header>
+    <header className="titlebar floating"><span className="name">{title}</span><span className="grow" /><button className="ob round" aria-label="Close player" onClick={() => command("close")}><Icon name="x" /></button></header>
+    {before && <div className="ba-labels floating"><span style={{ left: labelInset }}>Original</span><span style={{ right: labelInset }}>Enhanced</span></div>}
     {error && <p role="alert" className="error">{error}</p>}
-    <div className="controls floating">
-      <div className="seek-wrap">{preview && <div className="preview" style={{ left: preview.left }}><img alt="Seek preview" src={preview.image} /><span>{timecode(preview.seconds)}</span></div>}
-        <input ref={bar} aria-label="Seek" type="range" min="0" max={duration || 1} step="0.001" value={position} onChange={e => seek(Number(e.target.value))} onPointerMove={hover} onPointerLeave={() => { activeHover.current = false; ++generation.current; setPreview(undefined); }} />
+    <div className="controls osc-wrap floating"><div className="osc">
+      <div className="seek-wrap seek">{preview && <div className="preview" style={{ left: preview.left }}><img alt="Seek preview" src={preview.image} width={portrait ? 90 : 160} height={portrait ? 160 : 90} /><span>{timecode(preview.seconds)}</span></div>}
+        <input className="rng" style={{ "--p": `${duration ? position / duration * 100 : 0}%` } as CSSProperties} ref={bar} aria-label="Seek" type="range" min="0" max={duration || 1} step="0.001" value={position} onChange={e => seek(Number(e.target.value))} onPointerMove={hover} onPointerLeave={() => { activeHover.current = false; ++generation.current; setPreview(undefined); }} />
       </div>
-      <div className="control-row"><button aria-label={paused ? "Play" : "Pause"} onClick={togglePause}>{paused ? "▶" : "Ⅱ"}</button>
-        <button aria-label="Previous frame" disabled={!paused} onClick={() => command("step", { forward: false })}>|◀</button><button aria-label="Next frame" disabled={!paused} onClick={() => command("step", { forward: true })}>▶|</button>
-        <span className="time">{timecode(position)} / {timecode(duration)}</span>
-        <button aria-label="Before / After" aria-pressed={before} disabled={!original} title={original ? "Before / After (B)" : "Before / After needs the original video."} onClick={toggleBefore}>Before / After</button>
-        {before && <input aria-label="Before / After divider" type="range" min="0" max="1" step="0.001" value={divider} onChange={e => split(Number(e.target.value))} />}
-        <span className="spacer" /><button aria-label="Mute" aria-pressed={muted} onClick={toggleMute}>{muted ? "Muted" : "Sound"}</button>
-        <input className="volume" aria-label="Volume" type="range" min="0" max="100" value={volume} onChange={e => changeVolume(Number(e.target.value))} />
-        <button ref={speedButton} aria-label="Playback speed" aria-haspopup="menu" aria-expanded={speedMenu} onClick={() => setSpeedMenu(!speedMenu)}>{speed}×</button>
+      {(before || transform.scale > 1) && <div className="xrow">
+        {before && <div className="split"><span>Original</span><input className="rng" aria-label="Before / After divider" type="range" min="0" max="1" step="0.001" value={divider} onChange={e => split(Number(e.target.value))} /><span>Enhanced</span></div>}
+        {transform.scale > 1 && <div className="zoomchip"><span>Zoom {Math.round(transform.scale * 100)}%</span><button className="ob mini" aria-label="Reset zoom" onClick={() => changeTransform({ scale: 1, x: 0, y: 0 })}>Reset</button></div>}
+      </div>}
+      <div className="ctrl"><div className="grp left">
+        <button className="ob play" aria-label={paused ? "Play" : "Pause"} onClick={togglePause}><Icon name={paused ? "play" : "pause"} /></button>
+        <button className="ob" aria-label="Back 10 seconds" onClick={() => seek(position - 10)}><Icon name="back10" /></button>
+        <button className="ob" aria-label="Forward 10 seconds" onClick={() => seek(position + 10)}><Icon name="fwd10" /></button>
+        <button className="ob sm" aria-label="Previous frame" disabled={!paused} onClick={() => command("step", { forward: false })}><Icon name="stepB" /></button>
+        <button className="ob sm" aria-label="Next frame" disabled={!paused} onClick={() => command("step", { forward: true })}><Icon name="stepF" /></button>
+      </div><span className="ob time">{timecode(position)} / {timecode(duration)}</span><div className="grp right">
+        <div className="vol"><button className="ob" aria-label="Mute" aria-pressed={muted} onClick={toggleMute}><Icon name={muted ? "volx" : "vol2"} /></button>
+        <input className="rng volume" aria-label="Volume" type="range" min="0" max="100" value={volume} onChange={e => changeVolume(Number(e.target.value))} /></div>
+        <button className="ob txt" ref={speedButton} aria-label="Playback speed" aria-haspopup="menu" aria-expanded={speedMenu} onClick={() => setSpeedMenu(!speedMenu)}>{speed}×</button>
+        <button className="ob pill" aria-label="Before / After" aria-pressed={before} disabled={!original} title={original ? "Before / After (B)" : "Before / After needs the original video."} onClick={toggleBefore}><Icon name="split" /><span className="lbl">Before / After</span></button>
         {speedMenu && <div className="speed-menu" role="menu" aria-label="Playback speed" onKeyDown={event => {
           if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
           event.preventDefault(); event.stopPropagation();
@@ -132,9 +159,9 @@ export function Controls() {
           const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length;
           items[next]?.focus();
         }}>{rates.map(rate => <button key={rate} role="menuitemradio" aria-label={`${rate}×`} aria-checked={rate === speed} onClick={() => { changeSpeed(rate); setSpeedMenu(false); speedButton.current?.focus(); }}>{rate}×</button>)}</div>}
-        <button aria-label="Details" aria-expanded={details} onClick={() => setDetails(!details)}>Details</button><button aria-label="Keyboard shortcuts" aria-expanded={help} onClick={() => setHelp(!help)}>?</button><button aria-label="Fullscreen" onClick={toggleFullscreen}>⛶</button>
-      </div>
-    </div>
+        <button className="ob pill" aria-label="Details" aria-expanded={details} onClick={() => setDetails(!details)}><Icon name="panel" /><span className="lbl">Details</span></button><button className="ob" aria-label="Keyboard shortcuts" aria-expanded={help} onClick={() => setHelp(!help)}><Icon name="help" /></button><button className="ob" aria-label="Fullscreen" onClick={toggleFullscreen}><Icon name={fullscreen ? "fsx" : "fs"} /></button>
+      </div></div>
+    </div></div>
     {details && <aside aria-label="Video details"><h2>Details</h2><button aria-label="Close details" onClick={() => setDetails(false)}>×</button><dl><dt>Video</dt><dd>{title}</dd><dt>Length</dt><dd>{timecode(duration)}</dd><dt>Decoder</dt><dd>{decoder || "Loading"}</dd><dt>Zoom</dt><dd>{Math.round(transform.scale * 100)} %</dd></dl></aside>}
     {help && <section className="shortcuts" role="dialog" aria-label="Keyboard shortcuts and gestures"><button aria-label="Close shortcuts" onClick={() => setHelp(false)}>×</button><h2>Shortcuts and gestures</h2><dl>{[["Space", "Play or pause"], ["← / →", "Seek 5 s (Shift: 1 s)"], [", / .", "Step one frame while paused"], ["↑ / ↓", "Volume"], ["M", "Mute"], ["[ / ]", "Slower / faster"], ["B", "Before / After"], ["D", "Details"], ["F", "Fullscreen"], ["0", "Reset zoom"], ["Esc", "Exit fullscreen or close"], ["Ctrl + scroll", "Zoom around the cursor"], ["Two-finger scroll", "Pan, or move the split"]].map(([key, meaning]) => <div key={key}><dt>{key}</dt><dd>{meaning}</dd></div>)}</dl></section>}
   </main>;

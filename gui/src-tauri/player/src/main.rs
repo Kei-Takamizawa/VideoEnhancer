@@ -10,6 +10,8 @@ mod host;
 mod mpv;
 #[cfg(windows)]
 mod startup;
+#[cfg(all(windows, feature = "test-faults"))]
+mod telemetry;
 fn main() {
     #[cfg(windows)]
     if let Err(error) = host::run() {

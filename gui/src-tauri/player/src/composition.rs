@@ -22,6 +22,7 @@ use windows::{
 };
 
 pub struct Composition {
+    hwnd: HWND,
     pub follower: Option<crate::follower::Follower>,
     d3d: ID3D11Device,
     dll: std::path::PathBuf,
@@ -208,6 +209,8 @@ impl Composition {
                     args.TryGetWebMessageAsString(&mut value)?;
                     let text = value.to_string()?;
                     windows::Win32::System::Com::CoTaskMemFree(Some(value.0.cast()));
+                    #[cfg(feature = "test-faults")]
+                    let text = format!("qpc:{}:{}", crate::telemetry::qpc(), text);
                     let _ = events.send(text);
                     let _ = proxy.send_event(());
                 }
@@ -296,6 +299,7 @@ impl Composition {
         let startup = worker.join().map_err(|_| "Startup worker panicked")??;
         let mpv = startup.mpv;
         Ok(Self {
+            hwnd,
             follower: None,
             d3d,
             dll: dll.to_owned(),
@@ -337,6 +341,13 @@ impl Composition {
         self.follower = Some(follower);
         Ok(())
     }
+    pub fn preview_size(&self) -> (i32, i32) {
+        if self.video_size.1 > self.video_size.0 {
+            (180, 320)
+        } else {
+            (320, 180)
+        }
+    }
     pub unsafe fn layout(
         &self,
         size: (u32, u32),
@@ -349,10 +360,17 @@ impl Composition {
         let (scale, x, y) = transform;
         let w = self.video_size.0 as f32;
         let h = self.video_size.1 as f32;
-        let fit = (width as f32 / w).min(height as f32 / h);
+        // Match the mockup's 76 CSS-pixel title/Before-After label band.
+        let top = if enabled {
+            76. * windows::Win32::UI::HiDpi::GetDpiForWindow(self.hwnd) as f32 / 96.
+        } else {
+            0.
+        };
+        let available = (height as f32 - top).max(10.);
+        let fit = (width as f32 / w).min(available / h);
         let effective = fit * scale;
         let offset_x = (width as f32 - w * effective) / 2. + x * width as f32;
-        let offset_y = (height as f32 - h * effective) / 2. + y * height as f32;
+        let offset_y = top + (available - h * effective) / 2. + y * height as f32;
         self._video
             .SetClip2(&windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F {
                 left: if enabled { w * divider } else { 0. },
@@ -385,6 +403,20 @@ impl Composition {
         self.before.SetOffsetY2(offset_y)?;
         self.device.Commit()?;
         Ok(())
+    }
+    #[cfg(feature = "test-faults")]
+    pub unsafe fn frame_statistics(&self) -> windows::core::Result<DCOMPOSITION_FRAME_STATISTICS> {
+        self.device.GetFrameStatistics()
+    }
+    #[cfg(feature = "test-faults")]
+    pub unsafe fn wait_commit(&self) -> windows::core::Result<()> {
+        self.device.WaitForCommitCompletion()
+    }
+    #[cfg(feature = "test-faults")]
+    pub unsafe fn swap_statistics(&self) -> windows::core::Result<DXGI_FRAME_STATISTICS> {
+        let mut stats = DXGI_FRAME_STATISTICS::default();
+        self.swap.GetFrameStatistics(&mut stats)?;
+        Ok(stats)
     }
     pub unsafe fn resize(&self, width: u32, height: u32) -> Result<(), Box<dyn std::error::Error>> {
         if width == 0 || height == 0 {

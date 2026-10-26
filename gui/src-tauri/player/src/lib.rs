@@ -26,6 +26,12 @@ pub struct Request {
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Command {
     #[cfg(feature = "test-faults")]
+    TestClock,
+    #[cfg(feature = "test-faults")]
+    TestReport {
+        result: serde_json::Value,
+    },
+    #[cfg(feature = "test-faults")]
     SelfCapture {
         name: String,
     },
@@ -68,6 +74,9 @@ pub enum Command {
     },
     Divider {
         fraction: f64,
+        #[cfg(feature = "test-faults")]
+        #[serde(default)]
+        input_ms: Option<f64>,
     },
     Preview {
         seconds: f64,
@@ -86,6 +95,8 @@ impl Request {
         }
         let valid = match &request.command {
             #[cfg(feature = "test-faults")]
+            Command::TestClock | Command::TestReport { .. } => true,
+            #[cfg(feature = "test-faults")]
             Command::SelfCapture { name } => valid_handle(name),
             #[cfg(feature = "test-faults")]
             Command::TestUi { action } => [
@@ -98,6 +109,17 @@ impl Request {
                 "before",
                 "letterbox",
                 "mockup",
+                "portrait",
+                "mockupPortrait",
+                "mockupPlay",
+                "mockupHover",
+                "mockupBefore",
+                "benchmark",
+                "inspect",
+                "leavePreview",
+                "mockupLeave",
+                "zoom",
+                "mockupZoom",
                 "clean",
             ]
             .contains(&action.as_str()),
@@ -107,7 +129,9 @@ impl Request {
             }
             Command::Speed { rate } => rate.is_finite() && (0.25..=4.0).contains(rate),
             Command::Volume { percent } => percent.is_finite() && (0.0..=100.0).contains(percent),
-            Command::Divider { fraction } => fraction.is_finite() && (0.0..=1.0).contains(fraction),
+            Command::Divider { fraction, .. } => {
+                fraction.is_finite() && (0.0..=1.0).contains(fraction)
+            }
             Command::Transform { scale, x, y } => {
                 scale.is_finite()
                     && (1.0..=8.0).contains(scale)
@@ -237,6 +261,19 @@ mod tests {
             r#"{"version":1,"id":1,"command":{"type":"testUi","action":"show"}}"#
         )
         .is_err());
+    }
+    #[cfg(not(feature = "test-faults"))]
+    #[test]
+    fn production_rejects_clock_reports_and_divider_instrumentation() {
+        for command in [
+            r#"{"type":"testClock"}"#,
+            r#"{"type":"testReport","result":{}}"#,
+            r#"{"type":"divider","fraction":0.5,"input_ms":10}"#,
+        ] {
+            assert!(
+                Request::parse(&format!(r#"{{"version":1,"id":1,"command":{command}}}"#)).is_err()
+            );
+        }
     }
     #[cfg(feature = "test-faults")]
     #[test]

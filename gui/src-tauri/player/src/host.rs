@@ -120,19 +120,20 @@ impl Preview {
         let Some(player) = &self.player else {
             return Ok(());
         };
+        let (width, height) = c.preview_size();
         let ready = player.events().iter().any(|e| e["id"] == 21);
         if player.needs_render()? {
-            let _ = player.sw_pixels(320, 180)?;
+            let _ = player.sw_pixels(width, height)?;
         }
         if !ready {
             return Ok(());
         }
         if let Some((generation, key)) = self.active.take() {
             if self.hover.current(generation) && self.wanted == Some((generation, key)) {
-                let pixels = player.sw_pixels(320, 180)?;
+                let pixels = player.sw_pixels(width, height)?;
                 let mut bytes = Vec::new();
                 {
-                    let mut encoder = png::Encoder::new(&mut bytes, 320, 180);
+                    let mut encoder = png::Encoder::new(&mut bytes, width as u32, height as u32);
                     encoder.set_color(png::ColorType::Rgba);
                     encoder.set_depth(png::BitDepth::Eight);
                     encoder.write_header()?.write_image_data(&pixels)?;
@@ -265,6 +266,8 @@ pub fn run() -> Result<()> {
         json!({"version":1,"event":"startupProfile","window_ms":window_ms,"phases":c.profile,"total_ms":process_started.elapsed().as_secs_f64()*1000.})
     );
     let mut lifecycle = Lifecycle::default();
+    #[cfg(feature = "test-faults")]
+    let mut divider_metrics: Vec<(u64, f64, f64, f64, f64)> = Vec::new();
     let mut requests = HashMap::<u64, (Instant, bool)>::new();
     let mut native_ack = HashSet::<u64>::new();
     let mut restarted = HashSet::<u64>::new();
@@ -315,6 +318,8 @@ pub fn run() -> Result<()> {
                 continue;
             }
             if message == "parent-closed" { *flow = ControlFlow::Exit; break; }
+            #[cfg(feature = "test-faults")]
+            let (received, message) = crate::telemetry::receipt(&message);
             let request = match Request::parse(&message) {
                 Ok(request) => request,
                 Err(error) => {
@@ -328,11 +333,17 @@ pub fn run() -> Result<()> {
             let mut completed = false;
             #[cfg(not(feature = "test-faults"))]
             let completed = false;
+            #[cfg(feature = "test-faults")]
+            let mut input_metric = None;
             let mut native = false;
             let mut waits_frame = false;
             let result = (|| -> Result<()> {
                 let mut args: Vec<String> = vec![];
                 match request.command {
+                    #[cfg(feature = "test-faults")]
+                    Command::TestClock => { emit(&c,json!({"reply":id,"result":{"qpc_ms":crate::telemetry::qpc()}})); completed=true; }
+                    #[cfg(feature = "test-faults")]
+                    Command::TestReport { result } => { emit(&c,json!({"event":"dividerBenchmark","result":result})); completed=true; }
                     #[cfg(feature = "test-faults")]
                     Command::SelfCapture { name } => {
                         let path=boot.profile.join(format!("{name}.png"));
@@ -343,7 +354,18 @@ pub fn run() -> Result<()> {
                     Command::TestUi { action } => {
                         let script=match action.as_str() {
                          "clean"=>"document.querySelector('.controls').style.visibility='hidden';document.querySelector('header').style.visibility='hidden'",
-                         "mockup"=>"document.querySelector('#segL').click()",
+                         "benchmark"=>include_str!("benchmark.js"),
+                         "inspect"=>include_str!("layout-inspect.js"),
+                         "leavePreview"=>"document.querySelector('[aria-label=Seek]').dispatchEvent(new PointerEvent('pointerout',{bubbles:true,relatedTarget:document.querySelector('header')}))",
+                         "mockupLeave"=>"document.querySelector('#seek').dispatchEvent(new PointerEvent('pointerleave',{bubbles:true}))",
+                         "zoom"=>"document.querySelector('main').dispatchEvent(new WheelEvent('wheel',{ctrlKey:true,deltaY:-100,bubbles:true,cancelable:true}))",
+                         "mockupZoom"=>"document.querySelector('#area').dispatchEvent(new WheelEvent('wheel',{ctrlKey:true,deltaY:-100,bubbles:true,cancelable:true}))",
+                         "portrait"=>{window.set_inner_size(PhysicalSize::new(540,960));"void 0"},
+                         "mockupPortrait"=>"document.querySelector('#segP').click();document.querySelector('.player').classList.add('fakefs')",
+                         "mockupPlay"=>"document.querySelector('#playBtn').click()",
+                         "mockupHover"=>"(()=>{const e=document.querySelector('#seek'),r=e.getBoundingClientRect();e.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width*.4,clientY:r.y+4}));})()",
+                         "mockupBefore"=>"document.querySelector('#baBtn').click()",
+                         "mockup"=>"document.querySelector('#segL').click();document.querySelector('.player').classList.add('fakefs')",
                          "letterbox"=>{window.set_inner_size(PhysicalSize::new(960,if size.height==640 {540}else{640}));"void 0"},
                          "show" => {let _=c.input.SendMouseInput(COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE,COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,0,POINT{x:450,y:300});"document.querySelector('.controls').style.visibility='';document.querySelector('header').style.visibility='';document.querySelector('main').dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:450,clientY:300}))"},
                          "blur" => "document.activeElement.blur()",
@@ -360,7 +382,7 @@ pub fn run() -> Result<()> {
                         if handle != boot.output { return Err("This handle is not a playable output.".into()); }
                         #[cfg(feature = "test-faults")]
                         { idle_since = None; window.set_visible(true); }
-                        if !attached { attached=true; if !boot.prewarm {lifecycle.open()?;lifecycle.loaded()?;} emit(&c,json!({"event":"configured","title":boot.title,"original":original.is_some(),"hwnd":window.hwnd()})); return Ok(()); }
+                        if !attached { attached=true; if !boot.prewarm {lifecycle.open()?;lifecycle.loaded()?;} emit(&c,json!({"event":"configured","title":boot.title,"original":original.is_some(),"video_width":boot.video_width,"video_height":boot.video_height,"hwnd":window.hwnd()})); return Ok(()); }
                         lifecycle.open()?; first_frame = false; playback_restarted=false; started = Instant::now();seek_targets.insert(id,0.);
                         args = vec!["loadfile".into(), path.to_str().ok_or("Invalid media path")?.into()]; waits_frame = true;
                     }
@@ -387,14 +409,25 @@ pub fn run() -> Result<()> {
                     Command::Fullscreen { enabled } => { fullscreen = enabled; window.set_fullscreen(if enabled { Some(Fullscreen::Borderless(None)) } else { None }); }
                     Command::Transform { scale, x, y } => { transform = (scale as f32, x as f32, y as f32); }
                     Command::BeforeAfter { enabled } => { if original.is_none() { return Err("Before / After needs the original video.".into()); } before = enabled; if enabled && !pair { c.enable_pair(original.as_deref().ok_or("Original missing")?,proxy.clone(),state["position"].as_f64().unwrap_or(0.),state["paused"]==true)?; if let Some(f)=&mut c.follower {f.set_speed(playback_rate)?;}pair=true; } }
-                    Command::Divider { fraction } => divider = fraction as f32,
+                    Command::Divider { fraction, #[cfg(feature = "test-faults")] input_ms } => {
+                        divider = fraction as f32;
+                        #[cfg(feature = "test-faults")] { input_metric=input_ms; }
+                    },
                     Command::Preview { seconds, generation } => { preview.request(generation, seconds, &c, &dll, &file, proxy.clone())?; }
                 }
                 if !args.is_empty() {
                     let args: Vec<_> = args.iter().map(String::as_str).collect();
                     c.mpv.command_id(id, &args)?; native = true;
                 }
+                #[cfg(feature = "test-faults")]
+                let commit_begin=crate::telemetry::qpc();
                 c.layout((size.width, size.height), pair, before, divider, transform)?;
+                #[cfg(feature = "test-faults")]
+                if let Some(input)=input_metric {
+                    let metric=(id,input,received,commit_begin,crate::telemetry::qpc());
+                    if let Some(packet)=crate::telemetry::sample(&c,&metric) {emit(&c,packet);} else {divider_metrics.push(metric);}
+                    completed=true;
+                }
                 Ok(())
             })();
             match result {
@@ -431,6 +464,11 @@ pub fn run() -> Result<()> {
                 _ => {}
             },
             Event::MainEventsCleared => {
+                #[cfg(feature = "test-faults")]
+                divider_metrics.retain(|metric| {
+                    if let Some(packet)=crate::telemetry::sample(&c,metric) {emit(&c,packet);return false;}
+                    if crate::telemetry::qpc()-metric.4>2000. {reply(&c,metric.0,Some("Frame statistics did not advance."));return false;} true
+                });
                 if !activated && process_started.elapsed()>=Duration::from_secs(30) {*flow=ControlFlow::Exit;}
 
                 #[cfg(feature = "test-faults")]
