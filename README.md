@@ -11,6 +11,11 @@ Add videos, choose Standard or Fast, and follow current work on Home. Find finis
 Try a short labeled comparison before processing a whole video. You can also
 add your own compatible restoration models and choose them for a job.
 
+Packages with the optional native player let you open finished videos from
+History, step through frames, preview a seek, and compare the result with the
+original. Packages without it keep the built-in player. Open-source notices
+are available from Settings.
+
 For development setup and commands, see the [developer guide](docs/DEVELOPMENT.md). Code is licensed under [MIT](LICENSE); optional AI models have separate licenses.
 
 ## Windows Smart App Control

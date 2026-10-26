@@ -6,6 +6,8 @@ mod engine;
 #[cfg(windows)]
 mod media;
 #[cfg(windows)]
+mod player;
+#[cfg(windows)]
 mod storage;
 #[cfg(windows)]
 mod window;
@@ -433,10 +435,23 @@ fn main() {
     ]);
     #[cfg(not(feature = "e2e"))]
     let builder = builder.invoke_handler(tauri::generate_handler![commands::desktop_command]);
+    let context = tauri::generate_context!();
+    #[cfg(feature = "e2e")]
+    let context = {
+        let mut context = context;
+        // Test launches must never hand off to the owner's production instance.
+        // The namespace is still shared by every E2E launch, preserving the
+        // existing single-instance checks within the test application.
+        context.config_mut().identifier.push_str(".e2e");
+        context
+    };
     let app = builder
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Could not initialize VideoEnhancer");
     app.run(|handle, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            player::close();
+        }
         if let tauri::RunEvent::ExitRequested { api, .. } = event {
             if !handle.state::<Arc<State>>().quitting.load(Ordering::SeqCst) {
                 api.prevent_exit();

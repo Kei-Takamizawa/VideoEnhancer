@@ -77,6 +77,8 @@ jobs:
         working-directory: gui
       - run: npm test
         working-directory: gui
+      - run: npm run test:payload
+        working-directory: gui
       - run: npm run build
         working-directory: gui
       - name: Rust toolchain
@@ -90,11 +92,19 @@ jobs:
           workspaces: gui/src-tauri
           cache-on-failure: true
       - name: Non-Windows refusal stub
+        # The native player's protocol/lifecycle tests also run without Windows,
+        # a GPU, or optional DLLs in the step below.
         if: runner.os == 'Linux'
         shell: bash
         run: |
           result=$(cargo run --quiet --manifest-path gui/src-tauri/Cargo.toml)
           test "$result" = "The desktop app requires Windows 11."
+      - name: Native player protocol and lifecycle
+        shell: bash
+        run: |
+          cargo fmt --manifest-path gui/src-tauri/player/Cargo.toml --check
+          cargo clippy --locked --manifest-path gui/src-tauri/player/Cargo.toml -- -D warnings
+          cargo test --locked --manifest-path gui/src-tauri/player/Cargo.toml
       - name: Rust format, lint and tests
         if: runner.os == 'Windows'
         shell: pwsh
@@ -108,6 +118,9 @@ jobs:
       - name: Build Tauri test shell
         if: runner.os == 'Windows'
         run: cargo build --manifest-path gui/src-tauri/Cargo.toml --features e2e
+      - name: Build native failure-test helper without DLLs
+        if: runner.os == 'Windows'
+        run: cargo build --locked --manifest-path gui/src-tauri/player/Cargo.toml --features test-faults --target-dir gui/src-tauri/target
       - name: Build release without test commands
         if: runner.os == 'Windows'
         run: cargo build --release --manifest-path gui/src-tauri/Cargo.toml --features cdp
@@ -155,6 +168,7 @@ jobs:
           VE_GUI_EVIDENCE: ${{ runner.temp }}/ve-gui-evidence
           VE_GUI_TEST_ROOT: ${{ runner.temp }}/scratch/ve-e2e
           VE_TAURI_EXE: ${{ github.workspace }}/gui/src-tauri/target/debug/VideoEnhancer.exe
+          VE_PLAYER_FAULT_TEST_EXE: ${{ github.workspace }}/gui/src-tauri/target/debug/VideoEnhancer-Player.exe
       - name: Collect bounded synthetic e2e failure evidence
         if: failure() && steps.gui_e2e.outcome == 'failure'
         run: uv run python scripts/collect_e2e_failure.py gui/test-results "${{ runner.temp }}/ve-e2e-failure"

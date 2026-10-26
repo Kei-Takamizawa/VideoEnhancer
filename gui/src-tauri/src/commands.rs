@@ -88,6 +88,30 @@ pub fn execute(
         .get_webview_window("main")
         .ok_or("Main window missing")?;
     match operation {
+        "licences" => {
+            let folder = std::env::current_exe()
+                .map_err(|e| e.to_string())?
+                .parent()
+                .ok_or("Application folder missing")?
+                .to_owned();
+            let notices = folder.join("THIRD_PARTY_NOTICES.md");
+            if notices.is_file() {
+                window::open(&notices.to_string_lossy(), false)?;
+            } else {
+                window::open(
+                    &engine::root()?
+                        .join("gui/THIRD_PARTY_NOTICES.md")
+                        .to_string_lossy(),
+                    false,
+                )?;
+            }
+            Ok(Value::Null)
+        }
+        "openPlayer" => crate::player::open(app, state, text(&args)?),
+        "closePlayer" => {
+            crate::player::close();
+            Ok(Value::Null)
+        }
         "startupStatus" => Ok(json!(state
             .startup_error
             .lock()

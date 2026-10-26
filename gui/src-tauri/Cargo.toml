@@ -20,6 +20,7 @@ e2e = ["cdp"]
 tauri-build = { version = "=2.7.3", features = [] }
 
 [target.'cfg(windows)'.dependencies]
+videoenhancer-player = { path = "player" }
 tauri = { version = "=2.12.4", features = ["tray-icon", "image-png"] }
 tauri-plugin-single-instance = "=2.5.4"
 serde = { version = "=1.0.229", features = ["derive"] }

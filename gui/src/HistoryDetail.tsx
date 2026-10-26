@@ -17,6 +17,19 @@ function HistoryDetailContent({ job, close, action, compare }: {
   const hevcMissing = job.settings.codec === "hevc" && !hevcPlaybackSupported();
   const [unsupported, setUnsupported] = useState(false);
   const player = useRef<HTMLVideoElement>(null);
+  const [native, setNative] = useState<"opening" | "playing" | "fallback">(window.desktop.openPlayer && !job.record_error ? "opening" : "fallback");
+  const [nativeError, setNativeError] = useState("");
+  const [poster] = useState(() => Array.from(document.querySelectorAll<HTMLElement>("[data-job-id]")).find(element => element.dataset.jobId === job.id)?.querySelector("img")?.src);
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!window.desktop.openPlayer || job.record_error) return;
+    let disposed = false, failed = false;
+    const stopError = window.desktop.onPlayerError?.(event => { if (event.id === job.id) { failed = true; setNativeError(event.message); setNative("fallback"); } });
+    const stopClose = window.desktop.onPlayerClosed?.(event => { if (event.id === job.id && !failed) closeRef.current(); });
+    void window.desktop.openPlayer(job.id).then(opened => { if (!disposed) setNative(opened ? "playing" : "fallback"); }).catch(() => { failed = true; if (!disposed) { setNative("fallback"); setNativeError("This video can't be played here. Open it in your default player instead."); } });
+    return () => { disposed = true; stopError?.(); stopClose?.(); void window.desktop.closePlayer?.(); };
+  }, [job.id, job.record_error]);
   useEffect(() => {
     setUnsupported(false);
   }, [job.id]);
@@ -25,10 +38,14 @@ function HistoryDetailContent({ job, close, action, compare }: {
   const fileState = (state?: string) => state === "recycled" ? "Moved to the Recycle Bin" : state === "missing" ? "File not found" : "Present";
   return <div className="modal-shade"><div className="dialog history-detail" role="dialog" aria-modal="true" aria-label="Video details">
     <h2>{filename(job.input)}</h2>
+      {native === "opening" && poster && <img className="history-player" src={poster} alt="Video poster" />}
+      {nativeError && !hevcMissing && <ActionButton onClick={() => window.desktop.play(job.output_state === "present" ? job.output : job.input)}>Open in default player</ActionButton>}
+      {nativeError && <p role="status">{nativeError}</p>}
+      {native === "opening" && <p role="status">Opening player...</p>}
       {job.gpu_memory_notice && <p role="status">Some parts ran slower because GPU memory was full.<CopyMessage text="Some parts ran slower because GPU memory was full." /></p>}
       {job.source && <p>{job.source.url} <ActionButton onClick={() => window.desktop.sourceLink?.(job.id)}>Source link</ActionButton></p>}
-      {hevcMissing && <div role="status"><p>This PC can't play HEVC videos inside the app. Install HEVC Video Extensions from the Microsoft Store, or open the video in your default player.</p><ActionButton onClick={() => window.desktop.openExternal?.(HEVC_STORE)}>Open Microsoft Store</ActionButton><ActionButton onClick={() => window.desktop.play(job.output_state === "present" ? job.output : job.input)}>Open in default player</ActionButton></div>}
-      {!unsupported && !hevcMissing && <video ref={player} className="history-player" src={url} controls onError={() => setUnsupported(true)} />}
+      {native === "fallback" && hevcMissing && <div role="status"><p>This PC can't play HEVC videos inside the app. Install HEVC Video Extensions from the Microsoft Store, or open the video in your default player.</p><ActionButton onClick={() => window.desktop.openExternal?.(HEVC_STORE)}>Open Microsoft Store</ActionButton><ActionButton onClick={() => window.desktop.play(job.output_state === "present" ? job.output : job.input)}>Open in default player</ActionButton></div>}
+      {native === "fallback" && !unsupported && !hevcMissing && <video ref={player} className="history-player" src={url} controls onError={() => setUnsupported(true)} />}
       {unsupported && <ActionButton onClick={() => window.desktop.play(job.output_state === "present" ? job.output : job.input)}>Open in your player</ActionButton>}
       <dl>{job.source && <><dt>Downloaded file</dt><dd>{job.input}</dd></>}<dt>Mode</dt><dd>{job.mode || job.settings.preset}</dd><dt>Time taken</dt><dd>{duration(job.took_seconds || 0)}</dd><dt>Output size</dt><dd>{job.output_bytes === undefined ? "Not available" : `${(job.output_bytes / 1e6).toFixed(1)} MB`}</dd><dt>Original size</dt><dd>{job.original_bytes === undefined ? "Not available" : `${(job.original_bytes / 1e6).toFixed(1)} MB`}</dd><dt>Output folder</dt><dd title={job.output_folder || job.output}>{job.output_folder || job.output}</dd><dt>Output file</dt><dd>{job.output_changed ? "Changed since this job completed" : fileState(job.output_state)}</dd><dt>Original file</dt><dd>{fileState(job.original_state)}</dd>{(job.failure_reason || job.error) && <><dt>Problem</dt><dd>{job.failure_reason || job.error}<CopyMessage text={job.failure_reason || job.error || ""} /></dd></>}</dl>
       {job.original_delete_result && <p role="status">{job.original_delete_result}</p>}

@@ -444,7 +444,7 @@ export function SettingsPage({
           <VideoLinksCard api={api} />
           <article className="card"><h2>About</h2><p>VideoEnhancer {health?.version || "0.1.0"} · Windows 11 · MIT licence</p><p>{health?.gpu || "Detecting GPU…"} · Driver {health?.driver || "unknown"}{health?.vram_bytes ? ` · ${(health.vram_bytes / 1e9).toFixed(1)} GB VRAM` : ""}</p>
             {health?.software_decoders && <p>FFmpeg software decoding: VP9 {health.software_decoders.vp9 ? "available" : "unavailable"}, AV1 {health.software_decoders.av1 ? "available" : "unavailable"}</p>}
-            <p className="muted">Your videos stay on this computer. No telemetry or automatic updates. Models have their own licences.</p></article>
+            <ActionButton onClick={() => window.desktop.licences?.()}>Open-source licences</ActionButton><p className="muted">Your videos stay on this computer. No telemetry or automatic updates. Models have their own licences.</p></article>
         </div>
       </div>
     </section>

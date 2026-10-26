@@ -1,0 +1,25 @@
+import { afterEach, expect, it, vi } from "vitest";
+afterEach(() => { delete window.chrome; vi.useRealTimers(); vi.resetModules(); });
+it("routes out-of-order replies by ID, rejects errors, ignores other versions and times out", async () => {
+  vi.useFakeTimers();
+  const post = vi.fn();
+  let receive = (_event: MessageEvent) => { void _event; };
+  window.chrome = { webview: { postMessage: post, addEventListener: (_name, listener) => { receive = listener; } } };
+  const bridge = await import("../src/player/ipc");
+  const events = vi.fn();
+  bridge.onPlayerEvent(events);
+  const first = bridge.send({ type: "pause", paused: true });
+  const second = bridge.send({ type: "volume", percent: 30 });
+  const a = JSON.parse(post.mock.calls[0][0]), b = JSON.parse(post.mock.calls[1][0]);
+  receive(new MessageEvent("message", { data: { version: 2, reply: a.id, result: "wrong" } }));
+  receive(new MessageEvent("message", { data: { version: 1, reply: b.id, result: "second" } }));
+  await expect(second).resolves.toBe("second");
+  const rejected = expect(first).rejects.toThrow("Unavailable");
+  receive(new MessageEvent("message", { data: { version: 1, reply: a.id, error: "Unavailable" } }));
+  await rejected;
+  const third = bridge.send({ type: "seek", seconds: 5 });
+  const timedOut = expect(third).rejects.toThrow("did not respond");
+  await vi.advanceTimersByTimeAsync(15001);
+  await timedOut;
+  expect(events).not.toHaveBeenCalled();
+});

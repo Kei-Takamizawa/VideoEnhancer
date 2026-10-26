@@ -2042,6 +2042,8 @@ class Engine:
                 if previous["kind"] == "compare" and previous["state"] in {"waiting", "running"}:
                     self.cancel_operation(previous["id"])
         self.operations[op["id"]] = op
+        if kind == "compare":
+            value["_compare_requested_at"] = time.perf_counter()
         self._save_operation(op)
         if kind == "download":
             op.update(state="running", phase="Starting…", remaining_seconds=None, percent=0)
@@ -2285,6 +2287,12 @@ class Engine:
             return
         op.update(state="running", phase="Processing")
         op["request"]["_gpu_admitted_at"] = time.perf_counter()
+        if op["kind"] == "compare":
+            op["request"]["_gpu_wait_seconds"] = max(
+                0.0,
+                op["request"]["_gpu_admitted_at"]
+                - op["request"].get("_compare_requested_at", op["request"]["_gpu_admitted_at"]),
+            )
         self._save_operation(op)
         try:
             self._run_operation(op)
