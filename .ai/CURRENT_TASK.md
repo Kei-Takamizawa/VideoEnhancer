@@ -1,378 +1,205 @@
-# CURRENT_TASK: Cycle P1e-3c1 (LGPL libmpv source build, and a faster B1 host)
+# CURRENT_TASK: Cycle P1e-3c2 (the mpv player in the product, Before/After, Compare speed)
 
 > Follow `AGENTS.md` and `CLAUDE.md` on `main` for the workflow. This file defines only the work.
 
-- **Task ID:** VE-P1e-3c1
-- **Date:** 2026-10-23
+- **Task ID:** VE-P1e-3c2
+- **Date:** 2026-10-26
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
 ## 1. Start
 
-- **Branch:** `claude/project-thread-6lra47`. `main` (`ed00b03`, the P1e-3b squash merge) is merged into it, so its tree equals `main` apart from this file. The operator opens a new draft PR.
-- This file is `.ai/CURRENT_TASK.md`. Write a new `.ai/LAST_REPORT.md`. The first lines must be the Task ID and `Status: COMPLETED | PARTIAL | BLOCKED`.
-- **Diff base:** `origin/main`. `.ai/CURRENT_TASK.md` and `.ai/LAST_REPORT.md` are expected to differ.
+- **Branch:** `claude/project-thread-6lra47`. `main` (`aad7eed`, the P1e-3c1 squash merge) is merged into it. Apart from this file and `design/player/player_mockup.html`, its tree equals `main`. The operator opens a new draft PR.
+- This file is `.ai/CURRENT_TASK.md`. Write a new `.ai/LAST_REPORT.md`. Its first lines must be the Task ID and `Status: COMPLETED | PARTIAL | BLOCKED`.
+- **Diff base:** `origin/main`.
 - Restore any dependencies the last cleanup removed. The restore does not count toward growth; report its size.
 - **Do not stop the cycle for a question.** Write the default you chose under "Questions for the designer" and continue.
 
 ### Where this cycle sits
 
-P1e-3b (spike, merged) → **P1e-3c1 (this cycle: clear the licence blocker, make B1 fast)** → P1e-3c2 (the real player in the product, and Compare speed) → P1e-3d (speed-ups, warm worker, recalibration).
+P1e-3c1 (merged: source-built LGPL libmpv, fast B1 spike) → **P1e-3c2 (this cycle: the real player in the product)** → P1e-3d (bit-identical speed-ups, warm worker, recalibration, C17 one-pass).
 
-This cycle still works **only in `spikes/mpv/`**. The product does not change.
+## 2. What is already decided (read these first)
 
-## 2. What P1e-3b established (read `spikes/mpv/README.md` and the P1e-3b report in Git history)
+- `spikes/mpv/README.md`, `spikes/mpv/LICENSES.md`, `spikes/mpv/source-manifest.json`, and the P1e-3c1 report in Git history (`git log -- .ai/LAST_REPORT.md`). The first P1e-3c1 run, commit `0127853`, has the Part C product recommendation.
+- **Approach B1:** a WebView2 **composition controller** over a libmpv D3D11 picture in one DirectComposition tree. B2 is dropped.
+  - The spike met every target: first frame 25-40 ms, seek median 30-160 ms, CPU 5-11 %, exact frame stepping, hover preview 116 ms for a new position and 9 ms cached.
+  - Keep its event-driven design. Never query mpv synchronously from the render path; in P1e-3c1 that starved the flip wait.
+- **The DLLs:** CI run `40202006764` on `b65a4cc` built them, and the PC accepted them.
+  - The files are `libmpv-2.dll`, `libspirv-cross-c-shared.dll` and `libwinpthread-1.dll`: 36,556,818 bytes in total, SHA-256 in the P1e-3c1 report.
+  - A copy is on the PC at `work\cache\mpv-lgpl\ci-build\40202006764\`. Run `40203859946` reproduced them byte for byte.
+  - The prebuilt zhongfly DLL is for measurements only. It must never be packaged.
+- **The UI design the owner approved** is `design/player/player_mockup.html` (v3). Open it in a browser. Its "Design notes" panel lists the behaviour. Binding points:
+  - Clicking a History thumbnail opens the player. The poster shows at once and playback starts on the same click.
+  - Controls float on the video with **no dark panel** behind them (thin shadows only). The title, preview box, menus and shortcut sheet are transparent too. The letterbox stays black.
+  - Controls, title and cursor hide after 2 s while playing. Any mouse move brings them back. While paused, they stay visible.
+  - The seek-bar hover preview sits **above** the bar, never over it, with the time under the picture. A nearest-keyframe preview is fine; the main player stays frame-exact.
+  - **Before / After** splits the picture with **nothing drawn on the divider**. The divider moves with the slider or a two-finger horizontal scroll.
+  - While paused, the step buttons move one output frame.
+  - Ctrl + scroll (pinch) zooms 100-800 % around the cursor. Two-finger scroll pans when zoomed.
+  - Other controls: the Details sidebar, the `?` shortcut sheet, double-click for fullscreen, Esc, and the shortcuts listed in the mockup.
 
-- **B1 is the chosen approach:** WebView2 composition controller over a libmpv D3D11 swap chain in one DirectComposition tree. Its transparency was verified by self-capture. B2 is dropped. Do not spend more time on B2.
-- **The B1 prototype is slow:**
-  - first frame 430-630 ms (B2: 30-45 ms; HTML5: 23-47 ms);
-  - seek median 260-460 ms, worst up to 700 ms;
-  - about 63 % of one CPU core during playback (HTML5: about 5 %).
+## 3. Part A: the player in the product
 
-  The step pattern in the first-frame numbers (about 430 or 630 ms) points at the polling/heartbeat loop. Find the cause by profiling; do not guess.
-- **Hover preview** through a second paused mpv instance: median 505 ms, too slow.
-- **Native frame stepping** was exact (36/36). HTML5 `currentTime` stepping was not (3/18).
-- **A/B:** a `lavfi-complex` hstack has one clock and showed no drift. Two instances drifted by up to one frame.
-- **Licence (Part A) is OPEN.** The prebuilt zhongfly LGPL DLL is 101.5 MB, has no dependency manifest, and must never ship. The MSVC/meson attempt failed because FFmpeg development files and pkg-config were missing.
+### A1. Where it lives
 
-## 3. Part A: a minimal LGPL libmpv built from source (the main goal)
+- **Default architecture: a separate player helper process.** Build a small Rust binary in the desktop workspace, for example `gui/src-tauri/player/` producing `VideoEnhancer-Player.exe`. Start from the hardened spike host. The main app starts it on demand and talks to it over a private pipe (or stdin/stdout) with versioned JSON messages.
+  - **Why:** a libmpv or GPU-driver crash cannot take down the main app (release builds use `panic = "abort"`). Closing the player frees all of its memory and GPU memory. Tauri and wry need no patch.
+  - The player window is owned by the main window. It opens centred over it at the same size, or the video's size if smaller, and it can go fullscreen.
+  - If you measure that this design cannot reach the targets in A5 and an in-process host can, you may switch. Give the numbers and the reason under "Questions for the designer".
+- **Lazy loading:** the DLLs load only when the player opens. Closing the player ends the helper, or leaves it idle for at most 30 s so the next video opens fast. Choose one, measure both, and report.
+- **Fallback:** if the helper or the DLLs are missing, fail to load, or fail to create a D3D11 device, the app falls back to today's HTML5 player in `HistoryDetail.tsx`, with its HEVC notice and its "Open in default player" button. The player must never be a dead end. Add a test for each fallback path.
+- **Where the player is used this cycle:** History (the detail view and thumbnail click).
+  - Compare models (`Trial.tsx`) keeps its HTML5 views this cycle, apart from the speed work in Part C.
+  - Do not change the media path the engine writes. Do not change settings. Do not change job behaviour.
 
-1. **Toolchain.** Use a **portable MSYS2** from the official `repo.msys2.org` base archive (`msys2-base-x86_64-<date>.tar.xz`, checksum verified). Unpack it under `work\cache\msys2\`.
-   - This is not a system install. Do not run its installer, do not add it to the system PATH, and do not touch the registry.
-   - Use the `UCRT64` or `CLANG64` environment, and install packages only with `pacman` from the official MSYS2 mirrors.
-   - Use MSYS2 packages for build tools only: gcc/clang, meson, ninja, pkgconf, nasm, cmake, python. Build the **libraries** that end up inside the DLL from pinned upstream source yourself, so that their versions, flags and licences are known.
-   - Alternative: `mpv-winbuild-cmake` (the project the prebuilt came from) inside the same MSYS2 or the existing WSL, with every GPL and non-free option off. Choose whichever you can make work; say which you used and why.
-2. **What goes in** (each from a pinned release or commit, checksum recorded):
-   - **FFmpeg, LGPL.** No `--enable-gpl`, no `--enable-nonfree`; `--enable-version3` is allowed only if a dependency needs it (then the result is LGPL-3.0, say so).
-     - Enable only file playback: demuxers mov/mp4, matroska/webm, and the parsers and decoders for h264, hevc, av1 (through libdav1d and/or the native av1 decoder with hwaccel), vp9, aac, opus, vorbis, mp3, flac, pcm.
-     - Enable the d3d11va hwaccels for h264, hevc, vp9 and av1, plus swscale, swresample, and the avfilter pieces mpv needs (including the `hstack` and `split` filters for A/B).
-     - Disable: programs, doc, network, devices, encoders, muxers, and every external library not listed here.
-   - **dav1d** (BSD-2-Clause).
-   - **libplacebo** (LGPL-2.1+), with its d3d11 support. If it needs glslang or shaderc, check their licences: glslang mixes BSD-3-Clause, MIT and Apache-2.0, and no GPL part may be linked.
-   - **libass** (ISC) and what it needs: FreeType (choose the FTL licence option), FriBidi (LGPL-2.1+), HarfBuzz (MIT).
-   - **zlib** (Zlib).
-   - **mpv** at the pinned commit with `-Dgpl=false -Dlibmpv=true -Dcplayer=false`, d3d11 and d3d-hwaccel on, everything optional off. That includes lua, javascript, vapoursynth, libbluray, libarchive, libcurl, sdl2, vulkan, spirv-cross unless libplacebo's d3d11 path needs it, sixel, egl-angle, openal, cuda, uchardet, lcms2, and rubberband.
-3. **Output:** `libmpv-2.dll` plus any DLLs it needs. Prefer static linking into one DLL, but LGPL libraries may stay separate DLLs if that makes replacement simpler; say which.
-   - Store the result under `work\cache\mpv-lgpl\source-build\out\`. **Never commit binaries.**
-   - Report the size. Expect much less than 101.5 MB; there is no hard limit, but explain anything above 40 MB.
-4. **Proof:**
-   - `spikes/mpv/source-manifest.json`: every component's version, source URL, checksum, licence (SPDX), configure flags and patches. Mark nothing as OPEN unless you explain exactly what is missing.
-   - `spikes/mpv/source-build.ps1` (or `.sh`), which rebuilds the DLL from nothing. Run it once more from a clean build folder to show it reproduces. Byte-identical output is not required; report the SHA-256 of both runs.
-   - Check the built DLL itself: it must report the mpv version and `gpl=false`. The FFmpeg it contains must report its configuration with no `--enable-gpl` or `--enable-nonfree`; check this through libmpv's `ffmpeg-version` and the static library's configuration string, not through a separate ffmpeg.exe.
-   - Confirm that each required codec (h264, hevc main10, av1 10-bit, vp9) plays with `hwdec-current=d3d11va` through the B1 prototype, using the P1e-3b fixtures.
-5. **`spikes/mpv/LICENSES.md`:** rewrite it for the built DLL. List the licence texts that must ship, the source offer (an archive of the exact sources and build script, attached to each release), and the user's right to replace the DLL. Close each OPEN item or say exactly why it stays open.
-6. **If the source build fails** after real attempts with both routes, record each exact failure, keep the measurements below on the prebuilt candidate, and set Part A to OPEN. That gives a PARTIAL status for this cycle, because Part A is its main goal.
+### A2. The controls page and IPC
 
-## 4. Part B: make B1 fast (in the spike)
+- The controls are a bundled HTML/TS page built with the existing Vite setup, for example a second entry `gui/player.html`. It is loaded only from the app's own embedded assets: a virtual host mapping or `WebResourceRequested` on a private host name.
+  - No remote content and no `file://`.
+  - A strict Content Security Policy.
+  - Navigation and new windows are blocked.
+  - DevTools are off in release builds.
+- **IPC between the page and the helper:** allowlisted and versioned, with request IDs.
+  - Commands: open, close, play/pause, exact seek, step forward/back, speed, volume/mute, fullscreen, zoom/pan, Before/After on/off and divider position, and hover preview with generation numbers. Only the latest hover request counts.
+  - Events: loaded, error, EOF, pause, duration, position, seek done, step done, preview ready, and decoder info (`hwdec-current`).
+  - Position updates are rate-limited to about 10 Hz.
+  - No arbitrary mpv command or property ever crosses from the page.
+- **IPC between the main app and the helper:** the main app passes **opaque media handles**, never raw paths from HTML.
+  - The Rust media layer (`gui/src-tauri/src/media.rs`) resolves each handle to the job's output or original file. It checks the file exists, then hands the absolute path to the helper.
+  - The helper accepts only handles the main app gave it in this session.
+- **Errors:** every request completes with a result or an error routed back to the caller. Show plain English messages, for example "This video can't be played here. Open it in your default player instead." The asynchronous mpv log goes to the app log, never to the UI.
 
-Using the source-built DLL (or the prebuilt candidate if Part A failed):
+### A3. Before / After
 
-1. **Profile first.** Find what causes B1's slow first frame and seek and its high CPU. Look at the render loop, the polling and heartbeat, `mpv_render_context_update` and `MPV_RENDER_UPDATE_FRAME` handling, the swap-chain present mode, the capture instrumentation, and the WebView2 message loop. Report the evidence.
-2. **Fix it** with an event-driven design:
-   - render only when mpv's update callback says a new frame is due;
-   - wake the UI thread from mpv's wakeup callback instead of polling;
-   - turn capture and self-test instrumentation off for timing runs;
-   - use a flip-model swap chain with a frame-latency waitable object, if it helps.
-3. **Targets**, measured on the same five clips with the same methods as P1e-3b, with the self-test capture off:
+- **What it compares:** the enhanced output and its original. The original is scaled to the output size and shown on the same clock, at the output's frame rate.
+  - If the original is missing or recycled, Before/After is disabled, with a tooltip saying why, as History already does for "Compare again".
+  - Audio comes from the enhanced output.
+- **Divider:** it must move **without pausing or rebuilding the decode graph**. P1e-3c1 found that changing a `lavfi-complex` graph pauses playback. Candidate methods:
+  1. Render a one-clock `hstack` of [original | enhanced] at the output size into one surface. The host shows two DirectComposition visuals of that surface, each with an offset and a clip rectangle, so moving the divider only changes the clips.
+  2. Runtime filter commands, if the pinned FFmpeg and mpv support them on the complex graph.
+  3. Your own method.
 
-   | Metric | Target |
-   | --- | --- |
-   | First frame, median of 5 | ≤ 150 ms |
-   | Seek, median of 20 | ≤ 200 ms |
-   | Seek, worst of 20 | ≤ 400 ms |
-   | CPU during 60 s playback (one core = 100 %) | ≤ 15 % |
-   | Dropped frames over 60 s | 0 |
-   | Frame stepping against the burned-in numbers | exact |
+  Use the first that works. Report the latency of a divider move and any drift between the two sides.
+- **If no method moves the divider without a pause,** ship a side-by-side (hstack) mode with the same controls, and report why under "Questions for the designer".
+- Frame stepping and seeking act on both sides together.
 
-   - If a target cannot be met, report the best you reached, the profiling evidence of what limits it, and continue.
-   - Re-run the B1 transparency self-check once after the changes, to show the picture and controls still look the same.
-4. **Hover preview:** make it fast enough for a seek bar.
-   - Coalesce hover moves: only the latest request counts, and older ones are cancelled.
-   - Use keyframe-only or fast seeks for the preview (`hr-seek=no`), a small decode size, and a cache of recent thumbnails.
-   - Optionally pre-generate a low-resolution strip on open, if it does not slow down the first frame of the main player.
-   - **Targets:** median ≤ 150 ms for a new position; ≤ 30 ms for a cached one. Report what the preview shows (nearest keyframe vs exact frame). The preview may show the nearest keyframe; the main player must stay exact.
-5. **A/B (for P1e-3c2):** measure the `lavfi-complex` hstack again with the source-built DLL and the event-driven host: CPU, GPU memory and drift.
-   - Also try a vstack, and a split view with a movable divider (crop and overlay, or two instances under one clock master), and report whether each is feasible.
-   - Recommend one method for the product's before/after compare.
-6. **Lazy load:** show that the host loads `libmpv-2.dll` only when the player opens (`LoadLibrary` at open, `FreeLibrary` or process exit at close).
-   - Measure DLL load plus init time.
-   - Measure the memory and GPU memory left after closing, inside a host that stays open (the product case).
+### A4. Accessibility, input and DPI
 
-## 5. Part C: recommendation for P1e-3c2
+- Every control is reachable by keyboard and has an accessible name.
+- Shortcuts follow the mockup's sheet.
+- Focus returns to History when the player closes.
+- Per-monitor DPI and window moves between monitors work.
+- Device loss, sleep and resume, and display changes recover, or close the player with a message. They never hang it.
 
-In the report:
-- how the B1 host should enter the product, given today's `gui/src-tauri/src/window.rs` and `main.rs`:
-  - a custom WebView2 composition host for the player window only, or a wry/Tauri extension point;
-  - what in Tauri 2 / wry must be patched or wrapped, and the update risk;
-- the IPC between the HTML controls and the native player (commands, events, time updates);
-- what can be tested on the CPU-only CI and what needs the GPU PC;
-- package size added (DLLs plus licence and source materials);
-- anything that needs the owner's decision, with the option you recommend.
+### A5. Targets (GPU PC, measured as in P1e-3c1, capture off)
+
+| Metric | Target |
+| --- | --- |
+| Click to first frame, player not yet open (cold helper), median of 5 | ≤ 500 ms |
+| Click to first frame, player open or helper idle (warm), median of 5 | ≤ 150 ms |
+| Seek, median / worst of 20 | ≤ 200 ms / ≤ 400 ms |
+| CPU during 60 s playback, one core = 100 % | ≤ 15 % |
+| Dropped frames over 60 s | 0 |
+| Frame stepping against the burned-in numbers | exact |
+| Hover preview, new / cached | ≤ 150 ms / ≤ 30 ms |
+| Before/After drift over 60 s | 0 frames |
+| Before/After divider move, input to picture | ≤ 50 ms, no pause |
+| Main app private bytes and GPU memory 10 s after the player closes | back to within 5 % of before opening |
+
+- Use the P1e-3b fixtures (H.264 1080p30, HEVC Main10 1440p60, AV1 10-bit 1440p60, VP9 1080p60, HEVC rotation).
+- Add one Before/After pair: a synthetic original and its synthetic "enhanced" counterpart with burned-in frame numbers, at different resolutions and frame rates.
+- If a target is missed, report the best you reached, the profiling evidence of the limit, and continue.
+
+### A6. Packaging and licences
+
+- `gui/scripts/package-tauri.mjs` adds the three DLLs and the helper to the package. It takes the DLLs from a folder given by an environment variable, for example `VE_LIBMPV_DIR`, and checks each file against a pinned lock file in the repo, for example `gui/src-tauri/libmpv.lock.json` with the file names, sizes, SHA-256, CI run ID and artifact digest. On a mismatch it refuses to package.
+  - Without the variable, the package builds without the player and the app uses the fallback. CI works this way.
+- **Licence materials:**
+  - Ship the licence texts from the CI artifact's `LICENSES/` and an app-level third-party notices file.
+  - Add an "Open-source licences" entry in Settings (or About) that opens them.
+  - Put `sources.tar.zst` **next to** the package as its own file, not inside it, and add a written source offer to the notices.
+  - Follow `spikes/mpv/LICENSES.md`, including the user's right to replace the DLLs. The app must keep working with a user-replaced compatible `libmpv-2.dll`; do not pin the DLL hash at run time.
+- Report the package size before and after.
+
+## 4. Part B: tests
+
+- **CPU CI (Windows and Ubuntu, no GPU, no DLLs):**
+  - Rust unit tests for the IPC schema, the allowlist, handle resolution, request and response routing, latest-only hover, and the lifecycle and lazy-load state machine.
+  - Vitest for the controls page: autohide, keyboard shortcuts, the divider, zoom maths, preview placement above the bar, and accessible names.
+  - Playwright e2e on Windows for the fallback: no DLL, so History plays through HTML5 as today.
+  - Do not loosen or skip any existing test or e2e spec.
+- **Optional:** a Windows CI job that downloads the pinned artifact and runs the helper with `hwdec=no` (software decode) for a short open, play and close smoke test. Add it only if it is reliable on `windows-latest`. Never mark it as allowed to fail.
+- **GPU PC:**
+  - every A5 target on every fixture;
+  - Before/After on the pair;
+  - every fallback path;
+  - a transparency self-check showing the controls over the video with no dark panel, done by self-capture of the player's own window only, as in P1e-3b section 13;
+  - a 30-minute open/close soak (open, play 20 s, close, repeat) with private bytes, GPU memory and handle counts.
+- **Fix the flaky test `tests/test_link_jobs.py::test_failed_transfer_retries_three_times_then_offers_retry`.** It failed once on Windows CI, at the backoff assertion `b - a >= delay`.
+  - Find the root cause.
+  - Make it deterministic without weakening what it checks: retries 3 times, with delays of at least 1, 2 and 4 s, then a failed state with a retry offered. For example, inject the clock and sleep.
+
+## 5. Part C: Compare speed
+
+1. Profile a 5 s Compare on the GPU PC with the default model set. Do it in two states: with no job running, and with a Standard job running. Report time to the first tile and, for each model:
+   - model load;
+   - decode and range analysis;
+   - inference;
+   - encode;
+   - waiting for the GPU lease.
+2. Implement only changes that leave every preview **bit-identical** and stay inside the Compare path (`src/videoenhancer/service/compare.py`, the Compare scheduling in `engine.py`, and `Trial.tsx` display). For example:
+   - reuse the decoded range and the original preview across models;
+   - start the first tile sooner;
+   - show each model's tile as soon as it is done.
+
+   Prove bit-identity with hashes of the preview files before and after.
+3. Anything bigger, such as a warm worker, model caching across operations or GPU preemption, goes into the report as a proposal for P1e-3d with estimated gains. Do not build it now.
 
 ## 6. Do not change
 
-- The product: `gui/`, `src/`, `tests/`, the package, the current HTML5 player, the media path, settings, the engine, CI. The delivered app must be exactly what `main` builds. If you believe a product change is necessary, describe it in the report.
-- The diff against `origin/main` may contain only `spikes/mpv/**`, `.ai/LAST_REPORT.md`, `.ai/CURRENT_TASK.md` (designer's) and, if needed, `.gitignore` lines for spike build output.
+- The engine's processing, models, outputs, estimates, calibration and the job pipeline, except the Compare path in Part C.
+- The settings format and the media path.
+- `spikes/mpv/ci-build/**` and `.github/workflows/libmpv-lgpl.yml`.
+- The diff against `origin/main` may contain:
+  - `gui/**`, including the new helper crate;
+  - `tests/**`;
+  - the Compare files named in Part C;
+  - `.github/workflows/ci.yml`, only to add the new tests or the optional smoke job;
+  - `README.md`, with a short user-facing description of the player;
+  - `docs/**`;
+  - `spikes/mpv/**`, only if a spike file is moved into the product;
+  - `.gitignore`;
+  - `.ai/LAST_REPORT.md`;
+  - `.ai/CURRENT_TASK.md` and `design/player/**`, which are the designer's.
 
 ## 7. Constraints
 
-- Work only inside `work\`. Binaries, builds, toolchains, fixtures and screenshots stay out of Git (`work\cache`, `work\scratch`, `work\evidence`).
-- Downloads only from official sources (msys2.org and its mirrors, the upstream projects' own release pages or Git hosts), verified by checksum, listed in the report. Free software only; no paid tools.
+- Work only inside `work\`. Binaries, DLLs, fixtures, captures and screenshots stay out of Git.
+- Downloads only from official sources, verified by checksum, listed in the report. Free software only.
 - No system-wide installs beyond what AGENTS.md allows. No driver, registry, PATH, WebView2 Runtime or display-setting changes.
-- Self-tests capture and drive only the spike's own windows, exactly as P1e-3b section 13 allowed. Never send input to any other window.
-- **Disk:** report each of these on its own line, each with its size:
-  - the MSYS2 toolchain;
-  - the source and build trees;
-  - the built output.
-
-  Keep the toolchain and the built output, because P1e-3c2 uses them. Delete intermediate build trees once the reproduction run succeeds, if they are over 5 GB. Other persistent growth ≤ 1 GB. Stop and report if the D: drive would fall below 200 GB free.
-- Tests and prototypes clean up their own files. Do not create scratch folders with mode `0o700`.
-- English for all code, comments and docs.
+- Self-tests capture and drive only the app's and player's own windows. Never send input to any other window.
+- Persistent growth ≤ 1 GB, not counting the restored dependencies. Report the package and evidence sizes. Stop and report if D: would fall below 200 GB free.
+- Tests clean up their own files. Do not create scratch folders with mode `0o700`.
+- English for all code, comments, UI text and docs.
 
 ## 8. Acceptance
 
-- Part A: a source-built LGPL libmpv with a complete manifest, a reproducible script that was run twice, a licence list, and codec/hwdec proof; or evidenced failures of both routes (PARTIAL).
-- Part B: profiling evidence, the B1 measurement table for all five clips against the targets, hover preview numbers, A/B numbers, lazy-load numbers, and the transparency re-check.
-- Part C: the recommendation.
-- Lint and format checks for the spike's Rust (fmt, clippy `-D warnings`) and Python (ruff) pass. Product checks are not required to re-run if no product file changed; say so. Windows and Ubuntu CI must be green on the final commit (the operator pushes and checks).
+- Part A works on the GPU PC, with the A5 table filled for every fixture and the Before/After pair. Every fallback path is shown.
+- Part B: new tests pass, the flaky test is fixed, and nothing existing is loosened. Windows and Ubuntu CI are green on the final commit (the operator pushes and checks).
+- Part C: the profile tables, the bit-identity hashes, and the proposals for P1e-3d.
+- The package builds with and without `VE_LIBMPV_DIR`. The licence notices, the source offer and the replacement right are in place.
+- Lint, format and type checks pass for Rust (fmt, clippy `-D warnings`), TypeScript (eslint, tsc) and Python (ruff, pyright).
 
 ## 9. Report (`.ai/LAST_REPORT.md`)
 
-- Status line. Part A details; Part B tables with every run, as in P1e-3b, and raw arrays in an appendix; Part C.
+- Status line.
+- Part A: architecture chosen and why; the IPC schema; the A5 table with every run and raw arrays in an appendix; the Before/After method and its numbers; fallbacks.
+- Part B: the tests added, and the flaky test's root cause and fix.
+- Part C: the profile tables, the changes made, hashes, and the proposals.
+- Package size before and after, and the licence materials added.
 - Changed files.
-- Disk: dependency restore; toolchain; source/build trees; built output; other growth; `work\scratch` at the end; free space on C and D; anything left for the owner to delete.
+- Disk: dependency restore; package; evidence; other growth; `work\scratch` at the end; free space on C and D; anything left for the owner to delete.
 - "Questions for the designer", each with the default you chose.
-
-## 10. Designer review of the first run (2026-10-23) and what to finish now
-
-The first run is PARTIAL. Part B is accepted: every B1 target is met, the hover and lazy-load results pass, and the A/B recommendation (a one-clock hstack first, with the divider kept experimental) is accepted. Part C is accepted as input for P1e-3c2. **Do not redo Part B or Part C.** Finish **Part A only**.
-
-### 10.1 The keyring blocker and what the operator does first
-
-- **Cause.** The MSYS2 first-start step (`pacman-key --init`, then gpg's migration) hangs inside the Codex sandbox. Most likely gpg-agent cannot start or reach its socket under the sandbox account; the stray gpg-agent and dirmngr processes the operator found support this.
-- **Fix, done by the operator before Codex resumes.** The operator, running as the owner's normal account, initialises the portable MSYS2 under `work\cache\msys2\` with official keys and normal signature checks:
-  - `pacman-key --init`
-  - `pacman-key --populate msys2`
-  - `pacman -Syuu --noconfirm`, once or twice until it reports nothing to do
-  - installation of the build-tool packages listed in your native UCRT64 command, plus `git`, `patch`, `make` and `autotools` if available.
-
-  The operator stops every gpg-agent or dirmngr it started and reports the result in `work\evidence\VE-P1e-3c1\operator-msys2-init.log`.
-- **What Codex does.** Use that initialised MSYS2. Do not run `pacman-key --init` again and do not change `SigLevel`.
-  - If you must install another package and pacman hangs in the sandbox, stop that step, record the package name under "Questions for the designer", and continue with what you have.
-  - If any step leaves a gpg-agent or dirmngr process running, stop it before you finish.
-
-### 10.2 Then do Part A exactly as section 3 says
-
-- Build FFmpeg (LGPL), dav1d, libplacebo, libass with FreeType, FriBidi and HarfBuzz, zlib, and mpv from pinned sources.
-- Write a complete `source-manifest.json`, and a `source-build` script that rebuilds everything.
-- Do two clean runs and record the SHA-256 of each.
-- Prove from the DLL itself that it reports `gpl=false` and that its embedded FFmpeg configuration has no `--enable-gpl` and no `--enable-nonfree`.
-- Prove that all five fixtures play with `hwdec-current=d3d11va` through the B1 host (`smoke.py` is enough here; do not rerun the full matrix).
-- Re-run only the B1 H.264 first-frame and seek measurement once with the new DLL, to confirm it is not slower.
-- Rewrite `LICENSES.md`.
-- Choose UCRT64 native meson or mpv-winbuild-cmake, whichever gets there first.
-
-### 10.3 Cleanup
-
-The operator deletes the paths listed in `evidence\VE-P1e-3c1\cleanup-candidates.json`, after it re-checks each path and size:
-- the duplicate `p1e3c1-*` files under `evidence\VE-P1e-3b\section13\`;
-- `evidence\VE-P1f-3b`, under the keep-the-last-3-cycles rule.
-
-Do not try these deletions yourself. Scratch is already empty. Clean only what this continuation creates.
-
-### 10.4 Status rule
-
-- **COMPLETED** when Part A is done as above.
-- **PARTIAL** if the source build still fails at a real compile or link step. Then record the exact failing component, its command and the error, and say what would fix it.
-
-## 11. Owner decision (2026-10-23): build libmpv on GitHub Actions instead of the PC
-
-The MSYS2 keyring initialisation hung three times on the development PC: in the Codex sandbox, and twice for the operator outside it, including in a fresh tree. **The owner chose to build on GitHub Actions.** This replaces section 10.1 and the build route in section 3.1. Everything else in section 3 (contents, proof, licences) and section 10.2 still applies. **Do not use the PC's MSYS2 trees** (`work\cache\msys2\*`); leave them as they are.
-
-The repository is public, so GitHub-hosted Linux runners are free. Paid runners, larger runners and any billing are not allowed.
-
-### 11.1 The workflow
-
-Add **`.github/workflows/libmpv-lgpl.yml`**. This is an exception to section 6, which allows this one new workflow file only. Do not change `ci.yml`.
-
-- **Triggers:** `workflow_dispatch`, plus `push` and `pull_request` limited by `paths:` to `spikes/mpv/ci-build/**` and the workflow file itself. Product changes must not trigger it.
-- **Security:**
-  - `permissions: contents: read`;
-  - no secrets;
-  - every third-party action pinned by full commit SHA, with the version in a comment;
-  - a job `timeout-minutes` of at most 330.
-- **Runner:** `ubuntu-24.04`, cross-compiling for `x86_64-w64-mingw32`. Choose one approach and say why:
-  - **(a)** mpv-winbuild-cmake at a pinned commit, with every GPL, non-free and unneeded option off. It builds its own toolchain, which is slower but closest to how upstream Windows builds are made.
-  - **(b)** Ubuntu's `mingw-w64` packages plus meson cross files, building each library listed in section 3.2 yourself.
-
-  Either way, every library source is fetched at a pinned version and verified by SHA-256 inside the scripts. Use `actions/cache` for the source downloads and the toolchain, keyed on the pinned versions.
-- **Scripts** live in `spikes/mpv/ci-build/` (shell plus cross files or CMake options). The workflow only calls them, so the same scripts can be run by hand on any Linux machine.
-- **Outputs:**
-  - Upload one artifact, `libmpv-lgpl-<mpv commit short>`, with retention 30 days, containing:
-    - the DLL(s);
-    - `SHA256SUMS`;
-    - `source-manifest.json`, generated by the build from what it actually fetched and configured;
-    - the licence texts of every component;
-    - `sources.tar.zst` with the exact sources, patches and build scripts. This is the LGPL source offer.
-  - Print the SHA-256 of every DLL in the job log.
-- **Checks on the runner before upload:**
-  - `x86_64-w64-mingw32-objdump -p` shows only allowed DLL imports (Windows system DLLs, plus the LGPL DLLs you chose to keep separate);
-  - the FFmpeg `configure` line recorded by the build has no `--enable-gpl` and no `--enable-nonfree`;
-  - mpv was configured with `-Dgpl=false`.
-
-  Fail the job if any check fails.
-
-### 11.2 Iteration loop (Codex cannot run the Linux build locally)
-
-1. **Round start.** Write or fix the scripts and the workflow. Check what you can on Windows: YAML parses, shell scripts pass `bash -n` if a bash is available, `actionlint` if you can get it from its official release. Then finish the round with `Status: PARTIAL` and the line `Awaiting CI build`. List the changed files as usual.
-2. **The operator** commits and pushes. The workflow runs on the PR.
-3. **The designer** reads the result.
-   - On failure, the designer appends the failing step and the relevant log lines under a new subsection of section 11. The operator then resumes you.
-   - On success, the operator downloads the artifact with `gh run download` into `work\cache\mpv-lgpl\ci-build\<run id>\` and checks `SHA256SUMS`. Then the operator resumes you.
-4. **When the artifact exists**, do section 10.2's proof on the PC:
-   - the DLL reports `gpl=false`, and its embedded FFmpeg configuration is clean (read through libmpv properties);
-   - the five fixtures play with `hwdec-current=d3d11va` through B1 (`smoke.py`);
-   - one B1 H.264 first-frame and seek run, compared with the prebuilt;
-   - the size;
-   - rewrite `LICENSES.md` for this build.
-5. **Reproducibility.** The designer re-runs the workflow once with `workflow_dispatch`, and you compare the two runs' `SHA256SUMS`. Byte-identical output is not required; report the result and explain any difference you can.
-
-No fixed round limit (owner, 2026-10-25): continue until the build is green. The designer stops the loop and reports if two rounds in a row fail at the same step with no progress.
-
-### 11.3 Status rule for this route
-
-- **COMPLETED** when an artifact from a green workflow run passes every check in 11.2 step 4, and `LICENSES.md` and the manifest are complete.
-- **PARTIAL** for "Awaiting CI build" rounds and for a no-progress stop.
-
-### 11.4 CI round 1 result (designer, 2026-10-25): FAIL in the toolchain step, 1 of 6 rounds used
-
-Run 40167238004, job `build`, failed about 1 minute after start in `driver.py toolchain`. The PR-triggered run 40167239065 has the same commit:
-
-```text
-File "spikes/mpv/ci-build/driver.py", line 170, in toolchain
-    checksums = ubuntu_source_metadata(package, version)
-File "spikes/mpv/ci-build/driver.py", line 138, in ubuntu_source_metadata
-    raise ValueError(f"No authenticated source metadata for {package}={version}")
-ValueError: No authenticated source metadata for binutils=2.41.90.20240122-1ubuntu1
-```
-
-The installed package was `binutils-mingw-w64-x86-64 2.41.90.20240122-1ubuntu1+11.4`. Its `Built-Using` field names `binutils (= 2.41.90.20240122-1ubuntu1)`, and the runner's `deb-src` index does not offer that exact source version.
-
-**What to change:**
-- **Toolchain sources are not part of the LGPL source offer.** The compiler and binutils are not shipped. Do not fail the build because a toolchain package's source, or a source named in its `Built-Using` field, is not in the `deb-src` index. Record each such package with its name, version and `unavailable in deb-src` in the manifest's toolchain section, and continue. Archive the sources that are available, as now.
-- **Pieces of the toolchain that end up inside the shipped DLLs are a different matter.** These are the mingw-w64 CRT and headers, winpthreads, and libgcc / libstdc++ if they are linked statically.
-  - Record each one's exact package version and licence: ZPL/public domain, MIT, and GPL-3.0 with the GCC Runtime Library Exception. The exception allows shipping without source.
-  - Keep fetching their sources when the index has them. When it does not, record the package's `Vcs`/Launchpad URL instead of failing.
-- **Check this path before the next push.** Add a unit test in `test_driver.py` for the missing-source path.
-- **Find further toolchain-step problems before the next round:** run as much of `driver.py plan` / `toolchain` locally as you can with mocked apt output.
-
-Then end the round with `Awaiting CI build` again, as in 11.2.
-
-### 11.5 CI round 2 result (designer, 2026-10-25): FAIL, still in the toolchain step. 2 of 6 rounds used
-
-Run 40182513951, job `build`, on 41efdc3. The PR run 40182515731 failed the same way. The 11.4 fix worked: `Toolchain source binutils=2.41.90.20240122-1ubuntu1: unavailable in deb-src` was logged and the step continued. The step then failed here:
-
-```text
-Get:2 http://azure.archive.ubuntu.com/ubuntu noble/universe binutils-mingw-w64 11.4 (dsc) [1898 B]
-  File "spikes/mpv/ci-build/driver.py", line 270, in toolchain
-    raise ValueError(f"Unexpected Ubuntu source host: {url}")
-ValueError: Unexpected Ubuntu source host: mirror+file:/etc/apt/apt-mirrors.txt/pool/universe/b/binutils-mingw-w64/binutils-mingw-w64_11.4.dsc
-```
-
-**Cause.** GitHub runners configure apt with the `mirror+file:/etc/apt/apt-mirrors.txt` method, so `apt-get source --print-uris` returns that pseudo-URL instead of an http URL. The real host appears only in the `Get:` lines (here `azure.archive.ubuntu.com`).
-
-**What to change:**
-- **Trust follows the hashes, not the URL.** The authority for a source file is its SHA-256 from apt's signed index (`Checksums-Sha256` in `apt-cache showsrc`, which apt authenticates through InRelease). Keep that hash check exactly as strict as now.
-- **Change the host check.**
-  - Accept `mirror+file:` URIs. Resolve them to the real host by parsing the `Get:` lines of the actual `apt-get source --download-only` output.
-  - Accept hosts that are `archive.ubuntu.com`, `security.ubuntu.com` or end in `.archive.ubuntu.com` (`azure.archive.ubuntu.com` qualifies). Also accept the hosts listed in `/etc/apt/apt-mirrors.txt` if they are under `ubuntu.com`.
-  - Record the resolved host in the manifest. Fail only if a resolved host is outside those, or a hash does not match.
-- **Before the next push:**
-  - Add tests in `test_driver.py` that use the exact strings above: the `mirror+file:` pseudo-URL and the `Get:` line format.
-  - Also look through the rest of `driver.py`, `toolchain.sh`, `prepare.sh` and `build.sh` for other assumptions about Ubuntu or apt formats that a GitHub runner breaks, and fix them in the same round. Round 3 should get past the toolchain step into the library builds.
-- Then end the round with `Awaiting CI build`.
-
-### 11.6 CI round 3 result (designer, 2026-10-25): FAIL at the libass configure step. 3 of 6 rounds used
-
-This is real progress. Run 40185905349 on b427551 passed the toolchain step, and FreeType 26.4.20, FriBidi 1.0.17 and HarfBuzz 15.0.0 were found. libass's meson configure then failed:
-
-```text
-Compiler for language nasm for the host machine not found.
-libass/meson.build:268: WARNING: nasm was not found; ASM functions are disabled.
-libass/meson.build:337:8: ERROR: Problem encountered: Assembly was requested, but cannot be built; see prior messages.
-```
-
-**Cause.** `prepare.sh` installs `nasm`, but `mingw.ini.in` has no `nasm` entry under `[binaries]`. In a cross build, meson looks up host-machine tools only in the cross file, so it never finds nasm.
-
-**What to change:**
-- Add `nasm = 'nasm'` to `[binaries]` in `mingw.ini.in`. Keep assembly enabled: it matters for libass, dav1d and FFmpeg speed. Do not switch it off to get green.
-- Check that every other meson project in the build gets nasm the same way. dav1d needs it. Check that FFmpeg's configure gets `--x86asmexe=nasm` (or finds nasm on PATH) with `--enable-x86asm` left on, and that the nasm version meets each project's minimum.
-- libass reported `iconv: NO` and `libpng: NO`. Both are optional for subtitle rendering. Leave them off, and list them as disabled in the manifest.
-- Before pushing, read the whole cross file and each library's configure options once more, for other host-tool entries a cross build needs, such as `windres` for mpv's resources and `ld` or `ranlib` if a project asks for them. The aim is that round 4 reaches FFmpeg and mpv.
-- Then end the round with `Awaiting CI build`.
-
-### 11.7 CI round 4 result (designer, 2026-10-25): FAIL at the libplacebo configure step. 4 rounds used; the limit is now 10
-
-This is progress again. Run 40189018187 on ab0a24a built through libass and SPIRV-Cross, then stopped at libplacebo's meson configure:
-
-```text
-Program llvm-dlltool dlltool found: NO
-libplacebo/src/meson.build:28:12: ERROR: Program 'llvm-dlltool dlltool' not found or not executable
-```
-
-**Cause.** `mingw.ini.in` has no `dlltool` entry under `[binaries]`. The mingw binutils package installs it as `x86_64-w64-mingw32-dlltool`.
-
-**What to change:**
-- Add `dlltool = 'x86_64-w64-mingw32-dlltool'` to `[binaries]` in `mingw.ini.in`.
-- While you are in that file, add the other prefixed binutils a project might look up: `ranlib`, `nm`, `objcopy`, `objdump`, `ld`, `windmc` if present. Point each at the `x86_64-w64-mingw32-*` binaries, and check each path exists in `driver.py` before configuring.
-- **Check SPIRV-Cross and shaderc before the next push.**
-  - SPIRV-Cross was built as a shared `libspirv-cross-c-shared.dll`. Decide whether it should be static inside libmpv, which is preferred, or ship as its own DLL. If it ships, list it in the import check and the manifest.
-  - libplacebo is configured with `-Dshaderc=enabled`. shaderc, and the glslang inside it, mixes Apache-2.0, BSD-3-Clause, MIT, and GPL-3.0-or-later with the Bison exception for the generated parser. Record each one in the manifest and say why each is compatible with an LGPL/MIT app. Do not include any component without such an exception.
-  - If libplacebo's d3d11 path can work with SPIRV-Cross alone, without shaderc, say so. The default stays as-is unless you find it is required.
-- **Round limit.** Raise the limit in 11.2 from 6 to 10 rounds; the builds are free on this public repository. Keep fixing one class of problem per round, and look ahead for the next one each time.
-- Then end the round with `Awaiting CI build`.
-
-### 11.8 CI round 5 result (designer, 2026-10-25): FAIL while compiling libplacebo. 5 rounds used; no fixed limit now
-
-Progress again. Run 40192912086 on c07ed2a configured libplacebo (d3d11 YES, shaderc YES, vulkan NO, glslang NO) and compiled 61 of 63 objects, then stopped at the Vulkan stub file:
-
-```text
-FAILED: src/libplacebo.a.p/vulkan_stubs.c.obj
-../../src/libplacebo/src/include/libplacebo/vulkan.h:21:10: fatal error: vulkan/vulkan.h: No such file or directory
-```
-
-**Cause.** With Vulkan disabled, libplacebo still compiles `src/vulkan/stubs.c`, which includes the public `libplacebo/vulkan.h`, which includes `<vulkan/vulkan.h>`. The Khronos Vulkan headers are not in the target prefix. Meson also reported `Run-time dependency vulkan found: NO`.
-
-**Owner decision (2026-10-25):** no fixed round limit; continue until green. Section 11.2 now says so. The designer stops the loop if two rounds in a row fail at the same step with no progress.
-
-**What to change:**
-- Add Khronos **Vulkan-Headers** as a pinned, header-only source in `sources.lock.json` (official KhronosGroup archive by commit, SHA-256 recorded, licence Apache-2.0 OR MIT; record the licence files). Prefer the tag matching the pinned SPIRV-Cross SDK (`vulkan-sdk-1.4.321.0`) if libplacebo 7.360.1 accepts it; otherwise the lowest version libplacebo's meson requires.
-- Install only the headers (`include/vulkan`, `include/vk_video`) into the target prefix before libplacebo, and make sure libplacebo's include path sees them. Do **not** build or link the Vulkan loader, and keep `-Dvulkan=disabled`. Check with objdump that no `vulkan-1.dll` import appears.
-- Record Vulkan-Headers in the manifest as compile-time only (not in any DLL), with its licence.
-- Do not patch libplacebo to drop the stub file; use the headers.
-- Look ahead before pushing: read the remaining recipes (libplacebo install, FFmpeg configure, mpv configure, packaging) for other missing target headers or pkg-config files, for example any D3D11/DXGI, `spirv_cross` or `shaderc` pkg-config names mpv checks, so round 6 gets as far as possible.
-- Then end the round with `Awaiting CI build`.
-
-### 11.9 CI round 6 result (designer, 2026-10-25): FAIL at the final libmpv link. 6 rounds used
-
-Big progress. Run 40197198723 on a8e73ab built every dependency, FFmpeg included, and reached the mpv build in `build/mpv`. The final link then failed with thousands of undefined C++ runtime symbols, all from the static shaderc archive:
-
-```text
-x86_64-w64-mingw32-ld: .../prefix/lib/libshaderc_combined.a(loop_fusion.cpp.obj): undefined reference to `operator new(unsigned long long)'
-... undefined reference to `std::__throw_length_error(char const*)'
-... undefined reference to `vtable for __cxxabiv1::__class_type_info'
-collect2: error: ld returned 1 exit status
-```
-
-**Cause.** mpv is a C project, so meson links libmpv with `gcc`, not `g++`. `-static-libstdc++` in `cpp_link_args` and `LDFLAGS` has no effect on a `gcc` link, and nothing puts the C++ runtime after `libshaderc_combined.a` on the link line. The `.pc` files for shaderc_combined and/or libplacebo do not list it in `Libs.private`.
-
-**What to change:**
-- Make the static C++ runtime appear on the libmpv link line **after** the shaderc and libplacebo archives. The usual fix, also used by other mingw libmpv builds, is to add the C++ runtime to `Libs.private` in the installed `shaderc_combined.pc` (or `libplacebo.pc`). Use a static form such as `-l:libstdc++.a` (or `-lstdc++` with the static archive guaranteed). Add `-lpthread`/winpthread only if needed. Do the edit in `build.sh` or `driver.py` after install, record it in the manifest as a build-recipe change (not an upstream patch), and test it.
-- An alternative is mpv's own link arguments, if you can show the runtime then lands after the archives. Choose one and say why.
-- The result must not import `libstdc++-6.dll`, `libgcc_s_seh-1.dll` or `libwinpthread-1.dll`, unless the manifest ships and licenses that DLL. Keep the objdump import check strict.
-- Look ahead before pushing:
-  - check the rest of the mpv link line for other C++ static archives, for example SPIRV-Cross if it is linked statically;
-  - check that the `libspirv-cross-c-shared.dll` decision from 11.7 holds at link time;
-  - read `package.sh` and the post-build checks (imports, the gpl/nonfree checks, `SHA256SUMS`, `sources.tar.zst`), so round 7 can reach a green artifact.
-- Then end the round with `Awaiting CI build`.
+- A short owner-check list (about 10 steps, plain English) for trying the player by hand. The designer will turn it into the owner check.
