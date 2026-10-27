@@ -1,205 +1,175 @@
-Task ID: VE-P1e-3c2 / Run 4 / section 11.4
-Status: COMPLETED
+Task ID: VE-P1e-3c2-OC
+Status: PARTIAL
 
-## Outcome and scope
+## Scope and environment
 
-The failure is a test-fixture cancellation assumption exposed by the new Windows
-yt-dlp binary's larger Python file-write buffer. The fixture now interrupts an
-unfinished transfer after a nonempty prefix is actually saved. All original
-assertions remain, with stronger prefix-integrity and exact Range-resume checks.
-Final local validation passed. Hosted CI remains for the operator after commit/push.
+Windows check cycle, 2026-10-26 local / 2026-10-27 UTC. Branch:
+`claude/project-thread-6lra47`; HEAD:
+`8af841686f5d8121ff97ce3d52981fba407930ed`. Initial read-only Git status was clean.
+The sandbox denied Git execution; the escalated read-only check succeeded.
+No Git mutations, product changes, test-feature builds, CDP or test hooks were used.
+The existing CURRENT_TASK was retained in full without modification.
 
-Accepted runs remain by reference: **2d996bc** (Run 1), **0fd7293** (Run 2),
-**3cc4333** (Run 3). Their player, visual, timing, packaging, Compare and other
-accepted results were not repeated. Initial branch `claude/project-thread-6lra47`,
-clean HEAD `60e854a`. CURRENT_TASK.md is unchanged. No Git mutations or supervisor
-changes. No product code, tool update policy, GUI or package changes.
+Only the production candidate was used for checklist measurements. All test data
+was under `work/scratch/owner-check/home`. Normal package and owner data were not
+accessed. All shell testing sourced `local-env.ps1` first.
 
-## Root cause
+Evidence references below are relative to `work/evidence/VE-P1e-3c2-OC/`.
+Captures use Windows.Graphics.Capture with an explicit HWND. Input uses SendInput
+only after verifying that the foreground HWND belongs to a recorded spawned
+process tree. PID creation times are checked to guard against PID reuse.
+No desktop capture was performed.
 
-The original callback cancelled at reported downloaded bytes >100,000. That counter
-includes data accepted into the downloader's user-space write buffer. At the
-reproduced cancellation point, **130,048 network bytes / 0 file bytes** were recorded.
-The product's existing forced process-tree termination then discards the unflushed
-buffer; checking the file later cannot recover those bytes.
+## Checklist
 
-The old standalone binary embeds Python 3.10.11; the CI-matching binary embeds
-Python 3.14.10. Their default binary I/O buffer constants are **8 KiB /128 KiB**.
-130,048 bytes fit entirely inside the new 131,072-byte buffer. Both versions'
-HTTP/common downloader files are byte-identical, and sanitize_open is identical.
-It opens a buffered file, writes data, then reports progress without a per-packet
-flush. Source hashes/comparisons and checkpoint data:
-`work/evidence/VE-P1e-3c2/run4/source-and-checkpoint-evidence.json`.
-
-Primary sources: [old CPython buffer constant](https://github.com/python/cpython/blob/v3.10.11/Modules/_io/_iomodule.h),
-[new constant](https://github.com/python/cpython/blob/v3.14.10/Modules/_io/_iomodule.h),
-[yt-dlp HTTP write/progress ordering](https://github.com/yt-dlp/yt-dlp/blob/2026.10.26/yt_dlp/downloader/http.py),
-[file opening](https://github.com/yt-dlp/yt-dlp/blob/2026.10.26/yt_dlp/utils/_utils.py).
-
-The PR's product download/cancel/resume path is unchanged against the checked-out
-origin/main ref and accepted2d996bc: video_links.py, link_jobs.py, link_tools.py,
-proc.py and schedule/controller.py have no diff. Only the already accepted CI
-setup script differs in that selected path inventory. This run changes the fixture.
-Saved nonempty prefixes resume correctly with both real tool releases. Early
-cancellation before any buffered data is written can still leave an empty file;
-the fixture now deliberately exercises cancellation of an existing resumable prefix.
-
-## Tool versions and provenance
-
-CI versions were read from the actual setup status output, not inferred from
-today's latest release. Both failing runs used the same tool versions and hashes:
-
-- [CI40413928231, 0fd7293](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/40413928231)
-- [CI40414055381, c3e712c](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/40414055381)
-
-| Environment | yt-dlp | Deno | Bundled Python |
+| # | Item | Verdict | Expected / actual and evidence |
 | --- | --- | --- | --- |
-| Both failing CI setup logs | 2026.10.26 | 2.9.8 | Binary hash matches the measured PC binary below |
-| PC original cached tools | 2026.08.19 | 2.9.7 | 3.10.11 |
-| PC exact CI-matching tools | 2026.10.26 | 2.9.8 | 3.14.10 |
+| 1 | Hover landscape, then click | NOT_RUN | Playback verified: `warm-open-00.png` frame 10, `warm-open-01.png` frame 18. The 200 ms poster gate is unmeasured: WGC's first observation was 402.654 ms after input. This cannot prove either compliance or failure before 200 ms. See timing limitations below. |
+| 2 | Close, click without hover waiting | PASS | `cold2-open.json`: visible video in `cold2-open-01.png` at 555.574 ms, below 600 ms; frame 5. No deliberate hover dwell was inserted. Pointer movement immediately preceded the click, as with a normal click. |
+| 3 | Title and round close button | PASS | Filename at top and upper-right close control match the reference appearance in `landscape-paused.png`, `portrait-paused.png`; title is `landscape_enhanced.mp4` / `portrait_enhanced.mp4`. Round control has a transparent background, as in the mockup. |
+| 4 | Controller layout | PASS | `preview-middle.png`: seek on separate row; icons below; large round accent play button. Visually compared with existing `VE-P1e-3c2/run3/mockup-landscape-hover-rgb.png`. This is an arrangement check, not a pixel equality claim across different window sizes. |
+| 5 | Portrait layout | PASS | `portrait-paused.png`, `portrait-edge-middle.png`: seek above two control rows; controls remain inside the 722 x 1039 captured window without overlap. |
+| 6 | Transparency and letterbox | PASS | `landscape-paused.png` shows moving-picture colors behind title and controls. `portrait-edge-middle.png` shows black side bars outside the portrait picture; `before-on.png` shows black space outside the fitted comparison picture. |
+| 7 | Back/forward 10 seconds, clamps | PASS | `seek-start.png`: frame 0 / 0.000 s; `seek-forward10.png`: 300 / 10.000 s; `seek-back10.png`: 0 / 0.000 s. Repeated back clamps to frame 0; forward at end clamps to frame 599 / 19.967 s (`seek-clamp-*.png`). `steps-contact.png` groups burned-in readings. |
+| 8 | Paused frame steps, 10 each direction | PASS | Baseline 150; forward captures 151 through 160; backward captures 159 through 150. Every change exactly one frame. `step-baseline.png`, `step-forward-1..10.png`, `step-back-1..10.png`, `steps-contact.png`, `steps.json.result.json`. |
+| 9 | Hover previews, edges and middle | PASS | Landscape: `preview-left.png`, `preview-middle.png`, `preview-right.png`. Portrait: corrected bar coordinates in `portrait-edge-left.png`, `portrait-edge-middle.png`, `portrait-edge-right.png`. Images and time labels appear above the bar inside the window. Approximate physical image dimensions 200 x 113 / 113 x 200 at 125% scaling are consistent with 160 x 90 / 90 x 160 CSS px. No DOM measurement was used. Initial `portrait-preview-*` attempts targeted below the bar; those are not preview proof. |
+| 10 | Volume, speed, Details | NOT_RUN | Mute state, 1.25x label and open Details verified in `volume-speed-details.png`. Speed-specific elapsed playback was not measured: initial Space input remained on a focused frame-step button and activated that button. Therefore the full speed gate is not passed. |
+| 11 | Autohide and cursor | FAIL | Retest with focus off buttons: controls disappear while playback advances, but cursor remains visible in `autohide-retest-hidden.png` after the 2.3 s wait plus capture overhead. Paused controls remain in `autohide-retest-paused.png`. WGC cursor capture was enabled; independent physical cursor observation was not performed. Exact hide transition at 2.000 s was not measured. |
+| 12 | Space, arrows, fullscreen, Esc | PASS | With blank surface focused, Space starts playback (retest captures advance to frame 123 / 4.100 s) and pauses it. Home + Right produced frame 150 / 5.000 s in `step-baseline.png`. Fullscreen capture is 1920 x 1080; Esc returns to 1282 x 759 (`fullscreen.png`, `fullscreen-exit.png`, `controls.json.result.json`). Initial Space on a focused button correctly activated that button; it was not a valid global-shortcut test. |
+| 13 | Before/After enabled | PASS | `before-on.png`, `divider-timed-00.png`: Original at upper left, Enhanced at upper right. Left burned-in source and right encoded-output time agree within one frame in the sampled comparison captures. |
+| 14 | Divider during playback | HUMAN | Twenty alternating slider positions 900 / 400 recorded while playing; `divider-timed-00..19.png` and `divider-timing.json`. Destination thumb pixel was checked before saving each frame. Input-to-observed-capture median 54.510 ms, worst 67.341 ms. Supporting capture latency only; no claim about perceived smoothness or display photons. Owner must judge feel. |
+| 15 | 60 seconds comparison sync | PASS | `soak.json`: 21 captures at 3.015 through 63.015 s. Maximum inferred difference 1 frame. `sync-readings.json`, `sync-contact.png`, `sync-00..20.png`. Original frame indices are derived from its drawn timestamp at known 30 fps because the error banner obscures its small frame-number row; enhanced indices are read directly. Source indices 101,190,281,370,461,22,112,202,292,382,472,53,142,232,322,412,502,82,172,262,352; output differs only at samples 0 and 11, by -1. The 20 s clip was returned to start with Home every 17 s while playing, rather than inventing a longer fixture. An error banner persisted despite advancing video; see findings. |
+| 16 | Zoom then Reset | PASS | `zoom-on.png`: Zoom 182%; `zoom-reset.png`: normal framing restored and zoom chip removed. `volume-speed-details.png` independently shows Details Zoom 100% before zoom. Reset used the documented 0 shortcut. |
+| 17 | Close player, History accepts input | PASS | `history-after-close.png`; subsequent History click opens portrait (`portrait-paused.png`). `retest.json.result.json`. |
+| 18 | Another video opens and closes | PASS | Portrait opened as PID 26228 / HWND 1115944 and closed with Esc. `portrait-edges.json.result.json` shows only main-app visible windows after 35 seconds. |
+| 19 | No player process at 35 seconds | NOT_RUN | The 35 s check recorded visible HWNDs, not executable names. It is insufficient to prove process absence at that exact check. Later final creation-time-validated process check reports zero remaining recorded processes (`process-final.json`). Do not promote the HWND check to an executable-process PASS. |
+| 20 | Settings licences (optional) | NOT_RUN | Settings button was clicked; `settings-bottom.png`, `licences.png`, `licences-loaded.png`. The implementation opens THIRD_PARTY_NOTICES.md in an external viewer. No viewer window appeared in the recorded spawned tree, so it was not captured or driven. In-app readability and the external viewer's state remain unverified. |
+| 21 | No-DLL fallback (optional) | NOT_RUN | Candidate copied to `scratch/owner-check/candidate-nodll`; only libmpv-2.dll, libspirv-cross-c-shared.dll and libwinpthread-1.dll removed from the copy. Copy started as PID 10620. Both attempts to foreground its main HWND 197504 failed; input was withheld, as required. `fallback-first.png` shows Home, not fallback playback. Copy and home were cleaned afterward. |
 
-PC versions were executed using --version; bundled Python was measured with
---verbose against a closed loopback port. That diagnostic's connection error is
-intentional. No external media site was contacted. Full CLI/version/status records:
-`pc-tools-before.json`, `pc-tools-ci-matching-versions.json`, `*-runtime.log`,
-`ci-tools-status.txt`, `ci-c3e-tools-status.txt`.
+Totals: **14 PASS, 1 FAIL, 1 HUMAN, 5 NOT_RUN**. PARTIAL follows the task's
+explicit completion rule. PASS here applies only to each stated criterion, not
+to acceptance of the entire player.
 
-Exact CI releases were installed through the existing official-publisher,
-published-SHA256-verifying ToolManager into
-`work/cache/link-tools/yt-2026.10.26-f5389d36-deno-2.9.8-92439780`.
-Existing cached tools are untouched. No system installation or environment change.
+## Findings, errors and measurement limits
 
-| Official release asset | Download bytes | Published SHA-256 |
+- During the first long comparison run, the overlay displayed **"The player did
+  not respond."** (`sync-00..20.png`, `autohide-retest-hidden.png`). Video still
+  advanced and sync stayed within the stated sampled limit. The later comparison
+  run in a fresh player did not show this banner in `divider-timed-00.png`.
+  Reproduction sequence is preserved in `steps.json`, `controls.json`,
+  `compare.json`, then `soak` in the script. Root cause is unknown; no product
+  repair was attempted in this check-only cycle.
+- Initial ordinary sandbox launch produced only two internal 14 px windows
+  (PID 10712). It was stopped. Escalated launch produced the normal GUI.
+  Subsequent own-window checks needed escalation to access that process and home.
+- `pip` was absent. Ordinary `uv pip install windows-capture` could not connect
+  to PyPI (OS error 10013); escalated install succeeded: windows-capture 2.0.1,
+  opencv-python 5.0.0.93. These are local venv dependencies, not manifest changes.
+- The first queue request used invalid 720/original settings and returned HTTP
+  400. Corrected to supported Fast / keep / off / HEVC before queueing both clips.
+- Opening-time observations, all reported: first warm attempt 507.793 ms;
+  later warm attempt 402.654 ms; cold attempt first frame black at 435.886 ms,
+  visible at 725.251 ms; final cold attempt black at 446.990 ms and visible at
+  555.574 ms. First warm capture names were reused by the later warm attempt;
+  those initial raw images are not retained, and no 200 ms conclusion is drawn.
+  The library was moved to initialize before the click for later measurements.
+  A separate warm attempt withheld input when hover changed foreground.
+- First divider timing measured merely the next captured frame, median about
+  33.6 ms / worst 35.291 ms; that could precede the thumb update and is invalid
+  as response evidence. The final pixel-confirmed run replaces that method:
+  20 observations, median 54.510 ms / worst 67.341 ms. No gated result was tuned
+  by changing the application.
+- Automatic foreground checks withheld all fallback input; no input was sent
+  to another app. An external licence viewer may have been invoked by the app;
+  its independent/shared process state was not established or manipulated.
+
+## Clips, processes and cleanup
+
+The supplied clips were copied into the isolated home's inputs folder. They
+entered History through the **normal authenticated engine API**, not by editing
+job records. Both jobs used Fast, original size and original frame rate:
+landscape job e64e7fa81d2c428e9fb11aa252a7f51f completed in 6.412040 s;
+portrait job 3b52c07b0a544af5a8b30810a0da96c7 completed in 5.541892 s.
+Original clips in `scratch/owner-check/clips` were kept unchanged.
+
+App roots: 10712 (sandbox attempt), 23916 (production check), 10620 (no-DLL
+copy). Player roots observed: 25908, 26228, 14540, 1804, 20904, 6172.
+All recorded descendants and their creation times are in `session.json`;
+all recorded PIDs and the final empty remaining list are in `process-final.json`.
+Main windows received WM_CLOSE; remaining recorded children were terminated
+after a five-second grace period. Final **remaining recorded processes: []**.
+This does not claim control over a shared external licence viewer.
+
+Before cleanup, resolved paths were verified inside `scratch/owner-check` and
+independently measured (`cleanup-before.json`):
+
+| Cleanup item | Logical bytes removed | Result |
 | --- | ---: | --- |
-| [yt-dlp2026.10.26](https://github.com/yt-dlp/yt-dlp/releases/tag/2026.10.26), yt-dlp.exe | 23,575,744 | `f5389d3698ecde4ef06f4e6b1ce0294fe9ac1396228c8990b8d3416d6d177a7d` |
-| [Deno2.9.8](https://github.com/denoland/deno/releases/tag/v2.9.8), Windows x64 ZIP | 42,917,472 | `cba84b26e0df5ae7f74fc66b86a95b866872a86292ebd84fa1e959927edd93bf` |
+| owner-check/home contents | 163106127 | Empty directory remains; zero entries |
+| owner-check/candidate-nodll | 11749239 | Directory absent |
 
-Extracted deno.exe:98,081,568 bytes; SHA256
-`924397800533d3eb0ed0c889b20ad70e18b970d93acd8135bc043f425e528266`.
-The installer removed its temporary ZIP after verification. Retained executables
-and metadata are recipe-keyed cache artifacts, never Git/package content.
+No deletion was refused. For the owner to delete: none of these test artifacts.
+Unrelated scratch content and the supplied clips were retained as directed.
 
-## Fix and expected/actual behavior
+## Workspace and disk table
 
-The cancel callback keeps the existing100,000-byte lower bound and also requires
-unfinished network progress and an actual nonempty, unfinished .part file.
-It records that checkpoint once and cancels immediately. No sleep, retry, larger
-arbitrary byte threshold, tool downgrade or timeout relaxation was added.
+Decimal GB, logical file sizes, not allocated space. Drive free-space changes
+are not used as a cleanup measurement. First retained inventory was taken after
+dependency installation and the initial sandbox launch; it is not a pre-install
+baseline. A later launch overwrote disk-start.json; the first numbers below are
+transcribed from that command's actual output, not inferred from the later file.
 
-Unchanged checks: InterruptedError on cancel, no final file before retry, nonempty
-partial, positive Range on the next attempt, completed file and180 output frames.
-Added checks: the saved bytes equal the source's exact prefix, that prefix remains
-unfinished, the cancellation checkpoint survives, and resume requests an offset
-equal to the complete saved partial size.
+| Folder / metric | Purpose | First inventory GB | Final inventory GB |
+| --- | --- | ---: | ---: |
+| C free | Drive free space | 351.370039296 | 351.348858880 |
+| D free | Drive free space | 978.460880896 | 978.397904896 |
+| repo | Checkout / existing venv | Not inventoried | Not inventoried |
+| package/VideoEnhancer-candidate | Production candidate | 0.048306057 | 0.048306057 |
+| package/VideoEnhancer | Owner package | Not accessed | Not accessed |
+| evidence/VE-P1e-3c2-OC | This cycle captures and measurements | 0.000370954 | 0.077271682 |
+| scratch | Isolated temporary test data | 0.056426035 | 0.042232471 |
+| cache | Reusable tools and dependencies | 9.747365006 | 9.747365006 |
 
-| Case | Expected | Actual |
-| --- | --- | --- |
-| Original test, old tools | Resume a saved prefix | PASS1 |
-| Original test, exact CI tools | Nonempty partial | FAIL:0 bytes |
-| Diagnostic repeat, original cancel condition | Capture counter/file relationship | FAIL again:130,048 reported /0 saved |
-| Fixed test, exact CI tools | Cancel/disconnect preserve and resume correct prefix | PASS2 |
-| Five additional independent CI-tool pairs | Same assertions every run | PASS10; all five exits0 |
-| Fixed test, old tools | Backward compatibility | PASS2 |
-| Fixed cancel checkpoint, new/old tools | Saved prefix while transfer is unfinished | 261,120 /130,048 bytes respectively |
+Evidence remains below 0.300 GB; cache is below 40 GB. Final evidence gains a
+few KB for inventory metadata after this snapshot. Measured retained evidence
+growth from first inventory is 0.076900728 GB. Exact total persistent growth is
+**NOT_RUN** because venv/dependency-cache sizes were not measured before install.
+The 1 GB gate therefore has no complete before/after proof; no build, model
+download or package generation was performed. No historical evidence was pruned
+because this task permits repository changes only to the script and report and
+specifies cleanup of this check's home and copy.
 
-Logs: `repro-old.log`, `repro-ci-tools.log`, `buffer-diagnostic.log`,
-`fixed-ci.log`, `repeat-1.log` through `repeat-5.log`,
-`repeat-results.txt`, `fixed-old.log`. These were independent fixed-count
-executions; the stability loop stops on its first failure. All earlier failures remain recorded.
+## Changed files and validation
 
-## Final checks
+- `gui/scripts/owner-check-auto.py` (new): own-process tracking, guarded native
+  input, HWND WGC capture, fixture queueing, measurement and cleanup support.
+- `.ai/LAST_REPORT.md` (replaced): this report.
 
-| Check | Result |
-| --- | --- |
-| Ruff lint | PASS; ruff-final.log |
-| Ruff format | PASS;186 files; format-final.log |
-| Pyright configured src scope | PASS;0 errors/warnings; pyright-final.log |
-| Full CPU suite with exact CI tools enabled | PASS694 /SKIP6 /deselected101;635.52s; pytest-final.log |
-| GUI/Rust/e2e/package/GPU/visual checks | NOT_RUN this run; accepted3cc4333, unchanged by this fixture-only fix |
-| Hosted final Windows/Ubuntu CI | NOT_RUN; operator commits/pushes/checks |
+Initial script Ruff check: FAIL (import order and line lengths). Formatting
+check: FAIL. Import ordering and formatting corrected. Final targeted
+`ruff check` and `ruff format --check`: **PASS**.
+The script was executed throughout the real production checks; its individual
+command failures are disclosed above. No separate unit-test suite, product
+build, lint suite, integration suite or CI: **NOT_RUN**, check-only scope.
+No tests were disabled or weakened.
 
-The full CPU suite includes local synthetic link-media acceptance with the real
-CI tools:13 PASS /1 SKIP in test_link_download.py. The existing local TLS fixture
-is skipped because OpenSSL is unavailable; the full suite has6 existing skips in
-total. No skip or assertion was loosened.
+## Questions for the designer / intentionally not done
 
-Reproduction command (from repo; the tool home is retained):
+No questions were used to stop this cycle. Defaults: Fast / keep / off / HEVC;
+system 125% pixel scaling; repeat the supplied short clip using Home for the
+63-second observation. Require a preinitialized capture of the warm player's
+actual surface to establish the 200 ms gate. Recheck speed using a blank-surface
+focus, executable absence at 35 seconds, and fallback when foreground activation
+is available. Investigate the response-error banner and captured cursor.
 
-```powershell
-. .\local-env.ps1
-$env:VE_LINK_TEST_TOOLS_HOME = (Resolve-Path '..\cache\link-tools\yt-2026.10.26-f5389d36-deno-2.9.8-92439780').Path
-.\.venv\Scripts\python.exe -m pytest tests/test_link_download.py::test_cancelled_transfer_resumes_partial_file -vv -s --basetemp=../scratch/p1e3c2-run4-manual -p no:cacheprovider
-```
+No product changes, test-feature diagnosis, owner media, external viewer
+automation, commits, pushes or merges were performed. The operator owns Git.
 
-Use unmodified60e854a test source to reproduce the original failure; this worktree
-contains the corrected fixture. All media is generated locally under scratch.
+## Owner summary (Japanese)
 
-## Changed files
-
-- `tests/test_link_download.py`: persisted-prefix cancellation checkpoint and stronger resume checks.
-- `.ai/LAST_REPORT.md`: Run4 evidence/report.
-
-No product source, workflow, dependency lock, CURRENT_TASK.md, owner data or accepted
-GUI/package material changed. All logs/tools/fixtures stay outside Git.
-
-## Disk and cleanup
-
-Start/end decimal GB, logical file lengths rather than allocation. Overlapping evidence subsets are not summed.
-
-| Item | Start GB | Final GB |
-| --- | ---: | ---: |
-| C free | 351.306736 | 351.295730 |
-| D free | 978.752106 | 978.638320 |
-| `cache` | 9.505453 | 9.627114 |
-| `scratch` | 0.008649 | 0.000000 |
-| `package` | 0.125281 | 0.125281 |
-| `evidence/VE-P1e-3c2` | 0.197390 | 0.198147 |
-| Run4 evidence (cycle subset) | 0 | 0.000645 |
-| New verified tool recipe (cache subset) | 0 | 0.121660 |
-
-All14 cleanup candidates listed below were removed, **14,556 measured logical bytes**. Test fixtures had already cleaned their media/outputs; manual cleanup removed remaining caches/empty test roots. Per-item outcomes: cleanup-results.json. No new refusal. Scratch has no files at final inventory; empty parent/tmp directories remain. The inherited-profile disappearance is separately attributed below.
-
-Measured net change across the four inventoried work folders: **0.113768 GB**. Adding all current checkout files modified since start as a conservative bound (36,211 bytes, including .venv runtime caches) and restoring 8,648,980 bytes of unattributed inherited-profile decrease to avoid taking credit for it gives **0.123 GB** retained logical growth, rounded up to a whole MB. It is not a drive-wide allocation delta. Growth <=1GB, cache <40GB, whole-cycle evidence <300MB and D free >200GB: PASS. The package is unchanged. Disk-start.json /disk-final.json retain exact bytes.
-
-No dependency restore; existing .venv reused.
-Only the verified tool releases above were downloaded. Start inventory:
-`work/evidence/VE-P1e-3c2/run4/disk-start.json`.
-
-Prior owner cleanup items were excluded from this run's manual plan and never retried:
-`scratch/p1e3c2-native/h264-bench-two-0` (start1,712 bytes) and
-`scratch/p1e3c2-native/visual-proof` (start8,647,268 bytes). Both were already absent
-at final inspection; their parent remained empty. The removing actor/cause was not
-established. This disappearance is not counted in our14,556-byte removal total or
-credited toward the conservative growth bound. No new refused deletion or known
-owner cleanup action remains. The test teardown only removes its UUID-owned roots;
-the manual plan/results contain no inherited profile or ancestor.
-
-## Remaining actions / owner check
-
-No new manual GUI check or design decision is required for this test-fixture fix.
-Retain the owner checklist from3cc4333. The operator should review the unchanged
-original assertions, commit only the two listed files, push the authorized branch,
-and verify Windows local-media acceptance on the new commit. Hosted CI is not
-reported green before that happens. Product early cancellation and update policy
-remain unchanged.
-
-## Cleanup inventory (recorded before deletion)
-
-Logical bytes per candidate; inherited refused profiles and their ancestors are excluded.
-
-| Candidate under work | Logical bytes |
-| --- | ---: |
-| `scratch/p1e3c2-run4-buffer-diagnostic` | 0 |
-| `scratch/p1e3c2-run4-final-cpu` | 0 |
-| `scratch/p1e3c2-run4-fixed-ci` | 0 |
-| `scratch/p1e3c2-run4-fixed-old` | 0 |
-| `scratch/p1e3c2-run4-repeat-1` | 0 |
-| `scratch/p1e3c2-run4-repeat-2` | 0 |
-| `scratch/p1e3c2-run4-repeat-3` | 0 |
-| `scratch/p1e3c2-run4-repeat-4` | 0 |
-| `scratch/p1e3c2-run4-repeat-5` | 0 |
-| `scratch/p1e3c2-run4-repro-ci` | 0 |
-| `scratch/p1e3c2-run4-repro-old` | 0 |
-| `scratch/tmp` | 0 |
-| `scratch/videoenhancer.jsonl` | 3098 |
-| `repo/.ruff_cache` | 11458 |
+14項目PASS、1項目FAIL、1項目HUMAN、5項目NOT_RUNのためPARTIALです。
+10秒シーク・端のクランプ・前後各10回の1フレーム送りを確認しました。
+比較再生63秒・21枚の左右差は描画時刻から換算して最大1フレームでしたが、応答エラー表示も記録しました。
+自動非表示後も撮影にカーソルが残ったためFAILです。比較スライダーの操作感は本人の目での確認が必要です。
+200ms表示、速度の実時間、35秒時点のプロセス不在、ライセンス表示、DLLなし再生は判定未完了です。
+記録した起動プロセスはすべて終了し、隔離ホーム内容とDLLなしコピーは削除済みです。
