@@ -24,6 +24,7 @@ export function Controls() {
   const [preview, setPreview] = useState<{ seconds: number; left: number; image?: string }>();
   const generation = useRef(0), activeHover = useRef(false), activity = useRef(Date.now()), bar = useRef<HTMLInputElement>(null);
   const surface = useRef<HTMLElement>(null);
+  const overControls = useRef(false);
   useEffect(() => {
     if (!help) return;
     const previous = document.activeElement;
@@ -61,9 +62,19 @@ export function Controls() {
     return stop;
   }, [command]);
   useEffect(() => {
-    const timer = setInterval(() => setVisible(paused || help || details || speedMenu || Date.now() - activity.current < 2000 || !!document.querySelector(":focus-visible")), 100);
+    const timer = setInterval(() => setVisible(paused || help || details || speedMenu || overControls.current || Date.now() - activity.current < 2000 || !!document.querySelector(":focus-visible")), 100);
     return () => clearInterval(timer);
   }, [paused, help, details, speedMenu]);
+  // Composition WebView2 cursors need an explicit native update when the mouse
+  // is still; CSS CursorChanged alone does not own the host window's cursor.
+  const cursorHidden = !visible && !paused;
+  const lastCursorHidden = useRef(false);
+  useEffect(() => {
+    if (lastCursorHidden.current !== cursorHidden) {
+      lastCursorHidden.current = cursorHidden;
+      command("cursor", { hidden: cursorHidden });
+    }
+  }, [command, cursorHidden]);
   useEffect(() => {
     if (speedMenu) surface.current?.querySelector<HTMLButtonElement>('.speed-menu [aria-checked="true"]')?.focus();
   }, [speedMenu]);
@@ -127,7 +138,7 @@ export function Controls() {
     return () => element.removeEventListener("wheel", wheel);
   }, [before, changeTransform, divider, poke, split, transform]);
   const labelInset = (viewport.width - videoSize.width * Math.min(viewport.width / videoSize.width, Math.max(10, viewport.height - 76) / videoSize.height)) / 2;
-  return <main ref={surface} aria-label="Video player" className={visible ? "player" : "player hidden-controls"} onPointerMove={poke} onDoubleClick={e => { if (e.target === e.currentTarget) toggleFullscreen(); }}>
+  return <main ref={surface} aria-label="Video player" className={visible ? "player" : "player hidden-controls"} onPointerMove={e => { overControls.current = e.target instanceof Element && !!e.target.closest(".controls,header,aside,.shortcuts"); poke(); }} onPointerLeave={() => { overControls.current = false; poke(); }} onDoubleClick={e => { if (e.target === e.currentTarget) toggleFullscreen(); }}>
     {poster && <img className="startup-poster" src={poster} alt="Video poster" />}
     <header className="titlebar floating"><span className="name">{title}</span><span className="grow" /><button className="ob round" aria-label="Close player" onClick={() => command("close")}><Icon name="x" /></button></header>
     {before && <div className="ba-labels floating"><span style={{ left: labelInset }}>Original</span><span style={{ right: labelInset }}>Enhanced</span></div>}

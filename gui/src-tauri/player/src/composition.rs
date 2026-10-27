@@ -1,5 +1,5 @@
 use crate::mpv::Mpv;
-use std::{path::Path, sync::mpsc};
+use std::{cell::Cell, path::Path, rc::Rc, sync::mpsc};
 use webview2_com::{
     CreateCoreWebView2CompositionControllerCompletedHandler,
     CreateCoreWebView2EnvironmentCompletedHandler, CursorChangedEventHandler,
@@ -23,6 +23,7 @@ use windows::{
 
 pub struct Composition {
     hwnd: HWND,
+    cursor_hidden: Rc<Cell<bool>>,
     pub follower: Option<crate::follower::Follower>,
     d3d: ID3D11Device,
     dll: std::path::PathBuf,
@@ -163,14 +164,12 @@ impl Composition {
         let controller_ms = controller_started.elapsed().as_secs_f64() * 1000.;
         input.SetRootVisualTarget(&html)?;
         let cursor_input = input.clone();
+        let cursor_hidden = Rc::new(Cell::new(false));
+        let hidden = cursor_hidden.clone();
         let mut cursor_token = 0;
         input.add_CursorChanged(
             &CursorChangedEventHandler::create(Box::new(move |_, _| {
-                if windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() == hwnd {
-                    let mut cursor = windows::Win32::UI::WindowsAndMessaging::HCURSOR::default();
-                    cursor_input.Cursor(&mut cursor)?;
-                    windows::Win32::UI::WindowsAndMessaging::SetCursor(Some(cursor));
-                }
+                Self::apply_cursor(hwnd, &cursor_input, hidden.get())?;
                 Ok(())
             })),
             &mut cursor_token,
@@ -300,6 +299,7 @@ impl Composition {
         let mpv = startup.mpv;
         Ok(Self {
             hwnd,
+            cursor_hidden,
             follower: None,
             d3d,
             dll: dll.to_owned(),
@@ -323,6 +323,44 @@ impl Composition {
                 video_size
             },
         })
+    }
+    unsafe fn apply_cursor(
+        hwnd: HWND,
+        input: &ICoreWebView2CompositionController,
+        hidden: bool,
+    ) -> windows::core::Result<()> {
+        use windows::Win32::{Foundation::POINT, UI::WindowsAndMessaging::*};
+        let mut point = POINT::default();
+        GetCursorPos(&mut point)?;
+        let mut client = point;
+        windows::Win32::Graphics::Gdi::ScreenToClient(hwnd, &mut client).ok()?;
+        let mut bounds = RECT::default();
+        GetClientRect(hwnd, &mut bounds)?;
+        // Never change the cursor over another window, including an overlay.
+        if GetForegroundWindow() == hwnd
+            && WindowFromPoint(point) == hwnd
+            && client.x >= 0
+            && client.y >= 0
+            && client.x < bounds.right
+            && client.y < bounds.bottom
+        {
+            let mut cursor = HCURSOR::default();
+            if !hidden {
+                input.Cursor(&mut cursor)?;
+                if cursor.0.is_null() {
+                    cursor = LoadCursorW(None, IDC_ARROW)?;
+                }
+            }
+            SetCursor(if hidden { None } else { Some(cursor) });
+        }
+        Ok(())
+    }
+    pub unsafe fn set_cursor_hidden(&self, hidden: bool) -> windows::core::Result<()> {
+        self.cursor_hidden.set(hidden);
+        self.refresh_cursor()
+    }
+    pub unsafe fn refresh_cursor(&self) -> windows::core::Result<()> {
+        Self::apply_cursor(self.hwnd, &self.input, self.cursor_hidden.get())
     }
     pub unsafe fn enable_pair(
         &mut self,
