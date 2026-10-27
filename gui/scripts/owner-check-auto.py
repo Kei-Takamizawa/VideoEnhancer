@@ -17,7 +17,7 @@ import psutil
 WORK = Path(__file__).resolve().parents[3]
 ROOT = WORK / "scratch/owner-check"
 HOME = ROOT / "home"
-EVIDENCE = WORK / "evidence/VE-P1e-3c2-F2"
+EVIDENCE = WORK / "evidence/VE-P1e-3c2-F3"
 STATE = EVIDENCE / "session.json"
 U = c.WinDLL("user32", use_last_error=True)
 U.GetForegroundWindow.restype = w.HWND

@@ -1,262 +1,206 @@
-Task ID: VE-P1e-3c2-F2
+Task ID: VE-P1e-3c2-F3
 Status: PARTIAL
 
-## Scope
+## Outcome and scope
 
-Windows / Codex desktop, 2026-10-26 (America/Los_Angeles). Starting branch:
-claude/project-thread-6lra47; HEAD 29c64fd0fc45cb1ad298d915ff58c262111cb62b.
-Initial working tree clean. Read AGENTS.md, CLAUDE.md, CURRENT_TASK.md and
-WORKSPACE.md. CURRENT_TASK already contains the complete instructions and was
-preserved. F1 remains referenced to 1a61dae and 0da3344. No Git mutation,
-commit, push, fetch or branch change. Evidence: work/evidence/VE-P1e-3c2-F2/.
-All test/build shells sourced local-env.ps1. Interactive launches used exactly
-work/scratch/owner-check/home, including isolated roaming/local/WebView profiles.
-No owner data, VE-check, owner AppData or owner app was used.
+The functional completion gates passed: regression test, items 20 and 21,
+unchanged production player, lint, Vitest, player Playwright, main Rust tests and
+clippy. Overall PARTIAL because two e2e runs accidentally used output/home roots
+outside work. This containment failure is not presented as completed cleanup.
 
-## Implementation and regression tests
+Windows / Codex desktop; started 2026-10-26, finished 2026-10-27 America/Los_Angeles.
+Branch claude/project-thread-6lra47, HEAD e951751a9462af9262381caa96f0339573430b1a;
+initial working tree clean. Read AGENTS.md, CLAUDE.md, WORKSPACE.md and the complete
+CURRENT_TASK.md. CURRENT_TASK already contains the final instructions and was
+preserved because it is outside the allowed edit list. F1 remains by reference to
+1a61dae / 0da3344; F2 to b3205b5. No Git mutation, commit or push.
 
-Settings now displays the complete notices as plain, selectable, scrollable text
-inside the main window. Close and Esc return to Settings and restore focus to the
-licence button; the heading receives focus on opening. Region/text area have
-accessible labels. Show file delegates to the existing reveal / Explorer select
-path. It is disabled until a read succeeds. No dependency or Markdown renderer.
-The read path no longer calls ShellExecute or opens another program.
+## Fix and regression
 
-The Rust command returns {text, path}. Resolution remains adjacent to the exe,
-then gui/THIRD_PARTY_NOTICES.md. Reading is bounded to 2 MiB plus one byte, accepts
-exactly 2 MiB, and reports specific oversize, invalid UTF-8 and read errors inside
-the view. GUI inspection caught existing Settings CSS overriding HTML hidden;
-a specific hidden selector fixes the Settings heading remaining below the view.
+HistoryDetail no longer renders native startup errors. Native rejection/error
+event reasons go to console.warn; existing native diagnostic logging is unchanged.
+A usable HTML5 fallback displays "Playing with the basic player." Only its video
+error displays "This video can't be played here." and Open in default player.
+The HEVC notice and native player are unchanged.
 
-Before-fix evidence: both new Vitest cases failed against the original UI
-(vitest-before.log). Applying the Rust test to original HEAD commands.rs fails
-compilation with E0425, read_notices missing (rust-before-contract.log). This is
-compile-red contract evidence, not a pre-fix runtime assertion failure. The first
-Rust attempt was blocked by build-script access denial. Final source was restored
-in a finally block before final tests. After: Rust covers missing/found/exact limit/
-oversize/invalid UTF-8; UI covers text, reveal delegation, Close/Esc, focus return
-and specific errors. Desktop mock and contract were updated. No test loosened.
+Vitest explicitly rejects openPlayer, then fires onPlayerError, verifies the
+neutral line/video and absence of error/default-player action, then fires a video
+error and verifies the error/action. Updated the existing four failure cases to
+expect the approved neutral line. Before implementation, all five cases failed,
+including the new case at the neutral-line assertion (vitest-before.log). After
+implementation, all 84 tests passed (vitest-after.log). No test was disabled.
+The four Playwright fallback cases now verify successful playback without the
+error/action and then dispatch a video error to verify the escape action remains.
 
-## Candidate
+## Candidate and hashes
 
-Production npm run build:desktop passed, including TypeScript/Vite. The rebuilt
-main exe replaced the candidate main exe only after spawned processes were closed.
-Pinned DLLs, notices, licence materials, source archive and engine configuration
-were retained. verifyPlayerPayload passed against libmpv.lock.json and the cached
-CI payload. The existing F1 production helper was deliberately retained unchanged;
-no player source changed. Helper debug builds were for tests only.
+Production npm run build:desktop passed, including TypeScript and Vite. Replaced
+only package/VideoEnhancer-candidate/VideoEnhancer.exe with the release build;
+retained the existing production helper and payload/licence materials. Full
+verifyPlayerPayload against src-tauri/libmpv.lock.json and cached CI payload
+40202006764 passed (payload-lock.log). No player source changed.
 
-| File | Before SHA-256 | Final SHA-256 |
+| File | Old SHA-256 | New SHA-256 |
 | --- | --- | --- |
-| VideoEnhancer.exe | ef5dd2193bd2fd250823298e3fc9261dbd447fc6db940d2d8660b2bd5c99452e | 34f2fe6324bde600127aed353426dfe2619a7ee468d5c80529b4a4b33c0624a0 |
+| VideoEnhancer.exe | 34f2fe6324bde600127aed353426dfe2619a7ee468d5c80529b4a4b33c0624a0 | e0387637285a11f8a9dd5c684cb49f36809a55f8516b1b6c2e26a496cef4eab2 |
 | VideoEnhancer-Player.exe | a76d8a9f641a74bcc06673a52dd1d0ae9c784c0e97c7608a3631d5a6ba66dc6c | a76d8a9f641a74bcc06673a52dd1d0ae9c784c0e97c7608a3631d5a6ba66dc6c |
 
-Build logs and intermediate/final hashes are retained outside Git.
+Old hashes were measured before building, not inferred from the F2 report.
+The rebuilt candidate remains in place for the owner.
 
-## Re-check results
+## Computer Use: items 21 and 20
 
-| Item | Verdict | Expected / actual and evidence |
+Input targeted only returned VideoEnhancer windows of the processes launched here.
+Before every click, the target was maximized and freshly captured. Full-size
+screenshot IDs were selected when auxiliary 14x14 screenshots were also returned.
+All interactive launches used exactly work/scratch/owner-check/home with isolated
+roaming/local/WebView2 profiles. No owner app or owner data was used.
+
+| Item | Result | Expected / actual |
 | --- | --- | --- |
-| 20 licences | PASS, with monitoring limit below | Computer Use pressed Settings / Open-source licences on the final candidate. licences-final.png shows libmpv, FFmpeg, libplacebo, sources.tar.zst and the full three-year written offer together. Close returned to Settings (licences-closed.png); Enter reopened from restored focus; Esc returned to Settings. No OpenWith start observed. |
-| 21 no-DLL fallback | PASS for H.264 playback; warning below | Copy excludes exactly the three payload DLLs. Computer Use opened landscape in History and pressed HTML5 play. nodll-a.png: frame 229, 7.633 s; nodll-b.png: frame 347, 11.567 s. Capture command starts are 3.9605934 s apart (nodll-times.json). Native browser controls are visible. |
-| 11(a) hide within 2.5 s | NOT_RUN to required protocol | Hidden samples exist, but controlled last-movement time was not established. |
-| 11(b) movement restore within 300 ms | NOT_RUN | No verified movement-only sequence on an independently bound helper. |
-| 11(c) visible while paused | NOT_RUN | No independently verified paused-state sample sequence. |
-| 11(d) visible over controls | NOT_RUN | No controlled native controls-hover sequence. |
-| 11(e) visible outside player | NOT_RUN | Visible on main was observed, but not a controlled move out of a verified playing helper. |
-| 12 keyboard and Esc | NOT_RUN as complete native re-check | Native playback opened, but parent keyboard routing gave unstable/unverified native state. Settings Esc and HTML5 dialog Esc worked; they do not substitute for this gate. |
-| 16 zoom and Reset | NOT_RUN | No reliable native Ctrl-scroll/Reset sequence due target binding limitation. |
-| 1, 10, 13, 15, 19 | PASS by reference only | Accepted F1 results in 0da3344; not remeasured. |
-| 14 | HUMAN | Remains deferred to human judgement. |
+| 21 | PASS | Copied candidate without exactly the three locked DLLs, queued supplied synthetic landscape through the isolated engine API as H.264, opened History thumbnail and clicked HTML5 Play. nodll-a.png shows frame 4 / 0.133 s; nodll-b.png frame 216 / 7.200 s; nodll-c.png frame 422 / 14.067 s. All show the basic-player line, no cannot-play text or default-player button. B and C are over 6 seconds apart (nodll-times.json saves file-write timestamps; these are not exact capture timestamps). |
+| 20 quick | PASS | On the normal rebuilt candidate, Settings -> Open-source licences displays notices in-app (licences-open.png); Close returns to Settings (licences-closed.png). |
 
-Item 21 attempts: initial HEVC output showed unsupported playback. The same supplied
-synthetic landscape was requeued via the isolated API with H.264. It plays in
-HTML5, but the message "This video can't be played here. Open it in your default
-player instead." remains above the playing video. This misleading message is a
-real observation, not a claim that HEVC browser support passed. No player fix or
-external default-player launch was attempted outside the allowed scope.
+No Show file/external player action was invoked. Native items 11(b,e),12,14,16
+were intentionally not repeated. Accepted F1 11(a,c,d) remain by reference only.
+An Escape attempt while HTML5 had focus did not close the History dialog; no fix
+was made outside scope. The own-process shutdown then closed it.
 
-### Process-start evidence for 20
+Computer Use errors: initial app approval timed out; refreshing returned windows
+recovered. One scroll without screenshotId was refused with:
+point (1300, 680) is outside window bounds { originX: 0, originY: 0, width: 14, height: 14 }
+Fresh full-size state and its screenshotId resolved this; no input used refused
+geometry. A transient maximize capture included desktop-edge pixels; it was not
+saved as evidence or used for clicking, and the fully maximized state was recaptured.
 
-Win32_ProcessStartTrace subscription returned Access denied. An elevated psutil
-observer compared PID and creation time, with nominal 10 ms sleeps between scans,
-for about 120 seconds covering licence open/Close/reopen/Esc. The JSON retains
-687 starts including concurrent tests, zero OpenWith.exe starts and no external
-licence-viewer child of main PID 17308. Its only direct child during that interval
-was the later native helper PID 28868, after licence checks. Polling cannot exclude
-a process starting and exiting entirely between scans; kernel event tracing was
-not established. Static inspection also confirms the read path starts no process.
-See licence-process-starts-poll.json. No Show file click was included in this gate.
+## Section 6 checks and every failed attempt
 
-### Computer Use and item 11 samples
+All build/test shells sourced local-env.ps1. Final player e2e roots and evidence
+used explicit absolute paths inside work.
 
-Clicks used freshly captured maximized candidate windows. Captures sometimes
-included 14x14 auxiliary regions; full-size screenshot IDs were selected for input.
-Native playback appeared as an owned transient, including advancing synthetic
-frames, but sky.list_windows/list_apps and the alternate Computer Use inventory
-never exposed an independent helper Window. Parent keyboard attempts could
-maximize the owned player, but later observations returned to main History.
-No guessed Window or alternate native input injector was used. Captures with
-surrounding non-target pixels were discarded, not saved or used for input.
-No non-target application was operated.
-
-Recorded tool errors/refusals:
-- Computer Use app approval timed out; refreshing selection recovered the main app.
-- point (1400, 650) is outside window bounds { originX: 0, originY: 0, width: 14, height: 14 }
-- windows getApp requires { windowId } from listApps() or listWindows().
-The alternate actual inventory likewise omitted the helper. Initial ordinary-
-sandbox candidate PID 14392 lost its window after its launch command; the elevated
-isolated relaunch remained usable. No click was sent through a refused geometry.
-
-cursor-native.json contains 1,800 GetCursorInfo samples over 196.631478 s.
-The loop slept 100 ms after each read/write; actual median spacing was 109.6614 ms,
-maximum 122.5895 ms. cursor-summary.json retains all state segments.
-
-| Relative seconds | Flags | Foreground HWND | Observation |
-| --- | ---: | ---: | --- |
-| 0.000027 to 11.501137 | 0 | 395056 | Hidden, pointer (330,300); uncontrolled movement origin. |
-| 11.603015 | 0 | 68356358 | Foreground transitioned to main. |
-| 11.705499 to 53.405349 | 1 | 68356358 | Visible on main, pointer unchanged. |
-| 60.231445 onward | 1 | 3278650 | Visible on no-DLL main; later History/browser-control moves. |
-
-These are partial observations and do not prove 11(a-e).
-
-## Section 6 checks
-
-| Check | Final result | Actual |
+| Check | Result | Evidence |
 | --- | --- | --- |
-| ESLint | PASS | Final npm run lint, exit 0. |
-| Python lint | PASS | Ruff, all checks passed. |
-| TypeScript / Vite | PASS | Final production build, exit 0. Initial new-test typing option error fixed. |
-| Vitest | PASS | Final 18 files, 83 tests. Initial mock promise error fixed. |
-| CPU unit/integration tests | PASS | pytest -m 'not gpu and not soak' --basetemp ../scratch/f2-pytest-retry -q: 676 passed, 24 skipped, 101 deselected; 484.48 s; existing .pytest_cache access warning. |
-| Main Rust tests | PASS | Final 29 passed, including licence regression. |
-| Main clippy | PASS | --all-targets --locked -- -D warnings. |
-| Helper Rust default / all features | PASS | 9 / 8 tests; none ignored. |
-| Helper clippy default / all features | PASS | Both --all-targets --locked -- -D warnings. |
-| Payload lock / Node unit test | PASS | Complete pinned payload verification and 1 test. |
-| Player Playwright | PASS | Final-source build, all 7 tests, 1.5 min; all opt-in player gates enabled. |
-| Read-only diff --check | PASS | No whitespace errors; LF-to-CRLF advisory warnings only. |
+| ESLint | PASS | lint.log and lint-final.log, exit 0 |
+| Vitest | PASS | 18 files, 84 tests; vitest-after.log |
+| TypeScript / production build | PASS | build-retry.log, release build complete |
+| Player Playwright | PASS | playwright-contained-final.log: all 7 passed, zero skipped, 1.4 min; all opt-in gates enabled |
+| Main Rust tests | PASS | rust-tests-retry.log: 29 passed, zero ignored; --locked -- --test-threads=1 |
+| Main clippy | PASS | clippy-retry.log: --all-targets --locked -- -D warnings |
+| Pinned payload | PASS | payload-lock.log |
+| git diff --check | PASS | only LF/CRLF advisory warnings |
 
-Earlier attempts retained: ordinary-sandbox Rust builds failed at player/build.rs
-canonicalization with WinError 5; elevated reruns passed. Ordinary-sandbox
-Playwright failed all seven at CDP attachment. Elevated retry passed five and
-failed native-product (missing payload/fixtures) and native-startup (missing
-review-poster.jpg). Verified cached DLLs and synthetic fixtures made all seven
-pass, twice, including final source. No test was edited or disabled to pass.
-The ordinary-sandbox CPU run showed failures and stalled around 30%. After the
-complete elevated suite passed, its exact pytest process tree was terminated
-(exit 15); pytest.log retains incomplete output. No completed failure summary
-exists, so failing names or main-baseline equivalence are not invented.
-There are no final check failures requiring a main environmental exception.
-Initial cargo fmt hit path-canonicalization denial; only changed commands.rs was
-formatted directly with rustfmt under the approved execution mode.
+Before-fix Vitest: expected FAIL (5 cases). Initial ordinary-sandbox production
+build failed: "failed to canonicalize path ../dist: Access is denied. (os error 5)".
+Initial Rust tests: 27 PASS / 2 FAIL (healthy-home path check and clipboard held by
+another party); initial clippy failed path canonicalization. Approved elevated
+retries passed; Rust tests ran serially to avoid clipboard contention.
+
+The first two e2e runs each passed 7 tests but used incorrect roots (below).
+The first corrected-root run failed all 7 at CDP attachment with exit=0 while the
+preceding e2e run was still active. This is consistent with the app's singleton
+constraint; no assertion was loosened. After confirming that run exited, the final
+contained run passed all 7. Both failure and success logs are retained in work.
+No Python suite, GPU suite, hosted CI or owner native hand check was requested or
+claimed as run in this cycle.
+
+## Containment incident / Questions for the designer
+
+I used [IO.Path]::GetFullPath('../../scratch/f3-e2e') after Set-Location gui.
+.NET resolved it relative to the process directory, not PowerShell's new location.
+The first two runs therefore wrote synthetic e2e homes/output and evidence under:
+
+- D:/my-workspace/VideoEnhancer/scratch/f3-e2e
+- D:/my-workspace/VideoEnhancer/evidence/VE-P1e-3c2-F3
+
+These paths are outside work and violate the task boundary. Their creation follows
+from the configured roots and passing tests; contents/size were NOT inspected.
+After discovery I made no further access/deletion there and reran with explicit
+work-contained paths. The outside paths remain for the operator to assess; no
+permission to clean outside work was inferred. Outside growth is unknown and not
+included in the work disk table. VE-check and owner AppData were not accessed.
+This incident is the reason for PARTIAL despite passing functional gates.
+
+Defaults chosen without stopping: H.264 for browser playback; preserve supplied
+clips and unrelated pre-existing scratch files; retain the production helper;
+use console warnings for native failure reasons. No design change is requested
+for the fix. Operator review is needed for the containment incident.
 
 ## Changed files
 
-- gui/src-tauri/src/commands.rs
-- gui/src/Pages.tsx
-- gui/src/Licences.tsx (new)
-- gui/src/types.ts
-- gui/src/style.css
-- gui/tests/setup.ts
-- gui/tests/desktop-contract.test.tsx
-- gui/tests/licences.test.tsx (new)
-- gui/scripts/owner-check-auto.py (F2 evidence path only)
+- gui/src/HistoryDetail.tsx
+- gui/tests/player-fallback.test.tsx
+- gui/tests/e2e/native-player-fallback.spec.ts
+- gui/scripts/owner-check-auto.py (F3 evidence directory only)
 - .ai/LAST_REPORT.md
 
-Player files and all other tracked files are unchanged.
+## Process closure and cleanup
 
-## Process closure and decisions
+Interactive roots: no-DLL PID 28172; candidate PID 29068. close-nodll.json and
+close-candidate.json report remaining=[] and retain PID/creation-time pairs.
+Recorded descendants: 26528,21096,15280,28612,22996,26600,26872,11624,29720,29268,
+14676,27016,5268,30060,24320,10824,26808,24324,27720. No owner process terminated.
+Playwright closed its own launches; individual successful e2e app PIDs were not
+collected into a complete persistent inventory. Final process-name check found
+zero VideoEnhancer/VideoEnhancer-Player processes. Test runner sessions completed.
 
-Candidate root PIDs: 14392, 12228, 17308. No-DLL root: 26420. Recorded helpers
-include 28868, 10792 and 23664. All recorded descendants were checked against
-creation times and closed. close-first.json, close-native.json and
-close-fallback.json report remaining=[]; session.json retains full PID/creation
-pairs. Post-test dedicated-home process inventory is empty. Final name checks
-found zero VideoEnhancer, VideoEnhancer-Player and OpenWith processes. No owner
-process was terminated or restarted. normal-pytest-stopped.json records only
-this run's terminated ordinary-sandbox test tree.
+The own home and no-DLL copy are deleted. Removed this cycle's work-contained e2e
+homes/results, generated fixture copies and temp caches after inventorying resolved
+paths and sizes. cleanup-results.json contains the complete per-path byte table;
+no deletion refusal occurred. Original supplied clips and unrelated scratch files
+remain. No outside-work cleanup was attempted. Historical evidence was preserved
+for the task's accepted F1/F2 references; no unrelated retention cleanup was done.
 
-Questions for the designer / defaults chosen without stopping:
-- Review the licence fix with polling evidence; kernel process-start tracing was unavailable.
-- Finish 11/12/16 in a session exposing an independently targetable helper. No product workaround was introduced for the tool limitation.
-- H.264 was chosen for browser playback. Decide separately whether to fix its misleading fallback warning. Player files were intentionally preserved.
-- Retain the accepted production helper; preserve supplied clips; delete only this cycle's generated copies and outputs.
+## Disk table and cleanup bytes
 
-Intentionally not done: Git commit/push/merge, owner-app restart, new tool downloads,
-owner-data access, external viewer/Explorer UI operation, calling incomplete native
-gates PASS, and unrelated historical evidence retention cleanup. F1/OC evidence
-needed by the accepted references was preserved.
+Decimal GB; logical lengths, not allocated disk space. Start values come from the
+initial inventory tool output; disk-cycle-start.json reconstructs those exact values
+because the launch helper overwrote disk-start.json on subsequent launches.
+End values precede this final report write by a few kilobytes.
 
-## Cleanup and final workspace disk table
+| Metric | Start GB | End GB |
+| --- | ---: | ---: |
+| C free | 351.215828992 | 351.204245504 |
+| D free | 976.552120320 | 976.134426624 |
+| package | 0.125288579 | 0.125288579 |
+| evidence | 0.458314748 | 0.460327245 |
+| scratch | 0.042238391 | 0.042238391 |
+| cache | 11.286228517 | 11.345288802 |
+| repo | 3.843702189 | 3.843703788 |
+| package/VideoEnhancer-candidate (overlapping subset) | Not separately measured | 0.048313737 |
+| evidence/VE-P1e-3c2-F3 (overlapping subset) | Not separately measured | 0.002012497 |
 
-All cleanup paths were inventoried before deletion and resolved inside work.
-Deletion ran inside the normal sandbox. No refusal and nothing for the owner to
-delete. The home and no-DLL copy no longer exist (zero bytes). Original supplied
-clips and pre-existing scratch data remain; scratch as a whole is not empty.
-This cycle's Node/Playwright temp folders and generated fixture copies were removed.
-Reusable Rust dependency/build caches remain below 40 GB. Obsolete final debug
-executables and copied DLLs were removed after tests to meet the growth gate;
-rebuild them before rerunning those e2e commands. Production candidate is retained.
+Work-contained nonoverlapping retained growth: 0.061074381 GB, below 1 GB.
+Cycle evidence 0.002012497 GB, below 0.3 GB; cache below 40 GB.
+Outside-work incident growth remains unknown; therefore a complete all-location
+growth assertion is NOT established. Repo enumeration is a partial logical
+inventory (the historical inaccessible .pytest_cache is not attributed).
 
-| Cleanup item | Independently measured logical bytes removed |
+| Removed item inside work | Measured bytes |
 | --- | ---: |
-| scratch/owner-check/home | 173752823 |
+| scratch/owner-check/home | 92721351 |
 | scratch/owner-check/candidate-nodll | 11756919 |
-| scratch/f2-e2e | 160129036 |
-| scratch/f2-e2e-final | 187923698 |
-| scratch/f2-e2e-results | 318273 |
-| scratch/f2-e2e-results-final | 45 |
-| scratch/f2-e2e-results-retry | 58537 |
-| scratch/f2-e2e-results-source-final | 45 |
-| scratch/f2-e2e-retry | 170076396 |
-| scratch/f2-e2e-source-final | 187460776 |
-| scratch/f2-pytest | 278803 |
-| scratch/f2-pytest-retry | 0 |
+| scratch/f3-e2e-results | 45 |
+| scratch/f3-e2e-results-final | 45 |
+| scratch/f3-e2e-results-contained | 137299 |
+| scratch/f3-e2e | 86957593 |
+| scratch/f3-e2e-final | 180704885 |
+| scratch/f3-e2e-results-contained-final | 45 |
 | scratch/p1e3c2-native/pair-original.mp4 | 21083325 |
 | scratch/p1e3c2-native/pair-enhanced.mp4 | 21083325 |
 | scratch/p1e3c2-native/review-original-720.mp4 | 21083325 |
 | scratch/p1e3c2-native/review-output-1080.mp4 | 21083325 |
-| scratch/p1e3c2-native/review-poster.jpg | 49436 |
-| cache/tauri-target/debug/VideoEnhancer.exe | 18451456 |
-| cache/tauri-target/debug/VideoEnhancer-Player.exe | 3683328 |
-| cache/tauri-target/debug/libmpv-2.dll | 33266600 |
-| cache/tauri-target/debug/libspirv-cross-c-shared.dll | 2965767 |
-| cache/tauri-target/debug/libwinpthread-1.dll | 324451 |
-| scratch/tmp: 43 generated Node/Playwright folders, exact per-path inventory in temp-cleanup-results.json | 9695076 |
+| scratch/p1e3c2-native/review-poster.jpg | 49435 |
+| scratch/tmp/node-compile-cache | 9372460 |
+| scratch/tmp/playwright-transform-cache | 227957 |
+| Zero-byte temporary/result directories (exact paths in cleanup-results.json) | 0 |
 
-Total independently inventoried removal: 1044524765 bytes.
-Logical lengths are not allocated disk space; drive free changes are not used as
-removed-byte measurements.
-
-Decimal GB, nonoverlapping rows first:
-
-| Folder / metric | Purpose | Start GB | End GB |
-| --- | --- | ---: | ---: |
-| C free | Drive free space | 351.277002752 | 351.222767616 |
-| D free | Drive free space | 977.461612544 | 976.552239104 |
-| package | Portable package and source delivery | 0.125284483 | 0.125288579 |
-| evidence | All retained cycle evidence | 0.452220081 | 0.458309500 |
-| scratch | Temporary data and supplied clips | 0.042235317 | 0.042238391 |
-| cache | Reusable build/tool caches | 10.316078835 | 11.286228517 |
-| repo | Checkout and existing dependencies; partial inventory | 3.841524939 | 3.843647084 |
-| package/VideoEnhancer-candidate | Overlapping subset; excluded from growth sum | Not separately measured | 0.048313737 |
-| evidence/VE-P1e-3c2-F2 | Overlapping subset; excluded from growth sum | Not separately measured | 0.006089998 |
-
-Inventoried nonoverlapping retained growth: 0.978368416 GB before this
-final report append and small final evidence writes; more than 20 MB margin below
-1 GB. Cycle evidence is 0.006089998 GB, below 0.3 GB.
-The repo inventory excludes inaccessible .pytest_cache on both measurements;
-its full size is unknown. Tests warned that cache writes were refused, and no
-cleanup or permission workaround was attempted for it. Therefore the full repo
-size/growth is not independently attributable. Existing historical evidence is
-retained for accepted F1/OC references; no unrelated cycle was deleted.
+Total independently measured bytes removed: 466261334.
+Drive free-space changes were not used as deletion measurements.
 
 ## Owner summary (Japanese)
 
-ライセンスをアプリ内で表示し、全文・書面によるソース提供申し出・Close／Escを確認しました。
-候補を再ビルドし、プレイヤーexeは変更していません。Vitest 83件、Python 676件、Rust・clippy・player e2e 7件はPASSです。
-DLLなしのH.264再生は時刻7.633秒から11.567秒への進行を確認しましたが、誤った再生不可メッセージが残りました。
-ネイティブプレイヤーを独立したComputer Use対象にできず、項目11・12・16は未完了のためPARTIALです。
-起動プロセス残存0、隔離ホーム・DLLなしコピー・今回の一時ファイルは削除済みです。commit・pushは行っていません。
+基本プレイヤー再生中の誤ったエラー表示を修正し、修正前FAIL／修正後PASSの回帰テストを追加しました。
+項目20・21、Vitest 84件、player e2e 7件、Rust 29件、lint・clippyはPASSです。
+候補を更新し、プレイヤーexeのハッシュは不変です。起動したアプリは終了し、隔離ホームとDLLなしコピーは削除済みです。
+e2eの相対パス指定を誤りwork外へ合成テスト出力を作成したため、総合状態はPARTIALです。外側の場所は追加確認・削除していません。
+commit・pushは行っていません。外側の出力場所の確認はオペレーターに引き継ぎます。
