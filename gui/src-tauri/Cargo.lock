@@ -4155,9 +4155,24 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",
+ "videoenhancer-player",
  "webview2-com",
  "windows",
  "winreg",
+]
+
+[[package]]
+name = "videoenhancer-player"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libloading 0.8.9",
+ "png 0.18.1",
+ "serde",
+ "serde_json",
+ "tao",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]

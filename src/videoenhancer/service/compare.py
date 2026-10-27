@@ -268,10 +268,15 @@ def whole_file_estimate(index: dict[str, Any], settings: dict[str, Any]) -> floa
 
 
 def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
-    started = float(value.get("_gpu_admitted_at", time.perf_counter()))
+    started = float(
+        value.get("_compare_requested_at", value.get("_gpu_admitted_at", time.perf_counter()))
+    )
+    prepared = time.perf_counter()
     source, settings, index, first, last = compare_input(value)
+    input_seconds = time.perf_counter() - prepared
     registry = ModelRegistry()
     rate = Fraction(index["media"]["cfr_fps"])
+    analyzed = time.perf_counter()
     analysis = analyze_range(
         source,
         index,
@@ -296,6 +301,11 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
         output_fps=float(output_fps),
         items=[],
         model_progress={},
+        profile=dict(
+            gpu_wait_seconds=float(value.get("_gpu_wait_seconds", 0)),
+            input_index_seconds=input_seconds,
+            range_analysis_seconds=time.perf_counter() - analyzed,
+        ),
     )
     cache: dict[str, Any] = {}
 
@@ -310,6 +320,7 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
         return f"/v1/operations/{folder.name}/files/{name}"
 
     width, height = output_size(settings, analysis["media"])
+    original_started = time.perf_counter()
     original = folder / "original-preview.mp4"
     original_key = cache_key(source, first, last, settings, "original", registry)
     reused = reuse_preview(folder, original_key, "original")
@@ -338,6 +349,7 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
             decoder.close()
     result["original"] = url("original")
     result["original_reused"] = reused is not None
+    result["profile"]["original_preview_seconds"] = time.perf_counter() - original_started
     look_frame = min(7, last - first - 1) * int(output_fps / rate)
 
     def first_look(video: Path, name: str) -> dict[str, Any]:
@@ -421,6 +433,7 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
 
         if reused_model is not None:
             stats = {"fps": reused_model["fps"]}
+            transcode_seconds = 0.0
         else:
             raw = folder / f"{model_id}-raw.mp4"
             published = False
@@ -483,6 +496,7 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
                 job, segment, raw, lambda: False, progress=progress, frame_observer=observe
             )
             target = folder / f"{model_id}-preview.mp4"
+            transcode_started = time.perf_counter()
             run(
                 [
                     executable("ffmpeg"),
@@ -507,6 +521,7 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
                 timeout=120,
             )
             raw.unlink()
+            transcode_seconds = time.perf_counter() - transcode_started
         result["items"].append(
             dict(
                 id=model_id,
@@ -515,11 +530,23 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
                 fps=stats["fps"],
                 reused=reused_model is not None,
                 ready_seconds=time.perf_counter() - started,
-                projected_whole_file_seconds=whole_file_estimate(index, chosen),
+                projected_whole_file_seconds=None,
+                profile=dict(
+                    model_load_seconds=stats.get("model_loading_seconds"),
+                    decode_seconds=stats.get("decode_seconds"),
+                    inference_seconds=stats.get("stage_seconds"),
+                    encode_seconds=stats.get("encode_seconds"),
+                    preview_transcode_seconds=transcode_seconds,
+                    gpu_wait_seconds=result["profile"]["gpu_wait_seconds"],
+                ),
             )
         )
         remember(model_key, model_id, stats["fps"])
         result["model_progress"][model_id] = dict(percent=100, remaining_seconds=0)
+        publish("Preview ready", 100 * (position + 1) / len(value["models"]))
+        # Publish the playable tile before reading calibration and model files
+        # for its optional whole-file estimate. Encoding and its bytes are unchanged.
+        result["items"][-1]["projected_whole_file_seconds"] = whole_file_estimate(index, chosen)
         publish("Preview ready", 100 * (position + 1) / len(value["models"]))
     result["total_seconds"] = time.perf_counter() - started
     return result

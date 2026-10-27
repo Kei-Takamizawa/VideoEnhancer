@@ -353,20 +353,43 @@ def test_cancelled_transfer_resumes_partial_file(
             ),
         )
         cancel = threading.Event()
+        checkpoint_bytes = 0
 
         def progress(value):
-            if interruption == "cancel" and value.get("bytes", 0) > 100000:
-                cancel.set()
+            nonlocal checkpoint_bytes
+            if interruption != "cancel" or cancel.is_set():
+                return
+            if not 100000 < value.get("bytes", 0) < len(data):
+                return
+            # Progress counts bytes accepted by the tool, not flushed file bytes.
+            # Python 3.14's larger write buffer can still hold that entire prefix.
+            # Interrupt a known resumable prefix while the transfer is unfinished.
+            for partial in tmp_path.glob(".ve-*.part"):
+                try:
+                    written = partial.stat().st_size
+                except FileNotFoundError:
+                    continue  # A completed file may have been renamed concurrently.
+                if 0 < written < len(data):
+                    checkpoint_bytes = written
+                    print(f"Cancel checkpoint: received={value['bytes']}, persisted={written}")
+                    cancel.set()
+                    break
 
         with pytest.raises(InterruptedError if interruption == "cancel" else ValueError):
             links.download(job, cancel.is_set, lambda _: None, progress)
         assert not final.exists()
         partials = list(tmp_path.glob(".ve-*.part"))
         assert partials and partials[0].stat().st_size > 0
+        partial_bytes = partials[0].read_bytes()
+        assert len(partial_bytes) < len(data)
+        assert partial_bytes == data[: len(partial_bytes)]
+        if interruption == "cancel":
+            assert 0 < checkpoint_bytes <= len(partial_bytes)
         before = len(requests)
         links.download(job, lambda: False, lambda _: None, lambda _: None)
         assert final.is_file()
         assert any(offset > 0 for offset in requests[before:])
+        assert len(partial_bytes) in requests[before:]
         assert probe(final).frame_count == 180
     finally:
         server.shutdown()

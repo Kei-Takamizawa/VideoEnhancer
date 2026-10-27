@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "ci_run_id": 40202006764,
+  "ci_commit": "b65a4ccb7fb139500b8909031151f4b6c71441e2",
+  "artifact_manifest_sha256": "1d0c847217048b161f33a1e7b09c3786d4630ad5144ba3df1503c8f497974d70",
+  "sources": {
+    "file": "sources.tar.zst",
+    "bytes": 70739309,
+    "sha256": "5c79c49b82d628e44cffb82cbc64a73f759837203d1e09211143aa9599b97a28"
+  },
+  "dlls": [
+    {
+      "file": "libmpv-2.dll",
+      "bytes": 33266600,
+      "sha256": "d7126e232340dcd767f0a2197ec0ab60ac32146aa7a1291bcd172c57c49a5b4c"
+    },
+    {
+      "file": "libspirv-cross-c-shared.dll",
+      "bytes": 2965767,
+      "sha256": "a0d43e62453adfed48e42d152c92ed382facfdf5d38da3615acbdea430d49ef9"
+    },
+    {
+      "file": "libwinpthread-1.dll",
+      "bytes": 324451,
+      "sha256": "fc9f14551f6609dd51801daec2c194579d35345551ef84fe465cbdb3339c2a6f"
+    }
+  ],
+  "checksum_inventory_sha256": "8d7cf4437c471691e6934f49ba2d501df58932976b6e68c011d38da5bd553630"
+}

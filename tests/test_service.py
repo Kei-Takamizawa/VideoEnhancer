@@ -1,5 +1,6 @@
 """Real loopback HTTP, CPU jobs and local service boundary checks."""
 
+import io
 import json
 import threading
 import time
@@ -39,7 +40,18 @@ def api(tmp_path):
             headers={**headers, "Content-Type": "application/json"},
             method=method,
         )
-        return urllib.request.urlopen(req, timeout=20)
+        try:
+            return urllib.request.urlopen(req, timeout=20)
+        except urllib.error.HTTPError as error:
+            # Preserve the response stream while retaining synthetic API failure evidence.
+            body = error.fp.read()
+            print(
+                f"HTTP failure: {method} {path}: {error.code}: "
+                f"{body.decode('utf-8', errors='replace')}"
+            )
+            error.fp = io.BytesIO(body)
+            error.file = error.fp
+            raise
 
     yield engine, server, request
     engine.close()

@@ -733,7 +733,7 @@ export function HistoryPage({
               data-job-id={job.id}
               data-failed={job.state === "failed"}
             >
-              <button className="history-image" aria-label={selectMode ? `Select ${filename(job.input)}` : filename(job.input)}
+              <button onPointerEnter={() => { if (!selectMode) void window.desktop.prewarmPlayer?.(job.id).catch(() => {}); }} className="history-image" aria-label={selectMode ? `Select ${filename(job.input)}` : filename(job.input)}
                 style={{ width: (row.height - 12) * historyAspect(job), height: row.height - 12 }}
                 onClick={() => selectMode ? setSelected(old => old.includes(job.id) ? old.filter(id => id !== job.id) : [...old, job.id]) : setDetail(job.id)}>
                 <Thumbnail job={job} api={api} small />
@@ -747,7 +747,7 @@ export function HistoryPage({
           ))}</div>)}
         </div>
       </div>
-      {detail && queue.jobs.find(job => job.id === detail) && <HistoryDetail job={queue.jobs.find(job => job.id === detail)!} api={api} action={action} compare={trial} close={() => setDetail(undefined)} />}
+      {detail && queue.jobs.find(job => job.id === detail) && <HistoryDetail job={queue.jobs.find(job => job.id === detail)!} api={api} action={action} compare={trial} close={() => { const id = detail; setDetail(undefined); requestAnimationFrame(() => Array.from(document.querySelectorAll<HTMLElement>("[data-job-id]")).find(element => element.dataset.jobId === id)?.querySelector<HTMLButtonElement>(".history-image")?.focus()); }} />}
       <p className="muted">
         Finished and failed jobs move here automatically. Removing an item from
         History keeps files unless you explicitly choose to move them to the Recycle Bin.

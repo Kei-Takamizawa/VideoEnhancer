@@ -79,7 +79,8 @@ export const desktop = {
     if (!browser) {
       let native: string;
       try { native = execFileSync(path.resolve(import.meta.dirname, "../../.venv/Scripts/python.exe"), [path.resolve(import.meta.dirname, "../../scripts/desktop_startup_diagnostics.py"), String(child.pid)], { encoding: "utf8", windowsHide: true, timeout: 10000 }); } catch (error) { native = String(error); }
-      child.kill(); throw new Error(`Tauri CDP attachment failed (${exe}, exit=${child.exitCode}): ${output}\n${native}`);
+      capture(Buffer.from(`\nStartup diagnostics:\n${native}\n`));
+      child.kill(); throw new Error(`Tauri CDP attachment failed (${exe}, exit=${child.exitCode}): ${output}`);
     }
     try {
       const context = browser.contexts()[0];

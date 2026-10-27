@@ -227,6 +227,13 @@ export type Model = {
 };
 export type Connection = { base_url: string; token: string };
 export interface Desktop {
+  licences?(): Promise<void>;
+  onPlayerMetric?(callback: (event: {id: string; event: Record<string, unknown>}) => void): () => void;
+  prewarmPlayer?(id: string): Promise<boolean>;
+  openPlayer?(jobId: string): Promise<boolean>;
+  closePlayer?(): Promise<void>;
+  onPlayerClosed?(callback: (event: { id: string }) => void): () => void;
+  onPlayerError?(callback: (event: { id: string; message: string }) => void): () => void;
   storageStatus?(verify?: boolean): Promise<{ phase?: string; previous?: string; copied_bytes?: number; total_bytes?: number }>;
   moveStorage?(folder: string): Promise<unknown>;
   removeOldStorage?(): Promise<unknown>;

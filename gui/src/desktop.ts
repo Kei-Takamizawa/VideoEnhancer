@@ -19,6 +19,11 @@ export function installDesktop() {
   if (!isTauri()) return;
   startupHevc = probeHevc();
   const desktop: Desktop = {
+    licences: () => call("licences"),
+    prewarmPlayer: id => call("prewarmPlayer", id),
+    onPlayerMetric: callback => subscribe("player-metric", callback),
+    openPlayer: id => call("openPlayer", id), closePlayer: () => call("closePlayer"),
+    onPlayerClosed: callback => subscribe("player-closed", callback), onPlayerError: callback => subscribe("player-error", callback),
     connection: async () => { const value = await call<Connection & {zoom_percent:number}>("connection"); zoom = value.zoom_percent; return value; }, reload: () => call("reload"), restartEngine: () => call("restartEngine"),
     storageStatus: verify => call("storageStatus", !!verify), moveStorage: folder => call("moveStorage", folder), removeOldStorage: () => call("removeOldStorage"),
     logRendererError: details => call("logRendererError", details), files: kind => call("files", kind),

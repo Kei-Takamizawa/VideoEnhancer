@@ -12,6 +12,7 @@
     "build:desktop": "tauri build --no-bundle",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "test:payload": "node --test scripts/player-payload.test.mjs",
     "test:e2e": "playwright test",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

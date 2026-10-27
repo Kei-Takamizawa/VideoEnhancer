@@ -11,6 +11,13 @@ import type { Media, Model, Operation, Settings } from "./types";
 import { OperationStatus } from "./Pages";
 
 type Movie = { config: VideoDecoderConfig; samples: Sample[]; fps: number };
+export function compareMovie<T>(cache: Map<string, Promise<T>>, path: string, load: () => Promise<T>): Promise<T> {
+  const existing = cache.get(path);
+  if (existing) return existing;
+  const pending = load().catch(error => { cache.delete(path); throw error; });
+  cache.set(path, pending);
+  return pending;
+}
 async function demux(blob: Blob): Promise<Movie> {
   const file = createFile();
   const samples: Sample[] = [];
@@ -169,6 +176,7 @@ export function Compare({
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{ distance: number; x: number; y: number } | null>(null);
   const readers = useRef<FrameReader[]>([]);
+  const movieCache = useRef<{ operation: string; api: Api; movies: Map<string, Promise<Movie>> }>(undefined);
   const clock = useRef({ frame: 0, playing: false, anchor: 0, anchorFrame: 0 });
   const [count, setCount] = useState(0);
   const [fps, setFps] = useState(30);
@@ -221,12 +229,15 @@ export function Compare({
     let alive = true;
     let raf = 0;
     const owned: FrameReader[] = [];
+    if (movieCache.current?.operation !== operation.id || movieCache.current.api !== api)
+      movieCache.current = { operation: operation.id, api, movies: new Map() };
+    const cache = movieCache.current.movies;
     const run = async () => {
       try {
         const movies = await Promise.all(
           pathKey
             .split("|")
-            .map((p) => api.blob(p.replace("/v1/", "")).then(demux)),
+            .map((p) => compareMovie(cache, p, () => api.blob(p.replace("/v1/", "")).then(demux))),
         );
         if (!alive) return;
         if (

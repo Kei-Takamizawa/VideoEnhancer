@@ -12,6 +12,26 @@ use tauri::{
 };
 
 pub const CHUNK: u64 = 1024 * 1024;
+pub fn player_handles(
+    job: &serde_json::Value,
+) -> engine::Result<std::collections::HashMap<String, std::path::PathBuf>> {
+    let mut handles = std::collections::HashMap::new();
+    for (handle, field) in [("output", "output"), ("original", "input")] {
+        if let Some(raw) = job[field].as_str() {
+            let path = std::path::Path::new(raw);
+            if path.is_absolute() && path.is_file() {
+                handles.insert(
+                    handle.to_owned(),
+                    path.canonicalize().map_err(|e| e.to_string())?,
+                );
+            }
+        }
+    }
+    if !handles.contains_key("output") {
+        return Err("The enhanced video is no longer available.".into());
+    }
+    Ok(handles)
+}
 fn chunk_size() -> u64 {
     #[cfg(feature = "e2e")]
     if let Ok(value) = std::env::var("VE_TEST_MEDIA_CHUNK_MIB") {
