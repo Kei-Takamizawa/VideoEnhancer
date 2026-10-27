@@ -2,12 +2,71 @@ use crate::{engine, storage, window, State};
 use serde_json::{json, Value};
 use std::{
     fs,
-    io::Write,
+    io::{Read, Write},
     sync::{atomic::Ordering, Arc},
 };
 #[cfg(feature = "e2e")]
 use tauri::Emitter;
 use tauri::Manager;
+
+fn notices_path() -> engine::Result<std::path::PathBuf> {
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let adjacent = executable
+        .parent()
+        .ok_or("Application folder missing")?
+        .join("THIRD_PARTY_NOTICES.md");
+    if adjacent.is_file() {
+        Ok(adjacent)
+    } else {
+        Ok(engine::root()?.join("gui/THIRD_PARTY_NOTICES.md"))
+    }
+}
+
+fn read_notices(path: &std::path::Path) -> engine::Result<String> {
+    const LIMIT: u64 = 2 * 1024 * 1024;
+    let file = fs::File::open(path).map_err(|e| format!("Could not read licence notices: {e}"))?;
+    let mut bytes = Vec::new();
+    file.take(LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("Could not read licence notices: {e}"))?;
+    if bytes.len() as u64 > LIMIT {
+        return Err("Licence notices exceed the 2 MB limit.".into());
+    }
+    String::from_utf8(bytes).map_err(|_| "Licence notices are not valid UTF-8.".into())
+}
+
+#[cfg(test)]
+mod licence_tests {
+    use super::*;
+    #[test]
+    fn reads_notices_and_rejects_missing_large_and_invalid_utf8() {
+        let root = std::env::temp_dir().join(format!("ve-licences-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("THIRD_PARTY_NOTICES.md");
+        assert!(read_notices(&path)
+            .unwrap_err()
+            .contains("Could not read licence notices"));
+        fs::write(
+            &path,
+            "libmpv\nFFmpeg\nlibplacebo\nsource offer: sources.tar.zst",
+        )
+        .unwrap();
+        assert!(read_notices(&path).unwrap().contains("sources.tar.zst"));
+        fs::write(&path, vec![b'x'; 2 * 1024 * 1024]).unwrap();
+        assert_eq!(read_notices(&path).unwrap().len(), 2 * 1024 * 1024);
+        fs::write(&path, vec![b'x'; 2 * 1024 * 1024 + 1]).unwrap();
+        assert_eq!(
+            read_notices(&path).unwrap_err(),
+            "Licence notices exceed the 2 MB limit."
+        );
+        fs::write(&path, [0xff, 0xfe]).unwrap();
+        assert_eq!(
+            read_notices(&path).unwrap_err(),
+            "Licence notices are not valid UTF-8."
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
 
 #[cfg(any(not(feature = "e2e"), test))]
 fn copy_native(value: &str) -> engine::Result<()> {
@@ -89,23 +148,8 @@ pub fn execute(
         .ok_or("Main window missing")?;
     match operation {
         "licences" => {
-            let folder = std::env::current_exe()
-                .map_err(|e| e.to_string())?
-                .parent()
-                .ok_or("Application folder missing")?
-                .to_owned();
-            let notices = folder.join("THIRD_PARTY_NOTICES.md");
-            if notices.is_file() {
-                window::open(&notices.to_string_lossy(), false)?;
-            } else {
-                window::open(
-                    &engine::root()?
-                        .join("gui/THIRD_PARTY_NOTICES.md")
-                        .to_string_lossy(),
-                    false,
-                )?;
-            }
-            Ok(Value::Null)
+            let path = notices_path()?;
+            Ok(json!({ "text": read_notices(&path)?, "path": path }))
         }
         "prewarmPlayer" => crate::player::prewarm(app, state, text(&args)?),
         "openPlayer" => crate::player::open(app, state, text(&args)?),

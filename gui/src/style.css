@@ -1384,3 +1384,6 @@ input, textarea, pre, .log-output { user-select: text; }
 .copy-control:hover .copy-failure, .copy-control:focus-within .copy-failure { animation-play-state: paused; }
 @keyframes copy-failure { 0%, 88.889% { opacity: 1; } 100% { opacity: 0; } }
 .copy-feedback { overflow-wrap: anywhere; }
+.licences-view { display: flex; flex-direction: column; gap: 16px; height: calc(100vh - 100px); min-height: 300px; }
+.settings-page[hidden] { display: none; }
+.licence-notices { flex: 1; min-height: 200px; width: 100%; resize: none; white-space: pre-wrap; user-select: text; font: 14px/1.5 monospace; }
