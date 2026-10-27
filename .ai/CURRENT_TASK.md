@@ -66,3 +66,17 @@ The banner appeared during the 63 s Before/After run while the video kept advanc
 - Changed files.
 - A short Japanese summary at the end for the owner (3-6 lines).
 - **COMPLETED** only if both defects are fixed with tests, items 10, 11, 15, 19, 20 and 21 are PASS, 13 is PASS, and every check in section 5 passed. Otherwise PARTIAL.
+
+## 7. Designer review of run 1 (1a61dae) and the re-check through Computer Use
+
+Run 1 is accepted as code: the per-command completion state (ack and PLAYBACK_RESTART kept separately, specific timeout messages) and the explicit cursor hide driven by the controls' idle state, with regression tests that failed before the fix. Not accepted yet: none of the section 4 items ran on the production candidate, because foreground verification failed and Computer Use was refused inside `codex exec`.
+
+The local CPU pytest failures (11) and the five Playwright fixture failures look environmental: ffmpeg/ffprobe were not on PATH, Git access was denied, and the LGPL FFmpeg lacks libx264. Hosted CI on 1a61dae decides; do not change tests for them in this round.
+
+**This round runs in the Codex desktop app, not `codex exec`, so that Computer Use can be approved there for the VideoEnhancer windows.** The owner approved this route. The designer starts this round in the app and approves the app's Computer Use prompt for VideoEnhancer only.
+
+- Do only the section 4 re-check items (1 by reference, 10, 11, 13, 14 HUMAN, 15, 19, 20, 21) on the rebuilt production candidate, with the same isolated `VE_HOME`, the same clips and the History items already queued through the engine API. Use Computer Use for input and screenshots of the VideoEnhancer and VideoEnhancer-Player windows only. You may still use your HWND capture script for drawn-time readings.
+- For 11, also read `GetCursorInfo` from a script while the player is in front.
+- Do not change product code in this round. If an item fails, record it with evidence.
+- Then rewrite `.ai/LAST_REPORT.md` as **run 2** of VE-P1e-3c2-F1. Keep run 1 by reference to `1a61dae`. Apply section 6. The section 5 checks that passed in run 1 need not be repeated, because no code changes in this round.
+- Clean up as in section 5. If a file in the isolated home cannot be deleted, list it; the operator deletes it.
