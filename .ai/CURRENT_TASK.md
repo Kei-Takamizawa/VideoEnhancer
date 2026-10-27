@@ -1,8 +1,8 @@
-# CURRENT_TASK: VE-P1e-3c2-F1 (fix the two player defects found by the automated owner check, then re-check)
+# CURRENT_TASK: VE-P1e-3c2-F2 (show the licences inside the app, then finish the re-check)
 
 > Follow `AGENTS.md` and `CLAUDE.md` on `main` for the workflow. This file defines only the work.
 
-- **Task ID:** VE-P1e-3c2-F1
+- **Task ID:** VE-P1e-3c2-F2
 - **Date:** 2026-10-27
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
@@ -10,73 +10,58 @@
 
 ## 1. Start
 
-- **Branch:** `claude/project-thread-6lra47`, open PR #13. It holds your check run `7288e34` (VE-P1e-3c2-OC, PARTIAL: 14 PASS, 1 FAIL, 1 HUMAN, 5 NOT_RUN) on top of `main` 5d70618.
-- Write a new `.ai/LAST_REPORT.md`. Its first lines must be the Task ID and `Status: COMPLETED | PARTIAL | BLOCKED`. Keep the OC run by reference to `7288e34`; do not repeat its passing items unless section 4 asks.
+- **Branch:** `claude/project-thread-6lra47`, open PR #13. It holds VE-P1e-3c2-F1: run 1 `1a61dae` (the two player fixes) and run 2 `0da3344` (PARTIAL re-check through Computer Use).
+- **Run this task in the Codex desktop app**, as F1 run 2, so that Computer Use can be approved for the VideoEnhancer windows. The designer approves Computer Use for VideoEnhancer and VideoEnhancer-Player only.
+- Write a new `.ai/LAST_REPORT.md`. Its first lines must be the Task ID and `Status: COMPLETED | PARTIAL | BLOCKED`. Keep F1 by reference to `1a61dae` and `0da3344`.
 - **Do not stop for a question.** Write the default you chose under "Questions for the designer" and continue.
-- The operator again quits the owner's normal app before you start and restarts it afterwards. Use the same isolated `VE_HOME` (`work\scratch\owner-check\home`) and the same clips. The same input and capture rules as VE-P1e-3c2-OC section 3 apply: only windows of processes you started, foreground verified before `SendInput`, WGC of your own HWNDs only.
+- The operator has already quit the owner's normal app and restarts it afterwards. Use the isolated `VE_HOME` `work\scratch\owner-check\home` and the clips in `work\scratch\owner-check\clips\`, queued through the engine API as before. Only windows of processes you started; never send input to a window that is not in front.
 
-## 2. Designer review of the OC run
+## 2. Designer review of F1 run 2 (0da3344)
 
-Accepted: items 2-9, 12, 13, 15-18 as PASS, and the method: own-process tracking, guarded input, HWND capture, the engine API for queueing. Item 14 stays HUMAN; its 54.5 ms median capture latency is supporting evidence only, and the capture-free gate (26.7 / 32.6 ms) was accepted in P1e-3c2 run 3.
+Accepted as PASS: 10 (1.24996x), 13, 15 (24 pairs, at most 1 frame apart, no banner over 63 s with three Home seeks), 19, and 1 by reference. 14 stays HUMAN. The cursor hide at 2.047 s and the paused visibility are accepted as partial evidence for 11.
 
-Two defects are real and must be fixed in the product:
+Still open:
 
-### 2.1 "The player did not respond." during Before/After playback
+- **20 is a real product defect.** The Settings button hands `THIRD_PARTY_NOTICES.md` to `ShellExecuteW`. On a PC with no program for `.md`, which includes the owner's PC, Windows shows "Open with" instead of the notices. The LGPL notices and the written source offer must be readable on every PC.
+- **21 did not run.** Computer Use refused the click because the Claude window covered the point.
+- **11 is incomplete.** The cursor coming back on movement and the cursor outside the player window were not measured.
 
-The banner appeared during the 63 s Before/After run while the video kept advancing (`sync-00..20.png`). The likely path is the host's 10 s request timeout in `gui/src-tauri/player/src/host.rs` (`timed_out` → `reply(..., "The player did not respond.")`). For a frame request in Before/After, the host waits until the follower (original) is aligned *and* playback restarted. The OC run pressed Home every 17 s while playing, so a seek during Before/After playback may never meet that condition. This is a designer hypothesis; verify it.
+## 3. Fix: show the licences inside the app
 
-- Reproduce it with the production candidate and the OC sequence (Before/After on, playing, Home every 17 s for 60 s or more). Record which command timed out and why.
-- Fix the root cause so that seeks, steps and other commands during Before/After playback complete, or fail with a specific error when they really fail. Do not just raise the timeout, and do not hide the banner.
-- Add a test that fails before the fix: a Rust unit test of the completion logic, or the helper's test-feature e2e.
+Designer decision: the app shows the notices itself instead of asking Windows to open the file.
 
-### 2.2 The cursor stays visible after the controls auto-hide
+- "Open-source licences" in Settings opens a view inside the main window. It shows the full text of `THIRD_PARTY_NOTICES.md` as plain, selectable, scrollable text, with a heading, a **Close** button that returns to Settings, and Esc to close. Plain text is enough; do not add a Markdown library or any other dependency.
+- The desktop command reads the file the same way it is found today: next to the exe, then the development fallback `gui/THIRD_PARTY_NOTICES.md`. It returns the text. Refuse a file over 2 MB or one that is not valid UTF-8 with a specific error, and show that error in the view. Do not open any external program for this.
+- Add a secondary **Show file** button that uses the existing reveal path (`explorer.exe /select,`), so the owner can still find the file.
+- Keep keyboard focus and screen-reader labels as in the rest of Settings.
+- Tests that fail before the fix: a Rust unit test of the read (found, missing, too large, invalid UTF-8), and a Vitest test that the button shows the text and that Close and Esc return to Settings. Update the desktop mock and the contract test if the command's return type changes.
 
-`autohide-retest-hidden.png`: the controls hide while playing, but the cursor stays. The page sets `cursor:none` (`.hidden-controls` in `gui/src/player/player.css`), and the host applies cursors only through WebView2's `CursorChanged` → `SetCursor` (`composition.rs`). A likely cause is that the composition controller does not raise `CursorChanged` until the next mouse input, so a still mouse never gets the hidden cursor, or the window's own `WM_SETCURSOR` handling resets it. This is a hypothesis; verify it.
+## 4. Allowed files
 
-- Fix it so the cursor hides within 2.5 s of the last mouse movement while playing over the picture, and comes back on the next movement. It must never hide while paused, over the controls, or outside the window.
-- Prove it with a production-candidate capture that has cursor capture on, and also with `GetCursorInfo` (`CURSOR_SHOWING` / `hCursor`) read while your window is in front.
+- `gui/src-tauri/src/commands.rs` (and a new small module under `gui/src-tauri/src/` only if the read logic needs one), `gui/src/Pages.tsx`, `gui/src/desktop.ts`, `gui/src/types.ts`, `gui/src/style.css`, a new component under `gui/src/` if needed.
+- Their tests: `gui/tests/**` and Rust tests in the main crate.
+- `gui/scripts/owner-check-auto.py`.
+- Nothing else. The player files from F1 are not to change. If something else seems needed, explain it under "Questions for the designer" and do not change it.
 
-## 3. Allowed files
+## 5. Rebuild the candidate and re-check
 
-- `gui/src-tauri/player/src/**`, `gui/src/player/**`, their tests (`gui/tests/player-*`, Rust tests in the helper crate), and `gui/scripts/owner-check-auto.py`.
-- Nothing else. If a fix seems to need another file, explain why under "Questions for the designer" and do not change it.
+- Rebuild the production candidate in `work\package\VideoEnhancer-candidate\` as in P1e-3c2 run 3 (pinned DLLs and lock check). Report the old and new SHA-256 of `VideoEnhancer.exe` and `VideoEnhancer-Player.exe`. The player exe should not change; say so if it does.
+- Re-check on the new candidate and judge each PASS / FAIL / HUMAN / NOT_RUN:
+  - **20 licences:** press the Settings button through Computer Use. PASS needs a screenshot of the in-app view showing libmpv, FFmpeg and libplacebo and the written source offer for `sources.tar.zst`, no `OpenWith.exe` or other external process started (check by process start), and Close returning to Settings.
+  - **21 the fallback without DLLs:** copy the candidate folder without the three DLLs, start the copy with the isolated home, open the landscape clip from History, and show that it plays through the HTML5 player (drawn time advancing in two screenshots at least 2 s apart). Before every click, maximize the target window and take a fresh screenshot so that nothing covers the point. If a click is still refused, use the keyboard through Computer Use (Tab, Enter, Space) with the target in front. Record each refusal message.
+  - **11 autohide and cursor, the missing parts:** while playing, with the player in front, sample `GetCursorInfo` from a script every 100 ms: (a) hidden within 2.5 s of the last movement over the picture; (b) visible again within 300 ms after one Computer Use mouse move over the picture; (c) visible while paused; (d) visible while over the controls; (e) visible after a move outside the player window, for example onto the main VideoEnhancer window. Record the samples.
+  - **12 keyboard and Esc**, **16 zoom and Reset**: run them again quickly, because the Esc handling is touched in Settings. Player behaviour must be unchanged.
+- Items 1, 10, 13, 15, 19 stand by reference to `0da3344`. 14 stays HUMAN.
 
-## 4. After the fixes: rebuild the candidate and re-check
+## 6. Checks before the report
 
-- Rebuild the production candidate in `work\package\VideoEnhancer-candidate\` the same way as P1e-3c2 run 3 (pinned DLLs and lock check). Report the old and new helper and exe SHA-256 values.
-- Re-run these items on the new candidate and judge each PASS / FAIL / HUMAN / NOT_RUN as in the OC task:
-  - **11 autohide and cursor**, per 2.2.
-  - **15 the 60 s Before/After run with Home every 17 s**: no error banner, and left/right within 2 frames in at least 20 samples.
-  - **10 speed**: with focus on the blank surface, 1.25x advances 1.25 ± 0.05 s of media per wall second, measured over 8 s or more from the drawn time.
-  - **19 no player process at 35 s**: check executable names and creation times, not windows.
-  - **21 the fallback without DLLs**: the copy without the three DLLs plays through the HTML5 player. If foreground activation fails again, use `AllowSetForegroundWindow` from your own process, or start the copy with a `STARTUPINFO` that shows the window. Never send input to a window that is not in front.
-  - **20 licences**: confirm that the Settings button starts the viewer, and that `THIRD_PARTY_NOTICES.md` in the candidate names libmpv, FFmpeg and libplacebo and contains the written source offer for `sources.tar.zst`. Check the viewer process by its process start only; read the file contents directly. Do not drive or capture the external viewer. A PASS here means the file is correct and the viewer starts.
-  - **1 the 200 ms warm poster:** do not re-measure by capture. The capture-free measurement from run 2 (prewarmed 190 ms) stands. Mark it "PASS by reference to 0fd7293".
-- Also re-run 13 and 14, to make sure the fixes did not break Before/After. 14 stays HUMAN.
+- Lint, unit tests, the main crate's Rust tests and clippy, the helper's Rust tests and clippy (default and all features), Vitest, and the player Playwright e2e. All must pass, except failures that also happen on `main` and are environmental (no ffmpeg on PATH, LGPL FFmpeg without libx264, no Git): list those with the failing test names and the reason. Do not loosen or skip tests.
+- Close everything you started. Report the PIDs and that none remain, including any `OpenWith.exe`. Empty `work\scratch\owner-check\home` and delete the no-DLL copy after recording their sizes. Evidence goes under `work\evidence\VE-P1e-3c2-F2\`, at most 300 MB. Never commit captures. Persistent growth at most 1 GB.
 
-## 5. Checks before the report
+## 7. Report
 
-- Lint, unit tests, the helper's Rust tests and clippy (default and all features), Vitest, and the player Playwright e2e. All must pass. Do not loosen or skip tests.
-- Close everything you started. Report the PIDs and that none remain. Empty `work\scratch\owner-check\home` at the end and delete the no-DLL copy after recording their sizes. Evidence goes under `work\evidence\VE-P1e-3c2-F1\`, at most 300 MB. Never commit captures. Persistent growth ≤ 1 GB.
-
-## 6. Report
-
-- The root cause and fix for 2.1 and 2.2, with the test that fails before and passes after.
-- The table of the re-checked items, with evidence.
+- The fix for 20 and the tests that fail before and pass after.
+- The table of the re-checked items with evidence, and the 11 samples.
 - Changed files.
 - A short Japanese summary at the end for the owner (3-6 lines).
-- **COMPLETED** only if both defects are fixed with tests, items 10, 11, 15, 19, 20 and 21 are PASS, 13 is PASS, and every check in section 5 passed. Otherwise PARTIAL.
-
-## 7. Designer review of run 1 (1a61dae) and the re-check through Computer Use
-
-Run 1 is accepted as code: the per-command completion state (ack and PLAYBACK_RESTART kept separately, specific timeout messages) and the explicit cursor hide driven by the controls' idle state, with regression tests that failed before the fix. Not accepted yet: none of the section 4 items ran on the production candidate, because foreground verification failed and Computer Use was refused inside `codex exec`.
-
-The local CPU pytest failures (11) and the five Playwright fixture failures look environmental: ffmpeg/ffprobe were not on PATH, Git access was denied, and the LGPL FFmpeg lacks libx264. Hosted CI on 1a61dae decides; do not change tests for them in this round.
-
-**This round runs in the Codex desktop app, not `codex exec`, so that Computer Use can be approved there for the VideoEnhancer windows.** The owner approved this route. The designer starts this round in the app and approves the app's Computer Use prompt for VideoEnhancer only.
-
-- Do only the section 4 re-check items (1 by reference, 10, 11, 13, 14 HUMAN, 15, 19, 20, 21) on the rebuilt production candidate, with the same isolated `VE_HOME`, the same clips and the History items already queued through the engine API. Use Computer Use for input and screenshots of the VideoEnhancer and VideoEnhancer-Player windows only. You may still use your HWND capture script for drawn-time readings.
-- For 11, also read `GetCursorInfo` from a script while the player is in front.
-- Do not change product code in this round. If an item fails, record it with evidence.
-- Then rewrite `.ai/LAST_REPORT.md` as **run 2** of VE-P1e-3c2-F1. Keep run 1 by reference to `1a61dae`. Apply section 6. The section 5 checks that passed in run 1 need not be repeated, because no code changes in this round.
-- Clean up as in section 5. If a file in the isolated home cannot be deleted, list it; the operator deletes it.
+- **COMPLETED** only if 20, 21, 11 (a-e), 12 and 16 are PASS and every check in section 6 passed or is a listed environmental failure. Otherwise PARTIAL.
