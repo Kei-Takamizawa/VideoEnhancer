@@ -1,9 +1,10 @@
 import { StorageCard } from "./Storage";
+import { Licences } from "./Licences";
 import { VideoLinksCard } from "./VideoLinks";
 import { CopyMessage, Notice } from "./Notice";
 import { Check } from "lucide-react";
 import { ActionButton } from "./ActionButton";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Api } from "./api";
 import { duration } from "./api";
 import type { Health, Model, Operation, Settings } from "./types";
@@ -362,6 +363,16 @@ export function SettingsPage({
   const previousCalibration = pastCalibration
     ? `The last calibration on ${operation?.created_at ? new Date(operation.created_at).toLocaleString() : "an earlier date"} failed: ${operation?.error || "No reason was recorded."}` : "";
   const [draft, setDraft] = useState(value);
+  const [licencesOpen, setLicencesOpen] = useState(false);
+  const licencesButton = useRef<HTMLButtonElement>(null);
+  const restoreLicencesFocus = useRef(false);
+  const closeLicences = useCallback(() => { restoreLicencesFocus.current = true; setLicencesOpen(false); }, []);
+  useEffect(() => {
+    if (!licencesOpen && restoreLicencesFocus.current) {
+      licencesButton.current?.focus();
+      restoreLicencesFocus.current = false;
+    }
+  }, [licencesOpen]);
   const [startupError, setStartupError] = useState("");
   useEffect(() => {
     let active = true;
@@ -411,7 +422,9 @@ export function SettingsPage({
     setDraft(old => ({ ...old, [key]: value }));
   };
   return (
-    <section className="settings-page">
+    <>
+    {licencesOpen && <Licences close={closeLicences} />}
+    <section className="settings-page" hidden={licencesOpen}>
       <div className="page-heading"><h1>Settings</h1><ActionButton onClick={tour} className="tutorial">Tutorial</ActionButton><span role="status">{message}</span></div>
       {error && <Notice autoDismiss identity={error} dismiss={() => setError("")}>{error}</Notice>}
       <div className="settings-columns">
@@ -444,9 +457,10 @@ export function SettingsPage({
           <VideoLinksCard api={api} />
           <article className="card"><h2>About</h2><p>VideoEnhancer {health?.version || "0.1.0"} · Windows 11 · MIT licence</p><p>{health?.gpu || "Detecting GPU…"} · Driver {health?.driver || "unknown"}{health?.vram_bytes ? ` · ${(health.vram_bytes / 1e9).toFixed(1)} GB VRAM` : ""}</p>
             {health?.software_decoders && <p>FFmpeg software decoding: VP9 {health.software_decoders.vp9 ? "available" : "unavailable"}, AV1 {health.software_decoders.av1 ? "available" : "unavailable"}</p>}
-            <ActionButton onClick={() => window.desktop.licences?.()}>Open-source licences</ActionButton><p className="muted">Your videos stay on this computer. No telemetry or automatic updates. Models have their own licences.</p></article>
+            <ActionButton ref={licencesButton} onClick={() => setLicencesOpen(true)}>Open-source licences</ActionButton><p className="muted">Your videos stay on this computer. No telemetry or automatic updates. Models have their own licences.</p></article>
         </div>
       </div>
     </section>
+    </>
   );
 }

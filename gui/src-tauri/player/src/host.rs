@@ -15,7 +15,7 @@ use tao::{
     platform::windows::{WindowBuilderExtWindows, WindowExtWindows},
     window::{Fullscreen, WindowBuilder},
 };
-use videoenhancer_player::{Bootstrap, Command, Hover, Lifecycle, Request};
+use videoenhancer_player::{Bootstrap, Command, FrameCompletion, Hover, Lifecycle, Request};
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use windows::{
     core::HSTRING,
@@ -270,9 +270,9 @@ pub fn run() -> Result<()> {
     let mut divider_metrics: Vec<(u64, f64, f64, f64, f64)> = Vec::new();
     let mut requests = HashMap::<u64, (Instant, bool)>::new();
     let mut native_ack = HashSet::<u64>::new();
-    let mut restarted = HashSet::<u64>::new();
-    let mut seek_targets = HashMap::<u64, f64>::new();
+    let mut completions = HashMap::<u64, FrameCompletion>::new();
     let mut steps = HashMap::<u64, (f64, u64)>::new();
+    let mut command_names = HashMap::<u64, &str>::new();
 
     let mut rendered = 0u64;
     let mut click = Instant::now() - Duration::from_secs(2);
@@ -328,6 +328,7 @@ pub fn run() -> Result<()> {
                 }
             };
             let id = request.id;
+            let command_name = match &request.command {Command::Seek {..} => "seek", Command::Step {..} => "step", Command::Open {..} => "open", _ => "native action"};
             if requests.contains_key(&id) { reply(&c, id, Some("Duplicate player request.")); continue; }
             #[cfg(feature = "test-faults")]
             let mut completed = false;
@@ -383,9 +384,10 @@ pub fn run() -> Result<()> {
                         #[cfg(feature = "test-faults")]
                         { idle_since = None; window.set_visible(true); }
                         if !attached { attached=true; if !boot.prewarm {lifecycle.open()?;lifecycle.loaded()?;} emit(&c,json!({"event":"configured","title":boot.title,"original":original.is_some(),"video_width":boot.video_width,"video_height":boot.video_height,"hwnd":window.hwnd()})); return Ok(()); }
-                        lifecycle.open()?; first_frame = false; playback_restarted=false; started = Instant::now();seek_targets.insert(id,0.);
+                        lifecycle.open()?; first_frame = false; playback_restarted=false; started = Instant::now();
                         args = vec!["loadfile".into(), path.to_str().ok_or("Invalid media path")?.into()]; waits_frame = true;
                     }
+                    Command::Cursor { hidden } => { c.set_cursor_hidden(hidden && state["paused"] != true)?; },
                     Command::Close => {
                         #[cfg(feature = "test-faults")]
                         let idle = std::env::var("VE_PLAYER_TEST_IDLE").as_deref() == Ok("1");
@@ -398,7 +400,7 @@ pub fn run() -> Result<()> {
                         } else { let _ = c.controller.Close(); lifecycle = Lifecycle::Closed; *flow = ControlFlow::Exit; }
                     }
                     Command::Pause { paused } => {if let Some(follower)=&mut c.follower {follower.set_paused(paused)?;} args = vec!["set".into(), "pause".into(), if paused { "yes" } else { "no" }.into()];},
-                    Command::Seek { seconds } => { if let Some(f)=&mut c.follower {f.exact(seconds,state["paused"]==true)?;} seek_targets.insert(id,seconds); args = vec!["seek".into(), seconds.to_string(), "absolute+exact".into()]; waits_frame = true; }
+                    Command::Seek { seconds } => { if let Some(f)=&mut c.follower {f.exact(seconds,state["paused"]==true)?;} args = vec!["seek".into(), seconds.to_string(), "absolute+exact".into()]; waits_frame = true; }
                     Command::Step { forward } => {
                         if state["paused"] != true { return Err("Pause the video before stepping.".into()); }
                         args = vec![if forward { "frame-step" } else { "frame-back-step" }.into()]; waits_frame = true; steps.insert(id,(state["position"].as_f64().unwrap_or(0.),rendered));
@@ -433,7 +435,7 @@ pub fn run() -> Result<()> {
             match result {
                 Err(error) => { eprintln!("Player request {id}: {error}"); reply(&c,id,Some("The player could not complete this action. Close it and try again.")); },
                 Ok(()) if completed => {},
-                Ok(()) if native => { requests.insert(id, (Instant::now(), waits_frame)); }
+                Ok(()) if native => { requests.insert(id, (Instant::now(), waits_frame)); command_names.insert(id,command_name); if waits_frame {completions.insert(id,FrameCompletion::default());} }
                 Ok(()) => reply(&c, id, None),
             }
         }
@@ -447,8 +449,13 @@ pub fn run() -> Result<()> {
                 }
                 WindowEvent::Moved(_) | WindowEvent::ScaleFactorChanged { .. } => { let _ = c.controller.NotifyParentWindowPositionChanged(); },
                 WindowEvent::CursorMoved { position, .. } => {
+                    let _ = c.set_cursor_hidden(false);
                     cursor = POINT { x: position.x as _, y: position.y as _ };
                     let _ = c.input.SendMouseInput(COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE, if pressed { COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_LEFT_BUTTON } else { COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE }, 0, cursor);
+                }
+                WindowEvent::CursorLeft { .. } => {
+                    let _ = c.set_cursor_hidden(false);
+                    let _ = c.input.SendMouseInput(COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, 0, cursor);
                 }
                 WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
                     pressed = state == ElementState::Pressed;
@@ -464,6 +471,7 @@ pub fn run() -> Result<()> {
                 _ => {}
             },
             Event::MainEventsCleared => {
+                let _ = c.refresh_cursor();
                 #[cfg(feature = "test-faults")]
                 divider_metrics.retain(|metric| {
                     if let Some(packet)=crate::telemetry::sample(&c,metric) {emit(&c,packet);return false;}
@@ -487,7 +495,7 @@ pub fn run() -> Result<()> {
                         match event["name"].as_str().unwrap_or("") {
                             "time-pos" => { if let Some(n) = event["value"].as_f64().or_else(||value.parse::<f64>().ok()) { state["position"] = json!(n); } }
                             "duration" => { if let Some(n) = event["value"].as_f64().or_else(||value.parse::<f64>().ok()) { state["duration"] = json!(n); } }
-                            "pause" => state["paused"] = json!(value == "yes"),
+                            "pause" => { state["paused"] = json!(value == "yes"); if value == "yes" {let _=c.set_cursor_hidden(false);} },
                             "hwdec-current" => state["decoder"] = json!(value),
                             "frame-drop-count" => state["dropped"] = json!(value),
                             "eof-reached" if value == "yes" => emit(&c, json!({"event":"eof"})),
@@ -496,16 +504,15 @@ pub fn run() -> Result<()> {
                     }
                     if kind == 5 {
                         let id = event["reply"].as_u64().unwrap_or(0);
-                        if requests.get(&id).is_some_and(|(_,frame)|*frame) && event["error"].as_i64().unwrap_or(0)>=0 {native_ack.insert(id);}
-                        if event["error"].as_i64().unwrap_or(0) < 0 { native_ack.remove(&id); restarted.remove(&id); seek_targets.remove(&id); requests.remove(&id); steps.remove(&id); reply(&c, id, Some("The player could not complete this action.")); }
+                        if requests.get(&id).is_some_and(|(_,frame)|*frame) && event["error"].as_i64().unwrap_or(0)>=0 {native_ack.insert(id);if let Some(completion)=completions.get_mut(&id) {completion.acknowledged=true;}}
+                        if event["error"].as_i64().unwrap_or(0) < 0 { native_ack.remove(&id); completions.remove(&id); requests.remove(&id); steps.remove(&id); reply(&c, id, Some("The player could not complete this action.")); }
                         else if requests.get(&id).is_some_and(|(_, frame)| !frame) { requests.remove(&id); reply(&c, id, None); }
                     }
                     if kind == 21 {
-                        for (id,(_,frame)) in &requests {if *frame && native_ack.contains(id) && seek_targets.get(id).is_none_or(|target|(state["position"].as_f64().unwrap_or(0.)-target).abs()<0.1) {restarted.insert(*id);}}
-
+                        // Restart can arrive before command-reply or time-pos. Latch it
+                        // independently; the clock keeps moving while the follower aligns.
+                        for completion in completions.values_mut() {completion.observe_restart();}
                         playback_restarted=true;
-                        let ready: Vec<_> = requests.iter().filter(|(id, (_, frame))| *frame && native_ack.contains(id) && seek_targets.get(id).is_none_or(|target| (state["position"].as_f64().unwrap_or(0.)-target).abs()<0.1) && !steps.contains_key(id) && c.follower.as_ref().is_none_or(|f|f.aligned(state["position"].as_f64().unwrap_or(0.),state["paused"]==true))).map(|(id, _)| *id).collect();
-                        for id in ready { if let Some((at, _)) = requests.remove(&id) { emit(&c, json!({"reply":id,"result":{"latency_ms":at.elapsed().as_secs_f64()*1000.}})); } }
                     }
                     if kind == 7 && event["reason"] == 4 { emit(&c, json!({"event":"error"})); *flow = ControlFlow::Exit; }
                 }
@@ -513,16 +520,23 @@ pub fn run() -> Result<()> {
                     if let Err(error)=follower.poll().and_then(|_|follower.synchronize(state["position"].as_f64().unwrap_or(0.),state["paused"]==true)) {eprintln!("Original: {error}");emit(&c,json!({"event":"error"}));*flow=ControlFlow::Exit;}
                     if let Some(follower)=&c.follower {state["original_position"]=json!(follower.position);state["original_decoder"]=json!(follower.decoder);state["original_dropped"]=json!(follower.dropped);}
                 }
-                if c.follower.as_ref().is_some_and(|f|f.aligned(state["position"].as_f64().unwrap_or(0.),state["paused"]==true)) {
-                    let ready:Vec<_>=requests.iter().filter(|(id,(_,frame))|*frame && native_ack.contains(id) && restarted.contains(id) && !steps.contains_key(id)).map(|(id,_)|*id).collect();
+                if c.follower.as_ref().is_none_or(|f|f.aligned(state["position"].as_f64().unwrap_or(0.),state["paused"]==true)) {
+                    let ready:Vec<_>=requests.iter().filter(|(id,(_,frame))|*frame && completions.get(id).is_some_and(|completion|completion.ready(true)) && !steps.contains_key(id)).map(|(id,_)|*id).collect();
                     for id in ready {if let Some((at,_))=requests.remove(&id) {emit(&c,json!({"reply":id,"result":{"latency_ms":at.elapsed().as_secs_f64()*1000.}}));}}
                 }
                 let finished_steps: Vec<_> = steps.iter().filter(|(id, (before, serial))| native_ack.contains(id) && c.follower.as_ref().is_none_or(|f| f.aligned(state["position"].as_f64().unwrap_or(0.),state["paused"]==true)) && rendered > *serial && state["position"].as_f64().is_some_and(|now| (now-*before).abs()>0.00001)).map(|(id,_)| *id).collect();
                 for id in finished_steps { steps.remove(&id); if let Some((at,_))=requests.remove(&id) { emit(&c,json!({"reply":id,"result":{"latency_ms":at.elapsed().as_secs_f64()*1000.},"event":"stepDone","target_seconds":state["position"],"original_target_seconds":c.follower.as_ref().map(|f|f.target)})); } }
                 let timed_out: Vec<_> = requests.iter().filter(|(_, (at, _))| at.elapsed() > Duration::from_secs(10)).map(|(id, _)| *id).collect();
-                for id in timed_out { requests.remove(&id); steps.remove(&id); reply(&c, id, Some("The player did not respond.")); }
+                for id in timed_out {
+                    let error = if !native_ack.contains(&id) {"The native player did not acknowledge the command."}
+                        else if completions.get(&id).is_none_or(|completion|!completion.ready(true)) {"The decoded frame did not become ready after the command."}
+                        else if steps.contains_key(&id) {"The frame step did not present an aligned new frame."}
+                        else {"The original video did not align with the decoded frame."};
+                    eprintln!("Player request {id} ({}) timed out: {error} completion={:?}, master={}, original={}, paused={}",command_names.get(&id).unwrap_or(&"unknown"),completions.get(&id),state["position"],state["original_position"],state["paused"]);
+                    requests.remove(&id); steps.remove(&id); reply(&c, id, Some(error));
+                }
                 if activated && !first_frame && started.elapsed() > Duration::from_secs(12) { emit(&c, json!({"event":"error"})); *flow = ControlFlow::Exit; }
-                native_ack.retain(|id|requests.contains_key(id));restarted.retain(|id|requests.contains_key(id));seek_targets.retain(|id,_|requests.contains_key(id));
+                command_names.retain(|id,_|requests.contains_key(id));native_ack.retain(|id|requests.contains_key(id));completions.retain(|id,_|requests.contains_key(id));
                 if next_state.elapsed() >= Duration::from_millis(100) { emit(&c, state.clone()); next_state = Instant::now(); }
                 if let Err(error) = preview.poll(&c) { eprintln!("Hover preview: {error}"); }
             }

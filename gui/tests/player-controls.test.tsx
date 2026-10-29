@@ -9,6 +9,27 @@ vi.mock("../src/player/ipc", () => ({ send: bridge.send, onPlayerEvent: (listene
 afterEach(() => { vi.useRealTimers(); bridge.send.mockClear(); });
 function event(value: Record<string, unknown>) { act(() => bridge.receive({ version: 1, ...value })); }
 describe("native player controls", () => {
+  it("updates the native cursor without another mouse event and keeps controls hovered", () => {
+    vi.useFakeTimers(); render(<Controls />);
+    const player = screen.getByRole("main");
+    fireEvent.pointerMove(player);
+    act(() => vi.advanceTimersByTime(2100));
+    expect(bridge.send).toHaveBeenCalledWith({ type: "cursor", hidden: true });
+    fireEvent.pointerMove(screen.getByRole("button", { name: "Pause" }));
+    act(() => vi.advanceTimersByTime(3000));
+    expect(player.className).not.toContain("hidden-controls");
+    expect(bridge.send).toHaveBeenLastCalledWith({ type: "cursor", hidden: false });
+    fireEvent.pointerMove(player);
+    act(() => vi.advanceTimersByTime(2100));
+    expect(bridge.send).toHaveBeenLastCalledWith({ type: "cursor", hidden: true });
+    event({ event: "state", paused: true });
+    expect(bridge.send).toHaveBeenLastCalledWith({ type: "cursor", hidden: false });
+    event({ event: "state", paused: false });
+    act(() => vi.advanceTimersByTime(2100));
+    expect(bridge.send).toHaveBeenLastCalledWith({ type: "cursor", hidden: true });
+    fireEvent.pointerLeave(player);
+    expect(bridge.send).toHaveBeenLastCalledWith({ type: "cursor", hidden: false });
+  });
   it("attaches prewarmed metadata without another open and retains the poster until video is ready", () => {
     render(<Controls />);
     expect(bridge.send).toHaveBeenCalledTimes(1);

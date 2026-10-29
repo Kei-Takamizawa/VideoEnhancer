@@ -1,205 +1,206 @@
-Task ID: VE-P1e-3c2 / Run 4 / section 11.4
-Status: COMPLETED
+Task ID: VE-P1e-3c2-F3
+Status: PARTIAL
 
 ## Outcome and scope
 
-The failure is a test-fixture cancellation assumption exposed by the new Windows
-yt-dlp binary's larger Python file-write buffer. The fixture now interrupts an
-unfinished transfer after a nonempty prefix is actually saved. All original
-assertions remain, with stronger prefix-integrity and exact Range-resume checks.
-Final local validation passed. Hosted CI remains for the operator after commit/push.
+The functional completion gates passed: regression test, items 20 and 21,
+unchanged production player, lint, Vitest, player Playwright, main Rust tests and
+clippy. Overall PARTIAL because two e2e runs accidentally used output/home roots
+outside work. This containment failure is not presented as completed cleanup.
 
-Accepted runs remain by reference: **2d996bc** (Run 1), **0fd7293** (Run 2),
-**3cc4333** (Run 3). Their player, visual, timing, packaging, Compare and other
-accepted results were not repeated. Initial branch `claude/project-thread-6lra47`,
-clean HEAD `60e854a`. CURRENT_TASK.md is unchanged. No Git mutations or supervisor
-changes. No product code, tool update policy, GUI or package changes.
+Windows / Codex desktop; started 2026-10-26, finished 2026-10-27 America/Los_Angeles.
+Branch claude/project-thread-6lra47, HEAD e951751a9462af9262381caa96f0339573430b1a;
+initial working tree clean. Read AGENTS.md, CLAUDE.md, WORKSPACE.md and the complete
+CURRENT_TASK.md. CURRENT_TASK already contains the final instructions and was
+preserved because it is outside the allowed edit list. F1 remains by reference to
+1a61dae / 0da3344; F2 to b3205b5. No Git mutation, commit or push.
 
-## Root cause
+## Fix and regression
 
-The original callback cancelled at reported downloaded bytes >100,000. That counter
-includes data accepted into the downloader's user-space write buffer. At the
-reproduced cancellation point, **130,048 network bytes / 0 file bytes** were recorded.
-The product's existing forced process-tree termination then discards the unflushed
-buffer; checking the file later cannot recover those bytes.
+HistoryDetail no longer renders native startup errors. Native rejection/error
+event reasons go to console.warn; existing native diagnostic logging is unchanged.
+A usable HTML5 fallback displays "Playing with the basic player." Only its video
+error displays "This video can't be played here." and Open in default player.
+The HEVC notice and native player are unchanged.
 
-The old standalone binary embeds Python 3.10.11; the CI-matching binary embeds
-Python 3.14.10. Their default binary I/O buffer constants are **8 KiB /128 KiB**.
-130,048 bytes fit entirely inside the new 131,072-byte buffer. Both versions'
-HTTP/common downloader files are byte-identical, and sanitize_open is identical.
-It opens a buffered file, writes data, then reports progress without a per-packet
-flush. Source hashes/comparisons and checkpoint data:
-`work/evidence/VE-P1e-3c2/run4/source-and-checkpoint-evidence.json`.
+Vitest explicitly rejects openPlayer, then fires onPlayerError, verifies the
+neutral line/video and absence of error/default-player action, then fires a video
+error and verifies the error/action. Updated the existing four failure cases to
+expect the approved neutral line. Before implementation, all five cases failed,
+including the new case at the neutral-line assertion (vitest-before.log). After
+implementation, all 84 tests passed (vitest-after.log). No test was disabled.
+The four Playwright fallback cases now verify successful playback without the
+error/action and then dispatch a video error to verify the escape action remains.
 
-Primary sources: [old CPython buffer constant](https://github.com/python/cpython/blob/v3.10.11/Modules/_io/_iomodule.h),
-[new constant](https://github.com/python/cpython/blob/v3.14.10/Modules/_io/_iomodule.h),
-[yt-dlp HTTP write/progress ordering](https://github.com/yt-dlp/yt-dlp/blob/2026.10.26/yt_dlp/downloader/http.py),
-[file opening](https://github.com/yt-dlp/yt-dlp/blob/2026.10.26/yt_dlp/utils/_utils.py).
+## Candidate and hashes
 
-The PR's product download/cancel/resume path is unchanged against the checked-out
-origin/main ref and accepted2d996bc: video_links.py, link_jobs.py, link_tools.py,
-proc.py and schedule/controller.py have no diff. Only the already accepted CI
-setup script differs in that selected path inventory. This run changes the fixture.
-Saved nonempty prefixes resume correctly with both real tool releases. Early
-cancellation before any buffered data is written can still leave an empty file;
-the fixture now deliberately exercises cancellation of an existing resumable prefix.
+Production npm run build:desktop passed, including TypeScript and Vite. Replaced
+only package/VideoEnhancer-candidate/VideoEnhancer.exe with the release build;
+retained the existing production helper and payload/licence materials. Full
+verifyPlayerPayload against src-tauri/libmpv.lock.json and cached CI payload
+40202006764 passed (payload-lock.log). No player source changed.
 
-## Tool versions and provenance
-
-CI versions were read from the actual setup status output, not inferred from
-today's latest release. Both failing runs used the same tool versions and hashes:
-
-- [CI40413928231, 0fd7293](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/40413928231)
-- [CI40414055381, c3e712c](https://github.com/Kei-Takamizawa/VideoEnhancer/actions/runs/40414055381)
-
-| Environment | yt-dlp | Deno | Bundled Python |
-| --- | --- | --- | --- |
-| Both failing CI setup logs | 2026.10.26 | 2.9.8 | Binary hash matches the measured PC binary below |
-| PC original cached tools | 2026.08.19 | 2.9.7 | 3.10.11 |
-| PC exact CI-matching tools | 2026.10.26 | 2.9.8 | 3.14.10 |
-
-PC versions were executed using --version; bundled Python was measured with
---verbose against a closed loopback port. That diagnostic's connection error is
-intentional. No external media site was contacted. Full CLI/version/status records:
-`pc-tools-before.json`, `pc-tools-ci-matching-versions.json`, `*-runtime.log`,
-`ci-tools-status.txt`, `ci-c3e-tools-status.txt`.
-
-Exact CI releases were installed through the existing official-publisher,
-published-SHA256-verifying ToolManager into
-`work/cache/link-tools/yt-2026.10.26-f5389d36-deno-2.9.8-92439780`.
-Existing cached tools are untouched. No system installation or environment change.
-
-| Official release asset | Download bytes | Published SHA-256 |
-| --- | ---: | --- |
-| [yt-dlp2026.10.26](https://github.com/yt-dlp/yt-dlp/releases/tag/2026.10.26), yt-dlp.exe | 23,575,744 | `f5389d3698ecde4ef06f4e6b1ce0294fe9ac1396228c8990b8d3416d6d177a7d` |
-| [Deno2.9.8](https://github.com/denoland/deno/releases/tag/v2.9.8), Windows x64 ZIP | 42,917,472 | `cba84b26e0df5ae7f74fc66b86a95b866872a86292ebd84fa1e959927edd93bf` |
-
-Extracted deno.exe:98,081,568 bytes; SHA256
-`924397800533d3eb0ed0c889b20ad70e18b970d93acd8135bc043f425e528266`.
-The installer removed its temporary ZIP after verification. Retained executables
-and metadata are recipe-keyed cache artifacts, never Git/package content.
-
-## Fix and expected/actual behavior
-
-The cancel callback keeps the existing100,000-byte lower bound and also requires
-unfinished network progress and an actual nonempty, unfinished .part file.
-It records that checkpoint once and cancels immediately. No sleep, retry, larger
-arbitrary byte threshold, tool downgrade or timeout relaxation was added.
-
-Unchanged checks: InterruptedError on cancel, no final file before retry, nonempty
-partial, positive Range on the next attempt, completed file and180 output frames.
-Added checks: the saved bytes equal the source's exact prefix, that prefix remains
-unfinished, the cancellation checkpoint survives, and resume requests an offset
-equal to the complete saved partial size.
-
-| Case | Expected | Actual |
+| File | Old SHA-256 | New SHA-256 |
 | --- | --- | --- |
-| Original test, old tools | Resume a saved prefix | PASS1 |
-| Original test, exact CI tools | Nonempty partial | FAIL:0 bytes |
-| Diagnostic repeat, original cancel condition | Capture counter/file relationship | FAIL again:130,048 reported /0 saved |
-| Fixed test, exact CI tools | Cancel/disconnect preserve and resume correct prefix | PASS2 |
-| Five additional independent CI-tool pairs | Same assertions every run | PASS10; all five exits0 |
-| Fixed test, old tools | Backward compatibility | PASS2 |
-| Fixed cancel checkpoint, new/old tools | Saved prefix while transfer is unfinished | 261,120 /130,048 bytes respectively |
+| VideoEnhancer.exe | 34f2fe6324bde600127aed353426dfe2619a7ee468d5c80529b4a4b33c0624a0 | e0387637285a11f8a9dd5c684cb49f36809a55f8516b1b6c2e26a496cef4eab2 |
+| VideoEnhancer-Player.exe | a76d8a9f641a74bcc06673a52dd1d0ae9c784c0e97c7608a3631d5a6ba66dc6c | a76d8a9f641a74bcc06673a52dd1d0ae9c784c0e97c7608a3631d5a6ba66dc6c |
 
-Logs: `repro-old.log`, `repro-ci-tools.log`, `buffer-diagnostic.log`,
-`fixed-ci.log`, `repeat-1.log` through `repeat-5.log`,
-`repeat-results.txt`, `fixed-old.log`. These were independent fixed-count
-executions; the stability loop stops on its first failure. All earlier failures remain recorded.
+Old hashes were measured before building, not inferred from the F2 report.
+The rebuilt candidate remains in place for the owner.
 
-## Final checks
+## Computer Use: items 21 and 20
 
-| Check | Result |
-| --- | --- |
-| Ruff lint | PASS; ruff-final.log |
-| Ruff format | PASS;186 files; format-final.log |
-| Pyright configured src scope | PASS;0 errors/warnings; pyright-final.log |
-| Full CPU suite with exact CI tools enabled | PASS694 /SKIP6 /deselected101;635.52s; pytest-final.log |
-| GUI/Rust/e2e/package/GPU/visual checks | NOT_RUN this run; accepted3cc4333, unchanged by this fixture-only fix |
-| Hosted final Windows/Ubuntu CI | NOT_RUN; operator commits/pushes/checks |
+Input targeted only returned VideoEnhancer windows of the processes launched here.
+Before every click, the target was maximized and freshly captured. Full-size
+screenshot IDs were selected when auxiliary 14x14 screenshots were also returned.
+All interactive launches used exactly work/scratch/owner-check/home with isolated
+roaming/local/WebView2 profiles. No owner app or owner data was used.
 
-The full CPU suite includes local synthetic link-media acceptance with the real
-CI tools:13 PASS /1 SKIP in test_link_download.py. The existing local TLS fixture
-is skipped because OpenSSL is unavailable; the full suite has6 existing skips in
-total. No skip or assertion was loosened.
+| Item | Result | Expected / actual |
+| --- | --- | --- |
+| 21 | PASS | Copied candidate without exactly the three locked DLLs, queued supplied synthetic landscape through the isolated engine API as H.264, opened History thumbnail and clicked HTML5 Play. nodll-a.png shows frame 4 / 0.133 s; nodll-b.png frame 216 / 7.200 s; nodll-c.png frame 422 / 14.067 s. All show the basic-player line, no cannot-play text or default-player button. B and C are over 6 seconds apart (nodll-times.json saves file-write timestamps; these are not exact capture timestamps). |
+| 20 quick | PASS | On the normal rebuilt candidate, Settings -> Open-source licences displays notices in-app (licences-open.png); Close returns to Settings (licences-closed.png). |
 
-Reproduction command (from repo; the tool home is retained):
+No Show file/external player action was invoked. Native items 11(b,e),12,14,16
+were intentionally not repeated. Accepted F1 11(a,c,d) remain by reference only.
+An Escape attempt while HTML5 had focus did not close the History dialog; no fix
+was made outside scope. The own-process shutdown then closed it.
 
-```powershell
-. .\local-env.ps1
-$env:VE_LINK_TEST_TOOLS_HOME = (Resolve-Path '..\cache\link-tools\yt-2026.10.26-f5389d36-deno-2.9.8-92439780').Path
-.\.venv\Scripts\python.exe -m pytest tests/test_link_download.py::test_cancelled_transfer_resumes_partial_file -vv -s --basetemp=../scratch/p1e3c2-run4-manual -p no:cacheprovider
-```
+Computer Use errors: initial app approval timed out; refreshing returned windows
+recovered. One scroll without screenshotId was refused with:
+point (1300, 680) is outside window bounds { originX: 0, originY: 0, width: 14, height: 14 }
+Fresh full-size state and its screenshotId resolved this; no input used refused
+geometry. A transient maximize capture included desktop-edge pixels; it was not
+saved as evidence or used for clicking, and the fully maximized state was recaptured.
 
-Use unmodified60e854a test source to reproduce the original failure; this worktree
-contains the corrected fixture. All media is generated locally under scratch.
+## Section 6 checks and every failed attempt
+
+All build/test shells sourced local-env.ps1. Final player e2e roots and evidence
+used explicit absolute paths inside work.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| ESLint | PASS | lint.log and lint-final.log, exit 0 |
+| Vitest | PASS | 18 files, 84 tests; vitest-after.log |
+| TypeScript / production build | PASS | build-retry.log, release build complete |
+| Player Playwright | PASS | playwright-contained-final.log: all 7 passed, zero skipped, 1.4 min; all opt-in gates enabled |
+| Main Rust tests | PASS | rust-tests-retry.log: 29 passed, zero ignored; --locked -- --test-threads=1 |
+| Main clippy | PASS | clippy-retry.log: --all-targets --locked -- -D warnings |
+| Pinned payload | PASS | payload-lock.log |
+| git diff --check | PASS | only LF/CRLF advisory warnings |
+
+Before-fix Vitest: expected FAIL (5 cases). Initial ordinary-sandbox production
+build failed: "failed to canonicalize path ../dist: Access is denied. (os error 5)".
+Initial Rust tests: 27 PASS / 2 FAIL (healthy-home path check and clipboard held by
+another party); initial clippy failed path canonicalization. Approved elevated
+retries passed; Rust tests ran serially to avoid clipboard contention.
+
+The first two e2e runs each passed 7 tests but used incorrect roots (below).
+The first corrected-root run failed all 7 at CDP attachment with exit=0 while the
+preceding e2e run was still active. This is consistent with the app's singleton
+constraint; no assertion was loosened. After confirming that run exited, the final
+contained run passed all 7. Both failure and success logs are retained in work.
+No Python suite, GPU suite, hosted CI or owner native hand check was requested or
+claimed as run in this cycle.
+
+## Containment incident / Questions for the designer
+
+I used [IO.Path]::GetFullPath('../../scratch/f3-e2e') after Set-Location gui.
+.NET resolved it relative to the process directory, not PowerShell's new location.
+The first two runs therefore wrote synthetic e2e homes/output and evidence under:
+
+- D:/my-workspace/VideoEnhancer/scratch/f3-e2e
+- D:/my-workspace/VideoEnhancer/evidence/VE-P1e-3c2-F3
+
+These paths are outside work and violate the task boundary. Their creation follows
+from the configured roots and passing tests; contents/size were NOT inspected.
+After discovery I made no further access/deletion there and reran with explicit
+work-contained paths. The outside paths remain for the operator to assess; no
+permission to clean outside work was inferred. Outside growth is unknown and not
+included in the work disk table. VE-check and owner AppData were not accessed.
+This incident is the reason for PARTIAL despite passing functional gates.
+
+Defaults chosen without stopping: H.264 for browser playback; preserve supplied
+clips and unrelated pre-existing scratch files; retain the production helper;
+use console warnings for native failure reasons. No design change is requested
+for the fix. Operator review is needed for the containment incident.
 
 ## Changed files
 
-- `tests/test_link_download.py`: persisted-prefix cancellation checkpoint and stronger resume checks.
-- `.ai/LAST_REPORT.md`: Run4 evidence/report.
+- gui/src/HistoryDetail.tsx
+- gui/tests/player-fallback.test.tsx
+- gui/tests/e2e/native-player-fallback.spec.ts
+- gui/scripts/owner-check-auto.py (F3 evidence directory only)
+- .ai/LAST_REPORT.md
 
-No product source, workflow, dependency lock, CURRENT_TASK.md, owner data or accepted
-GUI/package material changed. All logs/tools/fixtures stay outside Git.
+## Process closure and cleanup
 
-## Disk and cleanup
+Interactive roots: no-DLL PID 28172; candidate PID 29068. close-nodll.json and
+close-candidate.json report remaining=[] and retain PID/creation-time pairs.
+Recorded descendants: 26528,21096,15280,28612,22996,26600,26872,11624,29720,29268,
+14676,27016,5268,30060,24320,10824,26808,24324,27720. No owner process terminated.
+Playwright closed its own launches; individual successful e2e app PIDs were not
+collected into a complete persistent inventory. Final process-name check found
+zero VideoEnhancer/VideoEnhancer-Player processes. Test runner sessions completed.
 
-Start/end decimal GB, logical file lengths rather than allocation. Overlapping evidence subsets are not summed.
+The own home and no-DLL copy are deleted. Removed this cycle's work-contained e2e
+homes/results, generated fixture copies and temp caches after inventorying resolved
+paths and sizes. cleanup-results.json contains the complete per-path byte table;
+no deletion refusal occurred. Original supplied clips and unrelated scratch files
+remain. No outside-work cleanup was attempted. Historical evidence was preserved
+for the task's accepted F1/F2 references; no unrelated retention cleanup was done.
 
-| Item | Start GB | Final GB |
+## Disk table and cleanup bytes
+
+Decimal GB; logical lengths, not allocated disk space. Start values come from the
+initial inventory tool output; disk-cycle-start.json reconstructs those exact values
+because the launch helper overwrote disk-start.json on subsequent launches.
+End values precede this final report write by a few kilobytes.
+
+| Metric | Start GB | End GB |
 | --- | ---: | ---: |
-| C free | 351.306736 | 351.295730 |
-| D free | 978.752106 | 978.638320 |
-| `cache` | 9.505453 | 9.627114 |
-| `scratch` | 0.008649 | 0.000000 |
-| `package` | 0.125281 | 0.125281 |
-| `evidence/VE-P1e-3c2` | 0.197390 | 0.198147 |
-| Run4 evidence (cycle subset) | 0 | 0.000645 |
-| New verified tool recipe (cache subset) | 0 | 0.121660 |
+| C free | 351.215828992 | 351.204245504 |
+| D free | 976.552120320 | 976.134426624 |
+| package | 0.125288579 | 0.125288579 |
+| evidence | 0.458314748 | 0.460327245 |
+| scratch | 0.042238391 | 0.042238391 |
+| cache | 11.286228517 | 11.345288802 |
+| repo | 3.843702189 | 3.843703788 |
+| package/VideoEnhancer-candidate (overlapping subset) | Not separately measured | 0.048313737 |
+| evidence/VE-P1e-3c2-F3 (overlapping subset) | Not separately measured | 0.002012497 |
 
-All14 cleanup candidates listed below were removed, **14,556 measured logical bytes**. Test fixtures had already cleaned their media/outputs; manual cleanup removed remaining caches/empty test roots. Per-item outcomes: cleanup-results.json. No new refusal. Scratch has no files at final inventory; empty parent/tmp directories remain. The inherited-profile disappearance is separately attributed below.
+Work-contained nonoverlapping retained growth: 0.061074381 GB, below 1 GB.
+Cycle evidence 0.002012497 GB, below 0.3 GB; cache below 40 GB.
+Outside-work incident growth remains unknown; therefore a complete all-location
+growth assertion is NOT established. Repo enumeration is a partial logical
+inventory (the historical inaccessible .pytest_cache is not attributed).
 
-Measured net change across the four inventoried work folders: **0.113768 GB**. Adding all current checkout files modified since start as a conservative bound (36,211 bytes, including .venv runtime caches) and restoring 8,648,980 bytes of unattributed inherited-profile decrease to avoid taking credit for it gives **0.123 GB** retained logical growth, rounded up to a whole MB. It is not a drive-wide allocation delta. Growth <=1GB, cache <40GB, whole-cycle evidence <300MB and D free >200GB: PASS. The package is unchanged. Disk-start.json /disk-final.json retain exact bytes.
-
-No dependency restore; existing .venv reused.
-Only the verified tool releases above were downloaded. Start inventory:
-`work/evidence/VE-P1e-3c2/run4/disk-start.json`.
-
-Prior owner cleanup items were excluded from this run's manual plan and never retried:
-`scratch/p1e3c2-native/h264-bench-two-0` (start1,712 bytes) and
-`scratch/p1e3c2-native/visual-proof` (start8,647,268 bytes). Both were already absent
-at final inspection; their parent remained empty. The removing actor/cause was not
-established. This disappearance is not counted in our14,556-byte removal total or
-credited toward the conservative growth bound. No new refused deletion or known
-owner cleanup action remains. The test teardown only removes its UUID-owned roots;
-the manual plan/results contain no inherited profile or ancestor.
-
-## Remaining actions / owner check
-
-No new manual GUI check or design decision is required for this test-fixture fix.
-Retain the owner checklist from3cc4333. The operator should review the unchanged
-original assertions, commit only the two listed files, push the authorized branch,
-and verify Windows local-media acceptance on the new commit. Hosted CI is not
-reported green before that happens. Product early cancellation and update policy
-remain unchanged.
-
-## Cleanup inventory (recorded before deletion)
-
-Logical bytes per candidate; inherited refused profiles and their ancestors are excluded.
-
-| Candidate under work | Logical bytes |
+| Removed item inside work | Measured bytes |
 | --- | ---: |
-| `scratch/p1e3c2-run4-buffer-diagnostic` | 0 |
-| `scratch/p1e3c2-run4-final-cpu` | 0 |
-| `scratch/p1e3c2-run4-fixed-ci` | 0 |
-| `scratch/p1e3c2-run4-fixed-old` | 0 |
-| `scratch/p1e3c2-run4-repeat-1` | 0 |
-| `scratch/p1e3c2-run4-repeat-2` | 0 |
-| `scratch/p1e3c2-run4-repeat-3` | 0 |
-| `scratch/p1e3c2-run4-repeat-4` | 0 |
-| `scratch/p1e3c2-run4-repeat-5` | 0 |
-| `scratch/p1e3c2-run4-repro-ci` | 0 |
-| `scratch/p1e3c2-run4-repro-old` | 0 |
-| `scratch/tmp` | 0 |
-| `scratch/videoenhancer.jsonl` | 3098 |
-| `repo/.ruff_cache` | 11458 |
+| scratch/owner-check/home | 92721351 |
+| scratch/owner-check/candidate-nodll | 11756919 |
+| scratch/f3-e2e-results | 45 |
+| scratch/f3-e2e-results-final | 45 |
+| scratch/f3-e2e-results-contained | 137299 |
+| scratch/f3-e2e | 86957593 |
+| scratch/f3-e2e-final | 180704885 |
+| scratch/f3-e2e-results-contained-final | 45 |
+| scratch/p1e3c2-native/pair-original.mp4 | 21083325 |
+| scratch/p1e3c2-native/pair-enhanced.mp4 | 21083325 |
+| scratch/p1e3c2-native/review-original-720.mp4 | 21083325 |
+| scratch/p1e3c2-native/review-output-1080.mp4 | 21083325 |
+| scratch/p1e3c2-native/review-poster.jpg | 49435 |
+| scratch/tmp/node-compile-cache | 9372460 |
+| scratch/tmp/playwright-transform-cache | 227957 |
+| Zero-byte temporary/result directories (exact paths in cleanup-results.json) | 0 |
+
+Total independently measured bytes removed: 466261334.
+Drive free-space changes were not used as deletion measurements.
+
+## Owner summary (Japanese)
+
+基本プレイヤー再生中の誤ったエラー表示を修正し、修正前FAIL／修正後PASSの回帰テストを追加しました。
+項目20・21、Vitest 84件、player e2e 7件、Rust 29件、lint・clippyはPASSです。
+候補を更新し、プレイヤーexeのハッシュは不変です。起動したアプリは終了し、隔離ホームとDLLなしコピーは削除済みです。
+e2eの相対パス指定を誤りwork外へ合成テスト出力を作成したため、総合状態はPARTIALです。外側の場所は追加確認・削除していません。
+commit・pushは行っていません。外側の出力場所の確認はオペレーターに引き継ぎます。

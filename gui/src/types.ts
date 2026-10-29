@@ -227,7 +227,7 @@ export type Model = {
 };
 export type Connection = { base_url: string; token: string };
 export interface Desktop {
-  licences?(): Promise<void>;
+  licences?(): Promise<{ text: string; path: string }>;
   onPlayerMetric?(callback: (event: {id: string; event: Record<string, unknown>}) => void): () => void;
   prewarmPlayer?(id: string): Promise<boolean>;
   openPlayer?(jobId: string): Promise<boolean>;

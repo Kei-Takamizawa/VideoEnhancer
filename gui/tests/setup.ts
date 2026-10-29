@@ -9,7 +9,8 @@ Object.defineProperty(window, "matchMedia", {
   })),
 });
 window.desktop = {
-  reveal: vi.fn(),
+  licences: vi.fn(async () => ({ text: "Fixture notices", path: "D:\\fixture\\THIRD_PARTY_NOTICES.md" })),
+  reveal: vi.fn(async () => {}),
   hide: vi.fn(),
   onTrayExplanation: vi.fn(() => () => {}),
   connection: vi.fn(),

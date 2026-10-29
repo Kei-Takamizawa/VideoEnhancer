@@ -6,6 +6,48 @@ use std::{collections::HashMap, path::PathBuf};
 pub const VERSION: u32 = 1;
 pub const MAX_MESSAGE: usize = 16 * 1024;
 
+/// Native acknowledgement and playback restart are independent events.
+#[derive(Debug, Default)]
+pub struct FrameCompletion {
+    pub acknowledged: bool,
+    restarted: bool,
+}
+impl FrameCompletion {
+    pub fn observe_restart(&mut self) {
+        self.restarted = true;
+    }
+    pub fn ready(&self, follower_aligned: bool) -> bool {
+        self.acknowledged && self.restarted && follower_aligned
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::FrameCompletion;
+
+    #[test]
+    fn restart_before_ack_is_retained_until_follower_catches_up() {
+        let mut completion = FrameCompletion::default();
+        completion.observe_restart();
+        assert!(!completion.ready(true));
+        completion.acknowledged = true;
+        assert!(!completion.ready(false));
+        assert!(completion.ready(true));
+    }
+
+    #[test]
+    fn acknowledgement_without_restart_cannot_complete_a_seek() {
+        let mut completion = FrameCompletion {
+            acknowledged: true,
+            ..Default::default()
+        };
+        assert!(!completion.ready(true));
+        completion.observe_restart();
+        assert!(!completion.ready(false));
+        assert!(completion.ready(true));
+    }
+}
+
 /// A result is always addressed to the originating request, including errors.
 pub fn response(id: u64, result: Result<serde_json::Value, String>) -> serde_json::Value {
     match result {
@@ -43,6 +85,9 @@ pub enum Command {
         handle: String,
     },
     Close,
+    Cursor {
+        hidden: bool,
+    },
     Pause {
         paused: bool,
     },
