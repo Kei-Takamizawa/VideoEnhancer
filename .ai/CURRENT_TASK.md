@@ -1,135 +1,99 @@
-# CURRENT_TASK: VE-P1e-3d1 (faster Compare, a warm part worker, bit-identical speed-ups, two player fixes)
+# CURRENT_TASK: VE-P1e-3d2 (estimates for the faster engine, calibration that keeps the finalization curve, estimate gate rerun)
 
 > Follow `AGENTS.md` and `CLAUDE.md` on `main` for the workflow. This file defines only the work.
 
-- **Task ID:** VE-P1e-3d1
-- **Date:** 2026-10-29
+- **Task ID:** VE-P1e-3d2
+- **Date:** 2026-10-30
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
 - **Repository:** https://github.com/Kei-Takamizawa/VideoEnhancer
 
 ## 1. Start
 
-- **Branch:** `claude/project-thread-6lra47`, which equals `main` c28b461 plus a merge commit. Open a new draft PR when the operator pushes.
-- **Where:** `codex exec` as usual. No Computer Use is needed in this cycle; measure with scripts and your own-window capture, as in P1e-3c2.
+- **Branch:** `claude/project-thread-6lra47`, which equals `main` 38b41ae (P1e-3d1 merged) plus this task commit. Open a new draft PR when the operator pushes.
+- **Where:** `codex exec` as usual. No Computer Use is needed.
 - Write a new `.ai/LAST_REPORT.md`. Its first lines must be the Task ID and `Status: COMPLETED | PARTIAL | BLOCKED`.
 - **Do not stop for a question.** Write the default you chose under "Questions for the designer" and continue.
 - Never touch the owner's normal app or its data. Use isolated homes under `work\scratch\`. Synthetic media only.
-- **Every path you write must be under `work\`.** In F3 an e2e run wrote 376 MB to `D:\my-workspace\VideoEnhancer\scratch` because `[IO.Path]::GetFullPath('../../scratch/...')` resolved against the process directory, not the PowerShell location. Build paths from an absolute `work\` root, and check before any long run that the output root starts with `D:\my-workspace\VideoEnhancer\work\`.
+- **Every path you write must be under `work\`.** Build paths from an absolute `work\` root, and check before any long run that the output root starts with `D:\my-workspace\VideoEnhancer\work\`. Redirect TEMP to `work\scratch\tmp`, as in P1e-3d1.
+- **Long runs.** The gate jobs in section 6 take hours. Record each run's start, its isolated home and its process IDs in the evidence folder before you start waiting, so a resume after an interruption can find and check it. If a run is interrupted (usage limit, app update, capacity stop), re-run only that run, and report the interrupted one as interrupted. Never use a partial run as a gate result.
 
 ## 2. Where this cycle sits
 
-P1e-3d is split into two cycles:
+P1e-3d1 made the engine faster without changing output bytes: a warm part worker (start-up of parts 2..N fell from 4.542 s to 0.149 s), C1 kept on the GPU (+0.755%), and faster Compare. The estimator and the built-in RTX 4060 Ti profile still describe the old engine:
 
-| Cycle | Content |
+- `predict_segment` (`estimate/model.py`) adds one per-part start-up, `startup_by_preset` (standard 4.49 s, fast 2.55 s), to **every** part. With the warm worker only the first part, and the first part after each worker replacement, pays the cold start.
+- Local learning (`estimate/local.py`) takes the median of recent `startup_samples` without telling cold and warm parts apart, so it will settle on a mix that fits neither.
+- The built-in profile (`estimate/profiles/rtx-4060-ti-8gb.json`, revision `p1e2-stage-sizes2`) was measured before the VRAM cap (P1e-3a), the warm worker and C1 residency.
+- **Settings > Run speed calibration throws away the long finalization curve.** `bench/runner.py` (around line 1316) sets `profile["finalization"] = calibrate_finalization(target)`. That is a linear fit (`a`, `b`, `c`) on four tiny clips (at most 900 frames). The built-in profile has a measured piecewise curve (`points` from 1, 30 and 120 minute outputs, P1e-2 Part F), and `predict_finalization` uses `points` when they exist. After a calibration the curve is gone, and the 120-minute prediction falls back to the tiny-clip line. P1e-2 showed what that line does: 4.2 s predicted against 19.1 s actual on the 10-minute job.
+- Calibration also writes a fixed `segment_overhead_seconds = 2.0` and no `startup_by_preset`, so a measured profile predicts start-up worse than the built-in one.
+- `service/downloads.py` `gpu_test_prediction` uses the same per-part start-up for a model's qualification run, which always starts a fresh worker.
+
+Out of scope: any change to output pixels or audio, models, presets, settings defaults, the GPU memory cap, GPU admission or preemption, the player, Compare speed, and C17.
+
+## 3. Part A: start-up in the estimator
+
+1. **Two start-up terms per preset:** a cold start (a fresh worker: child entry, CUDA, model loading, weight verification, decoder open, parent IPC) and a warm start (a reused worker). Store them in the profile as `startup_by_preset: {preset: {"cold": s, "warm": s}}`. Keep reading the old flat form as cold = warm = the old value, so older profiles and the owner's existing local data still load.
+2. **Which parts are cold.** Follow the worker rules in `docs/part-worker-lifecycle.md`. In the first estimate, the first part of a job and every 50th part after it are cold, and the rest are warm. While a job runs, a part that will start in a fresh worker (after a failure, a retry, a pause or a resume) counts as cold. Put this rule in one function that both the estimator and its tests use, not in two copies.
+3. **Local learning.** Record whether each part's start-up was cold or warm (the controller knows whether it reused the worker), and learn cold and warm medians separately, each over the last 20 samples, per preset. Exclude spilled parts, as today.
+4. **Old local data.** Bump `estimate_revision` (for example `p1e3d2-warm1`), so timing observations learned on the old engine are not mixed into the new profile. The existing revision check in `local.py` `_key` already does this. Do not delete or rewrite any existing observation file.
+5. `gpu_test_prediction` uses the cold term.
+6. **Tests:** cold/warm assignment for 1, 2, 50, 51 and 120 parts; a resumed job; a failed part followed by a retry; old flat profile still loads; local learning keeps cold and warm apart; the revision bump ignores old observations.
+
+## 4. Part B: calibration keeps the finalization curve
+
+1. Settings calibration must never replace a measured `points` curve with the tiny-clip line.
+   - Keep the built-in `points` (they come from real 1, 30 and 120 minute outputs on this PC's class of disk).
+   - Still run the tiny-clip measurement, but store it as a diagnostic (`finalization.tiny_clip_fit`) and use it only when there is no curve at all (an unknown GPU without a built-in profile).
+   - If you think the tiny clips should scale the curve for a slower or faster disk, report the ratio you measured and what scaling it would give, but do not apply it in this cycle. Write it under "Questions for the designer".
+2. Calibration measures `startup_by_preset` cold and warm. Use the real `ProcessExecutor` with `reuse=True` on a short synthetic job with at least 3 parts, per preset (Standard and Fast), at the reference size. Cold = part 1; warm = the median of the later parts. Stop writing the fixed `segment_overhead_seconds = 2.0` when a measured value exists.
+3. Calibration time: report the old and new wall time. The added time is at most 90 s. Update the "about N min" shown in Settings only through the existing `calibration_minutes` value, not by changing the GUI.
+4. **Tests:** after a simulated calibration over a profile that has `points`, the `points` are unchanged and `predict_finalization` for 1, 10, 30 and 120 minute jobs is unchanged; with no curve, the tiny-clip fit is used; startup terms are written in the new form.
+
+## 5. Part C: a new built-in profile for the faster engine
+
+1. On the owner's PC (RTX 4060 Ti 8 GB), in an isolated home, run the full calibration on `main` 38b41ae plus your Part A and B changes. Build the new `rtx-4060-ti-8gb.json` from it:
+   - stage and model coefficients, size points up to 1440 output, `max_measured_output_pixels`, cold and warm start-up per preset;
+   - keep the finalization `points` and `samples` from the current built-in profile unchanged (P1e-3d1 did not change finalization);
+   - the new `estimate_revision`, and a `provenance` line that names the commit, the date and the method.
+2. Run the calibration 3 times. Report each coefficient's median and spread. Use the median. If any coefficient's spread is above 10%, report it and say which runs differ and why, as far as you can tell.
+3. Report a table of the old and new values for each term.
+
+## 6. Part D: estimate gate rerun
+
+Every gate job runs in a **fresh** isolated home with the new built-in profile and no local observations, the way a new user starts. Run each one once. If a run is interrupted, re-run it in a new fresh home.
+
+| Job | Gate |
 | --- | --- |
-| **P1e-3d1 (this one)** | Compare speed, a warm part worker, bit-identical speed-ups from P1e-2 O9, and two player fixes |
-| P1e-3d2 | Calibration that keeps the long finalization curve, then the estimate gate rerun on the faster engine |
+| G-10: the P1e gate job: 10-minute portrait Standard C1, 1080x1920/60 HEVC, test hours with a 15-minute gap placed in the second half of the job | first estimate within ±10% of the actual processing time; first finish time within ±10% of the elapsed time from adding to done, gap included; live finish time at 50% within ±5%; finalization prediction within ±25%. Also report the live finish time at 25% and 75% (no gate). |
+| G-1440: 30-second portrait Standard C1, 1440x2560/60 output | first estimate within ±15% |
+| G-Fast: 2-minute 1080p landscape Fast, 2x fps, H.264 | first estimate within ±10% (new) |
+| G-Cal: after G-10, run Settings calibration in that same home, then recompute G-10's finalization prediction from its manifest | within ±25% of G-10's actual finalization (this proves Part B) |
 
-Out of scope: any change to output pixels or audio, model choice, presets, settings defaults, the GPU memory cap from P1e-3a, GPU admission or preemption between jobs, calibration and estimates (P1e-3d2), and C17 one-pass thumbnails. C17 is dropped: P1e-3a showed that it changes scene cuts and output bytes.
+- Report each job's predicted and actual totals, the per-part predicted and actual times for cold and warm parts, and the error in percent.
+- Do not tune the profile on a gate job's own result and then re-run the same job. If a gate fails, report why from the per-part data, and say what change would fix it. The cycle is then PARTIAL for that gate, and the designer decides.
 
-## 3. The rule for every speed change: bit-identical output
+## 7. Allowed files
 
-A speed change ships only if the output is byte-identical to `main` c28b461 (the G5 check):
+- `src/videoenhancer/estimate/**` (including the built-in profile JSON) and `src/videoenhancer/bench/**`.
+- `src/videoenhancer/schedule/controller.py`, only to record whether a part started cold or warm.
+- `src/videoenhancer/service/engine.py` and `src/videoenhancer/service/downloads.py`, only where they read start-up terms or estimates.
+- `tests/**`.
+- New measurement scripts under `gui/scripts/`.
+- `docs/` for a short note on the estimate terms.
+- Nothing else. Do not change the GUI, models, model manifests, presets, settings defaults, packaging, CI workflows or the LGPL build. If something else seems needed, explain it under "Questions for the designer" and do not change it.
 
-- Compare: the SHA-256 of every preview file (Original and each model) is identical.
-- Jobs: the final output file's SHA-256 is identical for each fixture in section 7.
-- If a change is not bit-identical, do not ship it. Report the change, the differing hash, and the gain you measured.
-- Run the baseline from a scratch checkout of c28b461, as in P1e-3c2 Part C. Do not overwrite the working tree.
+## 8. Checks before the report
 
-## 4. Part A: Compare speed
+- The full CPU suite, the GPU suite `-m "gpu and not soak"`, ruff, ruff format, pyright, GUI lint and Vitest. All must pass. Do not loosen or skip tests.
+- Close everything you started and report the PIDs. Delete the cycle's scratch files after recording their sizes. Evidence goes under `work\evidence\VE-P1e-3d2\`, at most 300 MB. Never commit media or captures. Persistent growth at most 1 GB. Report free space on C: and D:.
 
-### 4.1 Baseline (P1e-3c2 Part C, 2d996bc)
+## 9. Report
 
-Fixture: a 6 s 512x288 30 fps synthetic input, a 5 s Compare, Standard (C1 cleanup + RIFE), 1080 short side, 2x fps, H.264. Idle case:
-
-| Measure | Seconds |
-| --- | ---: |
-| First tile observed | 17.5 |
-| Complete | 52.2 |
-| Model load | 2.1 |
-| Decode (wall) | 19.4 |
-| Restore | 10.0 |
-| RIFE | 9.1 |
-| Encode | 1.4 |
-| Original preview transcode | 13.7 |
-
-The stages overlap, so do not sum them. A 19.4 s decode wall for 6 s of 512x288 is far above what NVDEC or the CPU should need. Find out what that time is (waiting, per-model re-decode, synchronous reads, a CPU path) before you optimise anything else.
-
-### 4.2 Work
-
-1. **Profile first.** Extend `gui/scripts/compare-profile.py` so each stage reports its own wall time and the time it waited on another stage. Report a timeline for one idle run.
-2. **Remove waste that keeps the output identical.** Examples, all to be confirmed by your profile: decode the range once and share the decoded frames between the Original preview and the models; run the Original preview transcode in parallel with the model run instead of before it, or reuse the source bytes when the browser can play them as they are; keep models loaded between Compare clicks in the same engine session (section 5's worker can serve this).
-3. **Second click.** When the owner runs Compare again on the same file and range with another model, reuse the cached Original preview and decoded range. Use a bounded cache: at most 2 ranges, at most 1 GB of RAM, cleared when the source file's size or modification time changes, and cleared when a processing job needs the GPU memory.
-
-### 4.3 Targets (idle, same fixture, same PC)
-
-| Measure | Target |
-| --- | --- |
-| First tile observed | ≤ 9 s |
-| Complete | ≤ 30 s |
-| Second click with another model: first tile | ≤ 6 s |
-| Busy case (a Standard job running) | no more than 5% slower than baseline; admission policy unchanged |
-| Preview hashes | identical to baseline |
-
-Run each case 3 times and report the median. If a target cannot be met bit-identically, report the profile that shows why, and the best result you reached. The cycle is then PARTIAL for that target, and the designer decides.
-
-## 5. Part B: a warm part worker for jobs
-
-Today `schedule/controller.py` spawns a fresh child process for every part. The part start-up terms (child entry, decoder open, model loading, weight verification, CUDA init, first memory sample) are paid again for every part. P1e-2 measured about 7.6 s per part; part of that, the PDH sample, has since been removed.
-
-- Keep one worker process per job and reuse it for the job's next parts. Load the models and verify the weights once per worker.
-- **Keep the safety of a fresh child.** Replace the worker with a fresh one after any of these: a part fails, the watchdog fires, a CUDA OOM or its half-clip retry, a spill is detected, abort or pause, a change of model or settings, or 50 parts in one worker. The existing retry rules and their order must not change.
-- One worker at a time per GPU, as today. When the job ends or is cancelled, the worker exits within 5 s, and no worker process remains.
-- **Measure:** on a 2-minute 1080p synthetic Standard job, report the median start-up per part for part 1 and for parts 2 to N, before and after. Target: parts 2 to N at most 40% of the baseline median.
-- **Tests:** worker reuse; replacement after each of the events above, using fakes where a real GPU event cannot be forced; no leftover process after cancel, after an error, and after engine shutdown.
-
-## 6. Part C: bit-identical candidates from P1e-2 O9
-
-P1e-2 measured these single-run gains: keeping C1 loaded (+3.4%), skipping the overlap frames a part does not own (+3.4%), and CUDA streams (+5.4%). Try each on top of Part B. Ship one only if section 3 holds for every fixture in section 7. Report each one's gain as the median of 3 runs on the 2-minute job, and the hashes.
-
-## 7. Fixtures for the G5 check
-
-Synthetic only, made by your fixture scripts:
-
-- 30 s 1080p 30 fps landscape and 30 s 1080x1920 portrait, Standard and Fast, H.264 and HEVC, 2x fps on and off (at least 6 combinations, including both orientations and both presets);
-- the 2-minute 1080p Standard job from section 5;
-- one source with a hard cut, and one variable-frame-rate source.
-
-## 8. Part D: two player fixes
-
-### 8.1 The divider sometimes flashes (owner check item 14, △)
-
-The owner reported that, while dragging the Before/After divider during playback, the divider line rarely appears for an instant. Hypotheses, unverified:
-
-- The HTML divider line (WebView2) and the two DComp clips update in different frames, so for one frame the line and the picture edge disagree.
-- The two clips are computed in different units: `_video` uses `w * divider` in output pixels and `before` uses `original_size.0 * divider` in original pixels. After scaling, their edges can differ by a pixel, so a thin gap or overlap shows.
-
-Reproduce it first. Drive the divider through IPC at drag speed during playback, capture your own player window with WGC at the display rate, and count the frames where the divider line and the clip edge differ by more than 1 physical pixel, or where a gap shows. Fix the cause. Over 60 s of dragging, at most 0 such frames. Add a unit test for the edge arithmetic.
-
-### 8.2 Esc in the fallback dialog
-
-F3 noticed that Esc does not close the History dialog while the HTML5 `<video>` has focus. Make Esc close the dialog, except while the video is in full screen, where Esc leaves full screen first. Add a Vitest test.
-
-## 9. Allowed files
-
-- `src/videoenhancer/**` and `tests/**` for Parts A to C.
-- `gui/scripts/compare-profile.py` and new measurement scripts under `gui/scripts/`.
-- `gui/src-tauri/player/src/**`, `gui/src/player/**`, `gui/src/HistoryDetail.tsx`, and their tests, for Part D.
-- `docs/` for a short note on the worker's life cycle.
-- Nothing else. Do not change models, model manifests, presets, settings defaults, packaging, CI workflows or the LGPL build. If something else seems needed, explain it under "Questions for the designer" and do not change it.
-
-## 10. Checks before the report
-
-- The full CPU suite, the GPU suite `-m "gpu and not soak"`, ruff, ruff format, pyright, GUI lint, Vitest, the player Playwright e2e, and Rust tests and clippy for the player crate. All must pass. Do not loosen or skip tests.
-- Close everything you started and report the PIDs. Delete the cycle's scratch files after recording their sizes. Evidence goes under `work\evidence\VE-P1e-3d1\`, at most 300 MB. Never commit media or captures. Persistent growth at most 1 GB. Report free space on C: and D:.
-
-## 11. Report
-
-- Part A: the profile timeline, what the 19.4 s decode wall was, each change and its gain, the target table, and the hashes.
-- Part B: the start-up table and the replacement tests.
-- Part C: each candidate, shipped or not, with its gain and hashes.
-- Part D: the cause found for the flash, the frame counts before and after, and the Esc fix.
+- Part A: the start-up model, the cold/warm rule, and the tests.
+- Part B: what calibration now writes, the old and new calibration wall time, and the tiny-clip ratio if you measured one.
+- Part C: the three calibration runs, medians and spreads, and the old/new table.
+- Part D: the gate table with every number, and the per-part cold/warm data.
 - Changed files.
 - A short Japanese summary at the end for the owner (3-6 lines).
-- **COMPLETED** only if every shipped change is bit-identical, the targets in 4.3 and 5 are met, the flash count is 0, the Esc test passes, and every check in section 10 passed. Otherwise PARTIAL.
+- **COMPLETED** only if every gate in section 6 passes and every check in section 8 passed. Otherwise PARTIAL.
