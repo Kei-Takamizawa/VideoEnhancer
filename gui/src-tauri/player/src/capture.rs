@@ -45,6 +45,108 @@ struct Session {
     last: std::sync::Arc<std::sync::Mutex<Option<Direct3D11CaptureFrame>>>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     reader: Option<std::thread::JoinHandle<()>>,
+    seam: std::sync::Arc<std::sync::Mutex<SeamStats>>,
+    gpu_lock: std::sync::Arc<std::sync::Mutex<()>>,
+}
+#[derive(Default)]
+struct SeamStats {
+    enabled: bool,
+    frames: u64,
+    gap_frames: u64,
+    max_gap: usize,
+    first_seconds: f64,
+    last_seconds: f64,
+    errors: u64,
+    red_blue_frames: u64,
+}
+
+pub unsafe fn seam_watch(
+    hwnd: HWND,
+    enabled: bool,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    CAPTURE.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.is_none() {
+            *slot = Some(Session::new(hwnd)?);
+        }
+        let capture = slot.as_ref().ok_or("No capture session")?;
+        if capture.hwnd != hwnd { return Err("Capture window changed".into()); }
+        let mut stats = capture.seam.lock().map_err(|_| "Seam lock")?;
+        if enabled { *stats = SeamStats { enabled: true, ..Default::default() }; }
+        else { stats.enabled = false; }
+        Ok(serde_json::json!({"frames":stats.frames,"red_blue_frames":stats.red_blue_frames,"gap_frames":stats.gap_frames,"max_gap_pixels":stats.max_gap,"first_seconds":stats.first_seconds,"last_seconds":stats.last_seconds,"errors":stats.errors,"method":"WGC every received own-window frame; red/blue synthetic center row"}))
+    })
+}
+
+unsafe fn measure_seam(
+    device: &ID3D11Device,
+    context: &ID3D11DeviceContext,
+    frame: &Direct3D11CaptureFrame,
+    stats: &mut SeamStats,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let access: IDirect3DDxgiInterfaceAccess = frame.Surface()?.cast()?;
+    let source: ID3D11Texture2D = access.GetInterface()?;
+    let mut desc = D3D11_TEXTURE2D_DESC::default();
+    source.GetDesc(&mut desc);
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.MiscFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as _;
+    let mut staging = None;
+    device.CreateTexture2D(&desc, None, Some(&mut staging))?;
+    let staging = staging.ok_or("No staging")?;
+    context.CopyResource(&staging, &source);
+    let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+    context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
+    let row = std::slice::from_raw_parts(
+        (mapped.pData as *const u8).add(desc.Height as usize / 2 * mapped.RowPitch as usize),
+        desc.Width as usize * 4,
+    );
+    let colored = |x: usize| {
+        let p = &row[x * 4..][..4];
+        p[1] < 80 && p[0] as u16 + p[2] as u16 > 230
+    };
+    let red = row
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[2] > 160 && p[0] < 80 && p[1] < 80)
+        .count();
+    let blue = row
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[0] > 160 && p[2] < 80 && p[1] < 80)
+        .count();
+    if red >= 8 && blue >= 8 {
+        stats.red_blue_frames += 1;
+    } else {
+        stats.errors += 1;
+    }
+    let first = (0..desc.Width as usize).find(|&x| colored(x));
+    let last = (0..desc.Width as usize).rfind(|&x| colored(x));
+    let mut max_gap = 0;
+    if let (Some(first), Some(last)) = (first, last) {
+        let mut gap = 0;
+        for x in first..=last {
+            gap = if colored(x) { 0 } else { gap + 1 };
+            max_gap = max_gap.max(gap);
+        }
+    } else {
+        stats.errors += 1;
+    }
+    context.Unmap(&staging, 0);
+    let at = frame.SystemRelativeTime()?.Duration as f64 / 10_000_000.;
+    if stats.frames == 0 {
+        stats.first_seconds = at;
+    }
+    stats.last_seconds = at;
+    stats.frames += 1;
+    if max_gap > 0 {
+        stats.gap_frames += 1;
+    }
+    stats.max_gap = stats.max_gap.max(max_gap);
+    Ok(())
 }
 thread_local! {static CAPTURE:std::cell::RefCell<Option<Session>>=const {std::cell::RefCell::new(None)};}
 pub fn shutdown() {
@@ -119,9 +221,31 @@ impl Session {
         let frame_pool = pool.clone();
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let ending = stop.clone();
+        let seam = std::sync::Arc::new(std::sync::Mutex::new(SeamStats::default()));
+        let measured = seam.clone();
+        let capture_device = device.clone();
+        let capture_context = context.clone();
+        let gpu_lock = std::sync::Arc::new(std::sync::Mutex::new(()));
+        let capture_lock = gpu_lock.clone();
         let reader = std::thread::spawn(move || {
             while !ending.load(std::sync::atomic::Ordering::Acquire) {
                 while let Ok(frame) = frame_pool.TryGetNextFrame() {
+                    if let Ok(mut stats) = measured.lock() {
+                        if stats.enabled {
+                            if let Ok(_guard) = capture_lock.lock() {
+                                if measure_seam(
+                                    &capture_device,
+                                    &capture_context,
+                                    &frame,
+                                    &mut stats,
+                                )
+                                .is_err()
+                                {
+                                    stats.errors += 1;
+                                }
+                            }
+                        }
+                    }
                     if let Ok(mut latest) = latest.lock() {
                         if let Some(old) = latest.replace(frame) {
                             let _ = old.Close();
@@ -141,12 +265,15 @@ impl Session {
             last,
             stop,
             reader: Some(reader),
+            seam,
+            gpu_lock,
         })
     }
     unsafe fn save(
         &mut self,
         path: &Path,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let _gpu_guard = self.gpu_lock.lock().map_err(|_| "Capture GPU lock")?;
         let started = std::time::Instant::now();
         while self.last.lock().map_err(|_| "Capture lock")?.is_none() {
             if started.elapsed() > std::time::Duration::from_secs(3) {

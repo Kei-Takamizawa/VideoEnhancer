@@ -1,6 +1,36 @@
 //! The only commands accepted from the embedded controls. Paths belong to the
 //! trusted parent's bootstrap, and are never accepted from the controls page.
 use serde::{Deserialize, Serialize};
+
+/// Keep Enhanced underneath Original so independent clip rasterization cannot
+/// expose a seam at fractional display scales. Coordinates are native pixels.
+pub fn divider_clips(original_width: u32, divider: f32) -> (f32, f32) {
+    (0., original_width as f32 * divider)
+}
+
+#[cfg(test)]
+mod divider_tests {
+    #[test]
+    fn divider_has_full_underlay_and_correct_original_edge() {
+        for (video, original) in [(1920, 1280), (2560, 1920), (1080, 720), (720, 1920)] {
+            for scale in [0.125, 1. / 3., 0.5, 627. / 1080., 1., 1.75, 4.] {
+                for offset in [-537.25, 0., 71.75] {
+                    for i in 0..=1000 {
+                        let fraction = i as f32 / 1000.;
+                        let (after, before) = super::divider_clips(original, fraction);
+                        // The full underlay covers pixels even if Original's
+                        // independently rasterized edge rounds down.
+                        assert_eq!(after, 0.);
+                        let expected_edge = offset + video as f32 * fraction * scale;
+                        let before_screen =
+                            offset + before * (scale * video as f32 / original as f32);
+                        assert!((expected_edge - before_screen).abs() < 0.01);
+                    }
+                }
+            }
+        }
+    }
+}
 use std::{collections::HashMap, path::PathBuf};
 
 pub const VERSION: u32 = 1;
@@ -69,6 +99,10 @@ pub struct Request {
 pub enum Command {
     #[cfg(feature = "test-faults")]
     TestClock,
+    #[cfg(feature = "test-faults")]
+    TestSeam {
+        enabled: bool,
+    },
     #[cfg(feature = "test-faults")]
     TestReport {
         result: serde_json::Value,
@@ -141,6 +175,8 @@ impl Request {
         let valid = match &request.command {
             #[cfg(feature = "test-faults")]
             Command::TestClock | Command::TestReport { .. } => true,
+            #[cfg(feature = "test-faults")]
+            Command::TestSeam { .. } => true,
             #[cfg(feature = "test-faults")]
             Command::SelfCapture { name } => valid_handle(name),
             #[cfg(feature = "test-faults")]
@@ -312,6 +348,7 @@ mod tests {
     fn production_rejects_clock_reports_and_divider_instrumentation() {
         for command in [
             r#"{"type":"testClock"}"#,
+            r#"{"type":"testSeam","enabled":true}"#,
             r#"{"type":"testReport","result":{}}"#,
             r#"{"type":"divider","fraction":0.5,"input_ms":10}"#,
         ] {

@@ -89,7 +89,8 @@ class BasicVSRRestoreStage(Stage):
                 self.model = self.model.to(dtype=precision)
         finally:
             if self.backend == "cuda":
-                self.model = self.model.cpu()
+                if self.weight_sha256 != WEIGHTS_SHA256:
+                    self.model = self.model.cpu()
                 torch.cuda.empty_cache()
         result = result.squeeze(0).to(dtype=frames.dtype)
         if tuple(result.shape) != tuple(frames.shape):

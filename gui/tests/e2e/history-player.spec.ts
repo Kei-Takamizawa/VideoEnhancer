@@ -58,6 +58,9 @@ test("History H.264 player and video fullscreen in both sizes and themes", async
           return [state.width, state.height, state.x, state.y];
         }).toEqual([before.width, before.height, before.x, before.y]);
         records.push({ width, height, theme, restored_bounds: before });
+        await expect(page.getByRole("dialog", { name: "Video details" })).toBeVisible();
+        await video.focus();
+        await page.keyboard.press("Escape");
         await expect(page.getByRole("dialog", { name: "Video details" })).toBeHidden();
       }
     }

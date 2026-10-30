@@ -32,6 +32,24 @@ function HistoryDetailContent({ job, close, action, compare }: {
   useEffect(() => {
     setUnsupported(false);
   }, [job.id]);
+  useEffect(() => {
+    if (native !== "fallback") return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      // Capture before native video controls consume Escape or dialog focus
+      // handlers close the modal. WebView2 needs an explicit fullscreen exit.
+      event.stopPropagation();
+      event.preventDefault();
+      if (event.repeat) return;
+      if (document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => { /* The browser may already be exiting. */ });
+        return;
+      }
+      closeRef.current();
+    };
+    window.addEventListener("keydown", escape, true);
+    return () => window.removeEventListener("keydown", escape, true);
+  }, [native]);
   if (job.record_error) return <div className="modal-shade"><div className="dialog history-detail" role="dialog" aria-modal="true" aria-label="Video details"><h2>{job.unreadable_record ? `Unreadable record · ${job.record_folder_date ? new Date(job.record_folder_date).toLocaleDateString() : "Date unavailable"}` : filename(job.input)}</h2><p role="status">{job.error}<CopyMessage text={job.error || "Unreadable record"} /></p><ActionButton onClick={() => action(job, "copy")}>Copy details</ActionButton><ActionButton onClick={() => { action(job, "remove"); close(); }}>Remove</ActionButton><ActionButton onClick={close}>Close</ActionButton></div></div>;
   const gone = job.original_state === "missing" || job.original_state === "recycled";
   const fileState = (state?: string) => state === "recycled" ? "Moved to the Recycle Bin" : state === "missing" ? "File not found" : "Present";

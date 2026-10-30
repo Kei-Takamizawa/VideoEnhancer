@@ -34,6 +34,7 @@ from videoenhancer.pipeline.outliers import (
     summarize_frames,
 )
 from videoenhancer.pipeline.presets import create_stages
+from videoenhancer.pipeline.session import PipelineSession
 from videoenhancer.pipeline.stages import FrameBatch, ResizeStage
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,9 @@ def process_segment(
     progress: Callable[[dict[str, Any]], None] | None = None,
     frame_observer: Callable[[torch.Tensor, int], None] | None = None,
     reference_measurement: bool = False,
+    session: PipelineSession | None = None,
+    decoded_frames: Callable[[list[int], Callable[[], bool]], Any] | None = None,
+    encoded_packets: Callable[[bytes | None], None] | None = None,
 ) -> dict[str, Any]:
     from videoenhancer.jobs.checks import job_support_reason
     from videoenhancer.models.registry import validate_job_models
@@ -58,7 +62,10 @@ def process_segment(
     verification_started = time.perf_counter()
     if progress:
         progress({"step": "Checking weights"})
-    validate_job_models(manifest)
+    if session is None or not session.verified:
+        validate_job_models(manifest)
+        if session is not None:
+            session.verified = True
     weight_verification_seconds = time.perf_counter() - verification_started
     started = time.perf_counter()
     settings, media = manifest["settings"], manifest["media"]
@@ -67,7 +74,12 @@ def process_segment(
     if backend == "cuda":
         torch.cuda.reset_peak_memory_stats()
     cuda_initialization_seconds = time.perf_counter() - started if backend == "cuda" else 0.0
-    stages = create_stages(settings, media, set(manifest.get("scene_cuts", [])))
+    reused_stages = session is not None and session.stages is not None
+    stages = (
+        session.stages
+        if session is not None and session.stages is not None
+        else create_stages(settings, media, set(manifest.get("scene_cuts", [])))
+    )
 
     def memory_progress(memory: dict[str, Any]) -> None:
         if progress is not None:
@@ -80,9 +92,15 @@ def process_segment(
     try:
         load_started = time.perf_counter()
         for stage in stages:
+            for counter in ("nan_retries", "fallback_count", "nan_fallback_count"):
+                if hasattr(stage, counter):
+                    setattr(stage, counter, 0)
             if progress:
                 progress({"step": f"Loading {stage.name}"})
-            stage.setup()
+            if not reused_stages:
+                stage.setup()
+        if session is not None:
+            session.stages = stages
     except BaseException:
         for stage in stages:
             stage.teardown()
@@ -143,45 +161,77 @@ def process_segment(
         else []
     )
     oom_retries = 0
+    timeline: dict[str, dict[str, float]] = {}
+    queue_waits: dict[str, dict[str, float]] = {}
 
     def check() -> bool:
         return stopped.is_set() or abort()
 
     def put(q: queue.Queue, item: Any) -> None:
-        while not check():
-            try:
-                q.put(item, timeout=0.1)
-                return
-            except queue.Full:
-                pass
-        raise InterruptedError("The segment was interrupted.")
+        waiting = time.perf_counter()
+        try:
+            while not check():
+                try:
+                    q.put(item, timeout=0.1)
+                    return
+                except queue.Full:
+                    pass
+            raise InterruptedError("The segment was interrupted.")
+        finally:
+            record_wait("downstream_seconds", waiting)
 
     def get(q: queue.Queue):
-        while not check():
-            try:
-                return q.get(timeout=0.1)
-            except queue.Empty:
-                pass
-        raise InterruptedError("The segment was interrupted.")
+        waiting = time.perf_counter()
+        try:
+            while not check():
+                try:
+                    return q.get(timeout=0.1)
+                except queue.Empty:
+                    pass
+            raise InterruptedError("The segment was interrupted.")
+        finally:
+            record_wait("upstream_seconds", waiting)
+
+    def record_wait(direction: str, waiting: float) -> None:
+        name = threading.current_thread().name.removeprefix("ve-")
+        waits = queue_waits.setdefault(name, {})
+        waits[direction] = waits.get(direction, 0.0) + time.perf_counter() - waiting
 
     def guard(fn: Callable[[], None]) -> None:
+        entered = time.perf_counter()
         try:
             with torch.inference_mode():
                 fn()
         except BaseException as error:
             errors.append(error)
             stopped.set()
+        finally:
+            finished = time.perf_counter()
+            timeline[fn.__name__] = {
+                "start_seconds": entered - started,
+                "end_seconds": finished - started,
+                "wall_seconds": finished - entered,
+                **queue_waits.get(fn.__name__, {}),
+            }
 
     def decode() -> None:
         nonlocal decode_seconds, reference_check_seconds, decoder_open_seconds
         decode_started = time.perf_counter()
         if progress:
             progress({"step": "Opening decoder"})
-        decoder = IndexedDecoder(manifest["input"]["path"], media, backend, manifest)
+        decoder = (
+            IndexedDecoder(manifest["input"]["path"], media, backend, manifest)
+            if decoded_frames is None
+            else None
+        )
         decoder_open_seconds += time.perf_counter() - decode_started
         try:
             indices = manifest["cfr_map"][source_start:source_end]
-            iterator = decoder.frames(indices, check)
+            if decoded_frames is not None:
+                iterator = decoded_frames(indices, check)
+            else:
+                assert decoder is not None
+                iterator = decoder.frames(indices, check)
             pending: list[torch.Tensor] = []
             positions: list[int] = []
             for index, frame in zip(range(source_start, source_end), iterator, strict=True):
@@ -225,7 +275,8 @@ def process_segment(
                 put(decoded, batch)
             put(decoded, sentinel)
         finally:
-            decoder.close()
+            if decoder is not None:
+                decoder.close()
             decode_seconds += time.perf_counter() - decode_started
 
     def apply_stage(stage: Any, batch: FrameBatch) -> FrameBatch:
@@ -682,6 +733,7 @@ def process_segment(
             backend,
             media,
             settings.get("lossless", False),
+            **({"packet_observer": encoded_packets} if encoded_packets is not None else {}),
         )
         try:
             while True:
@@ -722,10 +774,13 @@ def process_segment(
         worker.start()
     for worker in workers:
         worker.join()
-    for stage in stages:
-        stage.teardown()
+    if session is None:
+        for stage in stages:
+            stage.teardown()
     memory_samples = memory_sampler.stop()
     if errors:
+        if session is not None:
+            session.close()
         primary = next((e for e in errors if not isinstance(e, InterruptedError)), errors[0])
         raise primary
     if written != (end - start) * factor:
@@ -799,6 +854,7 @@ def process_segment(
         "fps_without_model_loading": (end - start) / render_seconds,
         "peak_torch_allocated_bytes": torch.cuda.max_memory_allocated() if backend == "cuda" else 0,
         "decode_seconds": decode_seconds,
+        "pipeline_timeline": timeline,
         "decoder_open_seconds": decoder_open_seconds,
         "stage_seconds": stage_seconds,
         "clip_joints": [

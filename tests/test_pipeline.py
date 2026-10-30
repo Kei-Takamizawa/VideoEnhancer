@@ -1,6 +1,7 @@
 import os
 from fractions import Fraction
 from io import BytesIO
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -13,6 +14,50 @@ from videoenhancer.media.probe import probe
 from videoenhancer.media.timing import output_rate, output_size
 from videoenhancer.pipeline.runner import process_segment
 from videoenhancer.pipeline.stages import Blend2xStage, FrameBatch, ResizeStage
+
+
+def test_repeated_cpu_frames_keep_exact_bytes_with_one_color_conversion(monkeypatch):
+    surface = torch.arange(12, dtype=torch.uint8).reshape(3, 4)
+    converted = []
+
+    def convert(*_args):
+        converted.append(1)
+        return surface
+
+    monkeypatch.setattr(encode_module, "rgb_to_nv12", convert)
+    encoder = object.__new__(Encoder)
+    encoder.backend, encoder.media, encoder.bit_depth = "cpu", {"color_matrix": "bt709"}, 8
+    sink = BytesIO()
+    encoder.process = SimpleNamespace(stdin=sink)
+    encoder.write_repeated(torch.zeros(3, 2, 4), 2)
+    assert converted == [1]
+    assert sink.getvalue() == surface.numpy().tobytes() * 2
+
+
+def test_nvenc_packet_observer_receives_tail_before_eof(tmp_path, monkeypatch):
+    events = []
+    surface = torch.zeros((3, 4), dtype=torch.uint8)
+    monkeypatch.setattr(encode_module, "rgb_to_nv12", lambda *_args: surface)
+    monkeypatch.setattr(
+        torch.cuda, "current_stream", lambda: SimpleNamespace(synchronize=lambda: None)
+    )
+    encoder = object.__new__(Encoder)
+    encoder.backend, encoder.codec, encoder.bit_depth = "cuda", "h264", 8
+    encoder.media, encoder.rate = {"color_matrix": "bt709"}, Fraction(30)
+    encoder.path, encoder.raw_path = tmp_path / "output.mp4", tmp_path / "input.h264"
+    encoder.stream = encoder.raw_path.open("wb")
+    encoder.encoder = SimpleNamespace(Encode=lambda *_args: b"frame", EndEncode=lambda: b"tail")
+    encoder.packet_observer = events.append
+
+    def mux(*_args, **_kwargs):
+        assert encoder.raw_path.read_bytes() == b"frametail"
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(encode_module.proc, "run", mux)
+    encoder.write(torch.zeros(3, 2, 4))
+    encoder.finish()
+    assert events == [b"frame", b"tail", None]
+    assert not encoder.raw_path.exists()
 
 
 def test_gpu_encoder_synchronizes_and_passes_owned_host_input_to_nvenc(monkeypatch):

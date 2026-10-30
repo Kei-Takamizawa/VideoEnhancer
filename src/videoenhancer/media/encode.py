@@ -2,6 +2,7 @@
 
 import importlib
 import subprocess
+from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -146,6 +147,8 @@ def color_bsf(media: dict[str, Any], codec: str) -> str:
 
 
 class Encoder:
+    packet_observer: Callable[[bytes | None], None] | None = None
+
     def __init__(
         self,
         path: Path,
@@ -156,6 +159,7 @@ class Encoder:
         backend: str,
         media: dict[str, Any],
         lossless: bool = False,
+        packet_observer: Callable[[bytes | None], None] | None = None,
     ):
         self.path, self.codec, self.backend, self.media, self.rate = (
             path,
@@ -164,6 +168,7 @@ class Encoder:
             media,
             rate,
         )
+        self.packet_observer = packet_observer
         self.bit_depth = 8 if codec == "h264" else 10
         self.process: proc.Popen | None = None
         self.encoder: Any = None
@@ -270,25 +275,47 @@ class Encoder:
                 raise RuntimeError(
                     f"{self.codec.upper()} hardware encoding failed: {error}"
                 ) from error
-            self.stream.write(packet_bytes(packets))
+            data = packet_bytes(packets)
+            self.stream.write(data)
+            if self.packet_observer is not None:
+                self.packet_observer(data)
         else:
-            assert self.process is not None and self.process.stdin is not None
-            try:
-                self.process.stdin.write(surface.numpy().tobytes())
-            except BrokenPipeError:
-                stderr = proc.stderr_text(self.process)
-                raise RuntimeError(
-                    f"CPU encode failed: {stderr}. Check FFmpeg codec support."
-                ) from None
+            self._write_cpu_bytes(surface.numpy().tobytes())
+
+    def write_repeated(self, frame: torch.Tensor, count: int) -> None:
+        """Send identical CPU frames without repeating their color conversion."""
+        if count <= 0:
+            return
+        if self.backend != "cpu":
+            for _ in range(count):
+                self.write(frame)
+            return
+        surface = rgb_to_nv12(frame, self.media["color_matrix"], self.bit_depth)
+        self._write_cpu_bytes(surface.numpy().tobytes(), count)
+
+    def _write_cpu_bytes(self, data: bytes, count: int = 1) -> None:
+        assert self.process is not None and self.process.stdin is not None
+        try:
+            for _ in range(count):
+                self.process.stdin.write(data)
+        except BrokenPipeError:
+            stderr = proc.stderr_text(self.process)
+            raise RuntimeError(
+                f"CPU encode failed: {stderr}. Check FFmpeg codec support."
+            ) from None
 
     def finish(self) -> None:
         if self.backend == "cuda":
             try:
-                self.stream.write(packet_bytes(self.encoder.EndEncode()))
+                data = packet_bytes(self.encoder.EndEncode())
+                self.stream.write(data)
             except Exception as error:
                 raise RuntimeError(
                     f"{self.codec.upper()} hardware encoding failed: {error}"
                 ) from error
+            if self.packet_observer is not None:
+                self.packet_observer(data)
+                self.packet_observer(None)
             self.stream.close()
             self.encoder = None
             metadata = color_bsf(self.media, self.codec)
