@@ -237,6 +237,7 @@ def _child_run(
     start_event: Any,
     abort_event: Any,
     sender: Any,
+    pipeline_session: Any = None,
 ) -> None:
     child_entered = time.perf_counter()
     if os.name == "nt":
@@ -299,7 +300,8 @@ def _child_run(
     heart = threading.Thread(target=heartbeat, name="ve-progress", daemon=True)
     try:
         _redirect_child_stdout_to_stderr()
-        _set_linux_parent_death(parent_pid)
+        if pipeline_session is None:
+            _set_linux_parent_death(parent_pid)
         if not start_event.wait(timeout=10):
             return
         print(f"Segment child executable: {sys.executable}", flush=True)
@@ -330,6 +332,7 @@ def _child_run(
                 abort_event.is_set,
                 batch_size=batch_size,
                 progress=report,
+                session=pipeline_session,
             ),
             enabled=manifest["settings"].get("backend") == "cuda",
             progress=progress,
@@ -362,6 +365,88 @@ def _child_run(
             heart.join(timeout=3)
         sender.close()
         log_stream.flush()
+
+
+def _reusable_result(result: SegmentResult) -> bool:
+    stats = result.stats or {}
+    return (
+        result.status == "done"
+        and not (result.oom or result.stalled)
+        and not any(
+            stats.get(key)
+            for key in ("spilled", "oom_retries", "capped_oom_retries", "uncapped_re_runs")
+        )
+    )
+
+
+def _warm_child_run(
+    manifest: dict[str, Any],
+    segment: dict[str, Any],
+    output: str,
+    batch_size: int,
+    parent_pid: int,
+    start_event: Any,
+    abort_event: Any,
+    sender: Any,
+    requests: Any,
+) -> None:
+    from videoenhancer.pipeline.session import PipelineSession
+
+    _set_linux_parent_death(parent_pid)
+    session = PipelineSession()
+
+    class PartSender:
+        result: SegmentResult | None = None
+
+        def send(self, value: Any) -> None:
+            if isinstance(value, SegmentResult):
+                self.result = value
+            else:
+                sender.send(value)
+
+        def close(self) -> None:
+            pass
+
+    try:
+        for _ in range(50):
+            part_sender = PartSender()
+            _child_run(
+                manifest,
+                segment,
+                output,
+                batch_size,
+                parent_pid,
+                start_event,
+                abort_event,
+                part_sender,
+                session,
+            )
+            if part_sender.result is not None and _reusable_result(part_sender.result):
+                # Release unused allocator blocks before the next part samples
+                # device free memory for the unchanged admission cap formula.
+                cleanup_started = time.perf_counter()
+                import torch
+
+                if torch.cuda.is_initialized():
+                    torch.cuda.empty_cache()
+                if part_sender.result.stats is not None:
+                    cleanup = time.perf_counter() - cleanup_started
+                    part_sender.result.stats["worker_cleanup_seconds"] = cleanup
+                    part_sender.result.stats["child_runtime_seconds"] += cleanup
+            if part_sender.result is not None:
+                sender.send(part_sender.result)
+            if part_sender.result is None or not _reusable_result(part_sender.result):
+                break
+            request = requests.recv()
+            if request is None:
+                break
+            manifest, segment, output, batch_size = request
+    except (EOFError, OSError):
+        pass
+    finally:
+        session.close()
+        requests.close()
+        sender.close()
 
 
 def _kill_process_tree(pid: int) -> None:
@@ -401,10 +486,41 @@ class ProcessExecutor:
         clock: Clock | None = None,
         progress: Callable[[dict[str, Any], dict[str, Any]], None] | None = None,
         context: Any = None,
+        reuse: bool = False,
     ) -> None:
         self.clock = clock or SystemClock()
         self.progress = progress
         self.context = context
+        self.reuse = reuse
+        self.worker: dict[str, Any] | None = None
+
+    def close(self) -> None:
+        worker, self.worker = self.worker, None
+        if worker is None:
+            return
+        process = worker["process"]
+        try:
+            if process.is_alive():
+                worker["abort"].set()
+                try:
+                    worker["requests"].send(None)
+                except (OSError, EOFError):
+                    pass
+                process.join(timeout=2)
+            if process.is_alive():
+                _close_windows_job(worker.get("job_handle"))
+                worker["job_handle"] = None
+                process.join(timeout=0.25)
+            if process.is_alive():
+                if process.pid is not None:
+                    _kill_process_tree(process.pid)
+                if process.is_alive():
+                    process.terminate()
+                process.join(timeout=0.5)
+        finally:
+            worker["requests"].close()
+            worker["receiver"].close()
+            _close_windows_job(worker.get("job_handle"))
 
     def run(
         self,
@@ -416,14 +532,34 @@ class ProcessExecutor:
         batch_size: int,
     ) -> SegmentResult:
         parent_started = time.perf_counter()
+        worker_key = (
+            json.dumps(
+                [
+                    manifest.get(key)
+                    for key in ("id", "settings", "models", "input", "media", "scene_cuts")
+                ],
+                sort_keys=True,
+            )
+            + str(output.parent)
+            + f":batch={batch_size}"
+        )
+        if self.worker is not None and (
+            self.worker["key"] != worker_key
+            or self.worker["parts"] >= 50
+            or not self.worker["process"].is_alive()
+        ):
+            self.close()
         context = self.context or multiprocessing.get_context("spawn")
         if os.name == "nt" and Path(sys.executable).name.lower() == "pythonw.exe":
             context.set_executable(sys.executable)
         start_event = context.Event()
         event = context.Event()
         receiver, sender = context.Pipe(duplex=False)
+        request_receiver, request_sender = (
+            context.Pipe(duplex=False) if self.reuse else (None, None)
+        )
         process = context.Process(
-            target=_child_run,
+            target=_warm_child_run if self.reuse else _child_run,
             args=(
                 {**manifest, "_child_spawn_monotonic": time.perf_counter()},
                 segment,
@@ -433,16 +569,41 @@ class ProcessExecutor:
                 start_event,
                 event,
                 sender,
-            ),
+            )
+            + ((request_receiver,) if self.reuse else ()),
             daemon=False,
         )
-        process.start()
-        sender.close()
+        continuing = self.worker is not None
+        if continuing:
+            assert request_receiver is not None and request_sender is not None
+            receiver.close()
+            sender.close()
+            request_receiver.close()
+            request_sender.close()
+            worker = self.worker
+            assert worker is not None
+            process, event, receiver = worker["process"], worker["abort"], worker["receiver"]
+            start_event = worker["start"]
+            worker["requests"].send(
+                (
+                    {**manifest, "_child_spawn_monotonic": time.perf_counter()},
+                    segment,
+                    str(output),
+                    batch_size,
+                )
+            )
+        else:
+            process.start()
+            sender.close()
+            if request_receiver is not None:
+                request_receiver.close()
         job_handle: int | None = None
         aborted = False
         abort_started = 0.0
         forced = False
         received_result: Any = None
+        keep_worker = False
+        worker_closed = False
         last_progress = SegmentProgress()
         pipe_open = True
 
@@ -481,14 +642,31 @@ class ProcessExecutor:
         last_manifest = started - 10
         log_path = output.parent / "logs" / f"seg_{int(segment.get('index', 0)):05d}.log"
         try:
-            if os.name == "nt" and process.pid is not None:
+            if os.name == "nt" and process.pid is not None and not continuing:
                 try:
                     job_handle = _attach_windows_job(process.pid)
                 except OSError as error:
+                    if self.reuse and process.is_alive():
+                        # The start gate is still closed: no decoder or encoder
+                        # can have been launched by this unprotected child.
+                        process.terminate()
+                        process.join(timeout=0.5)
                     return SegmentResult(
                         "failed",
                         error=f"Cannot protect segment subprocesses from orphaning: {error}",
                     )
+            if self.reuse and not continuing:
+                self.worker = dict(
+                    process=process,
+                    abort=event,
+                    receiver=receiver,
+                    start=start_event,
+                    requests=request_sender,
+                    job_handle=job_handle,
+                    key=worker_key,
+                    job_id=manifest.get("id"),
+                    parts=0,
+                )
             start_event.set()
             while process.is_alive():
                 # Drain before joining: a result larger than the pipe buffer blocks
@@ -558,7 +736,19 @@ class ProcessExecutor:
                     aborted = True
                     abort_started = now
                     event.set()
-                if aborted and not forced and now - abort_started >= 7:
+                    if self.reuse:
+                        worker_closed = True
+                        self.close()
+                        return SegmentResult("aborted")
+                if self.reuse and isinstance(received_result, SegmentResult):
+                    if aborted:
+                        return SegmentResult("aborted")
+                    keep_worker = _reusable_result(received_result) and not watchdog.spilled
+                    if self.worker is not None:
+                        self.worker["parts"] += 1
+                        keep_worker = keep_worker and self.worker["parts"] < 50
+                    return measured_result(received_result)
+                if aborted and not forced and now - abort_started >= (3 if self.reuse else 7):
                     forced = True
                     if process.pid is not None:
                         _kill_process_tree(process.pid)
@@ -577,18 +767,31 @@ class ProcessExecutor:
                 "failed", error=f"Worker exited with code {process.exitcode}; retry the segment"
             )
         finally:
+            if worker_closed:
+                _bound_segment_log(log_path)
+            elif self.reuse and self.worker is not None:
+                if not keep_worker:
+                    self.close()
+                _bound_segment_log(log_path)
+            else:
+                self._finish_child(process, event, receiver, job_handle, log_path)
+
+    @staticmethod
+    def _finish_child(
+        process: Any, event: Any, receiver: Any, job_handle: Any, log_path: Path
+    ) -> None:
+        if process.is_alive():
+            event.set()
+            process.join(timeout=7)
             if process.is_alive():
-                event.set()
-                process.join(timeout=7)
+                if process.pid is not None:
+                    _kill_process_tree(process.pid)
                 if process.is_alive():
-                    if process.pid is not None:
-                        _kill_process_tree(process.pid)
-                    if process.is_alive():
-                        process.terminate()
-                    process.join(timeout=1)
-            receiver.close()
-            _close_windows_job(job_handle)
-            _bound_segment_log(log_path)
+                    process.terminate()
+                process.join(timeout=1)
+        receiver.close()
+        _close_windows_job(job_handle)
+        _bound_segment_log(log_path)
 
 
 @contextlib.contextmanager
@@ -846,6 +1049,7 @@ def run_queue(
     stopped: Callable[[], bool] = lambda: False,
     paused_all: Callable[[], bool] = lambda: False,
     between_segments: Callable[[], None] = lambda: None,
+    before_segment: Callable[[], None] = lambda: None,
     on_error: Callable[[str | None, Exception], None] | None = None,
     on_progress: Callable[[dict[str, Any], dict[str, Any]], None] | None = None,
 ) -> None:
@@ -856,7 +1060,7 @@ def run_queue(
     """
     store = JobStore(home)
     clock = clock or SystemClock()
-    executor = executor or ProcessExecutor(clock, on_progress)
+    executor = executor or ProcessExecutor(clock, on_progress, reuse=True)
     get_logger(store.home)
     stop = False
     validated: set[str] = set()
@@ -866,6 +1070,8 @@ def run_queue(
     waiting: dict[str, tuple[str, datetime]] = {}
 
     def timed_wait(job: dict[str, Any], seconds: float, reason: str) -> None:
+        if isinstance(executor, ProcessExecutor):
+            executor.close()
         logger = get_logger(store.home, job_id=job["id"])
         started = clock.now()
         previous = waiting.get(job["id"])
@@ -914,6 +1120,15 @@ def run_queue(
     try:
         with _worker_lock(store.home):
             while not stop and not stopped():
+                if isinstance(executor, ProcessExecutor) and executor.worker is not None:
+                    # A cancelled/paused/finished job must release its idle GPU
+                    # worker before auxiliary work or the next scheduler wait.
+                    current_id = executor.worker.get("job_id")
+                    if paused_all() or (
+                        current_id
+                        and store.read_control_state(current_id) not in {"queued", "running"}
+                    ):
+                        executor.close()
                 between_segments()
                 if stopped():
                     break
@@ -1283,6 +1498,7 @@ def run_queue(
                         extra={"job_id": job_id, "segment": index},
                     )
                     batch_size = int(manifest["settings"].get("batch_size", 2))
+                    before_segment()
                     with _prevent_sleep():
                         try:
                             result = executor.run(
@@ -1407,6 +1623,8 @@ def run_queue(
                                 },
                             )
                     if result.status == "aborted":
+                        if isinstance(executor, ProcessExecutor):
+                            executor.close()
                         temp_path.unlink(missing_ok=True)
                         segment["state"] = "pending"
                         manifest.setdefault("timing", {}).setdefault("wasted_seconds", 0.0)
@@ -1423,6 +1641,8 @@ def run_queue(
                             extra={"job_id": job_id, "segment": index, "elapsed_seconds": elapsed},
                         )
                     if result.status == "failed":
+                        if isinstance(executor, ProcessExecutor):
+                            executor.close()
                         temp_path.unlink(missing_ok=True)
                         segment["state"] = "failed"
                         manifest["state"] = "failed"
@@ -1462,5 +1682,7 @@ def run_queue(
                     store.save(latest)
                     _cleanup_temps(store.job_dir(job_id))
     finally:
+        if isinstance(executor, ProcessExecutor):
+            executor.close()
         if previous_handler is not None:
             signal.signal(signal.SIGINT, previous_handler)

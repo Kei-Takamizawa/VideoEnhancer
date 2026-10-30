@@ -409,9 +409,11 @@ impl Composition {
         let effective = fit * scale;
         let offset_x = (width as f32 - w * effective) / 2. + x * width as f32;
         let offset_y = top + (available - h * effective) / 2. + y * height as f32;
+        let (enhanced_left, original_edge) =
+            videoenhancer_player::divider_clips(self.original_size.0, divider);
         self._video
             .SetClip2(&windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F {
-                left: if enabled { w * divider } else { 0. },
+                left: enhanced_left,
                 top: 0.,
                 right: w,
                 bottom: h,
@@ -420,11 +422,7 @@ impl Composition {
             .SetClip2(&windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F {
                 left: 0.,
                 top: 0.,
-                right: if pair && enabled {
-                    self.original_size.0 as f32 * divider
-                } else {
-                    0.
-                },
+                right: if pair && enabled { original_edge } else { 0. },
                 bottom: h,
             })?;
         let transform = self.device.CreateScaleTransform()?;

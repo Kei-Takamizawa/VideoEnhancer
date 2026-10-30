@@ -36,6 +36,12 @@ for (const failure of ["missing-helper", "missing-dll", "invalid-dll", "device-f
     await expect(page.getByRole("button", { name: "Open in default player", exact: true })).toHaveCount(0);
     await player.evaluate(async (element: HTMLVideoElement) => { element.muted = true; await element.play(); });
     await expect.poll(() => player.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeGreaterThan(0);
+    await player.focus();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Video details" })).toBeHidden();
+    await expect(page.locator(".history-image").first()).toBeFocused();
+    await page.locator(".history-image").first().click();
+    await expect(player).toBeVisible();
     await player.dispatchEvent("error");
     await expect(page.getByText("This video can't be played here.", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Open in default player", exact: true })).toBeVisible();

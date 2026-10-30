@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -13,7 +15,7 @@ from typing import Any
 import torch
 
 from videoenhancer.config import executable, get_home
-from videoenhancer.media.decode import IndexedDecoder
+from videoenhancer.media.decode import IndexedDecoder, choose_backend
 from videoenhancer.media.encode import Encoder
 from videoenhancer.media.source_index import analyze_range, source_identity, source_index
 from videoenhancer.media.timing import output_rate, output_size
@@ -21,6 +23,7 @@ from videoenhancer.models.registry import ModelRegistry, record_models, selected
 from videoenhancer.pipeline.runner import process_segment
 from videoenhancer.pipeline.stages import FrameBatch, ResizeStage
 from videoenhancer.proc import run
+from videoenhancer.service.compare_cache import CompareState
 from videoenhancer.service.settings import write_json
 
 
@@ -267,7 +270,9 @@ def whole_file_estimate(index: dict[str, Any], settings: dict[str, Any]) -> floa
     return None if estimate.unknown_models else estimate.seconds
 
 
-def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
+def render_compare(
+    value: dict[str, Any], folder: Path, state: CompareState | None = None
+) -> dict[str, Any]:
     started = float(
         value.get("_compare_requested_at", value.get("_gpu_admitted_at", time.perf_counter()))
     )
@@ -294,6 +299,30 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
             ]
         ),
     )
+    info = source.stat()
+    range_key = (str(source), info.st_size, info.st_mtime_ns, first, last)
+
+    def decoded_range(indices: list[int], abort: Any, backend: str):
+        def decode():
+            decoder = IndexedDecoder(source, analysis["media"], backend, analysis)
+            try:
+                yield from decoder.frames(indices, abort)
+            finally:
+                decoder.close()
+
+        if state is None:
+            yield from decode()
+        else:
+            media = analysis["media"]
+            estimated = len(indices) * media["display_width"] * media["display_height"] * 3 * 2
+            yield from state.decoded.frames(
+                range_key,
+                ((backend, analysis.get("decoder", "auto")), tuple(indices)),
+                estimated,
+                decode,
+                backend,
+            )
+
     output_fps = output_rate(settings, analysis["media"])
     result: dict[str, Any] = dict(
         start_seconds=first / float(rate),
@@ -308,48 +337,65 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
         ),
     )
     cache: dict[str, Any] = {}
+    # Match the model pipeline's CPU thread budget before the Original resize.
+    torch.set_num_threads(2)
 
     def remember(key: str, name: str, fps: float | None = None) -> None:
         cache[key] = dict(filename=f"{name}-preview.mp4", fps=fps)
         write_json(folder / "cache.json", cache)
 
+    original_future = None
+    original_collected = False
+
+    def collect_original() -> None:
+        nonlocal original_collected
+        if original_collected or original_future is None or not original_future.done():
+            return
+        original_profile, original_look = original_future.result()
+        result["original"] = url("original")
+        result["original_reused"] = reused is not None
+        result["profile"]["original_preview_seconds"] = original_profile
+        result["first_looks"].insert(0, original_look)
+        remember(original_key, "original")
+        original_collected = True
+
     def publish(phase: str, percent: float) -> None:
+        collect_original()
+        if result["first_looks"] and "time_to_first_tile_seconds" not in result:
+            result["time_to_first_tile_seconds"] = time.perf_counter() - started
         write_json(folder / "progress.json", dict(phase=phase, percent=percent, result=result))
 
     def url(name: str) -> str:
         return f"/v1/operations/{folder.name}/files/{name}"
 
     width, height = output_size(settings, analysis["media"])
-    original_started = time.perf_counter()
     original = folder / "original-preview.mp4"
     original_key = cache_key(source, first, last, settings, "original", registry)
     reused = reuse_preview(folder, original_key, "original")
-    if reused is None:
-        encoder = Encoder(
-            original, width, height, output_fps, "h264", "cpu", analysis["media"], False
-        )
-        resize = ResizeStage(width, height)
-        decoder = IndexedDecoder(source, analysis["media"], "cpu", analysis)
-        try:
-            for i, frame in zip(
-                range(first, last),
-                decoder.frames(analysis["cfr_map"][first:last], lambda: False),
-                strict=True,
-            ):
-                picture = resize.process(
-                    FrameBatch(torch.stack([frame]), (Fraction(i) / rate,), (i,))
-                ).frames[0]
-                for _ in range(int(output_fps / rate)):
-                    encoder.write(picture)
-            encoder.finish()
-        except BaseException:
-            encoder.abort()
-            raise
-        finally:
-            decoder.close()
-    result["original"] = url("original")
-    result["original_reused"] = reused is not None
-    result["profile"]["original_preview_seconds"] = time.perf_counter() - original_started
+
+    def prepare_original():
+        original_started = time.perf_counter()
+        if reused is None:
+            encoder = Encoder(
+                original, width, height, output_fps, "h264", "cpu", analysis["media"], False
+            )
+            resize = ResizeStage(width, height)
+            try:
+                for i, frame in zip(
+                    range(first, last),
+                    decoded_range(analysis["cfr_map"][first:last], lambda: False, "cpu"),
+                    strict=True,
+                ):
+                    picture = resize.process(
+                        FrameBatch(torch.stack([frame]), (Fraction(i) / rate,), (i,))
+                    ).frames[0]
+                    encoder.write_repeated(picture, int(output_fps / rate))
+                encoder.finish()
+            except BaseException:
+                encoder.abort()
+                raise
+        return time.perf_counter() - original_started, first_look(original, "original")
+
     look_frame = min(7, last - first - 1) * int(output_fps / rate)
 
     def first_look(video: Path, name: str) -> dict[str, Any]:
@@ -380,173 +426,226 @@ def render_compare(value: dict[str, Any], folder: Path) -> dict[str, Any]:
             "frame": first + min(7, last - first - 1),
         }
 
-    result["first_looks"] = [first_look(original, "original")]
-    result["time_to_first_tile_seconds"] = time.perf_counter() - started
-    remember(original_key, "original")
-    publish("Original ready", 0)
-    for position, model_id in enumerate(value["models"]):
-        model = compare_manifest(registry, model_id)
-        key = {"restore": "restore_model", "interpolate": "interp_model", "size": "size_model"}[
-            model["task"]
-        ]
-        chosen = {**settings, key: model_id}
-        if model_id == "standard-resize":
-            chosen.pop("size_model", None)
-        model_key = cache_key(source, first, last, chosen, model_id, registry)
-        reused_model = reuse_preview(folder, model_key, model_id)
-        job = {
-            **analysis,
-            "id": "compare",
-            "input": {"path": str(source)},
-            "settings": chosen,
-            "models": record_models(chosen, get_home(), analysis["media"]),
-        }
-        segment = dict(index=0, start=first, end=last)
-        from videoenhancer.estimate import predict_segment
-        from videoenhancer.jobs.store import load_machine_profile
+    result["first_looks"] = []
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="ve-original") as original_worker:
+        original_future = original_worker.submit(prepare_original)
+        for position, model_id in enumerate(value["models"]):
+            model = compare_manifest(registry, model_id)
+            key = {"restore": "restore_model", "interpolate": "interp_model", "size": "size_model"}[
+                model["task"]
+            ]
+            chosen = {**settings, key: model_id}
+            if model_id == "standard-resize":
+                chosen.pop("size_model", None)
+            model_key = cache_key(source, first, last, chosen, model_id, registry)
+            reused_model = reuse_preview(folder, model_key, model_id)
+            job = {
+                **analysis,
+                "id": "compare",
+                "input": {"path": str(source)},
+                "settings": chosen,
+                "models": record_models(chosen, get_home(), analysis["media"]),
+            }
+            segment = dict(index=0, start=first, end=last)
+            from videoenhancer.estimate import predict_segment
+            from videoenhancer.jobs.store import load_machine_profile
 
-        expected_seconds = predict_segment(
-            analysis["media"], chosen, last - first, load_machine_profile(get_home())
-        )
-
-        def progress(
-            data: dict[str, Any],
-            model: dict[str, Any] = model,
-            position: int = position,
-            expected_seconds: float = expected_seconds,
-        ) -> None:
-            fraction = data.get("frames_done", 0) / (last - first)
-            elapsed = float(data.get("elapsed_seconds", 0))
-            result["model_progress"][model["id"]] = dict(
-                percent=min(100, 100 * fraction),
-                remaining_seconds=max(
-                    0,
-                    elapsed * (1 - fraction) / fraction
-                    if fraction > 0 and elapsed > 0
-                    else expected_seconds,
-                ),
-            )
-            publish(
-                f"Making {model.get('catalog', {}).get('title', model['display_name'])}",
-                100 * (position + fraction) / len(value["models"]),
+            expected_seconds = predict_segment(
+                analysis["media"], chosen, last - first, load_machine_profile(get_home())
             )
 
-        if reused_model is not None:
-            stats = {"fps": reused_model["fps"]}
-            transcode_seconds = 0.0
-        else:
-            raw = folder / f"{model_id}-raw.mp4"
-            published = False
-
-            def observe(
-                frame: torch.Tensor, index: int, model_id: str = model_id, position: int = position
+            def progress(
+                data: dict[str, Any],
+                model: dict[str, Any] = model,
+                position: int = position,
+                expected_seconds: float = expected_seconds,
             ) -> None:
-                nonlocal published
-                if published or index != first * int(output_fps / rate) + look_frame:
-                    return
-                target = folder / f"{model_id}-first-look.png"
-                rgb = (
-                    frame.detach()
-                    .float()
-                    .clamp(0, 1)
-                    .mul(255)
-                    .round()
-                    .to(torch.uint8)
-                    .permute(1, 2, 0)
-                    .contiguous()
-                    .cpu()
-                    .numpy()
+                fraction = data.get("frames_done", 0) / (last - first)
+                elapsed = float(data.get("elapsed_seconds", 0))
+                result["model_progress"][model["id"]] = dict(
+                    percent=min(100, 100 * fraction),
+                    remaining_seconds=max(
+                        0,
+                        elapsed * (1 - fraction) / fraction
+                        if fraction > 0 and elapsed > 0
+                        else expected_seconds,
+                    ),
                 )
-                run(
-                    [
-                        executable("ffmpeg"),
-                        "-v",
-                        "error",
-                        "-nostdin",
-                        "-y",
-                        "-f",
-                        "rawvideo",
-                        "-pix_fmt",
-                        "rgb24",
-                        "-s:v",
-                        f"{rgb.shape[1]}x{rgb.shape[0]}",
-                        "-i",
-                        "pipe:0",
-                        "-frames:v",
-                        "1",
-                        str(target),
-                    ],
-                    input=rgb.tobytes(),
-                    capture_output=True,
-                    check=True,
-                    timeout=120,
+                publish(
+                    f"Making {model.get('catalog', {}).get('title', model['display_name'])}",
+                    100 * (position + fraction) / len(value["models"]),
                 )
-                result["first_looks"].append(
-                    dict(
-                        id=model_id,
-                        image=f"/v1/operations/{folder.name}/stills/{model_id}",
-                        seconds=time.perf_counter() - started,
-                        frame=first + min(7, last - first - 1),
-                    )
-                )
-                published = True
-                publish("First look", 100 * position / len(value["models"]))
 
-            stats = process_segment(
-                job, segment, raw, lambda: False, progress=progress, frame_observer=observe
+            if reused_model is not None:
+                stats = {"fps": reused_model["fps"]}
+                transcode_seconds = 0.0
+            else:
+                raw = folder / f"{model_id}-raw.mp4"
+                published = False
+
+                def observe(
+                    frame: torch.Tensor,
+                    index: int,
+                    model_id: str = model_id,
+                    position: int = position,
+                ) -> None:
+                    nonlocal published
+                    if published or index != first * int(output_fps / rate) + look_frame:
+                        return
+                    target = folder / f"{model_id}-first-look.png"
+                    rgb = (
+                        frame.detach()
+                        .float()
+                        .clamp(0, 1)
+                        .mul(255)
+                        .round()
+                        .to(torch.uint8)
+                        .permute(1, 2, 0)
+                        .contiguous()
+                        .cpu()
+                        .numpy()
+                    )
+                    run(
+                        [
+                            executable("ffmpeg"),
+                            "-v",
+                            "error",
+                            "-nostdin",
+                            "-y",
+                            "-f",
+                            "rawvideo",
+                            "-pix_fmt",
+                            "rgb24",
+                            "-s:v",
+                            f"{rgb.shape[1]}x{rgb.shape[0]}",
+                            "-i",
+                            "pipe:0",
+                            "-frames:v",
+                            "1",
+                            str(target),
+                        ],
+                        input=rgb.tobytes(),
+                        capture_output=True,
+                        check=True,
+                        timeout=120,
+                    )
+                    result["first_looks"].append(
+                        dict(
+                            id=model_id,
+                            image=f"/v1/operations/{folder.name}/stills/{model_id}",
+                            seconds=time.perf_counter() - started,
+                            frame=first + min(7, last - first - 1),
+                        )
+                    )
+                    published = True
+                    publish("First look", 100 * position / len(value["models"]))
+
+                extras: dict[str, Any] = {}
+                if state is not None:
+                    backend = choose_backend(chosen.get("backend", "auto"))
+                    extras = dict(
+                        session=state.models(job),
+                        decoded_frames=lambda indices, abort, backend=backend: decoded_range(
+                            indices, abort, backend
+                        ),
+                    )
+                with contextlib.ExitStack() as transcodes:
+                    streamed = None
+                    if (
+                        choose_backend(chosen.get("backend", "auto")) == "cuda"
+                        and chosen.get("codec") == "h264"
+                    ):
+                        from videoenhancer.service.compare_stream import PreviewTranscode
+
+                        streamed = PreviewTranscode(
+                            folder / f"{model_id}-preview.mp4", output_fps, analysis["media"]
+                        )
+                        transcodes.callback(streamed.abort)
+                        extras["encoded_packets"] = streamed
+                    stats = process_segment(
+                        job,
+                        segment,
+                        raw,
+                        lambda: False,
+                        progress=progress,
+                        frame_observer=observe,
+                        **extras,
+                    )
+                    if state is not None and any(
+                        stats.get(k) for k in ("spilled", "oom_retries", "uncapped_re_runs")
+                    ):
+                        state.close()
+                    target = folder / f"{model_id}-preview.mp4"
+                    transcode_started = time.perf_counter()
+                    if streamed is None:
+                        run(
+                            [
+                                executable("ffmpeg"),
+                                "-v",
+                                "error",
+                                "-nostdin",
+                                "-i",
+                                str(raw),
+                                "-an",
+                                "-c:v",
+                                "libx264",
+                                "-crf",
+                                "16",
+                                "-pix_fmt",
+                                "yuv420p",
+                                "-threads",
+                                "2",
+                                str(target),
+                            ],
+                            capture_output=True,
+                            check=True,
+                            timeout=120,
+                        )
+                    else:
+                        stats["stream_preview_wall_seconds"] = streamed.finish()
+                        stats["stream_preview_packet_write_seconds"] = streamed.packet_write_seconds
+                    raw.unlink()
+                    transcode_seconds = time.perf_counter() - transcode_started
+            result["items"].append(
+                dict(
+                    id=model_id,
+                    name=model.get("catalog", {}).get("title", model["display_name"]),
+                    preview=url(model_id),
+                    fps=stats["fps"],
+                    reused=reused_model is not None,
+                    ready_seconds=time.perf_counter() - started,
+                    projected_whole_file_seconds=None,
+                    profile=dict(
+                        model_load_seconds=stats.get("model_loading_seconds"),
+                        decode_seconds=stats.get("decode_seconds"),
+                        pipeline_timeline=stats.get("pipeline_timeline"),
+                        inference_seconds=stats.get("stage_seconds"),
+                        encode_seconds=stats.get("encode_seconds"),
+                        preview_transcode_seconds=transcode_seconds,
+                        preview_stream_wall_seconds=stats.get("stream_preview_wall_seconds"),
+                        preview_packet_write_seconds=stats.get(
+                            "stream_preview_packet_write_seconds"
+                        ),
+                        gpu_wait_seconds=result["profile"]["gpu_wait_seconds"],
+                    ),
+                )
             )
-            target = folder / f"{model_id}-preview.mp4"
-            transcode_started = time.perf_counter()
-            run(
-                [
-                    executable("ffmpeg"),
-                    "-v",
-                    "error",
-                    "-nostdin",
-                    "-i",
-                    str(raw),
-                    "-an",
-                    "-c:v",
-                    "libx264",
-                    "-crf",
-                    "16",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-threads",
-                    "2",
-                    str(target),
-                ],
-                capture_output=True,
-                check=True,
-                timeout=120,
-            )
-            raw.unlink()
-            transcode_seconds = time.perf_counter() - transcode_started
-        result["items"].append(
-            dict(
-                id=model_id,
-                name=model.get("catalog", {}).get("title", model["display_name"]),
-                preview=url(model_id),
-                fps=stats["fps"],
-                reused=reused_model is not None,
-                ready_seconds=time.perf_counter() - started,
-                projected_whole_file_seconds=None,
-                profile=dict(
-                    model_load_seconds=stats.get("model_loading_seconds"),
-                    decode_seconds=stats.get("decode_seconds"),
-                    inference_seconds=stats.get("stage_seconds"),
-                    encode_seconds=stats.get("encode_seconds"),
-                    preview_transcode_seconds=transcode_seconds,
-                    gpu_wait_seconds=result["profile"]["gpu_wait_seconds"],
-                ),
-            )
-        )
-        remember(model_key, model_id, stats["fps"])
-        result["model_progress"][model_id] = dict(percent=100, remaining_seconds=0)
-        publish("Preview ready", 100 * (position + 1) / len(value["models"]))
-        # Publish the playable tile before reading calibration and model files
-        # for its optional whole-file estimate. Encoding and its bytes are unchanged.
-        result["items"][-1]["projected_whole_file_seconds"] = whole_file_estimate(index, chosen)
-        publish("Preview ready", 100 * (position + 1) / len(value["models"]))
+            remember(model_key, model_id, stats["fps"])
+            result["model_progress"][model_id] = dict(percent=100, remaining_seconds=0)
+            publish("Preview ready", 100 * (position + 1) / len(value["models"]))
+            # Publish the playable tile before reading calibration and model files
+            # for its optional whole-file estimate. Encoding and its bytes are unchanged.
+            result["items"][-1]["projected_whole_file_seconds"] = whole_file_estimate(index, chosen)
+            publish("Preview ready", 100 * (position + 1) / len(value["models"]))
+        original_future.result()
+        collect_original()
+        publish("Preview ready", 100)
     result["total_seconds"] = time.perf_counter() - started
+    if state is not None:
+        result["profile"]["decoded_cache"] = dict(
+            hits=state.decoded.hits,
+            misses=state.decoded.misses,
+            ranges=len(state.decoded.ranges),
+            bytes=state.decoded.bytes,
+        )
     return result

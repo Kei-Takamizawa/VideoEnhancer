@@ -344,6 +344,8 @@ pub fn run() -> Result<()> {
                     #[cfg(feature = "test-faults")]
                     Command::TestClock => { emit(&c,json!({"reply":id,"result":{"qpc_ms":crate::telemetry::qpc()}})); completed=true; }
                     #[cfg(feature = "test-faults")]
+                    Command::TestSeam { enabled } => { let result=crate::capture::seam_watch(hwnd,enabled)?; emit(&c,json!({"reply":id,"result":result})); completed=true; }
+                    #[cfg(feature = "test-faults")]
                     Command::TestReport { result } => { emit(&c,json!({"event":"dividerBenchmark","result":result})); completed=true; }
                     #[cfg(feature = "test-faults")]
                     Command::SelfCapture { name } => {

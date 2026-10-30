@@ -37,7 +37,12 @@ from videoenhancer.logging import get_logger
 from videoenhancer.media.decode import choose_backend
 from videoenhancer.media.probe import probe
 from videoenhancer.models.registry import ModelRegistry, selected_models
-from videoenhancer.schedule.controller import SystemClock, _kill_process_tree, run_queue
+from videoenhancer.schedule.controller import (
+    ProcessExecutor,
+    SystemClock,
+    _kill_process_tree,
+    run_queue,
+)
 from videoenhancer.schedule.planner import build_plan
 from videoenhancer.schedule.windows import Schedule
 from videoenhancer.service.locks import OrderedLock, assert_io_unlocked
@@ -89,6 +94,9 @@ class Engine:
         self._mutation_lock = OrderedLock("mutation", 10, test_lock_order)
         self.operations: dict[str, dict[str, Any]] = {}
         self.processes: dict[str, subprocess.Popen[Any]] = {}
+        from videoenhancer.service.compare_worker import CompareWorker
+
+        self.compare_worker = CompareWorker(self.home)
         self.last_error: dict[str, Any] | None = None
         self.live_progress: dict[str, dict[str, Any]] = {}
         self._preparations: list[threading.Thread] = []
@@ -455,12 +463,26 @@ class Engine:
                         if not any(row.get("record_error") for row in self.store.queue_jobs()):
                             cleanup_expired(self.store)
                     self._cleanup_checked = time.monotonic()
+                executor = ProcessExecutor(ServiceClock(self.stop), self._progress, reuse=True)
+
+                def auxiliary(executor: ProcessExecutor = executor) -> None:
+                    if any(op["state"] == "waiting" for op in self.operations.values()):
+                        executor.close()
+                    if any(
+                        op["state"] == "waiting" and op["kind"] != "compare"
+                        for op in self.operations.values()
+                    ):
+                        self.compare_worker.close()
+                    self._auxiliary()
+
                 run_queue(
                     home=self.home,
                     clock=ServiceClock(self.stop),
                     stopped=self.stop.is_set,
                     paused_all=lambda: self.paused,
-                    between_segments=self._auxiliary,
+                    between_segments=auxiliary,
+                    executor=executor,
+                    before_segment=self.compare_worker.close,
                     on_error=self._error,
                     on_progress=self._progress,
                 )
@@ -507,6 +529,7 @@ class Engine:
             self.worker.join(timeout=15)
         if self.worker.is_alive():
             raise RuntimeError("Engine has not stopped; keep the service open and retry Quit.")
+        self.compare_worker.close()
 
     def health(self, jobs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if jobs is None:
@@ -2386,7 +2409,67 @@ class Engine:
             else:
                 used += size
 
+    def _run_compare_operation(self, op: dict[str, Any]) -> None:
+        from videoenhancer.estimate import predict_segment
+
+        folder = self.home / "previews" / op["id"]
+        folder.mkdir(parents=True, exist_ok=True)
+        value = op["request"]
+        write_json(folder / "request.json", dict(kind="compare", request=value, folder=str(folder)))
+        media = probe(Path(value["file"]), read_timeline=False).to_dict()
+        frames = max(1, round(value.get("seconds", 5) * float(Fraction(media["average_fps"]))))
+        predicted = predict_segment(
+            media, value["settings"], frames, load_machine_profile(self.home)
+        ) * len(value["models"])
+        op["expected_seconds"] = max(1, predicted or 60)
+        started = time.monotonic()
+        deadline = started + max(600, 4 * predicted)
+        self.compare_worker.begin(value, folder)
+        try:
+            while True:
+                if self.stop.is_set() or op.get("cancel_requested"):
+                    raise InterruptedError("Compare was cancelled")
+                if time.monotonic() >= deadline:
+                    op.update(
+                        cancel_requested=True,
+                        timed_out=True,
+                        error="The preview took too long. Try again.",
+                    )
+                    raise TimeoutError(op["error"])
+                if self.compare_worker.results.poll(0.25):
+                    success, result, retire = self.compare_worker.results.recv()
+                    if not success:
+                        raise RuntimeError(result)
+                    if retire:
+                        self.compare_worker.close()
+                    write_json(folder / "result.json", result)
+                    op["result"] = result
+                    return
+                process = self.compare_worker.process
+                if process is None or not process.is_alive():
+                    raise RuntimeError("Compare worker exited before completing the preview")
+                path = folder / "progress.json"
+                if path.is_file():
+                    try:
+                        op.update(json.loads(path.read_text(encoding="utf-8")))
+                    except (PermissionError, FileNotFoundError):
+                        pass
+                elapsed = time.monotonic() - started
+                fraction = float(op.get("percent", 0)) / 100
+                op["remaining_seconds"] = max(
+                    0,
+                    elapsed / fraction * (1 - fraction)
+                    if fraction > 0.01
+                    else op["expected_seconds"] - elapsed,
+                )
+        except BaseException:
+            self.compare_worker.close(force=True)
+            raise
+
     def _run_operation(self, op: dict[str, Any]) -> None:
+        if op["kind"] == "compare":
+            self._run_compare_operation(op)
+            return
         folder = self.home / "previews" / op["id"]
         folder.mkdir(parents=True, exist_ok=True)
         value = op["request"]
