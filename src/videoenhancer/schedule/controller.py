@@ -974,6 +974,7 @@ def unit_admission(job: dict[str, Any], now: datetime, interval: Any) -> tuple[b
         prediction = predict_finalization(job)
     else:
         from videoenhancer.estimate import predict_segment
+        from videoenhancer.estimate.startup import cold_parts
 
         prediction = predict_segment(
             job["media"],
@@ -981,6 +982,7 @@ def unit_admission(job: dict[str, Any], now: datetime, interval: Any) -> tuple[b
             pending["end"] - pending["start"],
             job.get("machine_profile"),
             float(job.get("correction_factor", 1)),
+            cold=cold_parts(job)[int(pending.get("index", job["segments"].index(pending)))],
         )
     return admit_step(prediction, pending is None, now, interval)
 

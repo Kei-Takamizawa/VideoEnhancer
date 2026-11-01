@@ -74,7 +74,7 @@ def test_plan_restarts_interrupted_part_after_hours_gap(monkeypatch):
     from videoenhancer.schedule.planner import build_plan
     from videoenhancer.schedule.windows import Schedule
 
-    monkeypatch.setattr("videoenhancer.schedule.planner.predict_segment", lambda *_: 100)
+    monkeypatch.setattr("videoenhancer.schedule.planner.predict_segment", lambda *_, cold: 100)
     monkeypatch.setattr("videoenhancer.schedule.planner.predict_finalization", lambda *_: 0)
     schedule = Schedule.from_dict(
         dict(

@@ -7,6 +7,7 @@ from typing import Any
 
 from videoenhancer.estimate import predict_segment
 from videoenhancer.estimate.model import predict_finalization, remaining_fraction
+from videoenhancer.estimate.startup import cold_parts
 
 from .admission import admit_step
 from .windows import Schedule, instant, resolve_wall
@@ -70,9 +71,10 @@ def build_plan(
             continue
         effective = profile if profile is not None else job.get("machine_profile")
         segments = job.get("segments", [])
+        startups = cold_parts(job)
         units = []
         total, completed, frames_left = 0.0, 0.0, 0.0
-        for segment in segments:
+        for position, segment in enumerate(segments):
             frames = int(segment["end"]) - int(segment["start"])
             prediction = predict_segment(
                 job.get("media", {}),
@@ -86,6 +88,7 @@ def build_plan(
                     if key != "live_seconds_per_frame"
                 },
                 float(job.get("correction_factor", 1)),
+                cold=startups[int(segment.get("index", position))],
             )
             total += prediction
             if segment.get("state") == "done":
