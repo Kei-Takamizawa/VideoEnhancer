@@ -684,8 +684,19 @@ def test_local_startup_is_median_of_named_disjoint_part_terms(tmp_path):
         id="synthetic",
         settings={"preset": "standard"},
         media={"frame_count": 300},
-        machine_profile={"backend": "cuda", "gpu_name": "fixture", "driver": "fixture"},
-        segments=[{"stats": {"per_part_startup_seconds": value}} for value in (5, 6, 100)],
+        machine_profile={
+            "backend": "cuda",
+            "gpu_name": "fixture",
+            "driver": "fixture",
+            "startup_by_preset": {"standard": {"cold": 4, "warm": 0.2}},
+        },
+        segments=[
+            {"stats": {"per_part_startup_seconds": value, "startup_kind": "cold"}}
+            for value in (5, 6, 100)
+        ],
     )
     record_completed(job, tmp_path)
-    assert apply_local(tmp_path, job["machine_profile"])["segment_overhead_seconds"] == 6
+    assert apply_local(tmp_path, job["machine_profile"])["startup_by_preset"]["standard"] == {
+        "cold": 6,
+        "warm": 0.2,
+    }

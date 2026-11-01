@@ -1310,10 +1310,24 @@ def run_bench(
             )
             else 1080 * 1920
         )
-        from videoenhancer.bench.finalization import calibrate_finalization
+        from videoenhancer.bench.finalization import (
+            builtin_finalization,
+            calibrate_finalization,
+            preserve_finalization_curve,
+        )
+        from videoenhancer.bench.startup import calibrate_startup
+        from videoenhancer.estimate.startup import ESTIMATE_REVISION
+
+        publish("Worker startup", 88)
+        report["profile"]["startup_by_preset"] = calibrate_startup(target / "startup", device)
+        report["profile"].pop("segment_overhead_seconds", None)
+        report["profile"]["startup_includes_model_loading"] = True
+        report["profile"]["estimate_revision"] = ESTIMATE_REVISION
 
         publish("Finalization", 90)
-        report["profile"]["finalization"] = calibrate_finalization(target)
+        report["profile"]["finalization"] = preserve_finalization_curve(
+            builtin_finalization(gpu["name"] or "", device), calibrate_finalization(target)
+        )
     # Keep all estimator component keys present. Null timings stay visibly uncalibrated.
     for component in ("decode", "color", "resize", "blend2x", "encode"):
         profile_components.setdefault(component, {"seconds_per_pixel_frame": None})

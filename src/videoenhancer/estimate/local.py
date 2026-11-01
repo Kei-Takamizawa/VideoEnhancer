@@ -64,26 +64,26 @@ def apply_local(home: Path, profile: dict[str, Any]) -> dict[str, Any]:
         ]
         if values:
             result[field] = statistics.median(values[-5:])
-    startups = [
-        float(sample)
-        for row in observations
-        for sample in row.get("startup_samples", [])
-        if isinstance(sample, (int, float)) and math.isfinite(sample) and sample > 0
-    ]
-    if startups:
-        result["segment_overhead_seconds"] = statistics.median(startups[-20:])
-        result["startup_includes_model_loading"] = True
     startup_by_preset = dict(result.get("startup_by_preset", {}))
     for mode in {row.get("mode") for row in observations}:
-        samples = [
-            float(sample)
-            for row in observations
-            if row.get("mode") == mode
-            for sample in row.get("startup_samples", [])
-            if isinstance(sample, (int, float)) and math.isfinite(sample) and sample > 0
-        ]
-        if mode and samples:
-            startup_by_preset[mode] = statistics.median(samples[-20:])
+        if not mode:
+            continue
+        existing = startup_by_preset.get(mode)
+        terms = dict(existing) if isinstance(existing, dict) else {}
+        if isinstance(existing, (int, float)):
+            terms = {"cold": existing, "warm": existing}
+        for kind in ("cold", "warm"):
+            samples = [
+                float(sample)
+                for row in observations
+                if row.get("mode") == mode
+                for sample in row.get("startup_samples_by_kind", {}).get(kind, [])
+                if isinstance(sample, (int, float)) and math.isfinite(sample) and sample > 0
+            ]
+            if samples:
+                terms[kind] = statistics.median(samples[-20:])
+        if terms:
+            startup_by_preset[mode] = terms
     result["startup_by_preset"] = startup_by_preset
     return result
 
@@ -143,14 +143,19 @@ def record_completed(manifest: dict[str, Any], home: Path) -> None:
     frames = max(1, manifest["media"].get("frame_count", 1))
     if manifest.get("analysis_seconds"):
         row["analysis_seconds_per_frame"] = manifest["analysis_seconds"] / frames
-    overheads = [
-        segment.get("stats", {}).get("per_part_startup_seconds", 0)
-        for segment in manifest["segments"]
-    ]
-    measured_overheads = [value for value in overheads if value > 0]
-    if measured_overheads:
-        row["startup_samples"] = measured_overheads[-20:]
-        row["segment_overhead_seconds"] = statistics.median(measured_overheads[-20:])
+    startup_samples = {}
+    for kind in ("cold", "warm"):
+        samples = [
+            segment.get("stats", {}).get("per_part_startup_seconds", 0)
+            for segment in manifest["segments"]
+            if segment.get("stats", {}).get("startup_kind") == kind
+        ]
+        startup_samples[kind] = [
+            value
+            for value in samples
+            if isinstance(value, (int, float)) and math.isfinite(value) and value > 0
+        ][-20:]
+    row["startup_samples_by_kind"] = startup_samples
     final = manifest.get("timing", {}).get("finalization_observation", {})
     if final.get("predicted", 0) > 0:
         bucket = length_class(manifest)

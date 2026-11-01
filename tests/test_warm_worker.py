@@ -89,8 +89,11 @@ def test_worker_reuses_process_and_closes_after_shutdown(tmp_path):
     context = Context([done(), done()])
     executor = controller.ProcessExecutor(context=context, reuse=True)
     try:
-        assert run(executor, tmp_path / "one.mp4").status == "done"
-        assert run(executor, tmp_path / "two.mp4").status == "done"
+        first = run(executor, tmp_path / "one.mp4")
+        second = run(executor, tmp_path / "two.mp4")
+        assert first.status == second.status == "done"
+        assert first.stats["startup_kind"] == "cold"
+        assert second.stats["startup_kind"] == "warm"
         assert len(context.processes) == 1
         assert executor.worker is not None
     finally:
@@ -119,7 +122,8 @@ def test_worker_replaced_after_fault_or_retry(tmp_path, result):
         run(executor, tmp_path / "one.mp4")
         assert executor.worker is None
         assert not context.processes[0].is_alive()
-        run(executor, tmp_path / "two.mp4")
+        retried = run(executor, tmp_path / "two.mp4")
+        assert retried.stats["startup_kind"] == "cold"
         assert len(context.processes) == 2
     finally:
         executor.close()

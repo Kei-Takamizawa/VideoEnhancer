@@ -1,63 +1,78 @@
 {
   "schema_version": 1,
   "gpu_name": "NVIDIA GeForce RTX 4060 Ti",
-  "driver": "617.42",
+  "driver": "621.01",
   "components": {
-    "decode": {
-      "seconds_per_pixel_frame": 5.769979745090731e-10
-    },
     "encode": {
-      "seconds_per_pixel_frame": 2.5921191808379733e-09,
+      "seconds_per_pixel_frame": 2.7027785816978014e-09,
       "size_points": [
         {
           "pixels": 2073600,
-          "seconds_per_pixel_frame": 2.5921191808379733e-09
+          "seconds_per_pixel_frame": 2.7027785816978014e-09
+        },
+        {
+          "pixels": 3686400,
+          "seconds_per_pixel_frame": 2.58141456878615e-09
         }
       ]
     },
     "color": {
-      "seconds_per_pixel_frame": 3.993055558034158e-10,
+      "seconds_per_pixel_frame": 3.999664638993434e-10,
       "size_points": [
         {
           "pixels": 5068800,
-          "seconds_per_pixel_frame": 3.993055558034158e-10
+          "seconds_per_pixel_frame": 3.999664638993434e-10
+        },
+        {
+          "pixels": 8294400,
+          "seconds_per_pixel_frame": 5.287965427950114e-10
         }
       ]
     },
     "resize": {
-      "seconds_per_pixel_frame": 3.0686969497720035e-10,
+      "seconds_per_pixel_frame": 3.0565201771502345e-10,
       "size_points": [
         {
           "pixels": 2073600,
-          "seconds_per_pixel_frame": 3.0686969497720035e-10
+          "seconds_per_pixel_frame": 3.0565201771502345e-10
+        },
+        {
+          "pixels": 3686400,
+          "seconds_per_pixel_frame": 3.012424048481282e-10
         }
       ]
     },
     "blend2x": {
-      "seconds_per_pixel_frame": 1.765407989891465e-10,
+      "seconds_per_pixel_frame": 1.7678192385955984e-10,
       "size_points": [
         {
           "pixels": 2073600,
-          "seconds_per_pixel_frame": 1.765407989891465e-10
+          "seconds_per_pixel_frame": 1.7678192385955984e-10
+        },
+        {
+          "pixels": 3686400,
+          "seconds_per_pixel_frame": 1.9584825218367365e-10
         }
       ]
+    },
+    "decode": {
+      "seconds_per_pixel_frame": null
     }
   },
-  "segment_overhead_seconds": 2.0,
   "backend": "cuda",
   "cpu_name": "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD",
   "models": {
-    "basicvsrpp-ntire21-decompress": {
+    "basicvsrpp-denoise": {
       "task": "restore",
       "backend": "cuda",
       "status": "measured",
       "identity": {
-        "id": "basicvsrpp-ntire21-decompress",
+        "id": "basicvsrpp-denoise",
         "version": "1",
-        "sha256": "6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a",
-        "manifest_sha256": "6f32e0e236f194a378a556aed2451ca24df581e2bfae1cf7c0f558274fa77c32"
+        "sha256": "28f6920c4681bd8468a831d479459872c7f020d95c40eb3ced4745670bf2d596",
+        "manifest_sha256": "73f96895075814fbb76d5c4e7a36a8efa7c5992e2829ceb06ee8bcca7c1ab033"
       },
-      "load_seconds": 1.6541103000054136,
+      "load_seconds": 1.4896890999516472,
       "width": 720,
       "height": 1280,
       "batch_frames": 15,
@@ -68,14 +83,48 @@
       "precision": "fp16",
       "effective_precision": "fp16",
       "seconds_samples": [
-        3.634759099993971,
-        3.622755900010816,
-        3.6262787000014214
+        1.2638429999933578,
+        1.2567671000142582,
+        1.2616302999667823
       ],
-      "median_seconds": 3.6262787000014214,
-      "processed_frames_or_pairs_per_second": 4.136471915408521,
-      "seconds_per_pixel_frame": 2.623176142940843e-07,
-      "torch_reserved_peak_bytes": 2455764992
+      "median_seconds": 1.2616302999667823,
+      "processed_frames_or_pairs_per_second": 11.889378370505954,
+      "seconds_per_pixel_frame": 9.126376591194895e-08,
+      "torch_reserved_peak_bytes": 1501560832,
+      "torch_allocated_peak_bytes": 1120202240,
+      "interpolation_fallbacks": 0
+    },
+    "basicvsrpp-ntire21-decompress": {
+      "task": "restore",
+      "backend": "cuda",
+      "status": "measured",
+      "identity": {
+        "id": "basicvsrpp-ntire21-decompress",
+        "version": "1",
+        "sha256": "6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a",
+        "manifest_sha256": "1c4ca4ff351c4bc6c7ace9a6476a2951772de3c1ea982ef94123e77817ec1b67"
+      },
+      "load_seconds": 0.33334969996940345,
+      "width": 720,
+      "height": 1280,
+      "batch_frames": 15,
+      "processed_frames_or_pairs": 15,
+      "clip_length": 15,
+      "clip_overlap": 2,
+      "single_frame": false,
+      "precision": "fp16",
+      "effective_precision": "fp16",
+      "seconds_samples": [
+        3.489050899981521,
+        3.491779000032693,
+        3.4919128000037745
+      ],
+      "median_seconds": 3.491779000032693,
+      "processed_frames_or_pairs_per_second": 4.295804516797757,
+      "seconds_per_pixel_frame": 2.525881799792168e-07,
+      "torch_reserved_peak_bytes": 2524971008,
+      "torch_allocated_peak_bytes": 2397278208,
+      "interpolation_fallbacks": 0
     },
     "rife-4.25": {
       "task": "interpolate",
@@ -85,9 +134,9 @@
         "id": "rife-4.25",
         "version": "1",
         "sha256": "6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2",
-        "manifest_sha256": "c2a6267743fee7e6585fe279133a5d2d28d55c6f6bf75f788e71ba01b11b18d0"
+        "manifest_sha256": "2fce0c973b6e2dc4557a9fe34962ab70f19934f0d3382477c4306c89e67b65aa"
       },
-      "load_seconds": 0.31882430000405293,
+      "load_seconds": 0.2057016000035219,
       "width": 1080,
       "height": 1920,
       "batch_frames": 9,
@@ -98,140 +147,145 @@
       "precision": "fp16",
       "effective_precision": "fp16",
       "seconds_samples": [
-        0.37462370000139344,
-        0.3741601000074297,
-        0.3743722999934107
+        0.3700016000075266,
+        0.3696238999837078,
+        0.36977930000284687
       ],
-      "median_seconds": 0.3743722999934107,
-      "processed_frames_or_pairs_per_second": 21.369102361848906,
-      "seconds_per_pixel_frame": 2.2567774642735504e-08,
-      "torch_reserved_peak_bytes": 1690304512,
+      "median_seconds": 0.36977930000284687,
+      "processed_frames_or_pairs_per_second": 21.63452632404899,
+      "seconds_per_pixel_frame": 2.229090109006359e-08,
+      "torch_reserved_peak_bytes": 1625292800,
+      "torch_allocated_peak_bytes": 1102666240,
+      "interpolation_fallbacks": 0,
       "size_points": [
         {
           "pixels": 2073600,
-          "seconds_per_pixel_frame": 2.2567774642735504e-08
+          "seconds_per_pixel_frame": 2.229090109006359e-08
+        },
+        {
+          "pixels": 3686400,
+          "seconds_per_pixel_frame": 2.5441687689919946e-08
         }
-      ]
-    },
-    "scunet-real-psnr": {
-      "task": "restore",
-      "backend": "cuda",
-      "status": "measured",
-      "identity": {
-        "id": "scunet-real-psnr",
-        "version": "1",
-        "sha256": "fa78899ba2caec9d235a900e91d96c689da71c42029230c2028b00f09f809c2e",
-        "manifest_sha256": "b2644ab306743efe1fa07aac11c5862d3719c61df2f5cbb2dba2b0b79275c6d6"
-      },
-      "load_seconds": 0.3497496000054525,
-      "width": 720,
-      "height": 1280,
-      "batch_frames": 2,
-      "processed_frames_or_pairs": 2,
-      "clip_length": 1,
-      "clip_overlap": 0,
-      "single_frame": true,
-      "precision": "fp16",
-      "effective_precision": "fp16",
-      "seconds_samples": [
-        1.6131599999935133,
-        1.608394800001406,
-        1.6004188999941107
       ],
-      "median_seconds": 1.608394800001406,
-      "processed_frames_or_pairs_per_second": 1.2434757933799907,
-      "seconds_per_pixel_frame": 8.726100260424295e-07,
-      "torch_reserved_peak_bytes": 249561088
-    },
-    "span-liveaction-2x": {
-      "task": "size",
-      "backend": "cuda",
-      "status": "measured",
-      "identity": {
-        "id": "span-liveaction-2x",
-        "version": "1",
-        "sha256": "8b166c75831ea7f694d9058ee9c8df8148af8cc1d2b57e69e6581b15cab572f7",
-        "manifest_sha256": "c10f3aedefd64265bbbe4a78bd351267a53bd9f838c6ae24f77f7e023430e9e6"
-      },
-      "load_seconds": 0.05222919999505393,
-      "width": 1080,
-      "height": 1920,
-      "batch_frames": 9,
-      "processed_frames_or_pairs": 8,
-      "clip_length": 1,
-      "clip_overlap": 0,
-      "single_frame": true,
-      "precision": "fp16",
-      "effective_precision": "fp16",
-      "seconds_samples": [
-        5.442074999999022,
-        5.452182699998957,
-        5.442646399998921
-      ],
-      "median_seconds": 5.442646399998921,
-      "processed_frames_or_pairs_per_second": 1.4698731852213633,
-      "seconds_per_pixel_frame": 3.280916280863547e-07,
-      "torch_reserved_peak_bytes": 1421869056
+      "memory_1440": {
+        "torch_reserved_peak_bytes": 2730491904,
+        "torch_allocated_peak_bytes": 1886566400,
+        "interpolation_fallbacks": 0
+      }
     }
   },
   "reference_pipelines": {
+    "basicvsrpp-denoise:medium": {
+      "gpu": "NVIDIA GeForce RTX 4060 Ti",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "1080x1920 at 60 fps",
+      "mode": "standard",
+      "fps": 5.236444604360531,
+      "seconds": 28.645390400022734,
+      "identity": {
+        "id": "basicvsrpp-denoise",
+        "version": "1",
+        "sha256": "28f6920c4681bd8468a831d479459872c7f020d95c40eb3ced4745670bf2d596",
+        "manifest_sha256": "73f96895075814fbb76d5c4e7a36a8efa7c5992e2829ceb06ee8bcca7c1ab033"
+      },
+      "output_pixels": 2073600
+    },
     "basicvsrpp-ntire21-decompress:medium": {
       "gpu": "NVIDIA GeForce RTX 4060 Ti",
       "input": "720x1280 at 30 fps, 150 frames",
       "output": "1080x1920 at 60 fps",
       "mode": "standard",
-      "fps": 2.3332416229380013,
-      "seconds": 64.28824110000278,
+      "fps": 2.5515369902581932,
+      "seconds": 58.788095400028396,
       "identity": {
         "id": "basicvsrpp-ntire21-decompress",
         "version": "1",
         "sha256": "6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a",
-        "manifest_sha256": "6f32e0e236f194a378a556aed2451ca24df581e2bfae1cf7c0f558274fa77c32"
-      }
+        "manifest_sha256": "1c4ca4ff351c4bc6c7ace9a6476a2951772de3c1ea982ef94123e77817ec1b67"
+      },
+      "output_pixels": 2073600
+    },
+    "basicvsrpp-ntire21-decompress:medium:1440": {
+      "gpu": "NVIDIA GeForce RTX 4060 Ti",
+      "input": "720x1280 at 30 fps, 150 frames",
+      "output": "1440x2560 at 60 fps",
+      "mode": "standard",
+      "fps": 2.1560430462791023,
+      "seconds": 69.57189479999943,
+      "identity": {
+        "id": "basicvsrpp-ntire21-decompress",
+        "version": "1",
+        "sha256": "6daf4a405b0ff7221e3ac39b0a5c788468ae17661c577a3353b9fd477d0c983a",
+        "manifest_sha256": "1c4ca4ff351c4bc6c7ace9a6476a2951772de3c1ea982ef94123e77817ec1b67"
+      },
+      "output_pixels": 3686400
     },
     "rife-4.25:medium": {
       "gpu": "NVIDIA GeForce RTX 4060 Ti",
       "input": "720x1280 at 30 fps, 150 frames",
       "output": "1080x1920 at 60 fps",
       "mode": "fast",
-      "fps": 12.034710994829036,
-      "seconds": 12.463947000011103,
+      "fps": 16.39674060784178,
+      "seconds": 9.148159599979408,
       "identity": {
         "id": "rife-4.25",
         "version": "1",
         "sha256": "6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2",
-        "manifest_sha256": "c2a6267743fee7e6585fe279133a5d2d28d55c6f6bf75f788e71ba01b11b18d0"
-      }
+        "manifest_sha256": "2fce0c973b6e2dc4557a9fe34962ab70f19934f0d3382477c4306c89e67b65aa"
+      },
+      "output_pixels": 2073600
     },
-    "scunet-real-psnr:medium": {
+    "rife-4.25:medium:1440": {
       "gpu": "NVIDIA GeForce RTX 4060 Ti",
       "input": "720x1280 at 30 fps, 150 frames",
-      "output": "1080x1920 at 60 fps",
-      "mode": "standard",
-      "fps": 0.5855864724765494,
-      "seconds": 256.15345819998765,
+      "output": "1440x2560 at 60 fps",
+      "mode": "fast",
+      "fps": 8.507859498211925,
+      "seconds": 17.630756600003224,
       "identity": {
-        "id": "scunet-real-psnr",
+        "id": "rife-4.25",
         "version": "1",
-        "sha256": "fa78899ba2caec9d235a900e91d96c689da71c42029230c2028b00f09f809c2e",
-        "manifest_sha256": "b2644ab306743efe1fa07aac11c5862d3719c61df2f5cbb2dba2b0b79275c6d6"
-      }
-    },
-    "span-liveaction-2x:medium": {
-      "gpu": "NVIDIA GeForce RTX 4060 Ti",
-      "input": "720x1280 at 30 fps, 150 frames",
-      "output": "1080x1920 at 60 fps",
-      "mode": "standard",
-      "fps": 1.346819286252896,
-      "seconds": 111.37351649999619,
-      "identity": {
-        "id": "span-liveaction-2x",
-        "version": "1",
-        "sha256": "8b166c75831ea7f694d9058ee9c8df8148af8cc1d2b57e69e6581b15cab572f7",
-        "manifest_sha256": "c10f3aedefd64265bbbe4a78bd351267a53bd9f838c6ae24f77f7e023430e9e6"
-      }
+        "sha256": "6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2",
+        "manifest_sha256": "2fce0c973b6e2dc4557a9fe34962ab70f19934f0d3382477c4306c89e67b65aa"
+      },
+      "output_pixels": 3686400
     }
   },
+  "pipeline_size_points": {
+    "standard": [
+      {
+        "pixels": 2073600.0,
+        "factor": 0.9878332519651153
+      },
+      {
+        "pixels": 3686400.0,
+        "factor": 0.9907256811497214
+      }
+    ],
+    "fast": [
+      {
+        "pixels": 2073600.0,
+        "factor": 0.9437581979785926
+      },
+      {
+        "pixels": 3686400.0,
+        "factor": 0.9536644011353222
+      }
+    ]
+  },
+  "max_measured_output_pixels": 3686400,
+  "startup_by_preset": {
+    "standard": {
+      "cold": 3.504766200087033,
+      "warm": 0.09317024998017587
+    },
+    "fast": {
+      "cold": 1.7486575000802986,
+      "warm": 0.21180559997446835
+    }
+  },
+  "startup_includes_model_loading": true,
+  "estimate_revision": "p1e3d2-warm1",
   "finalization": {
     "status": "measured",
     "fit": "piecewise-step-times-v1",
@@ -299,51 +353,96 @@
         "validation_seconds": 64.97218650000013,
         "aggregation_seconds": 11.720149099999617
       }
-    ]
-  },
-  "end_to_end_validation": {
-    "input_fps": 29.301620489023293,
-    "output_fps": 58.603240978046585,
-    "pipeline_seconds": 5.119170799996937,
-    "analysis_seconds_excluded": 0.3258140999969328
-  },
-  "source": "builtin",
-  "provenance": "P1d-2 independent 150-frame 720x1280 synthetic reference calibration; no acceptance-job correction",
-  "analysis_seconds_per_frame": 0.0010458961222223782,
-  "startup_terms_seconds": {
-    "parent_ipc_seconds": 0.7533901,
-    "child_entry_seconds": 1.4640095,
-    "decoder_open_seconds": 0.002008,
-    "model_loading_seconds": 2.1219491,
-    "weight_verification_seconds": 0.1208826,
-    "cuda_initialization_seconds": 0.0294934
-  },
-  "startup_by_preset": {
-    "standard": 4.4917327,
-    "fast": 2.5475333
-  },
-  "max_measured_output_pixels": 2073600,
-  "pipeline_size_points": {
-    "standard": [
-      {
-        "pixels": 2073600,
-        "factor": 1.0546984550837863,
-        "input_frames": 150,
-        "actual_seconds": 68.27405,
-        "startup_seconds": 4.491732700029388,
-        "net_seconds_per_source_frame": 0.42521544866647076
-      }
     ],
-    "fast": [
-      {
-        "pixels": 2073600,
-        "factor": 1.3839228585991667,
-        "input_frames": 150,
-        "actual_seconds": 15.01194,
-        "startup_seconds": 2.4032968999999866,
-        "net_seconds_per_source_frame": 0.08405762066666675
-      }
-    ]
+    "tiny_clip_fit": {
+      "status": "measured",
+      "a": 0.25549298035522117,
+      "b": 6.772217904746255e-09,
+      "c": 1.2628148889393553e-05,
+      "samples": [
+        {
+          "output_bytes": 74339,
+          "output_frames": 90,
+          "seconds": 0.251408799958881,
+          "assembling_seconds": 0.14146099996287376,
+          "validating_seconds": 0.10994779999600723,
+          "repeat": 0
+        },
+        {
+          "output_bytes": 74339,
+          "output_frames": 90,
+          "seconds": 0.24985949997790158,
+          "assembling_seconds": 0.11986649996833876,
+          "validating_seconds": 0.12999300000956282,
+          "repeat": 1
+        },
+        {
+          "output_bytes": 744767,
+          "output_frames": 900,
+          "seconds": 0.259525700006634,
+          "assembling_seconds": 0.14261320000514388,
+          "validating_seconds": 0.11691250000149012,
+          "repeat": 0
+        },
+        {
+          "output_bytes": 744767,
+          "output_frames": 900,
+          "seconds": 0.25212580000516027,
+          "assembling_seconds": 0.13171059999149293,
+          "validating_seconds": 0.12041520001366735,
+          "repeat": 1
+        },
+        {
+          "output_bytes": 2722283,
+          "output_frames": 90,
+          "seconds": 0.27760139998281375,
+          "assembling_seconds": 0.16299059998709708,
+          "validating_seconds": 0.11461079999571666,
+          "repeat": 0
+        },
+        {
+          "output_bytes": 2722283,
+          "output_frames": 90,
+          "seconds": 0.26363190001575276,
+          "assembling_seconds": 0.1480331000057049,
+          "validating_seconds": 0.11559880001004785,
+          "repeat": 1
+        },
+        {
+          "output_bytes": 28324230,
+          "output_frames": 900,
+          "seconds": 0.5422354000038467,
+          "assembling_seconds": 0.33525489998282865,
+          "validating_seconds": 0.2069805000210181,
+          "repeat": 0
+        },
+        {
+          "output_bytes": 28324230,
+          "output_frames": 900,
+          "seconds": 0.4535602000541985,
+          "assembling_seconds": 0.3195028000045568,
+          "validating_seconds": 0.13405740004964173,
+          "repeat": 1
+        }
+      ],
+      "rms_seconds": 0.018427765662160037,
+      "method": "Nonnegative least squares: startup + output bytes + packet-count frames."
+    }
   },
-  "estimate_revision": "p1e2-stage-sizes2"
+  "calibration_wall_seconds": 253.4699813000043,
+  "calibration_stages_seconds": {
+    "Setup": 1.327567700005602,
+    "Decode and encode": 2.3979672999703325,
+    "Tensor stages": 0.38552850001724437,
+    "End-to-end pipeline": 0.9361573999631219,
+    "Installed models": 26.15518930001417,
+    "1440p stages": 0.679363600036595,
+    "blend2x": 1.8026694000000134,
+    "Reference pipelines": 184.66107749997173,
+    "Worker startup": 31.35313490004046,
+    "Finalization": 3.666487899958156
+  },
+  "analysis_seconds_per_frame": 0.0010458961222223782,
+  "source": "builtin",
+  "provenance": "2026-10-30: median of three independent full synthetic calibrations on main 38b41ae + task HEAD 69b0450a5b881a18f75a30bc99c7c2276a1dc463 + VE-P1e-3d2 Parts A/B; real reusable ProcessExecutor startup; unchanged P1e-2 long-output finalization points/samples. No gate-job tuning. INCOMPLETE: H264 decode was unmeasured (default fallback); P0 end-to-end diagnostic skipped. Not ready for merge."
 }
