@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from videoenhancer.estimate.classes import length_class
+from videoenhancer.estimate.startup import cold_parts, startup_seconds
 from videoenhancer.media.timing import output_rate, output_size
 
 # Seconds per megapixel-frame. Calibration replaces these provisional values.
@@ -233,6 +234,8 @@ def predict_segment(
     frames: int,
     profile: dict[str, Any] | None = None,
     correction: float = 1.0,
+    *,
+    cold: bool = True,
 ) -> float:
     if frames < 0 or correction <= 0 or not math.isfinite(correction):
         raise ValueError("Frame count must be nonnegative and correction must be positive.")
@@ -289,11 +292,7 @@ def predict_segment(
         )
     # Sum is deliberately conservative before end-to-end overlap is calibrated.
     measured_startup = (profile or {}).get("startup_by_preset", {}).get(preset)
-    overhead = float(
-        measured_startup
-        if measured_startup is not None
-        else (profile or {}).get("segment_overhead_seconds", 2.0)
-    )
+    overhead = startup_seconds(profile or {}, preset, cold)
     includes_models = measured_startup is not None or (profile or {}).get(
         "startup_includes_model_loading"
     )
@@ -339,6 +338,7 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
         profile = manifest.get("machine_profile")
     correction = float(manifest.get("correction_factor", 1.0))
     media, settings = manifest.get("media", {}), manifest.get("settings", {})
+    startups = cold_parts(manifest)
     seconds = sum(
         predict_segment(
             media,
@@ -352,6 +352,7 @@ def estimate_job(manifest: dict[str, Any], profile: dict[str, Any] | None = None
                 if key != "live_seconds_per_frame"
             },
             correction,
+            cold=startups[int(s.get("index", manifest["segments"].index(s)))],
         )
         * remaining_fraction(manifest, s)
         for s in manifest.get("segments", [])
@@ -536,6 +537,7 @@ def job_progress(manifest: dict[str, Any]) -> dict[str, Any]:
         return dict(
             progress_percent=100.0, phase="finalizing", step="aggregating", phase_percent=100.0
         )
+    startups = cold_parts(manifest)
     predictions = [
         (
             s,
@@ -545,6 +547,7 @@ def job_progress(manifest: dict[str, Any]) -> dict[str, Any]:
                 int(s["end"]) - int(s["start"]),
                 manifest.get("machine_profile"),
                 float(manifest.get("correction_factor", 1)),
+                cold=startups[int(s.get("index", manifest["segments"].index(s)))],
             ),
         )
         for s in manifest.get("segments", [])

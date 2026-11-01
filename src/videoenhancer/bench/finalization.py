@@ -17,6 +17,34 @@ from videoenhancer.media.mux import assemble
 from videoenhancer.media.probe import probe
 
 
+def preserve_finalization_curve(
+    previous: dict[str, Any], tiny_clip_fit: dict[str, Any]
+) -> dict[str, Any]:
+    """Tiny clips are diagnostic when a measured long-output curve exists."""
+    if previous.get("points"):
+        return {**previous, "tiny_clip_fit": tiny_clip_fit}
+    return {**tiny_clip_fit, "tiny_clip_fit": tiny_clip_fit}
+
+
+def builtin_finalization(gpu_name: str, backend: str = "cuda") -> dict[str, Any]:
+    import json
+
+    from videoenhancer.config import get_home
+    from videoenhancer.jobs.store import load_machine_profile
+
+    directory = Path(__file__).parents[1] / "estimate" / "profiles"
+    for path in directory.glob("*.json"):
+        profile = json.loads(path.read_text(encoding="utf-8"))
+        if backend == "cuda" and profile.get("gpu_name") == gpu_name:
+            curve = profile.get("finalization", {})
+            if curve.get("points"):
+                return curve
+    previous = load_machine_profile(get_home(), gpu_name=gpu_name, backend=backend) or {}
+    if previous.get("finalization", {}).get("points"):
+        return previous["finalization"]
+    return {}
+
+
 def fit_finalization(samples: list[dict[str, Any]]) -> dict[str, Any]:
     # Enumerate active sets for a three-variable nonnegative least-squares fit.
     matrix = np.array([[1, s["output_bytes"], s["output_frames"]] for s in samples], dtype=float)

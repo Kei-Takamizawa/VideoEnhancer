@@ -159,10 +159,12 @@ def _ffmpeg() -> str | None:
         return None
 
 
-def _generate_hevc_clip(ffmpeg: str | None, directory: Path) -> Path | None:
+def _generate_decode_clip(
+    ffmpeg: str | None, directory: Path, codec: str, width: int, height: int
+) -> Path | None:
     if not ffmpeg:
         return None
-    output = directory / "synthetic_hevc_1080x1920.mp4"
+    output = directory / f"synthetic_{codec}_{width}x{height}.mp4"
     command = [
         ffmpeg,
         "-hide_banner",
@@ -171,23 +173,23 @@ def _generate_hevc_clip(ffmpeg: str | None, directory: Path) -> Path | None:
         "-f",
         "lavfi",
         "-i",
-        "testsrc2=size=1080x1920:rate=30",
+        f"testsrc2=size={width}x{height}:rate=30",
         "-frames:v",
         "48",
         "-an",
         "-c:v",
-        "libx265",
+        "libx265" if codec == "hevc" else "libx264",
         "-preset",
         "ultrafast",
         "-threads",
         "2",
-        "-x265-params",
-        "pools=2:frame-threads=1:log-level=error",
         "-pix_fmt",
-        "yuv420p10le",
+        "yuv420p10le" if codec == "hevc" else "yuv420p",
         "-y",
         str(output),
     ]
+    if codec == "hevc":
+        command[-2:-2] = ["-x265-params", "pools=2:frame-threads=1:log-level=error"]
     okay, _, _ = _run(command, timeout=100)
     return output if okay and output.is_file() else None
 
@@ -330,6 +332,11 @@ def _bench_tensor_stages(
 
 
 def _bench_pynvc_samples(extra_files: list[Path] | None = None) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="ve-decode-") as temporary:
+        return _decode_samples(Path(temporary), extra_files)
+
+
+def _decode_samples(temporary: Path, extra_files: list[Path] | None) -> dict[str, Any]:
     """Decode eligible local samples directly to device memory with NVDEC."""
     try:
         import PyNvVideoCodec as nvc  # pyright: ignore[reportMissingImports]
@@ -367,6 +374,18 @@ def _bench_pynvc_samples(extra_files: list[Path] | None = None) -> dict[str, Any
             ),
             None,
         )
+        if chosen is None:
+            generated = _generate_decode_clip(_ffmpeg(), temporary, codec, width, height)
+            if generated is not None:
+                try:
+                    decoder = nvc.SimpleDecoder(
+                        str(generated.resolve()), gpu_id=0, use_device_memory=True
+                    )
+                    meta = decoder.get_stream_metadata()
+                    del decoder
+                    chosen = (generated, meta)
+                except Exception:
+                    pass
         if chosen is None:
             result[key] = {
                 "status": "skipped",
@@ -544,6 +563,8 @@ def _bench_pipeline_end_to_end(torch: Any, directory: Path) -> dict[str, Any]:
             "media": analyzed["media"],
             "cfr_map": analyzed["cfr_map"],
             "scene_cuts": analyzed["scene_cuts"],
+            "source_pts": analyzed["source_pts"],
+            "keyframes": analyzed.get("keyframes", []),
         }
         segment_stats = process_segment(
             manifest,
@@ -592,7 +613,7 @@ def _bench_ffmpeg(ffmpeg: str | None, directory: Path) -> dict[str, Any]:
         }
         return result
     sources = [("h264_720x1280", 720, 1280, "libx264"), ("hevc_1080x1920", 1080, 1920, "libx265")]
-    for key, height, width, encoder in sources:
+    for key, width, height, encoder in sources:
         target = directory / f"{key}.mp4"
         ok, detail, _ = _run(
             [
@@ -1053,10 +1074,8 @@ def run_bench(
         except (ImportError, ValueError):
             has_pynvc = False
         if gpu["available"] and has_pynvc:
-            generated_hevc = _generate_hevc_clip(ffmpeg, Path(temporary))
-            extras = [generated_hevc] if generated_hevc else []
             io_results = {
-                "decode": _bench_pynvc_samples(extras),
+                "decode": _bench_pynvc_samples(),
                 "encode": {},
             }
         else:
@@ -1310,10 +1329,24 @@ def run_bench(
             )
             else 1080 * 1920
         )
-        from videoenhancer.bench.finalization import calibrate_finalization
+        from videoenhancer.bench.finalization import (
+            builtin_finalization,
+            calibrate_finalization,
+            preserve_finalization_curve,
+        )
+        from videoenhancer.bench.startup import calibrate_startup
+        from videoenhancer.estimate.startup import ESTIMATE_REVISION
+
+        publish("Worker startup", 88)
+        report["profile"]["startup_by_preset"] = calibrate_startup(target / "startup", device)
+        report["profile"].pop("segment_overhead_seconds", None)
+        report["profile"]["startup_includes_model_loading"] = True
+        report["profile"]["estimate_revision"] = ESTIMATE_REVISION
 
         publish("Finalization", 90)
-        report["profile"]["finalization"] = calibrate_finalization(target)
+        report["profile"]["finalization"] = preserve_finalization_curve(
+            builtin_finalization(gpu["name"] or "", device), calibrate_finalization(target)
+        )
     # Keep all estimator component keys present. Null timings stay visibly uncalibrated.
     for component in ("decode", "color", "resize", "blend2x", "encode"):
         profile_components.setdefault(component, {"seconds_per_pixel_frame": None})

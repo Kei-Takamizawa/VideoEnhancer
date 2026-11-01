@@ -3,6 +3,7 @@
 from typing import Any
 
 from videoenhancer.estimate.model import predict_segment
+from videoenhancer.estimate.startup import cold_parts
 
 
 def live_job(job: dict[str, Any], progress: dict[str, Any]) -> dict[str, Any]:
@@ -20,7 +21,12 @@ def live_job(job: dict[str, Any], progress: dict[str, Any]) -> dict[str, Any]:
         if key != "live_seconds_per_frame"
     }
     prediction = predict_segment(
-        job["media"], job["settings"], count, profile, float(job.get("correction_factor", 1))
+        job["media"],
+        job["settings"],
+        count,
+        profile,
+        float(job.get("correction_factor", 1)),
+        cold=cold_parts(job)[active["index"]],
     )
     predicted_rate = count / max(0.001, prediction)
     observed_rate = frames / elapsed if elapsed > 0 else 0

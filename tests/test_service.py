@@ -203,6 +203,58 @@ def test_cpu_queue_sse_controls_and_completed_output(api, video_factory):
     assert len(engine.store.list_jobs()) == 1
 
 
+@pytest.mark.parametrize("stage_history", [False, True])
+@pytest.mark.parametrize(
+    "winerror,persistent,attempts", [(32, False, 2), (32, True, 5), (5, True, 1)]
+)
+def test_history_remove_retries_only_bounded_sharing_violations(
+    tmp_path, monkeypatch, stage_history, winerror, persistent, attempts
+):
+    from pathlib import Path
+
+    from test_controller import _job
+
+    from videoenhancer.service import engine as module
+
+    engine = Engine(tmp_path / "home")
+    job = _job(engine.store, tmp_path)
+    job["state"] = "done"
+    job["segments"][0]["state"] = "done"
+    engine.store.save(job)
+    output = Path(job["output"])
+    output.write_bytes(b"preserved output")
+    directory = engine.store.job_dir(job["id"])
+    calls, sleeps = [], []
+    original = Path.rename if stage_history else module.shutil.rmtree
+
+    def locked(path, *args, **kwargs):
+        if Path(path) == directory:
+            calls.append(path)
+            if persistent or len(calls) == 1:
+                error = PermissionError("synthetic sharing violation")
+                error.winerror = winerror
+                raise error
+        return original(path, *args, **kwargs)
+
+    if stage_history:
+        monkeypatch.setattr(Path, "rename", locked)
+    else:
+        monkeypatch.setattr(module.shutil, "rmtree", locked)
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+    try:
+        if persistent:
+            with pytest.raises(PermissionError, match="synthetic sharing violation"):
+                engine.remove(job["id"], stage_history=stage_history)
+        else:
+            assert engine.remove(job["id"], stage_history=stage_history)["output_preserved"]
+        assert len(calls) == attempts
+        assert len(sleeps) == attempts - 1
+        assert sum(sleeps) <= 0.75
+        assert output.read_bytes() == b"preserved output"
+    finally:
+        engine.close()
+
+
 def test_schedule_preview_and_persisted_settings(api, video_factory):
     engine, _, request = api
     source = video_factory(frames=12)

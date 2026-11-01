@@ -247,11 +247,19 @@ def _child_run(
     log_path = Path(output).parent / "logs" / f"seg_{int(segment.get('index', 0)):05d}.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_stream = log_path.open("a", encoding="utf-8", buffering=1)
+    previous_streams = sys.stdout, sys.stderr
+    previous_fds: dict[int, int | None] = {}
+    for fd in (1, 2):
+        try:
+            previous_fds[fd] = os.dup(fd)
+        except OSError:  # pythonw can start without standard descriptors.
+            previous_fds[fd] = None
     sys.stdout = sys.stderr = log_stream
     os.dup2(log_stream.fileno(), 1)
     os.dup2(log_stream.fileno(), 2)
     import faulthandler
 
+    previous_fault_handler = faulthandler.is_enabled()
     faulthandler.enable(file=log_stream, all_threads=True)
     heartbeat_stop = threading.Event()
     state = SegmentProgress()
@@ -364,7 +372,29 @@ def _child_run(
         if heart.ident is not None:
             heart.join(timeout=3)
         sender.close()
+        faulthandler.disable()
         log_stream.flush()
+        sys.stdout, sys.stderr = previous_streams
+        for fd, saved in previous_fds.items():
+            if saved is None:
+                os.close(fd)
+            else:
+                os.dup2(saved, fd)
+                os.close(saved)
+        if os.name == "nt":
+            import msvcrt
+            from ctypes import wintypes
+
+            kernel = _windows_ctypes("WinDLL")("kernel32", use_last_error=True)
+            kernel.SetStdHandle.argtypes = [wintypes.DWORD, wintypes.HANDLE]
+            kernel.SetStdHandle.restype = wintypes.BOOL
+            for fd, handle_id in ((1, 0xFFFFFFF5), (2, 0xFFFFFFF4)):
+                handle = msvcrt.get_osfhandle(fd) if previous_fds[fd] is not None else None
+                if not kernel.SetStdHandle(handle_id, handle):
+                    raise _windows_ctypes("WinError")(_windows_ctypes("get_last_error")())
+        log_stream.close()
+        if previous_fault_handler and sys.stderr is not None:
+            faulthandler.enable(file=sys.stderr, all_threads=True)
 
 
 def _reusable_result(result: SegmentResult) -> bool:
@@ -574,6 +604,7 @@ class ProcessExecutor:
             daemon=False,
         )
         continuing = self.worker is not None
+        segment["startup_kind"] = "warm" if continuing else "cold"
         if continuing:
             assert request_receiver is not None and request_sender is not None
             receiver.close()
@@ -610,6 +641,7 @@ class ProcessExecutor:
         def measured_result(result: SegmentResult) -> SegmentResult:
             if result.status == "done" and result.stats is not None:
                 stats = result.stats
+                stats["startup_kind"] = "warm" if continuing else "cold"
                 stats["parent_ipc_seconds"] = max(
                     0, time.perf_counter() - parent_started - stats.get("child_runtime_seconds", 0)
                 )
@@ -972,6 +1004,7 @@ def unit_admission(job: dict[str, Any], now: datetime, interval: Any) -> tuple[b
         prediction = predict_finalization(job)
     else:
         from videoenhancer.estimate import predict_segment
+        from videoenhancer.estimate.startup import cold_parts
 
         prediction = predict_segment(
             job["media"],
@@ -979,6 +1012,7 @@ def unit_admission(job: dict[str, Any], now: datetime, interval: Any) -> tuple[b
             pending["end"] - pending["start"],
             job.get("machine_profile"),
             float(job.get("correction_factor", 1)),
+            cold=cold_parts(job)[int(pending.get("index", job["segments"].index(pending)))],
         )
     return admit_step(prediction, pending is None, now, interval)
 
@@ -1072,6 +1106,9 @@ def run_queue(
     def timed_wait(job: dict[str, Any], seconds: float, reason: str) -> None:
         if isinstance(executor, ProcessExecutor):
             executor.close()
+        latest = store.load(job["id"])
+        latest.setdefault("timing", {})["worker_parts"] = 0
+        store.save(latest)
         logger = get_logger(store.home, job_id=job["id"])
         started = clock.now()
         previous = waiting.get(job["id"])
@@ -1129,6 +1166,11 @@ def run_queue(
                         and store.read_control_state(current_id) not in {"queued", "running"}
                     ):
                         executor.close()
+                        if current_id:
+                            with contextlib.suppress(FileNotFoundError):
+                                current = store.load(current_id)
+                                current.setdefault("timing", {})["worker_parts"] = 0
+                                store.save(current)
                 between_segments()
                 if stopped():
                     break
@@ -1233,6 +1275,9 @@ def run_queue(
                         None,
                     )
                     if pending is None:
+                        if isinstance(executor, ProcessExecutor):
+                            executor.close()
+                        manifest.setdefault("timing", {})["worker_parts"] = 0
                         from videoenhancer.media.mux import assemble
 
                         now = clock.now()
@@ -1404,6 +1449,22 @@ def run_queue(
                         timed_wait(manifest, min(seconds, 30), "outside operating hours")
                         continue
                     from videoenhancer.estimate import predict_segment, update_correction
+                    from videoenhancer.estimate.startup import cold_parts
+
+                    if isinstance(executor, ProcessExecutor):
+                        worker = executor.worker
+                        reusable = (
+                            worker is not None
+                            and worker.get("job_id") == job_id
+                            and worker["process"].is_alive()
+                            and worker["key"].endswith(
+                                f":batch={int(manifest['settings'].get('batch_size', 2))}"
+                            )
+                        )
+                        manifest.setdefault("timing", {})["worker_parts"] = (
+                            worker["parts"] if worker is not None and reusable else 0
+                        )
+                        store.save(manifest)
 
                     prediction = predict_segment(
                         manifest["media"],
@@ -1411,6 +1472,7 @@ def run_queue(
                         pending["end"] - pending["start"],
                         manifest.get("machine_profile"),
                         correction=float(manifest.get("correction_factor", 1.0)),
+                        cold=cold_parts(manifest)[pending["index"]],
                     )
                     if (
                         interval is not None
@@ -1499,12 +1561,19 @@ def run_queue(
                     )
                     batch_size = int(manifest["settings"].get("batch_size", 2))
                     before_segment()
+
+                    def record_cold_retry(part: dict[str, Any], job: dict[str, Any]) -> None:
+                        part["startup_kind"] = "cold"
+                        job.setdefault("timing", {})["worker_parts"] = 0
+                        store.save(job)
+
                     with _prevent_sleep():
                         try:
                             result = executor.run(
                                 manifest, segment, temp_path, should_abort, batch_size=batch_size
                             )
                             if result.stalled:
+                                record_cold_retry(segment, manifest)
                                 _cleanup_temps(job_dir)
                                 job_logger.warning(
                                     "Segment watchdog fired; retrying in a fresh child",
@@ -1518,6 +1587,7 @@ def run_queue(
                                     batch_size=batch_size,
                                 )
                             if result.oom and batch_size > 1:
+                                record_cold_retry(segment, manifest)
                                 temp_path.unlink(missing_ok=True)
                                 batch_size = 1
                                 job_logger.warning(
@@ -1536,6 +1606,7 @@ def run_queue(
                                 result.timestamp_mismatch
                                 and manifest.get("decoder", "nvdec") == "nvdec"
                             ):
+                                record_cold_retry(segment, manifest)
                                 temp_path.unlink(missing_ok=True)
                                 manifest["decoder"] = "ffmpeg"
                                 manifest["decoder_reason"] = (
@@ -1564,6 +1635,10 @@ def run_queue(
                     elapsed = max(0.0, (_utc(clock.now()) - _utc(started)).total_seconds())
                     manifest = store.load(job_id)
                     segment = manifest["segments"][index]
+                    if isinstance(executor, ProcessExecutor):
+                        manifest.setdefault("timing", {})["worker_parts"] = (
+                            executor.worker["parts"] if executor.worker else 0
+                        )
                     control_state = store.read_control_state(job_id)
                     window_closed = (
                         not ignore_schedule
@@ -1584,6 +1659,10 @@ def run_queue(
                         else:
                             retry_permission(os.replace, temp_path, final_path)
                             segment["state"] = "done"
+                            if all(part["state"] == "done" for part in manifest["segments"]):
+                                if isinstance(executor, ProcessExecutor):
+                                    executor.close()
+                                manifest.setdefault("timing", {})["worker_parts"] = 0
                             segment["actual_seconds"] = elapsed
                             segment["stats"] = result.stats or {}
                             segment["stats"]["output_bytes"] = final_path.stat().st_size
@@ -1625,6 +1704,7 @@ def run_queue(
                     if result.status == "aborted":
                         if isinstance(executor, ProcessExecutor):
                             executor.close()
+                        manifest.setdefault("timing", {})["worker_parts"] = 0
                         temp_path.unlink(missing_ok=True)
                         segment["state"] = "pending"
                         manifest.setdefault("timing", {}).setdefault("wasted_seconds", 0.0)
@@ -1643,6 +1723,7 @@ def run_queue(
                     if result.status == "failed":
                         if isinstance(executor, ProcessExecutor):
                             executor.close()
+                        manifest.setdefault("timing", {})["worker_parts"] = 0
                         temp_path.unlink(missing_ok=True)
                         segment["state"] = "failed"
                         manifest["state"] = "failed"
@@ -1683,6 +1764,12 @@ def run_queue(
                     _cleanup_temps(store.job_dir(job_id))
     finally:
         if isinstance(executor, ProcessExecutor):
+            current_id = executor.worker.get("job_id") if executor.worker else None
             executor.close()
+            if current_id:
+                with contextlib.suppress(FileNotFoundError):
+                    current = store.load(current_id)
+                    current.setdefault("timing", {})["worker_parts"] = 0
+                    store.save(current)
         if previous_handler is not None:
             signal.signal(signal.SIGINT, previous_handler)

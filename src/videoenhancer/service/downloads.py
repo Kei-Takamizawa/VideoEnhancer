@@ -11,9 +11,9 @@ def gpu_test_prediction(model: dict[str, Any], profile: dict[str, Any] | None) -
     if not profile:
         return 15.0
     mode = "fast" if model["task"] == "interpolate" else "standard"
-    startup = profile.get("startup_by_preset", {}).get(
-        mode, profile.get("segment_overhead_seconds", 2)
-    )
+    from videoenhancer.estimate.startup import startup_seconds
+
+    startup = startup_seconds(profile, mode, cold=True)
     coefficient = (
         profile.get("models", {}).get(model["id"], {}).get("seconds_per_pixel_frame", 0) or 0
     )
