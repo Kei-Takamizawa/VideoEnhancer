@@ -1,8 +1,8 @@
-# CURRENT_TASK: VE-P1e-3d2b (finish P1e-3d2: complete calibration data, scheduling readers, finalization curve)
+# CURRENT_TASK: VE-P1e-3d2c (Windows CI: a finished job's warm worker still holds its part log)
 
 > Follow `AGENTS.md` and `CLAUDE.md` on `main` for the workflow. This file defines only the work.
 
-- **Task ID:** VE-P1e-3d2b
+- **Task ID:** VE-P1e-3d2c
 - **Date:** 2026-11-01
 - **Author:** Claude (designer and reviewer)
 - **Implementer:** Codex
@@ -10,74 +10,48 @@
 
 ## 1. Start
 
-- **Branch:** `claude/project-thread-6lra47` at c6715d6 (VE-P1e-3d2, PARTIAL) plus this task commit. Keep working on top of it. The operator pushes to the same branch, so draft PR #15 continues.
-- Read the P1e-3d2 task (in Git history at 69b0450, `.ai/CURRENT_TASK.md`) and your P1e-3d2 `.ai/LAST_REPORT.md` first. Every rule there still holds unless this file changes it.
-- Write a new `.ai/LAST_REPORT.md` for VE-P1e-3d2b. Its first lines must be the Task ID and `Status: COMPLETED | PARTIAL | BLOCKED`.
-- **Do not stop for a question.** Write the default you chose under "Questions for the designer" and continue.
-- Isolated homes under `work\scratch\`, synthetic media only, every written path under `D:\my-workspace\VideoEnhancer\work\`, TEMP redirected to `work\scratch\tmp`. Never touch the owner's normal app or its data.
-- **Before any gate or long run, check the inputs.** Read the calibration report and the profile you are about to use, and stop if any coefficient is null or any benchmark section is "skipped". P1e-3d2 froze its gates on a profile with an unmeasured decode term; do not repeat that.
-- Long runs: record start, home and PIDs in the evidence folder before waiting. If a run is interrupted, re-run only that run.
+- **Branch:** `claude/project-thread-6lra47` at 654bd35 (VE-P1e-3d2b, COMPLETED) plus this task commit. The operator pushes to the same branch; PR #15 continues.
+- Write a new `.ai/LAST_REPORT.md` for VE-P1e-3d2c. First lines: the Task ID and `Status: COMPLETED | PARTIAL | BLOCKED`. Keep the P1e-3d2b report content below it (or move it to the bottom under a heading); do not delete the gate results.
+- Same rules as before: do not stop for a question, isolated homes under `work\scratch\`, every written path under `D:\my-workspace\VideoEnhancer\work\`, never touch the owner's normal app.
+- This is a small cycle. No calibration or gate jobs.
 
-## 2. Answers to your P1e-3d2 questions
+## 2. The failure
 
-1. **H264 sample.** Make calibration generate its own samples. A normal user who presses "Run speed calibration" has no `VE_SAMPLES_DIR` either, so today every Settings calibration leaves decode unmeasured. When no suitable sample is found, `_bench_pynvc_samples` (and the FFmpeg path) must generate a synthetic `h264_720x1280` and `hevc_1080x1920` clip in the calibration's temporary folder with FFmpeg, decode them, and delete them afterwards. Keep `VE_SAMPLES_DIR` as an optional override. Add a test that a calibration with no samples folder produces a non-null decode coefficient (fake decoder allowed).
-2. **P0 `source_pts`.** Fix the P0 helper in `bench/runner.py` so it passes `source_pts` (and anything else `media/decode.py` requires). The P0 end-to-end diagnostic must run, not skip. Add a test.
-3. **Scheduling readers.** You may change `src/videoenhancer/schedule/planner.py` and `controller.unit_admission`, only so that they use the same cold/warm rule (`estimate/startup.py`) as the estimator. No other scheduling policy changes. Add tests that the planner and admission predictions match `estimate_job` for the same job within 1 s.
-4. **Finalization.** See section 4.
+GitHub Actions `cpu (windows-latest)` failed twice on 654bd35 (runs 41316632739 and 41316637780) with the same error; Linux passed:
 
-## 3. Part A: a complete built-in profile
+```
+FAILED tests/test_service.py::test_cpu_queue_sse_controls_and_completed_output - HTTPError 400
+HTTP failure: DELETE queue/<id>: 400: {"error": "[WinError 32] The process cannot access the file because it is being used by another process: '...\\home\\jobs\\<id>\\logs\\seg_00000.log'"}
+```
 
-1. With items 1 and 2 fixed, run the full calibration 3 times on the owner's PC, as in P1e-3d2 Part C. Every component, model, reference point, start-up term and the P0 diagnostic must be measured. Report medians and spreads (flag spread > 10%).
-2. Rebuild `rtx-4060-ti-8gb.json` from the medians. Keep `estimate_revision` `p1e3d2-warm1` unless you change the meaning of a field; then bump it. Update `provenance`; remove the INCOMPLETE note.
-3. Report the old (main), P1e-3d2 and new values side by side.
+The test waits until both jobs are `done`, then deletes the first job. The delete fails because a process still has that job's `seg_00000.log` open.
 
-## 4. Part B: finalization
+Designer's reading (unverified): since P1e-3d1 the part worker is reused (`ProcessExecutor(reuse=True)`). The child redirects its output to the part log. When a job's last part finishes, the worker stays alive until the next scheduler loop closes it (`controller.py` around the "A cancelled/paused/finished job must release its idle GPU worker" block), so the job can be `done` while its worker still holds the log. Deleting a just-finished job from History on Windows can then fail for the owner too. The same race may also delay freeing GPU memory after a job.
 
-The G-10 finalization was predicted at 12.07 s and took 19.32 s (−37.5%). Every step was slower than the curve, and aggregation was 12x slower (0.08 → 1.02 s).
+## 3. Work
 
-1. **Find out why.** Compare the conditions of the P1e-2 curve samples with the G-10 job: part count and part sizes, output bytes, audio, quality aggregation input, disk and file-cache state (cold or warm), and anything else running (another engine, Defender scanning new files, the owner's normal app). Report what explains the gap, with measurements, not guesses.
-2. **Remeasure the curve with independent data.** Produce synthetic Standard outputs of 1, 10, 30 and 120 minutes through the real part pipeline structure (real part count and part files, audio, quality aggregation), under the same conditions as a real job (in particular the same file-cache state as at the end of a real job). Measure finalization 3 times per point and use the median. Do not use the G-10 job or its files.
-3. If the cause is a fixed per-job or per-part cost that the curve does not model, you may change the shape of `predict_finalization` (for example a per-part term for aggregation and checkpoint validation). Keep it simple and explain it in `docs/estimate-startup.md` or a new short doc.
-4. Keep calibration keeping the curve (P1e-3d2 Part B stays as it is).
+1. Reproduce it on Windows: run the test in a loop (at least 20 times) on the current branch and report how often it fails. If it never fails locally, add a deterministic test that holds the worker open past `done` with a fake, and show it fails before the fix.
+2. Fix the cause, not the test:
+   - Close the job's warm worker when the job has no more parts to run, before finalization starts and before the job is marked `done`. A worker must never outlive its job's last part.
+   - Make sure the worker's log handle for a part is closed when that part ends, even if the worker is reused for the next part (each part has its own log file).
+   - Do not change the worker-reuse rules from P1e-3d1 otherwise, and keep output bytes identical.
+3. Optional and only if cheap: a short bounded retry in the History delete path for `WinError 32` is **not** a substitute for item 2. Do not add it unless item 2 alone is not enough, and then explain why.
+4. Run the test 20 times in a row on Windows after the fix: 0 failures.
 
-## 5. Part C: gates
+## 4. Allowed files
 
-Re-use the recorded P1e-3d2 gate runs where the gate depends only on the job's actual times and the profile's prediction:
+- `src/videoenhancer/schedule/controller.py` and `src/videoenhancer/service/engine.py`, for the worker life cycle and log handles only.
+- `tests/**`.
+- `docs/part-worker-lifecycle.md` (one or two lines).
+- Nothing else.
 
-- **Recompute** G-10 (first estimate, first finish time, finalization), G-1440 and G-Fast first estimates from their saved manifests with the new profile and the new finalization curve. The actual times stay as recorded. Report old and new predictions.
-- **Recompute** the G-10 live finish time at 50% if the recorded progress data allows it exactly. If it does not, re-run G-10 in a fresh home.
-- **New independent check, G-Fin:** a fresh-home 5-minute portrait Standard C1 job, 1080x1920/60 HEVC. Gate: first estimate ±10%, finalization prediction ±25%.
-- **G-Cal:** after G-Fin, run Settings calibration in the same home and check that the finalization prediction for G-Fin is unchanged by calibration (the curve, not local learning, must carry it). Report the raw-curve number and the number with local learning separately.
+## 5. Checks
 
-| Gate | Limit |
-| --- | --- |
-| G-10 first estimate, first finish time | ±10% |
-| G-10 live finish time at 50% | ±5% |
-| G-10 finalization (raw curve, no local learning) | ±25% |
-| G-1440 first estimate | ±15% |
-| G-Fast first estimate | ±10% |
-| G-Fin first estimate | ±10% |
-| G-Fin finalization (raw curve) | ±25% |
+- Full CPU suite, ruff, ruff format, pyright. The GPU suite `-m "gpu and not soak"` only for the worker tests it contains (`tests/test_warm_worker.py` and any GPU test touching the controller), not the full suite.
+- A quick G5 check: one 30 s 1080p Standard H.264 fixture from P1e-3d1 section 7, output SHA-256 identical to the P1e-3d1 hash.
+- Close everything you started; evidence under `work\evidence\VE-P1e-3d2c\`; report free space.
 
-Do not tune on a gate job's own result. If a recomputed gate fails, report the per-part and per-step data and stop that gate there; the designer decides.
+## 6. Report
 
-## 6. Allowed files
-
-- Everything allowed in P1e-3d2 section 7.
-- `src/videoenhancer/schedule/planner.py` and `controller.unit_admission`, for item 3 only.
-- Nothing else. No GUI, models, model manifests, presets, settings defaults, packaging, CI workflows or the LGPL build.
-
-## 7. Checks before the report
-
-- The full CPU suite (including `tests/test_p1d3.py::test_driver_change_preserves_first_estimate`, which must pass without loosening), the GPU suite `-m "gpu and not soak"` in one uninterrupted invocation if possible (if a usage stop splits it, say so and list each invocation), ruff, ruff format, pyright, GUI lint and Vitest.
-- Close everything you started and report PIDs. Delete scratch after recording sizes. Evidence under `work\evidence\VE-P1e-3d2b\`, at most 300 MB. Persistent growth at most 1 GB. Report free space on C: and D:.
-
-## 8. Report
-
-- Items 1-3 with tests.
-- Part A: the three runs, medians, spreads, and the old/P1e-3d2/new table.
-- Part B: the cause of the finalization gap with data, the new points, and any change to the formula.
-- Part C: the gate table with old and new predictions, the actuals, and the errors.
-- Changed files.
-- A short Japanese summary at the end for the owner (3-6 lines).
-- **COMPLETED** only if the profile has no unmeasured term, every gate in section 5 passes, and every check in section 7 passed. Otherwise PARTIAL.
+- The reproduction rate before, the cause found, the fix, the 20-run result after, the G5 hash, changed files, and a 2-4 line Japanese summary.
+- **COMPLETED** only if the test passes 20/20 on Windows, the hash matches, and every check passed.
