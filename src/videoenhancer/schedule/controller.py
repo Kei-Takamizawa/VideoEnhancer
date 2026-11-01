@@ -247,11 +247,19 @@ def _child_run(
     log_path = Path(output).parent / "logs" / f"seg_{int(segment.get('index', 0)):05d}.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_stream = log_path.open("a", encoding="utf-8", buffering=1)
+    previous_streams = sys.stdout, sys.stderr
+    previous_fds: dict[int, int | None] = {}
+    for fd in (1, 2):
+        try:
+            previous_fds[fd] = os.dup(fd)
+        except OSError:  # pythonw can start without standard descriptors.
+            previous_fds[fd] = None
     sys.stdout = sys.stderr = log_stream
     os.dup2(log_stream.fileno(), 1)
     os.dup2(log_stream.fileno(), 2)
     import faulthandler
 
+    previous_fault_handler = faulthandler.is_enabled()
     faulthandler.enable(file=log_stream, all_threads=True)
     heartbeat_stop = threading.Event()
     state = SegmentProgress()
@@ -364,7 +372,29 @@ def _child_run(
         if heart.ident is not None:
             heart.join(timeout=3)
         sender.close()
+        faulthandler.disable()
         log_stream.flush()
+        sys.stdout, sys.stderr = previous_streams
+        for fd, saved in previous_fds.items():
+            if saved is None:
+                os.close(fd)
+            else:
+                os.dup2(saved, fd)
+                os.close(saved)
+        if os.name == "nt":
+            import msvcrt
+            from ctypes import wintypes
+
+            kernel = _windows_ctypes("WinDLL")("kernel32", use_last_error=True)
+            kernel.SetStdHandle.argtypes = [wintypes.DWORD, wintypes.HANDLE]
+            kernel.SetStdHandle.restype = wintypes.BOOL
+            for fd, handle_id in ((1, 0xFFFFFFF5), (2, 0xFFFFFFF4)):
+                handle = msvcrt.get_osfhandle(fd) if previous_fds[fd] is not None else None
+                if not kernel.SetStdHandle(handle_id, handle):
+                    raise _windows_ctypes("WinError")(_windows_ctypes("get_last_error")())
+        log_stream.close()
+        if previous_fault_handler and sys.stderr is not None:
+            faulthandler.enable(file=sys.stderr, all_threads=True)
 
 
 def _reusable_result(result: SegmentResult) -> bool:
@@ -1245,6 +1275,9 @@ def run_queue(
                         None,
                     )
                     if pending is None:
+                        if isinstance(executor, ProcessExecutor):
+                            executor.close()
+                        manifest.setdefault("timing", {})["worker_parts"] = 0
                         from videoenhancer.media.mux import assemble
 
                         now = clock.now()
@@ -1626,6 +1659,10 @@ def run_queue(
                         else:
                             retry_permission(os.replace, temp_path, final_path)
                             segment["state"] = "done"
+                            if all(part["state"] == "done" for part in manifest["segments"]):
+                                if isinstance(executor, ProcessExecutor):
+                                    executor.close()
+                                manifest.setdefault("timing", {})["worker_parts"] = 0
                             segment["actual_seconds"] = elapsed
                             segment["stats"] = result.stats or {}
                             segment["stats"]["output_bytes"] = final_path.stat().st_size

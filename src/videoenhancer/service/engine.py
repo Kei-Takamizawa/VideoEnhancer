@@ -1620,9 +1620,18 @@ class Engine:
             if stage_history:
                 staged = self.store.jobs_dir / ".removing" / job_id
                 staged.parent.mkdir(exist_ok=True)
-                directory.rename(staged)
-            else:
-                shutil.rmtree(directory)
+            for attempt in range(5):
+                try:
+                    if stage_history:
+                        directory.rename(staged)
+                    else:
+                        shutil.rmtree(directory)
+                    break
+                except PermissionError as error:
+                    # A concurrent finished-job reader can briefly hold manifest.lock.
+                    if getattr(error, "winerror", None) != 32 or attempt == 4:
+                        raise
+                    time.sleep(0.05 * 2**attempt)
         self.link_jobs.pending.pop(job_id, None)
         self.link_jobs.cancelled.discard(job_id)
         return {"removed": job_id, "output_preserved": True}

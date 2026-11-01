@@ -85,6 +85,41 @@ def done(**stats):
     return controller.SegmentResult("done", stats=stats)
 
 
+def test_last_part_releases_worker_before_boundary_and_assembly(tmp_path, monkeypatch):
+    from test_controller import _job, fixture_assemble
+
+    store = controller.JobStore(tmp_path / "home")
+    _job(store, tmp_path)
+    context = Context([done()])
+    executor = controller.ProcessExecutor(context=context, reuse=True)
+    original_run = executor.run
+    observed = []
+
+    def render(*args, **kwargs):
+        args[2].write_bytes(b"synthetic part")
+        return original_run(*args, **kwargs)
+
+    def boundary():
+        if store.load("unit-job")["segments"][0]["state"] == "done":
+            observed.append(("boundary", executor.worker is None))
+
+    def assemble(*args, **kwargs):
+        observed.append(("assembly", executor.worker is None))
+        return fixture_assemble(*args, **kwargs)
+
+    monkeypatch.setattr(executor, "run", render)
+    monkeypatch.setattr(controller, "validate_done_segments", lambda *_: False)
+    monkeypatch.setattr(controller, "segment_file_valid", lambda *_: True)
+    monkeypatch.setattr("videoenhancer.media.mux.assemble", assemble)
+    controller.run_queue(
+        home=store.home, executor=executor, ignore_schedule=True, between_segments=boundary
+    )
+    assert store.load("unit-job")["state"] == "done"
+    assert ("assembly", True) in observed
+    assert all(released for _, released in observed)
+    assert not context.processes[0].is_alive()
+
+
 def test_worker_reuses_process_and_closes_after_shutdown(tmp_path):
     context = Context([done(), done()])
     executor = controller.ProcessExecutor(context=context, reuse=True)
@@ -228,9 +263,16 @@ def test_worker_dies_before_start_if_windows_protection_fails(tmp_path, monkeypa
     assert not context.processes[0].is_alive() and executor.worker is None
 
 
-def test_real_worker_reuses_pid_and_exits_after_cancel(video_factory, build_manifest, tmp_path):
-    source = video_factory(frames=12)
-    manifest = build_manifest(source, fps="off")
+@pytest.mark.parametrize("backend", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
+def test_real_worker_reuses_pid_and_exits_after_cancel(
+    video_factory, build_manifest, tmp_path, request, backend
+):
+    if backend == "cuda":
+        request.getfixturevalue("gpu_available")
+    source = video_factory(
+        frames=12, **({"width": 256, "height": 144} if backend == "cuda" else {})
+    )
+    manifest = build_manifest(source, fps="off", backend=backend, lossless=backend == "cpu")
     manifest.pop("id")  # Direct executor test, without a queue store.
     executor = controller.ProcessExecutor(reuse=True)
     process = None
@@ -245,6 +287,8 @@ def test_real_worker_reuses_pid_and_exits_after_cancel(video_factory, build_mani
         assert first.status == "done", first.error
         assert executor.worker is not None
         process = executor.worker["process"]
+        # Windows forbids removing a log while any CRT/native handle retains it.
+        (tmp_path / "logs" / "seg_00000.log").unlink()
         second = executor.run(
             manifest,
             {"index": 1, "start": 6, "end": 12},
@@ -264,6 +308,7 @@ def test_real_worker_reuses_pid_and_exits_after_cancel(video_factory, build_mani
             )
         assert executor.worker is not None
         assert executor.worker["process"].pid == process.pid
+        (tmp_path / "logs" / "seg_00001.log").unlink()
         cold = controller.ProcessExecutor().run(
             manifest,
             {"index": 1, "start": 6, "end": 12},

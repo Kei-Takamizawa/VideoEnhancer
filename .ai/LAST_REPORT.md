@@ -1,3 +1,215 @@
+Task ID: VE-P1e-3d2c
+Status: COMPLETED
+Cycle: 1 - Windows
+
+## Result
+
+Implemented worker/log lifetime fixes and the conditional, bounded History sharing-violation retry. Final HTTP repetition: 20 PASS / 0 FAIL / 0 SKIP. Full CPU: 740 PASS, 24 existing SKIP, 102 GPU deselected (422.57 s). Focused GPU: 1 PASS. G5 output SHA-256 matches the P1e-3d1 reference. All required checks passed. Three empty cache directories need owner deletion after sandbox ACL refusal; no refused delete was retried.
+
+## Execution and scope
+
+Windows PowerShell; local-env.ps1 was dot-sourced before every test/check. Initial read-only Git confirmed a clean tree on claude/project-thread-6lra47 at 1c16d76. Git was initially absent from the sandbox PATH, and its explicit executable was denied; approved read-only escalation succeeded. No Git mutation, commit, push, merge, calibration or additional gate jobs. CURRENT_TASK.md is unchanged. All explicit generated media, test homes, TEMP, pytest caches and evidence are within work. No owner normal app, media, queue or Recycle Bin was used.
+
+## Cause and implementation
+
+_child_run retained its Python log stream, CRT stdout/stderr duplicates and Windows native standard-output handles after a successful part. A reusable child can remain idle while those handles prevent Windows log deletion. Warm-child results are buffered until _child_run returns; cleanup now disables the part faulthandler target, flushes the log, restores Python/CRT/native streams, closes all saved descriptors and the log, and restores the inherited fault handler before publishing that result. Missing pythonw standard descriptors are preserved.
+
+The scheduler previously retained the last successful part's worker through finalization and publication of done, closing it on a later loop. It now closes the worker when the final part completes, before saving completion or calling the next scheduler boundary. The no-pending-parts finalization entry also closes it defensively. Worker-parts metadata resets to zero. Existing worker identity, reuse count, invalidation, watchdog and retry rules are unchanged.
+
+The first post-fix HTTP loop found a distinct WinError 32 on manifest.lock (run 10/20); it did not involve a part log. This is the measured reason for using task item 3. History removal/staging retries only WinError 32, at most five attempts with waits 0.05/0.10/0.20/0.40 s (0.75 s total). Other permission errors propagate immediately; persistent sharing failures propagate at the fifth attempt. This does not replace worker/log cleanup or change output preservation.
+
+## Changed files
+
+- src/videoenhancer/schedule/controller.py: per-part log handle cleanup; final-worker shutdown before boundary/finalization.
+- src/videoenhancer/service/engine.py: measured optional History WinError 32 retry.
+- tests/test_warm_worker.py: deterministic finalization/boundary regression, real log unlink checks, CUDA reuse/byte-identity coverage.
+- tests/test_service.py: six removal/staging retry-bound/error/output-preservation cases.
+- docs/part-worker-lifecycle.md: two lifecycle clarifications.
+- .ai/LAST_REPORT.md: this report; the previous report and gate results remain below verbatim in content.
+
+## Tests and evidence
+
+Evidence root: evidence/VE-P1e-3d2c (private local artifacts, not staged).
+
+| Check/run | Result | Evidence |
+| --- | --- | --- |
+| Preliminary sandbox HTTP loop | NOT_RUN as reproduction: 20 SKIP, FFmpeg unavailable | before-*.log |
+| Real pre-fix HTTP loop | PASS 20/20; failure rate 0/20 | real-before-*.log, reproduction-summary.json |
+| First added-test attempt | FAIL: incorrect quality-module fixture import; fixed before production edit | red.log |
+| Corrected deterministic pre-fix regression | Expected FAIL: worker alive at boundary, assembly and done | red2.log |
+| Real pre-fix regressions | Expected FAIL: lifecycle assertion and WinError 32 unlinking seg_00000.log | red-real.log |
+| Focused post-fix CPU plus pythonw | PASS 19; 1 GPU deselected | green.log |
+| Added GPU case, initial fixture | FAIL: NVENC initialization rejected tiny/lossless fixture | gpu.log |
+| Corrected GPU worker case | PASS 1; 87 deselected | gpu2.log |
+| First post-fix HTTP loop | FAIL overall: 19 PASS / 1 FAIL on manifest.lock | after-*.log |
+| Retry regressions before implementation | Expected FAIL 4; 2 non-sharing cases PASS | retry-red.log |
+| Retry regressions after implementation | PASS 6 | retry-green.log |
+| Final HTTP loop | PASS 20/20, 0 FAIL, 0 SKIP | final-after-*.log, reproduction-summary.json |
+| Full CPU: pytest -m "not gpu" | PASS 740; SKIP 24; 102 GPU deselected; 422.57 s | cpu.log, cpu.xml |
+| Ruff check . | PASS | ruff-final.log |
+| Ruff format --check . | PASS, 214 files already formatted | ruff-format-final.log |
+| Pyright | PASS, 0 errors/warnings | pyright-final.log |
+| Read-only independent code review | No actionable findings; no tests or edits by reviewer | review.txt |
+| G5 | PASS, output SHA-256 identical; zero remaining children | g5-frozen.log, d2c-frozen-land-std-h264-g5.json |
+
+The full CPU skips are unchanged environment requirements: 18 explicit verified standalone link tools, 3 OpenSSL/TLS fixtures, 2 private sample fixtures, and 1 Linux-only parent-death test. No test was disabled, skipped or weakened to obtain green. The added GPU case uses a supported 256x144 normal H.264 encode; the existing CPU lossless fixture and cold/warm byte-equality assertions remain intact. No other controller-related case has a GPU marker; the scoped GPU invocation did not run the full GPU suite. The full CPU suite reran the lifecycle, pythonw and retry cases on final code.
+
+All pytest basetemp/cache paths were absolute work/scratch paths. Reproduction: after dot-sourcing local-env.ps1, run python -m pytest tests/test_service.py::test_cpu_queue_sse_controls_and_completed_output -q with a fresh contained --basetemp and -o cache_dir for each of 20 invocations. Focused GPU command selected test_warm_worker.py plus controller/finalization/reliability-related files with -m "gpu and not soak". The scoped GPU count was one.
+
+## G5 byte identity
+
+The 30 s 1920x1080/30fps testsrc2 + AAC fixture was recreated from the P1e-3d1 recipe. Input SHA-256 matched 0a9ce09ffa9f9f64a99f6768825675893d66c2a0fe1a0aeb0012e6c91d8c67e1. Standard, H.264, 2x output, batch 2 and both model identities match the historical reference.
+
+The initial attempt was cancelled before completion because current automatic planning generated four parts; the P1e-3d1 reference used six. It is not a hash PASS or a speed measurement (g5.log and d2c-land-std-h264-g5.json retain the cancellation and zero remaining children). The qualified harness paused processing during preparation and used only the historical fixture's six boundaries: 0/162/324/486/648/810/900. Product planning was not changed. Reference hash/settings/models/boundaries are retained in g5-reference.json; the old report is archived at 9677557:.ai/LAST_REPORT.md. Qualified output SHA-256: 82cacf0478a6c6ee8704ee3b16c34efe48108960b3300fb5739793dc4b500679. It equals the P1e-3d1 reference. Output: 162184891 bytes; elapsed 911.708574 s (diagnostic only, not a performance gate); shutdown 0.000471 s; remaining child PIDs: [].
+
+## GUI, warnings and intentional omissions
+
+GUI: NOT_RUN, not requested for this engine lifecycle cycle. No GUI or owner app was launched. No full GPU suite, calibration, prediction gate, performance gate, package build or extra feature was run. No commit/push was made; the operator owns Git writes.
+
+Early default pytest-cache creation printed sandbox ACL warnings. Later checks used dedicated contained scratch cache paths. An intermediate static check flagged two added test lines for formatting/line length; formatting was corrected, then all final static checks passed. Git diff --check passed; Git noted the expected docs LF-to-CRLF normalization warning.
+
+## Workspace, cleanup and unresolved items
+
+| Additional cleanup candidate | Logical bytes before removal |
+| --- | ---: |
+| scratch\home | 0 |
+| scratch\videoenhancer.jsonl | 14902 |
+
+Measured before removal; hard-linked model sizes are logical lengths, not allocated or additional storage.
+
+| Cleanup candidate | Logical bytes before removal |
+| --- | ---: |
+| scratch\d2c-after-1 | 0 |
+| scratch\d2c-after-10 | 0 |
+| scratch\d2c-after-11 | 0 |
+| scratch\d2c-after-12 | 0 |
+| scratch\d2c-after-13 | 0 |
+| scratch\d2c-after-14 | 0 |
+| scratch\d2c-after-15 | 0 |
+| scratch\d2c-after-16 | 0 |
+| scratch\d2c-after-17 | 0 |
+| scratch\d2c-after-18 | 0 |
+| scratch\d2c-after-19 | 0 |
+| scratch\d2c-after-2 | 0 |
+| scratch\d2c-after-20 | 0 |
+| scratch\d2c-after-3 | 0 |
+| scratch\d2c-after-4 | 0 |
+| scratch\d2c-after-5 | 0 |
+| scratch\d2c-after-6 | 0 |
+| scratch\d2c-after-7 | 0 |
+| scratch\d2c-after-8 | 0 |
+| scratch\d2c-after-9 | 0 |
+| scratch\d2c-before-1 | 0 |
+| scratch\d2c-before-10 | 0 |
+| scratch\d2c-before-11 | 0 |
+| scratch\d2c-before-12 | 0 |
+| scratch\d2c-before-13 | 0 |
+| scratch\d2c-before-14 | 0 |
+| scratch\d2c-before-15 | 0 |
+| scratch\d2c-before-16 | 0 |
+| scratch\d2c-before-17 | 0 |
+| scratch\d2c-before-18 | 0 |
+| scratch\d2c-before-19 | 0 |
+| scratch\d2c-before-2 | 0 |
+| scratch\d2c-before-20 | 0 |
+| scratch\d2c-before-3 | 0 |
+| scratch\d2c-before-4 | 0 |
+| scratch\d2c-before-5 | 0 |
+| scratch\d2c-before-6 | 0 |
+| scratch\d2c-before-7 | 0 |
+| scratch\d2c-before-8 | 0 |
+| scratch\d2c-before-9 | 0 |
+| scratch\d2c-cpu | 0 |
+| scratch\d2c-cpu-cache | 0 |
+| scratch\d2c-final-after-1 | 0 |
+| scratch\d2c-final-after-10 | 0 |
+| scratch\d2c-final-after-11 | 0 |
+| scratch\d2c-final-after-12 | 0 |
+| scratch\d2c-final-after-13 | 0 |
+| scratch\d2c-final-after-14 | 0 |
+| scratch\d2c-final-after-15 | 0 |
+| scratch\d2c-final-after-16 | 0 |
+| scratch\d2c-final-after-17 | 0 |
+| scratch\d2c-final-after-18 | 0 |
+| scratch\d2c-final-after-19 | 0 |
+| scratch\d2c-final-after-2 | 0 |
+| scratch\d2c-final-after-20 | 0 |
+| scratch\d2c-final-after-3 | 0 |
+| scratch\d2c-final-after-4 | 0 |
+| scratch\d2c-final-after-5 | 0 |
+| scratch\d2c-final-after-6 | 0 |
+| scratch\d2c-final-after-7 | 0 |
+| scratch\d2c-final-after-8 | 0 |
+| scratch\d2c-final-after-9 | 0 |
+| scratch\d2c-g5 | 803807877 |
+| scratch\d2c-gpu | 0 |
+| scratch\d2c-gpu2 | 0 |
+| scratch\d2c-green | 0 |
+| scratch\d2c-pytest-cache | 0 |
+| scratch\d2c-pytest-gpu-cache | 0 |
+| scratch\d2c-real-before-1 | 0 |
+| scratch\d2c-real-before-10 | 0 |
+| scratch\d2c-real-before-11 | 0 |
+| scratch\d2c-real-before-12 | 0 |
+| scratch\d2c-real-before-13 | 0 |
+| scratch\d2c-real-before-14 | 0 |
+| scratch\d2c-real-before-15 | 0 |
+| scratch\d2c-real-before-16 | 0 |
+| scratch\d2c-real-before-17 | 0 |
+| scratch\d2c-real-before-18 | 0 |
+| scratch\d2c-real-before-19 | 0 |
+| scratch\d2c-real-before-2 | 0 |
+| scratch\d2c-real-before-20 | 0 |
+| scratch\d2c-real-before-3 | 0 |
+| scratch\d2c-real-before-4 | 0 |
+| scratch\d2c-real-before-5 | 0 |
+| scratch\d2c-real-before-6 | 0 |
+| scratch\d2c-real-before-7 | 0 |
+| scratch\d2c-real-before-8 | 0 |
+| scratch\d2c-real-before-9 | 0 |
+| scratch\d2c-red | 0 |
+| scratch\d2c-red-real | 0 |
+| scratch\d2c-red2 | 0 |
+| scratch\d2c-retry-green | 0 |
+| scratch\d2c-retry-red | 0 |
+| scratch\tmp | 5895136 |
+| scratch\jobs | 0 |
+| scratch\p1e3c2-native | 0 |
+| evidence\VE-P1e-3d1 | 162013132 |
+
+| Disk metric (decimal GB) | First readable snapshot | End |
+| --- | ---: | ---: |
+| C free | 346.570441 | 346.562896 |
+| D free | 876.163748 | 876.332007 |
+| package logical size | 0.125289 | 0.125289 |
+| evidence/VE-P1e-3d2c logical size | 0.001613 | 0.004516 |
+| scratch logical size | 0.048233 | 0.042232 |
+| cache logical size | 11.385460 | 11.385460 |
+
+The first readable snapshot was taken after preliminary reproduction/setup, not before any command. End evidence size excludes only this tiny final inventory/report metadata. Conservative persistent growth upper bound (complete current-cycle evidence plus positive package/cache deltas): 0.004516 GB, below 1 GB. This deliberately does not credit old evidence deletion. Evidence is below 300 MB, cache below 40 GB, and only VE-P1e-3d2 / VE-P1e-3d2b / VE-P1e-3d2c cycle evidence remains.
+
+Measured logical bytes removed: 971731047. Each removed item's independently measured byte count equals its inventory row above, with individual outcomes in cleanup-results.json and cleanup-additional-results.json. Hard-linked model names contribute logical lengths without implying equivalent recovered physical space. The removed oldest evidence directory was 162013132 bytes; its required report remains in Git at 9677557 and the G5 reference is retained in this cycle. Drive-wide free-space changes are not attributed to these deletions.
+
+### For the owner to delete
+
+| Exact path | Remaining bytes | Reason |
+| --- | ---: | --- |
+| D:/my-workspace/VideoEnhancer/work/scratch/d2c-cpu-cache | 0 | WinError 5: Access is denied |
+| D:/my-workspace/VideoEnhancer/work/scratch/d2c-pytest-cache | 0 | WinError 5: Access is denied |
+| D:/my-workspace/VideoEnhancer/work/scratch/d2c-pytest-gpu-cache | 0 | WinError 5: Access is denied |
+
+All three are empty directories. No retry, elevated delete, ACL change or other bypass was attempted. Pre-existing scratch/owner-check (42232471 bytes) was preserved. Every cycle-created file and isolated job home was removed; scratch therefore contains those protected prior fixtures and the three refused empty directories. All started test runners and G5 processes exited; qualified and cancelled G5 reports both show no remaining child PIDs. No designer decision is needed for implementation. No automatic approval rejection occurred.
+
+
+## Japanese summary
+
+最終パート後にワーカーを終了し、パートごとのPython・CRT・Windowsログハンドルを解放しました。
+別途実測したmanifest.lock競合には、WinError 32限定・合計待機0.75秒の再試行を追加しました。
+最終HTTP検証20/20、CPU 740件、対象GPU 1件がPASSし、G5のSHA-256も参照値と一致しました。
+削除拒否された空のキャッシュ3フォルダーは残し、所有者向け削除対象として記録しました。commit・pushは未実施です。
+
+## Preserved VE-P1e-3d2b report (historical results)
+
 Task ID: VE-P1e-3d2b
 Status: COMPLETED
 Cycle: 1 - Windows

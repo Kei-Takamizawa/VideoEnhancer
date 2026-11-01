@@ -12,6 +12,8 @@ abort discard it. Changing the job, model or settings also discards it. The
 controller's existing watchdog, batch-size and decoder retry ordering remains
 unchanged. Preview admission releases the idle worker before auxiliary GPU work;
 scheduler waits, job completion and engine shutdown release it too.
+The last part releases its worker before any scheduler boundary or finalization.
+Each part closes its log, including Python, CRT and native standard-output handles, before reuse.
 
 On shutdown the parent requests cooperative exit, then kills the process tree
 if necessary. The Windows kill-on-close Job Object remains attached throughout
