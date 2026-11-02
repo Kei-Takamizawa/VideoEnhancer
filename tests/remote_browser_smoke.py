@@ -41,8 +41,8 @@ def first_pixel(path: Path) -> list[int]:
 
 def run(work: Path, ffmpeg: str | None = None) -> dict:
     work = work.resolve(strict=True)
-    scratch = (work / "scratch" / "r1a-browser").resolve()
-    evidence = (work / "evidence" / "VE-R1a").resolve()
+    scratch = (work / "scratch" / "r1a2-browser").resolve()
+    evidence = (work / "evidence" / "VE-R1a-2").resolve()
     assert scratch.is_relative_to(work / "scratch")
     assert evidence.is_relative_to(work / "evidence")
     home, library = scratch / "home", scratch / "library"
@@ -135,7 +135,16 @@ def run(work: Path, ffmpeg: str | None = None) -> dict:
             page = context.new_page()
             errors = []
             media_requests = []
+            client_events = []
             page.on("pageerror", lambda error: errors.append(str(error)))
+            page.on(
+                "request",
+                lambda request: (
+                    client_events.append(request.post_data_json)
+                    if urlsplit(request.url).path == "/api/client-event"
+                    else None
+                ),
+            )
             page.on(
                 "response",
                 lambda result: (
@@ -177,10 +186,10 @@ def run(work: Path, ffmpeg: str | None = None) -> dict:
                 page.wait_for_function(
                     "document.querySelector('video').currentTime > 0.1", timeout=15000
                 )
-                report["checks"]["playback"] = "PASS"
+                report["checks"]["local_webkit_playback"] = "PASS"
                 print("Playback started", flush=True)
             except Exception as error:
-                report["checks"]["playback"] = "FAIL"
+                report["checks"]["local_webkit_playback"] = "FAIL"
                 report["playback_error"] = str(error)
                 report["media_diagnostics"] = page.locator("video").evaluate(
                     """video => ({readyState: video.readyState, networkState: video.networkState,
@@ -226,6 +235,66 @@ def run(work: Path, ffmpeg: str | None = None) -> dict:
                 0
             )
             report["checks"]["blob_download_and_simulated_share_cancel"] = "PASS"
+            page.evaluate(
+                "Object.defineProperty(navigator, 'share', {configurable: true, "
+                "value: async () => {"
+                " throw new DOMException('Not allowed', 'NotAllowedError'); }})"
+            )
+            page.get_by_role("button", name="Download", exact=True).click()
+            page.get_by_role("button", name="Save video", exact=True).click()
+            expect(
+                page.get_by_text("This video is too large to share directly.", exact=True)
+            ).to_be_visible()
+            expect(page.locator(".error-name")).to_have_text("NotAllowedError")
+            expect(page.get_by_role("button", name="Save to Files with Safari")).to_be_visible()
+            report["checks"]["share_failure_safari_option_and_error_name"] = "PASS"
+            library_service = gateway.adapter.library
+            original_acquire = library_service.acquire
+
+            def fail_acquire(_identifier):
+                raise OSError("Synthetic load failure")
+
+            library_service.acquire = fail_acquire
+            try:
+                page.get_by_role("button", name="Download", exact=True).click()
+                expect(
+                    page.get_by_text(
+                        "The PC cannot read the library right now. Try again.", exact=True
+                    )
+                ).to_be_visible()
+                expect(page.locator(".error-name")).to_have_text("Error")
+            finally:
+                library_service.acquire = original_acquire
+            page.evaluate("""() => {
+                window.originalFetch = window.fetch;
+                window.fetch = (url, options) => String(url).endsWith('/video')
+                    ? Promise.reject(new TypeError('Synthetic network failure'))
+                    : window.originalFetch(url, options);
+            }""")
+            try:
+                page.get_by_role("button", name="Download", exact=True).click()
+                expect(
+                    page.get_by_text(
+                        "Can't reach the PC. Check that it is on and on the same Wi-Fi.", exact=True
+                    )
+                ).to_be_visible()
+                expect(page.locator(".error-name")).to_have_text("TypeError")
+            finally:
+                page.evaluate("window.fetch = window.originalFetch")
+            assert any(
+                event["kind"] == "share_failure"
+                and event["can_share"] is True
+                and event["error_name"] == "NotAllowedError"
+                for event in client_events
+            )
+            assert any(
+                event["kind"] == "load_failure"
+                and event["phase"] == "load"
+                and event["error_name"] == "TypeError"
+                for event in client_events
+            )
+            assert "R1a sample" not in json.dumps(client_events)
+            report["checks"]["load_failure_diagnostic_and_no_names"] = "PASS"
             page.get_by_role("button", name="Delete", exact=True).click()
             expect(page.locator("#delete-description")).to_contain_text("R1a sample A")
             page.get_by_role("button", name="Delete permanently").click()
@@ -250,6 +319,39 @@ def run(work: Path, ffmpeg: str | None = None) -> dict:
             expect(page.get_by_role("heading", name="Settings", exact=True)).to_be_visible()
             expect(page.locator("dl")).to_contain_text("This iPad is paired since")
             report["checks"]["settings"] = "PASS"
+            gateway.settings["share_limit_bytes"] = 1
+            page.reload()
+            page.get_by_role("button", name="R1a sample B", exact=False).click()
+            expect(page.get_by_role("button", name="Download", exact=True)).to_have_count(0)
+            page.get_by_role("button", name="Save to Files with Safari").click()
+            expect(
+                page.get_by_text(
+                    "Paste this link into Safari to save the video to Files.", exact=True
+                )
+            ).to_be_visible()
+            expect(page.get_by_role("button", name="Copy link", exact=True)).to_be_visible()
+            link = page.locator(".safari-link a")
+            url = link.inner_text()
+            assert link.get_attribute("href") == "x-safari-https://" + url.removeprefix("https://")
+            report["checks"]["threshold_safari_url_and_manual_copy_fallback"] = "PASS"
+            safari_image = evidence / "safari-option.png"
+            page.screenshot(path=str(safari_image), full_page=True)
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            fresh = browser.new_context(ignore_https_errors=True, accept_downloads=True)
+            assert not fresh.cookies()
+            receiver = fresh.new_page()
+            with receiver.expect_download() as downloaded:
+                try:
+                    receiver.goto(url)
+                except Exception as error:
+                    if "download" not in str(error).lower():
+                        raise
+            download = downloaded.value
+            assert download.failure() is None
+            assert Path(download.path()).read_bytes() == (library / "R1a sample B.mp4").read_bytes()
+            assert fresh.request.get(url).status == 404
+            fresh.close()
+            report["checks"]["attachment_download_without_cookie_and_one_time_use"] = "PASS"
             report["background_pixels"] = {
                 "library": first_pixel(library_image),
                 "item": first_pixel(item_image),
@@ -260,8 +362,7 @@ def run(work: Path, ffmpeg: str | None = None) -> dict:
             report["checks"]["page_errors"] = "PASS"
             context.close()
             browser.close()
-        if report["checks"].get("playback") != "PASS":
-            raise AssertionError("WebKit playback gate failed; see media diagnostics.")
+        report["playback_gate"] = "replaced by owner iPad check, 2026-11-02 (H.264 and HEVC played)"
         return report
     except Exception as error:
         report["failure"] = f"{type(error).__name__}: {error}"

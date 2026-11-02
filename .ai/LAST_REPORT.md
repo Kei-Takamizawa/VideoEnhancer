@@ -1,3 +1,276 @@
+Task ID / Cycle: VE-R1a-2
+Status: COMPLETED
+
+## Outcome
+
+Implemented sections 2.1-2.5 and passed the required Python, JavaScript,
+static/type and browser checks. The explicitly replaced Windows-WebKit playback
+measurement still fails and is retained separately below. Real iPad handoff/save
+and real firewall/UAC effects remain owner checks. Current-cycle scratch artifacts
+were removed; pre-existing owner/other-cycle state was preserved. No commit,
+push, merge or real-installation update was performed.
+
+## Environment and scope
+
+Windows PowerShell; branch `claude/project-thread-yyrl3q`, starting HEAD
+`919f343f2db14a6d0bac2c4377f3e9b157c72c02`. Elevated read-only Git confirmed
+an initially clean tree. CURRENT_TASK.md was read completely and retained
+unchanged. AGENTS.md, CLAUDE.md, WORKSPACE.md and the R1a task at 5650209 were
+reviewed. All homes, libraries, temporary files and browser profiles used for
+verification are under work/scratch. The owner's real service, Scheduled Task,
+shortcut, library, firewall rules, trust store and network profile were untouched.
+
+## Implementation and changed files
+
+- `src/videoenhancer/remote/gateway.py`: bounded authenticated client diagnostics,
+  public HTTP setup/certificates, pairing-state guidance, hashed one-time download
+  links, UTF-8 attachment names, Range completion/expiry, redacted access logs,
+  per-connection TLS handshakes and icon probes.
+- `src/videoenhancer/remote/firewall.py` (new), `remote/install.py`: fakeable
+  program-specific Private-profile TCP firewall setup, narrow Block-rule removal,
+  UAC-decline reporting, connected-interface status/Public warning, and uninstall.
+  Windows venv launchers are resolved to their base pythonw image for firewall
+  matching. Scheduled Task and shortcut behavior are otherwise retained.
+- `remote/web/{app.mjs,logic.mjs,style.css,sw.js}`: one-Blob File construction with
+  parallel byte counting; canShare diagnostics and grey error names; threshold
+  and failure Safari option, x-safari URL, copyable HTTPS link/instructions;
+  pairing retry and updated shell cache version.
+- `src/videoenhancer/service/settings.py`: validated share_limit_bytes, default
+  900,000,000 bytes.
+- `tests/test_remote_{gateway,install,firewall}.py`,
+  `tests/test_remote_web.mjs`, `tests/remote_browser_smoke.py`: regression,
+  security-boundary, fake-PowerShell and browser coverage.
+- `docs/REMOTE.md`, `docs/API.md`: updated operator, API and security behavior.
+- `.ai/LAST_REPORT.md`: this report; the preceding R1a report is preserved below.
+
+## R1a owner results (reported by owner, not rerun here)
+
+2026-11-02 08:18-08:34 UTC, iPadOS 27.2, Home Screen app:
+
+- Network initially unreachable: Windows silently created inbound Block rules
+  for the hidden pythonw.exe under work/cache/py/cpython-3.12.15-windows-x86_64-none.
+  The PC profile was Public. A later firewall prompt was allowed; python.exe and
+  pythonw.exe were then allowed on Public. This cycle did not query/change those
+  actual rules or the actual profile.
+- The first two-minute setup window expired before CA installation. Three windows
+  were needed; one operator CLI pairing attempt was refused by the PC permission
+  check. The Start-menu shortcut was the reliable path.
+- Pairing: POST /api/pair/claim returned 200 at 08:22:05; library/storage loaded.
+- H.264 and HEVC playback worked with Range 206, without errors. The VE-R1a
+  Windows-WebKit playback gate is **replaced by owner iPad check, 2026-11-02**;
+  it is not relabeled as a local PASS.
+- H.264 deletion worked; the list/storage refreshed.
+- Small save worked: Download -> Save video -> share sheet -> Save Video to Photos.
+- 1.1 GB save FAILED: two full GETs took about 7.4 seconds each (200); Save video
+  always showed "This video could not be shared. Try again." Error name/message
+  were not captured. R0c had verified 500 MB using one response.blob().
+- Two GET /static 404s at 08:21:55 were probably icon probes, not confirmed paths.
+
+## Verification
+
+- PASS: final CI CPU command, exit 0: **817 passed, 26 skipped, 102 deselected**
+  in 416.77 seconds. The source checks use the existing installed/locked venv:
+  `. .\local-env.ps1`; `VE_DEV_M3_MEDIA=0`;
+  `VE_FFMPEG_DIR=work/cache/r0b-ffmpeg`;
+  `.venv/Scripts/python.exe -m pytest -m "not gpu and not soak" --basetemp=<absolute work/scratch/r1a2-cpu-final>`.
+  This run used approved execution because sandbox process termination/Git were
+  unavailable. All test homes and temps remained isolated under work/scratch.
+- PASS: final focused gateway/install/firewall run, **47 passed** in 39.71 seconds,
+  including four additional missing/wrong-cookie cases added after full-suite
+  collection. The counts are separate, not added to the full-suite count.
+- PASS: `python -m ruff check .`; `python -m ruff format --check .`
+  (237 files already formatted); `python -m pyright` (0 errors/warnings).
+- PASS: `node --test tests/test_remote_web.mjs`: **11 tests**; `node --check`
+  for app.mjs and sw.js. No JavaScript build/dependency installation is required.
+- PASS: final browser smoke exit 0, **11 independent checks passed**. Playback is
+  separately recorded as FAIL and its gate is replaced by the owner iPad result.
+  The smoke uses cache/ipad-venv with repo/src and the main venv site-packages on
+  PYTHONPATH, VE_FFMPEG_DIR set to the cached tools, and local-env.ps1 sourced.
+  The final smoke also verifies a network TypeError keeps its actual error name.
+- PASS: authenticated diagnostic/link Origin/cookie boundaries, 2 KB diagnostic
+  limit, name redaction, hash-only link state, Range completion, non-ASCII
+  attachment name, cookie-free use, one-time invalidation and expiry; permanent
+  public CA/setup with claim gating; fake firewall command/UAC-decline paths;
+  stalled TLS client does not delay the second request by one second.
+- SKIP: the full run's existing optional standalone-link tool fixtures (21),
+  private-sample checks (2), Linux parent-death signal (1), optional model case
+  (1), and Windows symlink creation privilege (1). None is reported as PASS.
+- WARNING: full-suite teardown could not write
+  `repo/.pytest_cache/v/cache/nodeids` (WinError 5). This was pytest's cache,
+  not a failed assertion; no retry or permission-changing workaround was used.
+- PASS: final read-only `git diff --check`; only task-allowed paths changed.
+  Git mutations are intentionally NOT_RUN.
+
+## GUI verification: Expected / Actual
+
+Expected: pair, list/storage, small download/cancel, share-failure Safari option
+and error name, load-failure diagnostic, delete/refresh, threshold bypass,
+copyable Safari URL and cookie-free attachment. Actual: browser smoke passed
+these checks against short generated H.264 fixtures. The fresh context had no
+cookies, downloaded identical bytes, then received 404 when reusing the URL.
+Diagnostics included NotAllowedError and can_share=true, and excluded names.
+Library bytes fell from 6,420 to 3,211. Portrait/landscape had no horizontal
+scroll. Library/item screenshot background pixels measured RGB [0,0,0].
+Screenshots were visually inspected; private evidence stays outside Git.
+
+Windows WebKit playback still FAILS with NotSupportedError/media error 4,
+readyState=0, networkState=3. Every actual browser run retains that measurement;
+it is the explicitly replaced gate, not a passing local playback result.
+Real Safari handoff, clipboard integration and Photos/Files delivery are owner
+checks; emulated share/cancel and the tested URL do not establish iPad success.
+
+## Errors, warnings and retained attempts
+
+- Normal-shell Git was not found; approved read-only execution at its installed
+  path verified branch/HEAD/clean tree. An attempted Get-Content of the .git
+  directory was rejected (it is a directory); no Git metadata was changed.
+- Pre-fix gateway tests: 6 FAIL / 23 PASS (setup, stalled TLS, diagnostics,
+  download links and icon probes). New firewall tests: 5 FAIL before the module
+  existed. New JS module collection failed before the new exports existed.
+- Initial Ruff invocation accidentally passed .mjs paths to Python Ruff;
+  syntax errors were command selection errors, not JS failures. Git verified
+  the existing JS test was not changed by that invocation. Import/format/type
+  errors in new Python code were corrected without suppression.
+- Browser dependency attempts: main venv lacked Playwright; cached iPad venv
+  lacked psutil. The existing cached browser environment plus main-venv
+  site-packages worked; no dependency was installed. First actual smoke passed
+  independent checks and recorded the known playback FAIL. An added route-based
+  load-failure injection did not intercept the service-worker fetch and failed
+  its assertion. Backend acquire failure injection replaced it; final smoke
+  passed the new check. Failed/successful run logs remain in cycle evidence.
+- Initial sandbox CPU run had missing-tool failures and stopped progressing
+  in an existing child-process termination test; it was interrupted, not passed.
+  A sandbox process query was denied. Approved read-only checks confirmed all
+  processes with that isolated basetemp had exited before the full rerun.
+- Git emits LF-to-CRLF normalization warnings. No tests were disabled or loosened.
+
+## Security notes and official references
+
+Device cookie and exact HTTPS Origin are required for diagnostic/link issuance.
+Client JSON is capped at 2,048 bytes, with only allowlisted fields logged. Unknown
+browser strings become generic text to exclude file names/URLs. Error messages
+are at most 200 characters. Tokens are random 256-bit secrets; only hashes are
+held in memory. A link expires after ten minutes or complete byte coverage, and
+server restart revokes it. HEAD/invalid Range do not consume a link; active
+concurrent use is refused. Completion means successful server write/flush,
+not proof that the user saved the file. At most 256 unexpired links are held.
+
+Consulted official references: [Python SSL](https://docs.python.org/3/library/ssl.html),
+[New-NetFirewallRule](https://learn.microsoft.com/en-us/powershell/module/netsecurity/new-netfirewallrule),
+and [Get-NetFirewallApplicationFilter](https://learn.microsoft.com/en-us/powershell/module/netsecurity/get-netfirewallapplicationfilter).
+No external service, dependency, CORS relaxation or new persistent secret store
+was added. Firewall tests use fakes only; real UAC/firewall effects are NOT_RUN.
+
+## Workspace and cleanup
+
+| Measurement (decimal GB) | Start | End after cleanup |
+| --- | ---: | ---: |
+| C free | 345.785205 | 345.767678 |
+| D free | 877.570961 | 877.569421 |
+| Current package | 0.125289 | 0.125289 |
+| This cycle evidence | 0.000178 | 0.001687 |
+| Scratch, accessible file lengths | 2.650833 | 2.650858 |
+| Complete cache | 12.251798 | 12.251798 |
+| Accessible workspace growth (non-overlapping roots) | - | 0.001587 |
+
+Start inventory was taken after instruction/environment reads and before source
+edits/tests, without downloads. Cache and package bytes did not change. Current
+cycle evidence is below 300 MB and cache below 40 GB. Accessible footprint growth
+(including scratch, conservatively) is about 0.0016 GB, below 1 GB; small final
+report/runner-log appends follow the snapshot. Logical file lengths are not
+allocated disk usage; drive-wide changes are not cleanup savings. These snapshots
+include no owner folders outside work.
+
+There are three pre-existing unreadable scratch paths. Their sizes are UNKNOWN,
+not zero; accessible start/end totals exclude them. This task never wrote to
+them. Thus a complete absolute workspace footprint is not claimed. Existing
+scratch/tmp grew by a small unattributed amount and was retained. Pre-existing
+scratch/home, ipad-spike (owner's trusted spike CA/home), owner-check, tmp and
+other-cycle caches were preserved. The prior report explicitly says not to
+delete the owner's trusted CA/home. The entire shared scratch directory is not
+empty; only this cycle's identified scratch artifacts were cleaned.
+
+Removed current-cycle artifacts: **13,660 bytes**, independently inventoried
+before native PowerShell Remove-Item. Rows below give per-item bytes removed;
+all seven removals succeeded without escalation, refusal or retry. No current
+cycle cleanup item remains for the owner. See private cleanup-results.json.
+Old evidence was not pruned: pre-existing evidence/owner-check-trial and older
+cycle evidence were retained for the operator's ownership/retention review.
+The last-three-cycle retention rule is therefore not claimed satisfied here.
+
+### For the owner to delete / review (pre-existing)
+
+These were inaccessible during inventory and were not deleted or modified;
+exact total size is UNKNOWN for each. No denied deletion was bypassed:
+
+- `work/scratch/r0c-cpu-final-cache`
+- `work/scratch/r1a-cpu-cache-elevated`
+- `work/scratch/r1a-cpu-cache-final`
+
+Do not treat preservation of the owner's trusted spike state as permission to
+remove it. Operator review is required for older/shared artifacts.
+
+
+### Current-cycle cleanup inventory and result
+
+| Removed scratch child | Bytes removed | Inventory errors |
+| --- | ---: | ---: |
+| r1a2-red | 0 | 0 |
+| r1a2-firewall-red | 0 | 0 |
+| r1a2-focused | 0 | 0 |
+| r1a2-cpu | 181 | 0 |
+| r1a2-cpu-final | 0 | 0 |
+| r1a2-focused-final | 0 | 0 |
+| r1a2-browser | 13479 | 0 |
+
+
+## For the owner
+
+- Recheck the retained HEVC and 1 GB R1a samples; do not remove either sample.
+- Above the default threshold, use Save to Files with Safari. Report whether
+  x-safari-https opens Safari, or Copy link/paste into Safari is needed, and
+  whether the complete video reaches Files. Actual scheme support is NOT_RUN.
+- To measure large-file sharing, the operator may set share_limit_bytes above
+  the sample size for a separate owner-approved check. Read out the grey error
+  name on any failure; sanitized diagnostics are now available.
+- Real Home Screen cookie retention after restart/24 hours remains owner-only.
+
+## Operator after commit: exact commands (NOT EXECUTED)
+
+Run after review/commit. Resolve the active home from the existing Scheduled Task
+rather than guessing or dot-sourcing local-env.ps1 (which selects a scratch home).
+
+```powershell
+Set-Location D:\my-workspace\VideoEnhancer\work\repo
+$task = Get-ScheduledTask -TaskName 'VideoEnhancer' -ErrorAction Stop
+$homeArgument = [regex]::Match($task.Actions[0].Arguments, '--home (?:"([^"]+)"|(\S+))')
+if (-not $homeArgument.Success) { throw 'The installed task has no readable --home argument.' }
+$env:VE_HOME = if ($homeArgument.Groups[1].Success) { $homeArgument.Groups[1].Value } else { $homeArgument.Groups[2].Value }
+Stop-ScheduledTask -TaskName 'VideoEnhancer' -ErrorAction Stop
+Start-Sleep -Seconds 2
+Start-ScheduledTask -TaskName 'VideoEnhancer' -ErrorAction Stop
+Start-Sleep -Seconds 3
+& .\.venv\Scripts\ve.exe remote status
+```
+
+Keep the existing installation and the two remaining samples. If the new
+firewall rule is needed, reinstall only as required and let the owner answer UAC:
+
+```powershell
+& .\.venv\Scripts\ve.exe remote install
+& .\.venv\Scripts\ve.exe remote status
+```
+
+## Questions for the designer / intentionally not run
+
+No new product-design decision was required. Real installation restart/reinstall,
+firewall/UAC changes, network-profile changes, owner media access, real iPad
+handoff/save and cookie persistence were intentionally not run. Legacy desktop
+E2E, Rust/native-player builds and production deployment are outside this cycle.
+No Git mutation or commit was performed; the operator records the changes.
+
+## Previous: VE-R1a
+
 Task ID / Cycle: VE-R1a
 Status: PARTIAL
 

@@ -15,6 +15,7 @@ DEFAULTS: dict[str, Any] = {
     "remote_enabled": False,
     "remote_https_port": 8443,
     "remote_setup_port": 8080,
+    "share_limit_bytes": 900_000_000,
     "library_folder": "",
     "cleanup_working_files": True,
     "output_folder": "",
@@ -100,6 +101,11 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("Remote ports must be integers between 1 and 65535.")
     if value["remote_https_port"] == value["remote_setup_port"]:
         raise ValueError("HTTPS and setup must use different ports.")
+    if (
+        type(value["share_limit_bytes"]) is not int
+        or not 0 <= value["share_limit_bytes"] <= 2**53 - 1
+    ):
+        raise ValueError("The sharing limit must be a nonnegative byte count.")
     if not isinstance(value["library_folder"], str) or (
         value["library_folder"] and not Path(value["library_folder"]).is_absolute()
     ):

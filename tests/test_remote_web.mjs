@@ -4,7 +4,7 @@ import test from 'node:test';
 import {runInNewContext} from 'node:vm';
 import {
   downloadProgress, formatDuration, formatSize, pairingScreen,
-  shareFile, storageSegments, storageText,
+  shareFile, storageSegments, storageText, loadFile, needsSafari, safariURL, safariInstructions,
 } from '../src/videoenhancer/remote/web/logic.mjs';
 
 test('storage segments distinguish library, other used, and free space', () => {
@@ -68,4 +68,39 @@ test('service worker caches only fixed shell requests', async () => {
   listeners.get('fetch')({request: {method: 'GET', url: 'https://pc.local:8443/style.css'}, respondWith: promise => { result = promise; }});
   assert.equal(await (await result).text(), 'shell');
   assert.equal(cached, '/style.css');
+});
+
+test('load builds File from the single response Blob while counting bytes', async () => {
+  const blob = new Blob(['synthetic'], {type: 'video/mp4'});
+  const progress = [];
+  const response = new Response(blob);
+  let calls = 0;
+  response.blob = async () => { calls++; return blob; };
+  const file = await loadFile(response, 'sample.mp4', loaded => progress.push(loaded));
+  assert.equal(calls, 1);
+  assert.equal(file.name, 'sample.mp4');
+  assert.equal(file.type, 'video/mp4');
+  assert.equal(await file.text(), 'synthetic');
+  assert.equal(progress.at(-1), 9);
+});
+
+test('threshold bypasses sharing only above the configured limit', () => {
+  assert.equal(needsSafari(900000000), false);
+  assert.equal(needsSafari(900000001), true);
+  assert.equal(needsSafari(101, 100), true);
+});
+
+test('Safari link retains same host port and token and gives manual fallback', () => {
+  assert.equal(safariURL('https://pc.local:8443/dl/abc'), 'x-safari-https://pc.local:8443/dl/abc');
+  assert.throws(() => safariURL('http://pc.local/dl/abc'));
+  assert.equal(safariInstructions, 'Paste this link into Safari to save the video to Files.');
+});
+
+test('canShare refusal propagates for the Safari fallback and records result before share', async () => {
+  const checks = [];
+  let invoked = false;
+  await assert.rejects(shareFile(new Blob(['x']), {canShare: () => false,
+    share: async () => { invoked = true; }}, result => checks.push(result)), /File sharing is unavailable/);
+  assert.equal(invoked, false);
+  assert.deepEqual(checks, [false]);
 });

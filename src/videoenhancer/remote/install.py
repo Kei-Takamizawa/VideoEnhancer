@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -114,6 +115,20 @@ class Windows:
             "{ Remove-Item -LiteralPath $p }"
         )
 
+    def firewall(self, settings: dict) -> dict:
+        from videoenhancer.remote import firewall
+
+        return firewall.configure(
+            firewall.program(engine_root()),
+            settings["remote_https_port"],
+            settings["remote_setup_port"],
+        )
+
+    def remove_firewall(self) -> None:
+        from videoenhancer.remote import firewall
+
+        firewall.remove()
+
 
 def request(home: Path, route: str, method: str = "GET", body=None) -> dict:
     discovery = json.loads((home / "serve.json").read_text(encoding="utf-8"))
@@ -202,13 +217,15 @@ def install(home: Path, windows=None) -> dict:
     save_settings(home, {"remote_enabled": True})
     windows.register(home, engine_root())
     windows.shortcut(home, engine_root())
+    firewall_status = windows.firewall(read_settings(home))
     ensure_running(home)
-    return request(home, "remote/pairing", "POST")
+    return {**request(home, "remote/pairing", "POST"), "firewall": firewall_status}
 
 
 def uninstall(home: Path, forget_devices: bool = False, windows=None) -> dict:
     windows = windows or Windows()
     windows.remove()
+    windows.remove_firewall()
     stop_service(home)
     save_settings(home, {"remote_enabled": False})
     if forget_devices:
@@ -265,6 +282,15 @@ def command(args, home: Path) -> dict:
     if health:
         result.update(health.get("remote", {}))
         result["service_running"] = True
+    from videoenhancer.remote import firewall
+
+    result["firewall"] = firewall.status(
+        firewall.program(engine_root()),
+        settings["remote_https_port"],
+        settings["remote_setup_port"],
+    )
+    if result["firewall"].get("warning"):
+        print(result["firewall"]["warning"], file=sys.stderr)
     return result
 
 

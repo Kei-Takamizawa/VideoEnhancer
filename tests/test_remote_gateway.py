@@ -33,7 +33,16 @@ def gateway(tmp_path, monkeypatch):
 
 
 def request(
-    gateway, path, method="GET", *, cookie=None, origin=True, host=None, secure=True, headers=None
+    gateway,
+    path,
+    method="GET",
+    *,
+    cookie=None,
+    origin=True,
+    host=None,
+    secure=True,
+    headers=None,
+    body=None,
 ):
     port = gateway.https_port if secure else gateway.setup_port
     if secure:
@@ -47,7 +56,7 @@ def request(
         values["Origin"] = f"https://127.0.0.1:{port}" if origin is True else origin
     if cookie:
         values["Cookie"] = cookie
-    conn.request(method, path, headers=values)
+    conn.request(method, path, body=body, headers=values)
     response = conn.getresponse()
     body = response.read()
     result = response.status, dict(response.getheaders()), body
@@ -117,6 +126,8 @@ def test_pairing_deadline_rate_limit_and_concurrency(tmp_path):
         ("/api/storage", "GET"),
         ("/api/library/abc/video", "GET"),
         ("/api/library/abc", "DELETE"),
+        ("/api/library/abc/download-link", "POST"),
+        ("/api/client-event", "POST"),
     ],
 )
 @pytest.mark.parametrize("cookie", [None, "ve_device=wrong"])
@@ -139,10 +150,11 @@ def test_host_origin_and_security_headers(gateway):
 
 
 def test_http_is_setup_only_and_never_sets_cookie(gateway):
-    for path in ("/", "/ca.mobileconfig", "/api/session", "/api/library/a/video"):
+    for path in ("/", "/ca.mobileconfig", "/ca.cer"):
         status, headers, body = request(gateway, path, secure=False)
         assert status == 200
-        assert b"Redo pairing" in body
+        if path == "/":
+            assert b"Redo pairing" in body and b"Certificate Trust Settings" in body
         assert "Set-Cookie" not in headers
     gateway.open_pairing()
     status, _, body = request(gateway, "/", secure=False)
@@ -153,6 +165,77 @@ def test_http_is_setup_only_and_never_sets_cookie(gateway):
     for path in ("/api/session", "/api/library", "/app.mjs"):
         assert request(gateway, path, secure=False)[0] == 404
     assert request(gateway, "/api/pair/claim", "POST", secure=False)[0] == 404
+
+
+def test_stalled_tls_client_does_not_delay_next_request(gateway):
+    import time
+
+    with socket.create_connection(("127.0.0.1", gateway.https_port), timeout=5):
+        started = time.monotonic()
+        assert request(gateway, "/api/session")[0] == 200
+        assert time.monotonic() - started < 1
+
+
+def test_client_events_are_authenticated_bounded_and_never_log_names(gateway, caplog):
+    cookie = pair(gateway)
+    event = {
+        "kind": "share_failure",
+        "error_name": "NotAllowedError",
+        "error_message": "Failed to share private-video.mp4",
+        "size_bytes": 123,
+        "can_share": False,
+        "phase": "share",
+        "filename": "private-video.mp4",
+    }
+    body = json.dumps(event)
+    assert request(gateway, "/api/client-event", "POST", body=body)[0] == 401
+    assert (
+        request(gateway, "/api/client-event", "POST", cookie=cookie, origin=False, body=body)[0]
+        == 403
+    )
+    assert request(gateway, "/api/client-event", "POST", cookie=cookie, body="x" * 2049)[0] == 413
+    with caplog.at_level(logging.INFO, logger="videoenhancer.remote"):
+        assert request(gateway, "/api/client-event", "POST", cookie=cookie, body=body)[0] == 200
+    assert "NotAllowedError" in caplog.text
+    assert "private-video" not in caplog.text
+    assert request(gateway, "/api/client-event", "POST", cookie=cookie, body="[]")[0] == 400
+
+
+def test_download_tokens_ranges_expiry_hashes_and_log_redaction(gateway, caplog, monkeypatch):
+    from urllib.parse import urlsplit
+
+    cookie = pair(gateway)
+    folder = gateway.home / "library"
+    folder.mkdir()
+    (folder / "日本語.mp4").write_bytes(b"0123456789")
+    identifier = gateway.adapter.library.list()[0]["id"]
+    route = f"/api/library/{identifier}/download-link"
+    assert request(gateway, route, "POST")[0] == 401
+    assert request(gateway, route, "POST", cookie=cookie, origin=False)[0] == 403
+    status, _, body = request(gateway, route, "POST", cookie=cookie)
+    assert status == 200
+    url = json.loads(body)["url"]
+    path = urlsplit(url).path
+    token = path.split("/")[-1]
+    assert len(bytes.fromhex(token)) == 32
+    assert token not in repr(gateway.downloads)
+    assert hashlib.sha256(token.encode()).hexdigest() in gateway.downloads
+    with caplog.at_level(logging.INFO, logger="videoenhancer.remote"):
+        assert request(gateway, path, "HEAD")[0] == 200
+        status, headers, data = request(gateway, path, headers={"Range": "bytes=0-3"})
+        assert status == 206 and data == b"0123"
+        assert "filename*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E.mp4" in headers["Content-Disposition"]
+        assert request(gateway, path, headers={"Range": "bytes=4-"})[2] == b"456789"
+        assert request(gateway, path)[0] == 404
+    assert token not in caplog.text and "GET /dl/{token}" in caplog.text
+    new_path = urlsplit(json.loads(request(gateway, route, "POST", cookie=cookie)[2])["url"]).path
+    monkeypatch.setattr("videoenhancer.remote.gateway.time.monotonic", lambda: 10**12)
+    assert request(gateway, new_path)[0] == 404
+
+
+@pytest.mark.parametrize("path", ["/apple-touch-icon-precomposed.png", "/favicon.ico"])
+def test_icon_probes_do_not_return_404(gateway, path):
+    assert request(gateway, path)[0] in {200, 204}
 
 
 def test_unsupported_method_keeps_security_headers_without_echo(gateway):

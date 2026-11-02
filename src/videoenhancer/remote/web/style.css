@@ -40,6 +40,8 @@ nav { position: fixed; bottom: 0; left: 0; right: 0; padding: 12px max(24px, env
 .pairing li { margin-bottom: 12px; padding-left: 4px; }
 .pairing h1 { font-size: 30px; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.safari-link a { display: block; overflow-wrap: anywhere; margin-bottom: 16px; color: var(--accent); }
+.error-name { display: block; margin-top: 8px; }
 video { display: block; width: 100%; max-height: 65dvh; aspect-ratio: 16/9; background: #111111; border: 1px solid #333337; border-radius: 10px; }
 .item-title { margin-bottom: 12px; }
 .item-meta { margin-bottom: 24px; }

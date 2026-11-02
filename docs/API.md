@@ -518,6 +518,11 @@ records are retained. Link-tool install/uninstall refuses active link operations
 ## iPad gateway
 
 See [REMOTE.md](REMOTE.md) for the separate device-cookie HTTPS API and setup rules.
+It also documents bounded `POST /api/client-event` diagnostics, authenticated
+`POST /api/library/{id}/download-link`, and the cookie-free one-time
+`GET /dl/{token}` attachment with Range support. The HTTP setup page and public
+CA downloads remain available after the pairing window closes; claims still
+require an open window.
 The existing bearer-authenticated loopback API also accepts `POST /v1/remote/pairing`
 with an empty JSON object to open the gateway's two-minute pairing window. It
 returns gateway status, `setup_address` and `closes_at`, or 409 if the gateway is

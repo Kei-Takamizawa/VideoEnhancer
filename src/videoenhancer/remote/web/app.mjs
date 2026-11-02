@@ -1,6 +1,6 @@
 import {
   downloadProgress, formatDuration, formatSize, pairingScreen,
-  shareFile, storageSegments, storageText,
+  shareFile, storageSegments, storageText, loadFile, needsSafari, safariURL, safariInstructions,
 } from './logic.mjs';
 
 const main = document.querySelector('#main');
@@ -42,8 +42,10 @@ async function response(path, options = {}) {
   let result;
   try {
     result = await fetch(path, {credentials: 'same-origin', cache: 'no-store', ...options});
-  } catch {
-    throw new Error(offlineMessage);
+  } catch (cause) {
+    const error = new Error(offlineMessage);
+    error.name = cause.name || 'Error';
+    throw error;
   }
   if (!result.ok) {
     let message = 'The request could not be completed. Try again.';
@@ -70,6 +72,57 @@ function showFailure(error, retry, container = main) {
   container.append(section);
 }
 
+function clientEvent(kind, error, item, phase, canShare = null) {
+  // Never transmit browser messages containing a video name or a URL.
+  const safe = new Set(['', 'Failed to fetch', 'Load failed', 'The operation is not allowed.',
+    'File sharing is unavailable on this iPad.']);
+  const message = safe.has(error?.message || '') ? error?.message || '' : 'Browser operation failed.';
+  void api('/api/client-event', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({kind, error_name: error?.name || '', error_message: message,
+      size_bytes: item.size, can_share: canShare, phase})}).catch(() => {});
+}
+
+function errorDetail(error, progress) {
+  progress.parentElement?.querySelector('.error-name')?.remove();
+  const name = element('small', error.name || 'Error', 'muted error-name');
+  progress.after(name);
+}
+
+function safariOption(item, progress) {
+  const actions = main.querySelector('.actions');
+  if (!actions || actions.querySelector('.safari-save')) return;
+  const save = button('Save to Files with Safari', async () => {
+    save.disabled = true;
+    try {
+      const {url} = await api(`/api/library/${encodeURIComponent(item.id)}/download-link`, {method: 'POST'});
+      if (!progress.isConnected) return;
+      main.querySelector('.safari-link')?.remove();
+      const manual = element('div', undefined, 'safari-link');
+      const link = element('a', url);
+      link.href = safariURL(url);
+      const copy = button('Copy link', async () => {
+        try {
+          await navigator.clipboard.writeText(url);
+          copy.textContent = 'Copied';
+        } catch {
+          progress.textContent = 'Select and copy the link below.';
+        }
+      });
+      manual.append(element('p', safariInstructions), link, copy);
+      progress.after(manual);
+      // This scheme asks iPadOS to open Safari. Keep manual copying available regardless.
+      window.location.href = safariURL(url);
+    } catch (error) {
+      clientEvent('load_failure', error, item, 'load');
+      progress.textContent = error.message;
+      errorDetail(error, progress);
+    } finally {
+      save.disabled = false;
+    }
+  }, 'primary safari-save');
+  actions.prepend(save);
+}
+
 function pairingView() {
   clearView();
   tabs.hidden = true;
@@ -86,6 +139,7 @@ function pairingView() {
     'Open VideoEnhancer from the Home Screen and tap Pair this iPad.',
   ]) steps.append(element('li', text));
   panel.append(steps);
+  panel.append(element('p', "When you are ready to pair, click 'VideoEnhancer - Redo pairing' on the PC, then tap Pair this iPad within 2 minutes.", 'muted'));
   if (state === 'claim') {
     const claim = button('Pair this iPad', async () => {
       claim.disabled = true;
@@ -100,11 +154,9 @@ function pairingView() {
     }, 'primary');
     panel.append(claim);
   } else {
-    panel.append(element('p', state === 'closed'
-      ? "Run ‘VideoEnhancer - Redo pairing’ on the PC to open a two-minute pairing window."
-      : 'Open this app from the Home Screen to pair this iPad.', 'muted'));
-    panel.append(button('Retry', boot));
+    if (state !== 'closed') panel.append(element('p', 'Open this app from the Home Screen to pair this iPad.', 'muted'));
   }
+  panel.append(button('Try again', boot));
   main.append(panel);
 }
 
@@ -184,15 +236,22 @@ function itemView(item) {
   video.playsInline = true;
   video.preload = 'metadata';
   video.src = `/api/library/${encodeURIComponent(item.id)}/video`;
-  video.addEventListener('error', () => { itemError.textContent = "Can't play this video."; });
+  video.addEventListener('error', () => {
+    itemError.textContent = "Can't play this video.";
+    const error = {name: 'MediaError', message: video.error?.message || ''};
+    clientEvent('load_failure', error, item, 'playback');
+    errorDetail(error, itemError);
+  });
   main.append(video, itemError);
   const actions = element('div', undefined, 'actions');
   const progress = element('p', '', 'muted');
   progress.setAttribute('aria-live', 'polite');
   const download = button('Download', () => downloadVideo(item, download, progress), 'primary');
   const deletion = button('Delete', () => confirmDelete(item), 'danger');
-  actions.append(download, deletion);
+  if (!needsSafari(item.size, session.share_limit_bytes)) actions.append(download);
+  actions.append(deletion);
   main.append(actions, progress);
+  if (needsSafari(item.size, session.share_limit_bytes)) safariOption(item, progress);
   if (sessionStorage.getItem('ve-loading-video')) {
     sessionStorage.removeItem('ve-loading-video');
     progress.textContent = 'The download was interrupted. This iPad may not have enough memory for this video.';
@@ -202,15 +261,17 @@ function itemView(item) {
 async function downloadVideo(item, download, progress) {
   if (typeof navigator.share !== 'function') {
     progress.textContent = 'File sharing is unavailable on this iPad.';
+    const error = new Error(progress.textContent);
+    clientEvent('share_failure', error, item, 'share', false);
+    errorDetail(error, progress);
+    safariOption(item, progress);
     return;
   }
   const abort = new AbortController();
   let file;
-  let reader;
   releaseDownload = () => {
     abort.abort();
     file = undefined;
-    reader?.cancel().catch(() => {});
     sessionStorage.removeItem('ve-loading-video');
   };
   download.disabled = true;
@@ -220,19 +281,10 @@ async function downloadVideo(item, download, progress) {
     const result = await response(`/api/library/${encodeURIComponent(item.id)}/video`, {signal: abort.signal});
     const type = result.headers.get('Content-Type') || 'video/mp4';
     const total = Number(result.headers.get('Content-Length')) || item.size;
-    reader = result.body.getReader();
-    let chunks = [];
-    let loaded = 0;
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      loaded += value.byteLength;
-      progress.textContent = downloadProgress(loaded, total);
-    }
     const extension = type.split(';')[0] === 'video/quicktime' ? '.mov' : '.mp4';
-    file = new File(chunks, item.filename || `${item.name}${extension}`, {type});
-    chunks = [];
+    file = await loadFile(result, item.filename || `${item.name}${extension}`,
+      loaded => { progress.textContent = downloadProgress(loaded, total); });
+    if (abort.signal.aborted) { file = undefined; return; }
     sessionStorage.removeItem('ve-loading-video');
     // iPadOS requires a fresh tap after a long fetch to activate the share sheet.
     download.textContent = 'Save video';
@@ -240,28 +292,36 @@ async function downloadVideo(item, download, progress) {
     download.onclick = async () => {
       if (!file) return;
       download.disabled = true;
+      let canShare = null;
       try {
-        const outcome = await shareFile(file);
+        const outcome = await shareFile(file, navigator, result => {
+          canShare = result;
+          clientEvent('share_check', null, item, 'share', result);
+        });
         progress.textContent = outcome === 'cancelled' ? '' : 'Video shared.';
       } catch (error) {
-        progress.textContent = error.name === 'RangeError'
-          ? 'This iPad does not have enough memory to share this video.'
-          : 'This video could not be shared. Try again.';
+        clientEvent('share_failure', error, item, 'share', canShare);
+        progress.textContent = 'This video is too large to share directly.';
+        errorDetail(error, progress);
+        safariOption(item, progress);
       } finally {
         file = undefined;
         download.remove();
         const retry = button('Download', () => downloadVideo(item, retry, progress), 'primary');
-        main.querySelector('.actions')?.prepend(retry);
+        if (progress.isConnected) main.querySelector('.actions')?.prepend(retry);
       }
     };
     progress.textContent = 'Ready. Tap Save video, then choose Save Video or Save to Files.';
   } catch (error) {
     if (abort.signal.aborted) return;
+    clientEvent('load_failure', error, item, 'load');
     file = undefined;
     progress.textContent = error.name === 'RangeError'
       ? 'This iPad does not have enough memory to download this video.' : error.message || offlineMessage;
     download.disabled = false;
     sessionStorage.removeItem('ve-loading-video');
+    errorDetail(error, progress);
+    safariOption(item, progress);
   }
 }
 

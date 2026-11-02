@@ -8,6 +8,14 @@ from videoenhancer.cli import _parser
 from videoenhancer.service.settings import read_settings, save_settings
 
 
+@pytest.fixture(autouse=True)
+def fake_firewall_powershell(monkeypatch):
+    monkeypatch.setattr(
+        "videoenhancer.remote.install._powershell",
+        lambda _: '{"interfaces":[],"allow_rule":false,"block_rules":[]}',
+    )
+
+
 def test_remote_cli_options():
     assert _parser().parse_args(["serve", "--remote"]).remote
     assert _parser().parse_args(["remote", "uninstall", "--forget-devices"]).forget_devices
@@ -20,12 +28,16 @@ def test_remote_settings_validation(tmp_path):
         {"remote_https_port": 0},
         {"remote_setup_port": True},
         {"library_folder": "relative"},
+        {"share_limit_bytes": -1},
+        {"share_limit_bytes": True},
+        {"share_limit_bytes": "100"},
     ):
         with pytest.raises(ValueError):
             save_settings(tmp_path, value)
     assert save_settings(tmp_path, {"library_folder": str(tmp_path / "library")})[
         "library_folder"
     ] == str(tmp_path / "library")
+    assert save_settings(tmp_path, {"share_limit_bytes": 100})["share_limit_bytes"] == 100
 
 
 def test_install_uninstall_fake_windows(tmp_path, monkeypatch):
@@ -34,6 +46,13 @@ def test_install_uninstall_fake_windows(tmp_path, monkeypatch):
     calls = []
 
     class Windows:
+        def firewall(self, settings):
+            calls.append(("firewall", settings))
+            return {"setup": "missing", "allow_rule": False}
+
+        def remove_firewall(self):
+            calls.append(("remove_firewall",))
+
         def register(self, home, root):
             calls.append(("register", home, root))
 
@@ -56,7 +75,8 @@ def test_install_uninstall_fake_windows(tmp_path, monkeypatch):
     keep = library / "keep.mp4"
     keep.write_bytes(b"synthetic")
     save_settings(home, {"library_folder": str(library)})
-    install.install(home, Windows())
+    result = install.install(home, Windows())
+    assert result["firewall"]["setup"] == "missing"
     install.install(home, Windows())
     assert read_settings(home)["remote_enabled"] is True
     remote = home / "remote"
@@ -69,6 +89,8 @@ def test_install_uninstall_fake_windows(tmp_path, monkeypatch):
     assert not devices.exists() and keep.exists()
     assert read_settings(home)["remote_enabled"] is False
     assert sum(row[0] == "register" for row in calls) == 2
+    assert sum(row[0] == "firewall" for row in calls) == 2
+    assert sum(row[0] == "remove_firewall" for row in calls) == 2
 
 
 def test_task_xml_is_user_only_windowless_restart_policy(tmp_path):

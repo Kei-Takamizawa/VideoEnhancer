@@ -36,8 +36,44 @@ export function pairingScreen(session, standalone) {
   return standalone ? 'claim' : 'install';
 }
 
-export async function shareFile(file, sharing = navigator) {
-  if (typeof sharing.share !== 'function' || (sharing.canShare && !sharing.canShare({files: [file]}))) {
+export const safariInstructions = 'Paste this link into Safari to save the video to Files.';
+
+export function needsSafari(size, limit = 900000000) {
+  return size > limit;
+}
+
+export function safariURL(url) {
+  const target = new URL(url);
+  if (target.protocol !== 'https:') throw new Error('An HTTPS download link is required.');
+  return `x-safari-https://${target.host}${target.pathname}`;
+}
+
+export async function loadFile(response, name, onProgress) {
+  // Count a clone without retaining chunks; the final File has exactly one Blob part.
+  const reader = response.clone().body?.getReader();
+  const counter = (async () => {
+    let loaded = 0;
+    if (!reader) return;
+    try {
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        loaded += value.byteLength;
+        onProgress(loaded);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  })();
+  // Attach rejection handlers immediately: either branch can fail before the other.
+  const [blob] = await Promise.all([response.blob(), counter]);
+  return new File([blob], name, {type: response.headers.get('Content-Type') || blob.type || 'video/mp4'});
+}
+
+export async function shareFile(file, sharing = navigator, onCheck = () => {}) {
+  const canShare = typeof sharing.canShare === 'function' ? sharing.canShare({files: [file]}) : null;
+  onCheck(canShare);
+  if (typeof sharing.share !== 'function' || canShare === false) {
     throw new Error('File sharing is unavailable on this iPad.');
   }
   try {

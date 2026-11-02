@@ -1,4 +1,4 @@
-const CACHE = 've-shell-r1a-v1';
+const CACHE = 've-shell-r1a2-v1';
 const SHELL = ['/', '/style.css', '/app.mjs', '/logic.mjs', '/manifest.webmanifest', '/icon.svg', '/apple-touch-icon.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));

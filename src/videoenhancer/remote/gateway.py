@@ -1,20 +1,24 @@
-"""IPv4 LAN HTTPS gateway with device cookies and an HTTP-only setup window."""
+"""IPv4 LAN HTTPS gateway with device cookies and public HTTP setup."""
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import logging
 import mimetypes
 import os
+import re
+import secrets
 import socket
 import ssl
 import threading
 import time
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from videoenhancer.remote.adapter import EngineAdapter
 from videoenhancer.remote.certificates import ensure_certificates, local_addresses
@@ -26,6 +30,19 @@ CSP = (
     "connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; "
     "base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
 )
+
+PAIRING_HELP = (
+    "When you are ready to pair, click 'VideoEnhancer - Redo pairing' on the PC, "
+    "then tap Pair this iPad within 2 minutes."
+)
+
+
+@dataclass
+class Download:
+    identifier: str
+    expires: float
+    ranges: list[tuple[int, int]] = field(default_factory=list)
+    active: bool = False
 
 
 class LANServer(ThreadingHTTPServer):
@@ -47,12 +64,22 @@ class LANServer(ThreadingHTTPServer):
         connection.settimeout(15)
         if self.context is not None:
             try:
-                connection = self.context.wrap_socket(connection, server_side=True)
+                connection = self.context.wrap_socket(
+                    connection, server_side=True, do_handshake_on_connect=False
+                )
             except (OSError, ssl.SSLError):
                 connection.close()
                 # Return control to serve_forever so a rejected handshake cannot block shutdown.
                 raise
         return connection, address
+
+    def process_request_thread(self, request, client_address):
+        try:
+            if isinstance(request, ssl.SSLSocket):
+                request.do_handshake()
+            super().process_request_thread(request, client_address)
+        except (OSError, ssl.SSLError):
+            self.shutdown_request(request)
 
     def handle_error(self, request, client_address):
         # No traceback may expose request data or library paths.
@@ -72,6 +99,8 @@ class Gateway:
         self.logger = logging.getLogger("videoenhancer.remote")
         self.https_port = settings.get("remote_https_port", 8443)
         self.setup_port = settings.get("remote_setup_port", 8080)
+        self.downloads: dict[str, Download] = {}
+        self.download_lock = threading.Lock()
 
     def start(self):
         if self.servers:
@@ -160,9 +189,17 @@ class Handler(BaseHTTPRequestHandler):
         self._json(status, {"error": message})
 
     def _route_template(self, path):
+        if path.startswith("/dl/"):
+            return "/dl/{token}"
         if path.startswith("/api/library/"):
             return "/api/library/{id}/video" if path.endswith("/video") else "/api/library/{id}"
-        if path in {"/api/library", "/api/storage", "/api/session", "/api/pair/claim"}:
+        if path in {
+            "/api/library",
+            "/api/storage",
+            "/api/session",
+            "/api/pair/claim",
+            "/api/client-event",
+        }:
             return path
         return "/static" if not path.startswith("/api/") else "/api/unknown"
 
@@ -213,14 +250,20 @@ class Handler(BaseHTTPRequestHandler):
                 or self.headers.get("Origin") != f"https://{host}"
             ):
                 return self._error(403, "Open VideoEnhancer from its own Home Screen app.")
-            # This API has no request bodies; refuse chunked or oversized input.
-            if self.headers.get("Transfer-Encoding") or self.headers.get(
-                "Content-Length", "0"
-            ) not in {"0", "2"}:
+            lengths = self.headers.get_all("Content-Length", [])
+            length_text = self.headers.get("Content-Length", "0")
+            if (
+                self.headers.get("Transfer-Encoding")
+                or len(lengths) > 1
+                or not length_text.isdecimal()
+            ):
                 return self._error(400, "The request body is invalid.")
-            length = int(self.headers.get("Content-Length", "0"))
-            if length:
-                self.rfile.read(length)
+            length = int(length_text)
+            if path == "/api/client-event" and length > 2048:
+                return self._error(413, "The request body is too large.")
+            if path != "/api/client-event" and length not in {0, 2}:
+                return self._error(400, "The request body is invalid.")
+            self.body = self.rfile.read(length) if length else b""
         device = gateway.devices.authenticate(cookie_secret(self.headers.get("Cookie")))
         if path == "/api/session" and self.command == "GET":
             if not device:
@@ -237,6 +280,7 @@ class Handler(BaseHTTPRequestHandler):
                     "addresses": gateway.status()["addresses"],
                     "cert_expires": gateway.certificates.expires,
                     "version": "0.1.0",
+                    "share_limit_bytes": gateway.settings.get("share_limit_bytes", 900_000_000),
                 },
             )
         if path == "/api/pair/claim" and self.command == "POST":
@@ -253,16 +297,39 @@ class Handler(BaseHTTPRequestHandler):
                     "SameSite=Strict; Path=/; Max-Age=34560000"
                 },
             )
+        if path.startswith("/dl/") and self.command in {"GET", "HEAD"}:
+            return self._download(path[4:])
         if not path.startswith("/api/"):
             return self._static(path)
         if not device:
             return self._error(401, "Pair this iPad to use VideoEnhancer.")
+        if path == "/api/client-event" and self.command == "POST":
+            return self._client_event()
         library = gateway.adapter.library
         if path == "/api/library" and self.command == "GET":
             return self._json(200, {"items": library.list()})
         if path == "/api/storage" and self.command == "GET":
             return self._json(200, library.storage())
         parts = path.strip("/").split("/")
+        if (
+            len(parts) == 4
+            and parts[:2] == ["api", "library"]
+            and parts[3] == "download-link"
+            and self.command == "POST"
+        ):
+            with library.acquire(parts[2]):
+                token = secrets.token_hex(32)
+                digest = hashlib.sha256(token.encode()).hexdigest()
+                with gateway.download_lock:
+                    gateway.downloads = {
+                        key: value
+                        for key, value in gateway.downloads.items()
+                        if value.expires > time.monotonic()
+                    }
+                    if len(gateway.downloads) >= 256:
+                        return self._error(429, "Too many download links. Try again later.")
+                    gateway.downloads[digest] = Download(parts[2], time.monotonic() + 600)
+            return self._json(200, {"url": f"https://{host}/dl/{token}"})
         if (
             len(parts) == 4
             and parts[:2] == ["api", "library"]
@@ -279,10 +346,6 @@ class Handler(BaseHTTPRequestHandler):
         gateway = self.server.gateway
         if self.command not in {"GET", "HEAD"}:
             return self._error(404, "This page is not available.")
-        if not gateway.devices.pairing_open:
-            return self._send(
-                200, b"Run 'VideoEnhancer - Redo pairing' on the PC", "text/plain; charset=utf-8"
-            )
         if path in {"/ca.mobileconfig", "/ca.cer"}:
             mime = (
                 "application/x-apple-aspen-config"
@@ -293,6 +356,11 @@ class Handler(BaseHTTPRequestHandler):
         if path != "/":
             return self._error(404, "This page is not available.")
         address = html.escape(gateway.status()["addresses"][0], quote=True)
+        pairing = (
+            "Pairing is open now (2-minute window)."
+            if gateway.devices.pairing_open
+            else "Pairing is closed."
+        )
         body = f'''<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Set up VideoEnhancer</title><h1>Set up VideoEnhancer</h1><ol>
@@ -305,12 +373,16 @@ Turn on full trust for VideoEnhancer Local CA.</li>
 <li><a href="{address}">Open VideoEnhancer over HTTPS</a>.
 In Safari, tap Share &gt; Add to Home Screen, with Open as Web App on.</li>
 <li>Open the Home Screen app and tap Pair this iPad before the pairing window closes.</li>
-</ol></html>'''
+</ol><p>{pairing}</p><p>{html.escape(PAIRING_HELP)}</p></html>'''
         return self._send(200, body.encode(), "text/html; charset=utf-8")
 
     def _static(self, path):
         if self.command not in {"GET", "HEAD"}:
             return self._error(404, "This page is not available.")
+        if path == "/favicon.ico":
+            return self._send(204)
+        if path == "/apple-touch-icon-precomposed.png":
+            path = "/apple-touch-icon.png"
         target = WEB / ("index.html" if path == "/" else path.lstrip("/"))
         # All assets are shipped flat; no arbitrary filesystem traversal.
         if target.parent != WEB or not target.is_file() or target.is_symlink():
@@ -326,7 +398,103 @@ In Safari, tap Share &gt; Add to Home Screen, with Open as Web App on.</li>
             mime or mimetypes.guess_type(target.name)[0] or "application/octet-stream",
         )
 
-    def _video(self, identifier):
+    def _client_event(self):
+        event = json.loads(self.body)
+        if not isinstance(event, dict) or event.get("kind") not in {
+            "share_failure",
+            "load_failure",
+            "share_check",
+        }:
+            raise ValueError("Invalid client event.")
+        if event.get("phase") not in {"load", "share", "playback"}:
+            raise ValueError("Invalid phase.")
+        size = event.get("size_bytes")
+        if type(size) is not int or not 0 <= size <= 2**53 - 1:
+            raise ValueError("Invalid size.")
+        can_share = event.get("can_share")
+        if can_share is not None and type(can_share) is not bool:
+            raise ValueError("Invalid sharing result.")
+        name = event.get("error_name", "")
+        # Browser-supplied strings are untrusted and may include filenames or URLs.
+        known_names = {
+            "",
+            "Error",
+            "TypeError",
+            "RangeError",
+            "NotAllowedError",
+            "AbortError",
+            "DataError",
+            "NotSupportedError",
+            "SecurityError",
+            "InvalidStateError",
+            "NetworkError",
+            "NotReadableError",
+            "MediaError",
+        }
+        name = name if isinstance(name, str) and name in known_names else "Error"
+        message = event.get("error_message", "")
+        safe_messages = {
+            "",
+            "Failed to fetch",
+            "Load failed",
+            "The operation is not allowed.",
+            "The request is not allowed by the user agent or the platform in the current "
+            "context, possibly because the user denied permission.",
+            "File sharing is unavailable on this iPad.",
+        }
+        message = (
+            message
+            if isinstance(message, str) and message in safe_messages
+            else "Browser operation failed."
+        )
+        self.server.gateway.logger.info(
+            "client-event %s",
+            json.dumps(
+                {
+                    "kind": event["kind"],
+                    "error_name": name,
+                    "error_message": message[:200],
+                    "size_bytes": size,
+                    "can_share": can_share,
+                    "phase": event["phase"],
+                }
+            ),
+        )
+        return self._json(200, {"recorded": True})
+
+    def _download(self, token):
+        gateway = self.server.gateway
+        if not re.fullmatch(r"[0-9a-f]{64}", token):
+            return self._error(404, "This download link is no longer available.")
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        with gateway.download_lock:
+            download = gateway.downloads.get(digest)
+            if download is None or download.expires <= time.monotonic():
+                gateway.downloads.pop(digest, None)
+                return self._error(404, "This download link is no longer available.")
+            if download.active:
+                return self._error(409, "This download is already in progress.")
+            download.active = True
+        try:
+            completed = self._video(download.identifier, attachment=True)
+            if completed is not None:
+                start, end, size = completed
+                with gateway.download_lock:
+                    ranges = sorted([*download.ranges, (start, end)])
+                    merged = []
+                    for first, last in ranges:
+                        if merged and first <= merged[-1][1] + 1:
+                            merged[-1] = (merged[-1][0], max(last, merged[-1][1]))
+                        else:
+                            merged.append((first, last))
+                    download.ranges = merged
+                    if merged == [(0, size - 1)]:
+                        gateway.downloads.pop(digest, None)
+        finally:
+            with gateway.download_lock:
+                download.active = False
+
+    def _video(self, identifier, *, attachment=False):
         from videoenhancer.remote.library import parse_range
 
         with self.server.gateway.adapter.library.acquire(identifier) as (stream, item):
@@ -342,6 +510,11 @@ In Safari, tap Share &gt; Add to Home Screen, with Open as Web App on.</li>
             self.send_header("Content-Type", item.get("mime", "video/mp4"))
             self.send_header("Content-Length", str(count))
             self.send_header("Accept-Ranges", "bytes")
+            if attachment:
+                self.send_header(
+                    "Content-Disposition",
+                    "attachment; filename*=UTF-8''" + quote(item["filename"], safe=""),
+                )
             if self.headers.get("Range"):
                 self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
             self.send_header("Content-Security-Policy", CSP)
@@ -361,6 +534,9 @@ In Safari, tap Share &gt; Add to Home Screen, with Open as Web App on.</li>
                     break
                 self.wfile.write(data)
                 count -= len(data)
+            self.wfile.flush()
+            if count == 0:
+                return start, end, size
 
     do_GET = _request
     do_HEAD = _request
