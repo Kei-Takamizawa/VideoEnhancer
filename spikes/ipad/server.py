@@ -1,4 +1,5 @@
 """Disposable, LAN-only iPad measuring tool. Never import product code."""
+
 import argparse
 import asyncio
 import base64
@@ -7,16 +8,16 @@ import html
 import ipaddress
 import json
 import os
-from pathlib import Path
 import plistlib
 import re
 import secrets
 import socket
 import ssl
 import time
-from datetime import datetime, timedelta, timezone
-from urllib.parse import urlsplit
 import uuid
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from aiohttp import web
 from cryptography import x509
@@ -35,9 +36,13 @@ def token_hash(token):
 
 
 def write_key(path, key):
-    path.write_bytes(key.private_bytes(serialization.Encoding.PEM,
-                                     serialization.PrivateFormat.PKCS8,
-                                     serialization.NoEncryption()))
+    path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
     os.chmod(path, 0o600)
 
 
@@ -48,46 +53,85 @@ def certificates(home, names, addresses):
         ca = x509.load_pem_x509_certificate((home / "ca.crt").read_bytes())
     else:
         ca_key = rsa.generate_private_key(65537, 2048)
-        subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "VideoEnhancer Local CA (spike)")])
-        now = datetime.now(timezone.utc)
-        ca = (x509.CertificateBuilder().subject_name(subject).issuer_name(subject)
-              .public_key(ca_key.public_key()).serial_number(x509.random_serial_number())
-              .not_valid_before(now - timedelta(minutes=5)).not_valid_after(now + timedelta(days=3650))
-              .add_extension(x509.BasicConstraints(ca=True, path_length=0), True)
-              .add_extension(x509.KeyUsage(False, False, False, False, False, True, True, False, False), True)
-              .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), False)
-              .sign(ca_key, hashes.SHA256()))
+        subject = x509.Name(
+            [x509.NameAttribute(NameOID.COMMON_NAME, "VideoEnhancer Local CA (spike)")]
+        )
+        now = datetime.now(UTC)
+        ca = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(subject)
+            .public_key(ca_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(minutes=5))
+            .not_valid_after(now + timedelta(days=3650))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), True)
+            .add_extension(
+                x509.KeyUsage(False, False, False, False, False, True, True, False, False), True
+            )
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), False)
+            .sign(ca_key, hashes.SHA256())
+        )
         write_key(home / "ca.key", ca_key)
         (home / "ca.crt").write_bytes(ca.public_bytes(serialization.Encoding.PEM))
     # Reissue the leaf so changed DHCP addresses are always in its SAN.
     key = rsa.generate_private_key(65537, 2048)
-    now = datetime.now(timezone.utc)
-    cert = (x509.CertificateBuilder()
-            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, names[0])]))
-            .issuer_name(ca.subject).public_key(key.public_key()).serial_number(x509.random_serial_number())
-            .not_valid_before(now - timedelta(minutes=5)).not_valid_after(now + timedelta(days=397))
-            .add_extension(x509.BasicConstraints(ca=False, path_length=None), True)
-            .add_extension(x509.SubjectAlternativeName(
-                [x509.DNSName(n) for n in names] + [x509.IPAddress(ipaddress.ip_address(a)) for a in addresses]), False)
-            .add_extension(x509.KeyUsage(True, False, True, False, False, False, False, False, False), True)
-            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), False)
-            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), False)
-            .sign(ca_key, hashes.SHA256()))
+    now = datetime.now(UTC)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, names[0])]))
+        .issuer_name(ca.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=5))
+        .not_valid_after(now + timedelta(days=397))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), True)
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [x509.DNSName(n) for n in names]
+                + [x509.IPAddress(ipaddress.ip_address(a)) for a in addresses]
+            ),
+            False,
+        )
+        .add_extension(
+            x509.KeyUsage(True, False, True, False, False, False, False, False, False), True
+        )
+        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), False)
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), False
+        )
+        .sign(ca_key, hashes.SHA256())
+    )
     write_key(home / "server.key", key)
     (home / "server.crt").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    profile = {"PayloadType": "Configuration", "PayloadVersion": 1,
-               "PayloadIdentifier": "local.videoenhancer.spike", "PayloadUUID": str(uuid.uuid4()),
-               "PayloadDisplayName": "VideoEnhancer Local CA (spike)",
-               "PayloadContent": [{"PayloadType": "com.apple.security.root", "PayloadVersion": 1,
-                                   "PayloadIdentifier": "local.videoenhancer.spike.ca", "PayloadUUID": str(uuid.uuid4()),
-                                   "PayloadDisplayName": "VideoEnhancer Local CA (spike)",
-                                   "PayloadContent": ca.public_bytes(serialization.Encoding.DER)}]}
+    profile = {
+        "PayloadType": "Configuration",
+        "PayloadVersion": 1,
+        "PayloadIdentifier": "local.videoenhancer.spike",
+        "PayloadUUID": str(uuid.uuid4()),
+        "PayloadDisplayName": "VideoEnhancer Local CA (spike)",
+        "PayloadContent": [
+            {
+                "PayloadType": "com.apple.security.root",
+                "PayloadVersion": 1,
+                "PayloadIdentifier": "local.videoenhancer.spike.ca",
+                "PayloadUUID": str(uuid.uuid4()),
+                "PayloadDisplayName": "VideoEnhancer Local CA (spike)",
+                "PayloadContent": ca.public_bytes(serialization.Encoding.DER),
+            }
+        ],
+    }
     (home / "ca.mobileconfig").write_bytes(plistlib.dumps(profile))
 
 
 class State:
     def __init__(self, home, evidence, names, clock=time.time):
-        self.home, self.evidence, self.names, self.clock = Path(home), Path(evidence), set(names), clock
+        self.home, self.evidence, self.names, self.clock = (
+            Path(home),
+            Path(evidence),
+            set(names),
+            clock,
+        )
         for p in [self.home, self.home / "uploads", self.home / "media", self.evidence.parent]:
             p.mkdir(parents=True, exist_ok=True)
         self.device_file = self.home / "device.json"
@@ -103,7 +147,9 @@ class State:
         if not vapid_path.exists():
             write_key(vapid_path, ec.generate_private_key(ec.SECP256R1()))
         key = serialization.load_pem_private_key(vapid_path.read_bytes(), None)
-        raw = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+        raw = key.public_key().public_bytes(
+            serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
+        )
         self.vapid_public = base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
     def open_pairing(self, seconds):
@@ -112,8 +158,16 @@ class State:
         self.save_pairing()
 
     def save_pairing(self):
-        self.pairing_file.write_text(json.dumps({"deadline": self.deadline,
-                                    "claim_hash": self.claim_hash, "claim_deadline": self.claim_deadline}), encoding="utf-8")
+        self.pairing_file.write_text(
+            json.dumps(
+                {
+                    "deadline": self.deadline,
+                    "claim_hash": self.claim_hash,
+                    "claim_deadline": self.claim_deadline,
+                }
+            ),
+            encoding="utf-8",
+        )
 
     def claim(self):
         if self.clock() >= self.deadline:
@@ -140,17 +194,50 @@ class State:
         return token
 
     def authorized(self, token):
-        return bool(token and secrets.compare_digest(token_hash(token), self.device.get("token_hash", "")))
+        return bool(
+            token and secrets.compare_digest(token_hash(token), self.device.get("token_hash", ""))
+        )
 
     def record(self, result, user_agent="PC server"):
         record = dict(result)
-        record.update(timestamp=datetime.now(timezone.utc).isoformat(), user_agent=user_agent)
-        with self.evidence.open("a", encoding="utf-8") as f:
+        record.setdefault("display_mode", "server")
+        record.setdefault("automated", getattr(self, "automated", False))
+        record.update(timestamp=datetime.now(UTC).isoformat(), user_agent=user_agent)
+        destination = (
+            self.evidence.parent / "pc-results.jsonl" if record.get("automated") else self.evidence
+        )
+        with destination.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=True) + "\n")
 
 
 def make_app(state, plain=False):
-    static_paths = {"/", "/app.js", "/style.css", "/sw.js", "/manifest.json", "/icon.svg", "/pair/finish"}
+    static_paths = {
+        "/",
+        "/app.js",
+        "/style.css",
+        "/sw.js",
+        "/manifest.json",
+        "/icon.svg",
+        "/pair/finish",
+    }
+
+    async def request_log(request, response):
+        # Only fixed route templates: never owner paths, file names or query strings.
+        route = request.match_info.route.resource
+        path = route.canonical if route is not None else "<unmatched>"
+        mode = request.headers.get("X-Display-Mode", "unknown")
+        if mode not in {"standalone", "browser"}:
+            mode = "unknown"
+        entry = {
+            "time": datetime.now(UTC).isoformat(),
+            "method": request.method,
+            "path": path,
+            "status": response.status,
+            "device_cookie": "yes" if "ve_device" in request.cookies else "no",
+            "display_mode": mode,
+        }
+        with (state.evidence.parent / "owner-server.log").open("a", encoding="utf-8") as log:
+            log.write(json.dumps(entry) + "\n")
 
     @web.middleware
     async def guard(request, handler):
@@ -162,12 +249,21 @@ def make_app(state, plain=False):
             if origin:
                 parsed = urlsplit(origin)
                 local_port = request.transport.get_extra_info("sockname")[1]
-                if (parsed.scheme != "https" or parsed.hostname not in state.names or
-                        parsed.port not in {8443, local_port} or parsed.path or parsed.username):
+                if (
+                    parsed.scheme != "https"
+                    or parsed.hostname not in state.names
+                    or parsed.port not in {8443, local_port}
+                    or parsed.path
+                    or parsed.username
+                ):
                     raise ValueError()
         except ValueError:
-            raise web.HTTPForbidden(text="Host or Origin rejected")
-        if not plain and request.path not in static_paths and request.path != "/api/pair/finish":
+            raise web.HTTPForbidden(text="Host or Origin rejected") from None
+        if (
+            not plain
+            and request.path not in static_paths
+            and request.path not in {"/api/pair/finish", "/pair/claim"}
+        ):
             token = request.cookies.get("ve_device", "")
             if request.headers.get("Authorization", "").startswith("Bearer "):
                 token = request.headers["Authorization"][7:]
@@ -177,25 +273,52 @@ def make_app(state, plain=False):
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; frame-ancestors 'none'"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; "
+            "worker-src 'self'; frame-ancestors 'none'"
+        )
         return response
 
     app = web.Application(middlewares=[guard], client_max_size=CHUNK + 65536)
 
+    app.on_response_prepare.append(request_log)
+
     async def pair(request):
         secret = state.claim()
         if not secret:
-            return web.Response(text="<h1>Pairing is closed</h1><p>Ask the operator to restart with --redo-pairing.</p>", content_type="text/html")
+            return web.Response(
+                text=(
+                    "<h1>Pairing is closed</h1>"
+                    "<p>Ask the operator to restart with --redo-pairing.</p>"
+                ),
+                content_type="text/html",
+            )
         host = html.escape(urlsplit("//" + request.host).hostname)
-        return web.Response(text=f'''<!doctype html><meta name="viewport" content="width=device-width"><h1>Pairing claimed</h1>
-<p>Keep this tab open. Install the <a href="/ca.mobileconfig">CA profile</a> (<a href="/ca.crt">certificate</a>).</p>
-<ol><li>Settings &gt; General &gt; VPN &amp; Device Management: install VideoEnhancer Local CA (spike).</li>
-<li>Settings &gt; General &gt; About &gt; Certificate Trust Settings: enable full trust.</li>
-<li>Return here within 30 minutes and <a href="https://{host}:8443/pair/finish#{secret}">finish pairing</a>.</li></ol>''', content_type="text/html")
+        return web.Response(
+            text=f"""<!doctype html><meta name="viewport" content="width=device-width">
+<h1>Pairing claimed</h1>
+<p>Keep this tab open. Install the <a href="/ca.mobileconfig">CA profile</a>
+(<a href="/ca.crt">certificate</a>).</p>
+<ol><li>Settings &gt; General &gt; VPN &amp; Device Management:
+install VideoEnhancer Local CA (spike).</li>
+<li>Settings &gt; General &gt; About &gt; Certificate Trust Settings:
+enable full trust.</li>
+<li>Return here within 30 minutes and
+<a href="https://{host}:8443/pair/finish#{secret}">finish pairing</a>.</li></ol>""",
+            content_type="text/html",
+        )
 
     async def ca(request):
         name = request.match_info["name"]
-        return web.FileResponse(state.home / name, headers={"Content-Type": "application/x-apple-aspen-config" if name.endswith("mobileconfig") else "application/x-x509-ca-cert"})
+        return web.FileResponse(
+            state.home / name,
+            headers={
+                "Content-Type": "application/x-apple-aspen-config"
+                if name.endswith("mobileconfig")
+                else "application/x-x509-ca-cert"
+            },
+        )
 
     if plain:
         app.router.add_get("/pair", pair, allow_head=False)
@@ -215,12 +338,37 @@ def make_app(state, plain=False):
         data = await request.json()
         secret = data.get("secret", "")
         if not isinstance(secret, str):
-            raise web.HTTPBadRequest()
+            raise web.HTTPBadRequest() from None
         token = state.finish(secret)
         if not token:
             raise web.HTTPForbidden(text="Claim expired or used")
         response = web.json_response({"paired": True})
-        response.set_cookie("ve_device", token, secure=True, httponly=True, samesite="Strict", max_age=31536000, path="/")
+        response.set_cookie(
+            "ve_device",
+            token,
+            secure=True,
+            httponly=True,
+            samesite="Strict",
+            max_age=31536000,
+            path="/",
+        )
+        return response
+
+    async def claim(request):
+        secret = state.claim()
+        if not secret:
+            raise web.HTTPForbidden(text="Pairing is closed. Ask the operator for --redo-pairing.")
+        token = state.finish(secret)
+        response = web.json_response({"paired": True})
+        response.set_cookie(
+            "ve_device",
+            token,
+            secure=True,
+            httponly=True,
+            samesite="Strict",
+            max_age=31536000,
+            path="/",
+        )
         return response
 
     async def config(request):
@@ -230,6 +378,7 @@ def make_app(state, plain=False):
         data = await request.json()
         if not isinstance(data, dict) or data.get("test") not in {f"T{i}" for i in range(1, 10)}:
             raise web.HTTPBadRequest(text="Unknown test")
+        data.setdefault("display_mode", request.headers.get("X-Display-Mode", "unknown"))
         state.record(data, request.headers.get("User-Agent", ""))
         return web.json_response({"recorded": True})
 
@@ -250,14 +399,16 @@ def make_app(state, plain=False):
             try:
                 offset = int(request.query.get("offset", "-1"))
             except ValueError:
-                raise web.HTTPBadRequest()
+                raise web.HTTPBadRequest() from None
             size = path.stat().st_size if path.exists() else 0
             if offset != size:
                 raise web.HTTPConflict(text="Resume from server offset")
             try:
                 data = await request.read()
             except ConnectionResetError:
-                raise web.HTTPBadRequest(text="Upload interrupted; query offset and resume")
+                raise web.HTTPBadRequest(
+                    text="Upload interrupted; query offset and resume"
+                ) from None
             if len(data) > CHUNK or size + len(data) > 8_000_000_000:
                 raise web.HTTPRequestEntityTooLarge(max_size=CHUNK, actual_size=len(data))
             with path.open("ab") as f:
@@ -270,9 +421,11 @@ def make_app(state, plain=False):
         async with state.locks.setdefault(path.name, asyncio.Lock()):
             if not path.exists() or path.stat().st_size != data.get("size"):
                 raise web.HTTPConflict(text="Size mismatch")
+
             def digest_file():
                 with path.open("rb") as f:
                     return hashlib.file_digest(f, "sha256").hexdigest()
+
             digest = await asyncio.to_thread(digest_file)
             if digest != path.name:
                 raise web.HTTPUnprocessableEntity(text="Hash mismatch")
@@ -285,7 +438,11 @@ def make_app(state, plain=False):
         path = state.home / "media" / name
         size = path.stat().st_size
         start, end, status = 0, size - 1, 200
-        headers = {"Content-Type": "video/mp4", "Accept-Ranges": "bytes", "Cache-Control": "no-store"}
+        headers = {
+            "Content-Type": "video/mp4",
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "no-store",
+        }
         if "download" in request.query:
             headers["Content-Disposition"] = f'attachment; filename="{name}"'
         raw = request.headers.get("Range")
@@ -305,7 +462,9 @@ def make_app(state, plain=False):
                 if start > end or start >= size:
                     raise ValueError()
             except ValueError:
-                return web.Response(status=416, headers={**headers, "Content-Range": f"bytes */{size}"})
+                return web.Response(
+                    status=416, headers={**headers, "Content-Range": f"bytes */{size}"}
+                )
             status = 206
             headers["Content-Range"] = f"bytes {start}-{end}/{size}"
         headers["Content-Length"] = str(end - start + 1)
@@ -330,17 +489,33 @@ def make_app(state, plain=False):
             run = request.query.get("run", "")
             if "download" in request.query and re.fullmatch(r"[a-zA-Z0-9-]{1,64}", run):
                 elapsed = time.perf_counter() - started
-                state.record({"test": "T6", "phase": "server_transfer", "run": run,
-                              "bytes": sent, "seconds": elapsed, "MB_s": sent / 1e6 / elapsed,
-                              "complete": complete, "range": raw}, request.headers.get("User-Agent", ""))
+                state.record(
+                    {
+                        "test": "T6",
+                        "phase": "server_transfer",
+                        "run": run,
+                        "bytes": sent,
+                        "seconds": elapsed,
+                        "MB_s": sent / 1e6 / elapsed,
+                        "complete": complete,
+                        "range": raw,
+                        "automated": getattr(state, "automated", False),
+                        "display_mode": request.headers.get("X-Display-Mode", "unknown"),
+                    },
+                    request.headers.get("User-Agent", ""),
+                )
         return response
 
     async def events(request):
-        response = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-store"})
+        response = web.StreamResponse(
+            headers={"Content-Type": "text/event-stream", "Cache-Control": "no-store"}
+        )
         await response.prepare(request)
         try:
             while True:
-                await response.write(f"data: {json.dumps({'server_ms': int(time.time() * 1000)})}\n\n".encode())
+                await response.write(
+                    f"data: {json.dumps({'server_ms': int(time.time() * 1000)})}\n\n".encode()
+                )
                 await asyncio.sleep(1)
         except (ConnectionError, asyncio.CancelledError):
             pass
@@ -351,26 +526,77 @@ def make_app(state, plain=False):
         subscription = data.get("subscription", {})
         # Never let a paired browser turn the PC into an arbitrary HTTP client.
         endpoint = urlsplit(subscription.get("endpoint", ""))
-        if (endpoint.scheme != "https" or endpoint.port not in {None, 443} or endpoint.username or
-                not (endpoint.hostname == "web.push.apple.com" or
-                     (endpoint.hostname or "").endswith(".push.apple.com"))):
+        if (
+            endpoint.scheme != "https"
+            or endpoint.port not in {None, 443}
+            or endpoint.username
+            or not (
+                endpoint.hostname == "web.push.apple.com"
+                or (endpoint.hostname or "").endswith(".push.apple.com")
+            )
+        ):
             raise web.HTTPBadRequest(text="This spike accepts Apple push endpoints only")
-        if not all(isinstance(subscription.get("keys", {}).get(k), str) for k in ["p256dh", "auth"]):
+        if not all(
+            isinstance(subscription.get("keys", {}).get(k), str) for k in ["p256dh", "auth"]
+        ):
             raise web.HTTPBadRequest(text="Missing push keys")
         run = secrets.token_hex(8)
         (state.home / "subscription.json").write_text(json.dumps(subscription), encoding="utf-8")
+        diagnostics = {
+            "notification_permission": data.get("notification_permission", "unknown"),
+            "push_manager": data.get("push_manager", False),
+            "push_endpoint_host": endpoint.hostname,
+        }
+        mode = request.headers.get("X-Display-Mode", "unknown")
+        automated = getattr(state, "automated", False)
+
         async def send(delay):
             from pywebpush import webpush
+
             await asyncio.sleep(delay)
             try:
-                await asyncio.to_thread(webpush, subscription_info=subscription,
-                    data=json.dumps({"title": "VideoEnhancer spike", "body": f"Test push after {delay} seconds", "run": run, "delay": delay}),
+                await asyncio.to_thread(
+                    webpush,
+                    subscription_info=subscription,
+                    data=json.dumps(
+                        {
+                            "title": "VideoEnhancer spike",
+                            "body": f"Test push after {delay} seconds",
+                            "run": run,
+                            "delay": delay,
+                        }
+                    ),
                     vapid_private_key=str(state.home / "vapid.key"),
-                    vapid_claims={"sub": "mailto:spike@example.invalid"}, ttl=300, timeout=20)
-                state.record({"test": "T3", "phase": "sent", "run": run, "delay": delay})
+                    vapid_claims={"sub": "mailto:spike@example.invalid"},
+                    ttl=300,
+                    timeout=20,
+                )
+                state.record(
+                    {
+                        "test": "T3",
+                        **diagnostics,
+                        "display_mode": mode,
+                        "automated": automated,
+                        "phase": "sent",
+                        "run": run,
+                        "delay": delay,
+                    }
+                )
             except Exception as exc:
                 # Do not log subscription endpoints or credentials.
-                state.record({"test": "T3", "phase": "send_error", "run": run, "delay": delay, "error": type(exc).__name__})
+                state.record(
+                    {
+                        "test": "T3",
+                        **diagnostics,
+                        "display_mode": mode,
+                        "automated": automated,
+                        "phase": "send_error",
+                        "run": run,
+                        "delay": delay,
+                        "error": type(exc).__name__,
+                    }
+                )
+
         for delay in [10, 60]:
             task = asyncio.create_task(send(delay))
             state.tasks.add(task)
@@ -383,6 +609,7 @@ def make_app(state, plain=False):
         await asyncio.gather(*state.tasks, return_exceptions=True)
 
     app.on_cleanup.append(cleanup)
+    app.router.add_post("/pair/claim", claim)
     app.router.add_post("/api/pair/finish", finish)
     app.router.add_get("/api/config", config)
     app.router.add_post("/api/results", results)
@@ -397,24 +624,38 @@ def make_app(state, plain=False):
 
 def private_addresses():
     ranges = [ipaddress.ip_network(n) for n in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]]
-    return sorted({a[4][0] for a in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
-                   if any(ipaddress.ip_address(a[4][0]) in r for r in ranges)})
+    return sorted(
+        {
+            a[4][0]
+            for a in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+            if any(ipaddress.ip_address(a[4][0]) in r for r in ranges)
+        }
+    )
 
 
 async def serve(args):
     from zeroconf import IPVersion, ServiceInfo
     from zeroconf.asyncio import AsyncZeroconf
+
     addresses = private_addresses()
     binds = args.bind or addresses
     if not binds or any(a not in addresses and a != "127.0.0.1" for a in binds):
-        raise SystemExit("Bind must be one of this PC's private IPv4 addresses (or loopback for tests)")
+        raise SystemExit(
+            "Bind must be one of this PC's private IPv4 addresses (or loopback for tests)"
+        )
     names = ["videoenhancer.local", socket.gethostname().lower() + ".local"]
     home = args.home.resolve()
     if not home.is_relative_to(WORK / "scratch"):
         raise SystemExit("Spike home must be below work/scratch")
-    evidence = (WORK / "evidence" / "VE-R0" / "ipad-results.jsonl")
+    evidence = (
+        WORK
+        / "evidence"
+        / "VE-R0b"
+        / ("pc-results.jsonl" if getattr(args, "automated", False) else "ipad-results.jsonl")
+    )
     certificates(home, names, addresses + (["127.0.0.1"] if "127.0.0.1" in binds else []))
     state = State(home, evidence, names + addresses + ["127.0.0.1"])
+    state.automated = getattr(args, "automated", False)
     if args.redo_pairing or not state.pairing_file.exists():
         state.open_pairing(args.pair_seconds)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -429,15 +670,33 @@ async def serve(args):
             await runner.setup()
             runners.append(runner)
             for bind in binds:
-                await web.TCPSite(runner, bind, port, ssl_context=None if plain else context).start()
+                await web.TCPSite(
+                    runner, bind, port, ssl_context=None if plain else context
+                ).start()
         if not args.no_mdns:
             zeroconf = AsyncZeroconf(interfaces=addresses, ip_version=IPVersion.V4Only)
-            info = ServiceInfo("_https._tcp.local.", "VideoEnhancer spike._https._tcp.local.",
-                               addresses=[socket.inet_aton(a) for a in addresses], port=8443,
-                               server="videoenhancer.local.", properties={"path": "/"})
+            info = ServiceInfo(
+                "_https._tcp.local.",
+                "VideoEnhancer spike._https._tcp.local.",
+                addresses=[socket.inet_aton(a) for a in addresses],
+                port=8443,
+                server="videoenhancer.local.",
+                properties={"path": "/"},
+            )
             await zeroconf.async_register_service(info, allow_name_change=False)
-        print(json.dumps({"ready": True, "binds": binds, "http": 8080, "https": 8443,
-                          "mdns": bool(zeroconf), "pair_seconds": args.pair_seconds}), flush=True)
+        print(
+            json.dumps(
+                {
+                    "ready": True,
+                    "binds": binds,
+                    "http": 8080,
+                    "https": 8443,
+                    "mdns": bool(zeroconf),
+                    "pair_seconds": args.pair_seconds,
+                }
+            ),
+            flush=True,
+        )
         await asyncio.Event().wait()
     finally:
         if zeroconf:
@@ -453,7 +712,9 @@ if __name__ == "__main__":
     parser.add_argument("--home", type=Path, default=WORK / "scratch" / "ipad-spike")
     parser.add_argument("--redo-pairing", action="store_true")
     parser.add_argument("--pair-seconds", type=float, default=120)
-    parser.add_argument("--bind", action="append", help="Repeat for each LAN address; default: all private IPv4")
+    parser.add_argument(
+        "--bind", action="append", help="Repeat for each LAN address; default: all private IPv4"
+    )
     parser.add_argument("--no-mdns", action="store_true", help="Only for isolated automated tests")
     try:
         asyncio.run(serve(parser.parse_args()))

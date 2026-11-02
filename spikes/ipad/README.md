@@ -70,7 +70,7 @@ real listeners on LAN and loopback, advertises mDNS, redoes pairing and removes
 only its synthetic uploads inside the separate `work/scratch/ipad-pc-check` home. Never run it during
 the owner check. It tests a real 1 GB foreground browser download, compares its
 hash, and measures TLS-verified loopback transfers. Results and a screenshot go
-to `work/evidence/VE-R0`. Browser-generated JSONL records include `automated:true`.
+to `work/evidence/VE-R0b`. Browser-generated JSONL records include `automated:true`.
 
 Playwright does not expose a per-context root CA store for Windows WebKit. The
 verifier separately checks the actual certificate using Python's CA-specific SSL
@@ -128,3 +128,24 @@ it. This spike does not create a product history or engine log.
   apps and user-gesture permission requests, iOS/iPadOS 16.4 or later.
 - [Playwright browsers](https://playwright.dev/python/docs/browsers): media codecs
   depend on the OS; macOS is closer to Safari for video playback.
+
+
+R0b: in the installed Home Screen app, an unauthorized session shows **Pair this
+app**. Have the operator start `server.py --redo-pairing`, then tap that button
+within two minutes. The HTTPS claim sets the cookie inside this app without
+leaving it. Safari's separate session is replaced. HTTP remains available for
+CA setup and the optional legacy Safari claim, using the same pairing window.
+Automated records go to `pc-results.jsonl`; owner records to `ipad-results.jsonl`.
+Request diagnosis is in `owner-server.log` (route templates, never query strings,
+file names, cookie values or tokens). `unknown` means no display-mode header;
+`server` on a record means it originated on the PC rather than in a page.
+
+
+For repository-wide CPU/desktop checks on this workstation, this cycle verified
+portable FFmpeg/ffprobe from the publisher SHA-256 and kept only those binaries
+under `work/cache/r0b-ffmpeg`. Add that folder to the current shell PATH when
+running CI-equivalent checks; do not change Windows PATH or settings. Read-only
+Git checks also need the operator's installed Git on the session PATH. Desktop
+CDP tests required reviewed execution outside the filesystem sandbox, still with
+absolute isolated homes under `work/scratch`. The spike's dedicated environment
+and its bundled FFmpeg remain sufficient for sample generation and spike tests.

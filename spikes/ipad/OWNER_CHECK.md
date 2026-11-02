@@ -74,3 +74,20 @@ starts the PC test server; no PC window needs to stay visible to you.
     certificate is gone from Certificate Trust Settings. Remove the Home Screen
     app and the synthetic downloads/Photos videos if you no longer need them.
     The operator stops the server and removes its disposable scratch home.
+
+
+## R0b re-check, about 5 minutes
+
+1. Delete the old Home Screen icon. Open the HTTPS address in Safari, then
+   Share > Add to Home Screen with **Open as Web App** on.
+2. Open the app from the Home Screen. Ask the operator to start the server with
+   `--redo-pairing`, then tap **Pair this app** within two minutes.
+3. Run T2, then T3: allow notifications, close the app, and wait for both pushes
+   (10 and 60 seconds). Reopen after 75 seconds and record what you saw.
+4. Run T6 with **background 3 min**. Confirm whether the file arrived and whether
+   transfer continued while backgrounded; an early completion is not that proof.
+5. For T7 load **500 MB**, share, choose **Save Video**, then open Photos and
+   confirm the video is present before recording success.
+
+The operator uses `work/evidence/VE-R0b/owner-server.log` for request diagnosis;
+owner records are in `ipad-results.jsonl`, PC automation in `pc-results.jsonl`.

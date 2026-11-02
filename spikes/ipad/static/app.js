@@ -5,8 +5,20 @@ shareSize = localStorage.getItem('shareSize') || '50MB';
 let downloadRun = JSON.parse(sessionStorage.getItem('downloadRun') || 'null');
 const pending = JSON.parse(localStorage.getItem('pendingResults') || '[]');
 let flushing;
+const displayMode = () => (window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true) ? 'standalone' : 'browser';
+function unpaired() {
+  document.querySelectorAll('main > section, main > pre, main > h2').forEach(e => { e.hidden = true; });
+  $('#pairing').hidden = false;
+  status.textContent = 'This app is not paired. Ask the operator to open pairing, then tap Pair this app.';
+}
+async function request(path, options = {}) {
+  const response = await fetch(path, {credentials:'same-origin', ...options,
+    headers:{...options.headers, 'X-Display-Mode':displayMode()}});
+  if (response.status === 401) unpaired();
+  return response;
+}
 async function api(path, options = {}) {
-  const response = await fetch(path, {credentials:'same-origin', ...options});
+  const response = await request(path, options);
   if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
   return response.json();
 }
@@ -14,7 +26,8 @@ async function post(path, data) {
   return api(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
 }
 async function record(test, result) {
-  const item = {test, automated:navigator.webdriver === true, ...result};
+  const item = {test, automated:navigator.webdriver === true, ...result, display_mode:displayMode()};
+  if (test === 'T3') Object.assign(item, {notification_permission:window.Notification?.permission ?? 'unavailable', push_manager:'PushManager' in window});
   $('#results').textContent = JSON.stringify(item, null, 2) + '\n' + $('#results').textContent;
   pending.push(item);
   localStorage.setItem('pendingResults', JSON.stringify(pending));
@@ -24,7 +37,7 @@ function flush() {
   if (flushing) return flushing;
   flushing = (async () => {
     while (pending.length) {
-      try { await post('/api/results', pending[0]); } catch { status.textContent = 'Result queued. Reconnect to home Wi-Fi.'; return; }
+      try { await post('/api/results', pending[0]); } catch { if ($('#pairing').hidden) status.textContent = 'Result queued. Reconnect to home Wi-Fi.'; return; }
       pending.shift(); localStorage.setItem('pendingResults', JSON.stringify(pending));
     }
   })().finally(() => { flushing = undefined; });
@@ -37,6 +50,8 @@ function action(selector, fn) {
     finally { element.disabled = false; }
   }));
 }
+action('#pair-app', async () => { await post('/pair/claim', {}); await init(); });
+
 action('[data-result]', b => record(b.dataset.result, {pass:b.dataset.pass === 'true',phase:'owner_observation'}));
 action('#standalone', () => record('T2', {pass:matchMedia('(display-mode: standalone)').matches || navigator.standalone === true}));
 action('#push', async () => {
@@ -48,8 +63,8 @@ action('#push', async () => {
     const encoded = config.vapid.replace(/-/g,'+').replace(/_/g,'/');
     const key = Uint8Array.from(atob(encoded + '='.repeat((4-encoded.length%4)%4)), c => c.charCodeAt(0));
     const subscription = await registration.pushManager.getSubscription() || await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
-    const scheduled = await post('/api/push', {subscription:subscription.toJSON()});
-    await record('T3', {phase:'subscribed',pass:true,...scheduled});
+    const scheduled = await post('/api/push', {subscription:subscription.toJSON(),notification_permission:Notification.permission,push_manager:'PushManager' in window});
+    await record('T3', {phase:'subscribed',pass:true,...scheduled,push_endpoint_host:new URL(subscription.endpoint).host});
     status.textContent = 'Close the app now. Reopen after 75 seconds.';
   } catch (error) { await record('T3', {phase:'subscribe',pass:false,error:error.message}); }
 });
@@ -70,9 +85,9 @@ async function upload(file, source) {
       const part = await file.slice(offset, offset + config.chunk_bytes).arrayBuffer();
       if (!aborted && offset > initialOffset) {
         const controller = new AbortController();
-        const request = fetch(path + `?offset=${offset}`, {method:'PUT',body:part,signal:controller.signal});
+        const transfer = request(path + `?offset=${offset}`, {method:'PUT',body:part,signal:controller.signal});
         setTimeout(() => controller.abort(), 1);
-        try { await request; } catch (error) { if (error.name !== 'AbortError') throw error;abortObserved = true; }
+        try { await transfer; } catch (error) { if (error.name !== 'AbortError') throw error;abortObserved = true; }
         aborted = true;
         offset = (await api(path)).offset;
         continue;
@@ -159,7 +174,7 @@ action('[data-share-size]', async b => {
   localStorage.setItem('shareSize',shareSize);
   await record('T7',{phase:'load_started',size:shareSize});
   try {
-    const start = performance.now(), response = await fetch(`/media/${shareSize}.mp4`);
+    const start = performance.now(), response = await request(`/media/${shareSize}.mp4`);
     if (!response.ok) throw new Error(`File load ${response.status}`);
     shareFile = new File([await response.blob()], `${shareSize}.mp4`, {type:'video/mp4'});
     const canShare = !!navigator.canShare?.({files:[shareFile]});
@@ -209,6 +224,10 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 window.addEventListener('online', flush);
+navigator.serviceWorker?.addEventListener('message', event => {
+  if (event.data.type === 'display-mode') event.ports[0].postMessage(displayMode());
+  if (event.data.type === 'unpaired') unpaired();
+});
 async function init() {
   try {
     if (location.pathname === '/pair/finish') {
@@ -216,6 +235,8 @@ async function init() {
       await post('/api/pair/finish',{secret}); location.replace('/'); return;
     }
     config = await api('/api/config');
+    document.querySelectorAll('main > section, main > pre, main > h2').forEach(e => { e.hidden = false; });
+    $('#pairing').hidden = true;
     registration = await navigator.serviceWorker.register('/sw.js');
     await flush(); status.textContent = 'Paired. Ready to test.';
     const query = new URLSearchParams(location.search);
@@ -224,6 +245,6 @@ async function init() {
       history.replaceState(null,'','/');
       await record('T8',{phase:'share_target',pass:validURL($('#url').value)});
     }
-  } catch(error) { status.textContent = `Setup: ${error.message}. Use the original pairing finish link if needed.`; }
+  } catch(error) { if ($('#pairing').hidden) status.textContent = `Setup: ${error.message}`; }
 }
 init();

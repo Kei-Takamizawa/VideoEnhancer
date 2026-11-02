@@ -52,3 +52,49 @@ test('an already uploaded file is not evidence of resumed transfer', async () =>
   assert.equal(result.resume_ok,false);
   assert.equal(result.transferred_bytes,0);
 });
+
+test('requests include mode and 401 shows only pairing controls', async () => {
+  const calls = [];
+  const a = app(async (path, options) => {
+    calls.push(options);
+    return {ok:false,status:401,text:async()=> 'Pair first'};
+  });
+  await assert.rejects(a.run("api('/api/other')"), /401/);
+  assert.equal(calls[0].headers['X-Display-Mode'], 'browser');
+  assert.equal(a.run("$('#pairing').hidden"), false);
+  assert.match(a.run('status.textContent'), /Pair this app/);
+});
+
+test('records carry standalone mode and notification diagnostics', async () => {
+  let result;
+  const a = app(async (path, options) => {
+    result = JSON.parse(options.body);
+    return {ok:true,json:async()=>({})};
+  });
+  a.context.navigator.standalone = true;
+  a.context.window.Notification = {permission:'denied'};
+  a.context.window.PushManager = function(){};
+  await a.run("record('T3',{phase:'subscribe'})");
+  assert.equal(result.display_mode, 'standalone');
+  assert.equal(result.notification_permission, 'denied');
+  assert.equal(result.push_manager, true);
+});
+
+test('service worker tags native requests and reports unauthorized sessions', async () => {
+  const handlers = {}, messages = [], outgoing = [];
+  const context = vm.createContext({
+    self:{location:{origin:'https://spike.local'}, addEventListener:(name, fn)=>{handlers[name]=fn;},
+      clients:{get:async()=>({postMessage:(message, ports)=>{
+        if (message.type === 'display-mode') ports[0].postMessage('standalone');
+        else messages.push(message);
+      }})}},
+    URL, Request, Headers, MessageChannel, setTimeout, clearTimeout,
+    fetch:async request=>{outgoing.push(request);return {status:401};},
+  });
+  vm.runInContext(fs.readFileSync(__dirname + '/static/sw.js','utf8'), context);
+  let response;
+  handlers.fetch({clientId:'app', request:new Request('https://spike.local/media/h264.mp4'), respondWith:p=>{response=p;}});
+  await response;
+  assert.equal(outgoing[0].headers.get('X-Display-Mode'), 'standalone');
+  assert.equal(messages[0].type, 'unpaired');
+});

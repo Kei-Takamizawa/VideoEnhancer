@@ -1,3 +1,256 @@
+Task ID / Cycle: VE-R0b
+Status: PARTIAL
+
+## Outcome
+
+Implemented the approved spike changes. The local CI-equivalent all-pass gate
+is not met: the final CPU suite passed, but two existing desktop E2E cases still
+failed in the reviewed full run and one sequential targeted follow-up. Real Home Screen, Apple push, background download and Photos
+checks remain for the owner. No Windows settings or product code were changed.
+
+Terminal: Windows PowerShell. Branch `claude/project-thread-yyrl3q`, HEAD
+`e39c47185db557c8c0dda9b3021bb4e305e1aa39`, confirmed with read-only Git.
+Git was initially absent from PATH; the installed executable was denied in the
+sandbox. Approved elevated read-only status/branch/HEAD/diff commands succeeded.
+The pre-edit working-tree check did not succeed, so no pre-edit clean-tree claim
+is made. The successful later status showed only this cycle's spike changes.
+No Git mutations, commits, pushes or remote updates were performed, per AGENTS.md.
+CURRENT_TASK.md was read completely and retained without modification.
+
+## Changes
+
+- `spikes/ipad/server.py`: HTTPS POST /pair/claim, sharing the existing atomic
+  first-claimer window with HTTP /pair. It immediately finishes the claim and
+  sets a Secure, HttpOnly, SameSite=Strict cookie in the requesting app. Redo
+  replaces the device; only its token hash persists.
+- The server logs one JSON line when each response is prepared, including rejected
+  requests: UTC time, method, route template, status, cookie presence and display
+  mode. Dynamic path components are templates, unmatched paths are redacted,
+  and query strings, file names, tokens and cookie values are excluded.
+- `spikes/ipad/static/app.js`, `index.html`: any fetch 401 hides the test sections
+  and shows Pair this app. Claim stays on the same HTTPS origin. Requests carry
+  X-Display-Mode; page results carry display_mode. T3 records notification
+  permission, PushManager availability and only the push endpoint host.
+- `spikes/ipad/static/sw.js`: tags controlled native media/download/SSE requests
+  using the originating page's mode, reports 401 to the page, and tags push
+  receipts. No media/authenticated content caching was added.
+- Mode is `unknown` when no header/client response is available (including the
+  first navigation and static bootstrap before service-worker control); server
+  records without a page use `server`. These are not invented standalone proof.
+  The already correct manifest start_url and scope are both `/` and unchanged.
+- Owner sessions now use evidence/VE-R0b/ipad-results.jsonl. Automation uses
+  pc-results.jsonl, including server transfer records. The verifier explicitly
+  identifies itself as PC automation while retaining the iPad-sized viewport.
+- `spikes/ipad/verify_pc.py`: exercises HTTPS in-app claiming and writes R0b
+  evidence. Known Windows WebKit codec/download gates remain enforced.
+- `spikes/ipad/test_server.py`, `test_browser_logic.cjs`: claim race/closure,
+  expiry, shared HTTP window, redo, cookie flags, redacted success/error logs,
+  separated records, mode/permission telemetry and service-worker regressions.
+  A further red/green test catches FileResponse 304 being logged as 200; the
+  prepare hook now logs the final status (1 failure / 22 passes before the fix).
+- `spikes/ipad/generate_samples.py`, server/tests/verifier: Ruff formatting,
+  imports, explicit exception chaining and split long strings; no new ignores
+  or Ruff configuration changes.
+- `spikes/ipad/OWNER_CHECK.md`: requested five-minute R0b re-check addendum.
+- `spikes/ipad/README.md`: pairing and separated-evidence instructions.
+- `.ai/LAST_REPORT.md`: this report; VE-R0 is preserved below verbatim.
+
+## Verification
+
+Every installing/building/testing shell dot-sourced local-env.ps1. Test homes,
+TEMP/TMP and pytest basetemp were under work/scratch. Python bytecode was disabled
+for direct spike/verifier/CPU executions. Raw logs are under evidence/VE-R0b and
+are not intended for GitHub.
+
+| Command / check | Result | Actual |
+| --- | --- | --- |
+| Initial uv run ruff check . | FAIL reproduced | 70 existing spike findings |
+| Initial new Python regressions | FAIL red | 3 failed, 17 passed before implementation |
+| Dedicated spike Python pytest | PASS | 23 passed; isolated r0b-pytest |
+| node --test spikes/ipad/test_browser_logic.cjs | PASS | 5 passed |
+| node --check app.js / sw.js | PASS | Both parsed |
+| uv run ruff check . | PASS | Whole repository; no ignores added |
+| uv run ruff format --check . | PASS | 220 files formatted after correcting one interim formatting failure |
+| uv run pyright | PASS | 0 errors, 0 warnings |
+| uv run pytest -m "not gpu and not soak" --basetemp=work/scratch/r0b-engine -p no:cacheprovider | FAIL | 572 passed, 12 failed, 180 skipped, 102 deselected; 351.40 s |
+| Reviewed final CPU suite (same selection, isolated r0b-engine-final) | PASS | 740 passed, 24 skipped, 102 deselected; 398.04 s |
+| GUI npm run lint / typecheck | PASS | Both exit 0 |
+| GUI npm test | PASS | 86 tests |
+| GUI npm run test:payload | PASS | 1 test |
+| GUI npm run build | PASS | TypeScript/Vite exit 0 |
+| Cargo fmt / clippy -D warnings / test, desktop | PASS | 29 tests |
+| Cargo fmt / locked clippy -D warnings / locked test, player | PASS | 10 tests |
+| Cargo desktop build --features e2e | PASS | Exit 0 |
+| Cargo player build --locked --features test-faults | PASS | Exit 0 |
+| Cargo desktop build --release --features cdp | PASS | Exit 0 |
+| Initial sandbox Desktop E2E | FAIL | 25 failed, 15 existing skips; FFmpeg EPERM and WebView/CDP failures |
+| Reviewed full Desktop E2E with tools | FAIL | 24 passed, 2 failed, 14 existing skips; targeted follow-up below |
+| Sequential follow-up of both remaining E2E failures | FAIL | 2 failed, same symptoms; no code/timeout changes |
+| Reviewed tooltip E2E | PASS | 1 passed, 1.7 s |
+| Cached-tool local synthetic link acceptance | PASS | 13 passed, 1 skipped, 123.38 s |
+| Real iPad owner checks | NOT_RUN | No iPad control available |
+| Linux CI execution | NOT_RUN | This terminal is Windows |
+
+CPU failures: eight missing FFmpeg/ffprobe paths; one AV1 test mock rejects the
+`job_id` keyword; Git privacy test encounters executable access denial; two
+process-tree cancellation/timeout tests time out waiting for their synthetic
+parent. Exact test names and tracebacks are in cpu-tests.log. The job_id exception was secondary to missing FFmpeg and did not recur after
+setting the tool PATH. These are not spike test failures. No product tests or
+expectations were changed to pass them.
+
+## PC verifier and GUI operations
+
+All three complete verifier runs exited 1 for the retained required Windows WebKit
+H.264/native-download gates. Logs: pc-verifier.log, pc-verifier-final.log and pc-verifier-release.log.
+The final-source third run measured T4 23.52 MB/s and loopback upload/download
+161.24 / 460.58 MB/s. All three codecs still returned media error 4 and the native
+download timed out. The first run measured T4 23.41 MB/s and loopback 138.49 / 365.31 MB/s.
+The second run measured T4 23.80 MB/s, hash matched, AbortError observed and
+20,435,975 subsequent bytes transferred; loopback upload 171.83 MB/s and download
+514.81 MB/s (1,001,588,796 bytes). Rates are decimal MB/s, same-PC measurements.
+
+Expected: unpaired HTTPS page offers Pair this app and becomes ready without
+leaving the origin. Actual: verifier clicked that control, reached Ready and
+confirmed the Secure cookie, then exercised upload, all codecs and native
+foreground download. All three codecs returned media error 4; download event
+still timed out at 15 seconds. These are the documented VE-R0 Windows limitations,
+not proof about iPad hardware. Default browser CA trust failed; the diagnostic
+browser used its existing LAN-limited ignore_https_errors context. Python
+CA-specific TLS verification passed. Fixed mDNS name resolution still failed;
+the PC-name fallback resolved. No certificate store was changed.
+
+All 18 records across the three PC runs are in pc-results.jsonl and contain
+`display_mode`; no ipad-results.jsonl was created by those runs. Second and third run records
+identify PC automation rather than a fabricated iPad user agent. A PC WebKit
+screenshot is retained. Actual standalone install, notifications, three-minute
+background transfer, Save Video and Photos confirmation are NOT_RUN.
+
+## Exact owner re-check start
+
+From work/repo in PowerShell (reuse the owner's existing trusted CA/home):
+
+```powershell
+. .\local-env.ps1
+$env:PYTHONDONTWRITEBYTECODE = '1'
+& ..\cache\ipad-venv\Scripts\python.exe spikes\ipad\generate_samples.py
+& ..\cache\ipad-venv\Scripts\python.exe spikes\ipad\server.py --redo-pairing
+```
+
+Ctrl+C stops the server. Pair within 120 seconds; restart with --redo-pairing
+if closed. Follow the R0b section of OWNER_CHECK.md: replace the Home Screen icon,
+open as a web app, pair inside it, run T2/T3, T6 background three minutes and T7
+500 MB Save Video, checking Photos. No spike server is left running by Codex.
+
+## Questions for the designer / unresolved
+
+Two desktop E2E failures remain, both reproduced after CPU/earlier runners
+exited: P1f-3 fresh History video did not reach readyState > 1 within 5 seconds;
+release renderer isolation could not attach CDP because the process exited 0.
+See gui-e2e-final.log and gui-e2e-followup.log. Root causes remain unconfirmed.
+The allowed files exclude these product tests/implementation; designer/operator
+must decide a separate correction/validation cycle. No all-local-CI PASS claim. Owner
+checks must establish real standalone cookie storage, push delivery, background
+behavior and Photos saving. No current iPad pass is inferred from the supplied
+historical Safari observations.
+
+No test was disabled, loosened or deleted. No Windows settings, product feature,
+external video download, owner media/queue, deployment, commit or push occurred.
+Optional native/GPU owner gates retain their existing skips. A networked optional-tool preparation command was rejected by automatic
+approval review because of possible ambient GITHUB_TOKEN transmission and
+executable installation. A boolean-only check confirmed GITHUB_TOKEN was absent.
+The rejected command was not executed or retried; instead the local synthetic
+link tests use the existing verified tool cache without downloads/authentication.
+Read-only Git and isolated desktop test escalations succeeded.
+
+## Final verification, disk and cleanup appendix
+
+All final spike Python (23), JS (5), whole-repo Ruff check/format and pyright
+checks passed. Final reviewed CPU: 740 passed, 24 skipped, 102 deselected.
+Full reviewed desktop E2E: 24 passed, 2 failed, 14 skipped (3.8 minutes).
+Sequential follow-up of the two failures after other runners exited: both failed
+again with the same symptoms. Thus Status remains PARTIAL. Product E2E expected
+video readiness and a CDP-attached release window; actuals were readyState timeout
+and process exit 0. No causal diagnosis or unrelated fix is claimed.
+
+Tools: portable FFmpeg/ffprobe 9.0.2 from the
+[publisher](https://www.gyan.dev/ffmpeg/builds/), archive SHA-256 checked:
+`60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba`.
+Only ffmpeg.exe and ffprobe.exe remain in cache/r0b-ffmpeg (210,644,992 B).
+The archive was removed. No system installation or persistent PATH change.
+Fresh optional-tool preparation was NOT_RUN after automatic rejection; existing
+verified yt-dlp 2026.10.26 / Deno 2.9.8 cache passed 13 synthetic link tests,
+1 skipped. Linux-only stub execution and real owner/GPU gates were NOT_RUN.
+The desktop builds' existing e2e/cdp/debug startup guard prevents Run-key writes.
+
+Disk first snapshot was after initial test/edit activity, so the exact full-cycle
+start cannot be reconstructed. Sizes are logical lengths, not allocated sizes.
+
+| Measurement (decimal GB) | First measured | End |
+| --- | ---: | ---: |
+| C free | 345.828237312 | 345.816842240 |
+| D free | 878.647513088 | 878.415224832 |
+| package | 0.125288579 | 0.125288579 |
+| evidence/VE-R0b | 0.000228902 | 0.009117644 |
+| scratch | 2.641360235 | 2.650793091 |
+| cache | 12.021960869 | 12.232878736 |
+
+Measured persistent delta (disjoint repo/package/cache/cycle-evidence rows) is
+219,822,657 B (0.219822657 GB), below 1 GB from the first measured snapshot.
+No full-cycle baseline claim is made. Cache is below 40 GB; cycle evidence is
+below 300 MB. Existing older evidence was not pruned or reclassified.
+
+Cleanup candidates were inventoried, resolved under work/scratch and checked
+for reparse points before native PowerShell removal. Removed 2,620,994,022 logical
+bytes independently measured (not inferred from drive-wide free-space changes).
+
+| Removed path under work/scratch | Bytes removed |
+| --- | ---: |
+| ipad-pc-check | 1,671,941,456 |
+| r0b-pytest | 40,512 |
+| r0b-engine | 0 |
+| r0b-engine-final | 0 |
+| r0b-e2e | 256,784,923 |
+| r0b-e2e-results | 520,386 |
+| r0b-e2e-review | 11,120,831 |
+| r0b-e2e-review-results | 45 |
+| r0b-e2e-final | 559,886,741 |
+| r0b-e2e-final-results | 39,305 |
+| r0b-e2e-followup | 50 |
+| r0b-e2e-followup-results | 39,919 |
+| r0b-release | 5,851,714 |
+| r0b-links | 0 |
+| r0b-tools | 114,768,140 |
+
+No initial listed deletion was refused. A later combined cleanup proposal was
+rejected by automatic approval review because deleting scratch/home had not been
+proved disposable and could destroy an existing owner environment. Under
+WORKSPACE.md, rejection is final: no retry, escalation or alternate deletion was
+attempted. That rejected script did not execute.
+
+### For the owner to delete / review
+
+- `work/scratch/home`: 0 logical bytes; proposed empty-folder deletion rejected.
+- `work/scratch/tmp`: 9,464,882 logical bytes of remaining temp/trace/cache files;
+  its proposed cleanup did not execute as part of the rejected command.
+  Exact child paths/sizes are saved privately in evidence/VE-R0b/remaining-cleanup.json.
+  A pre-existing zero-byte setuptools lock is included in inventory and preserved.
+- Pre-existing `work/scratch/ipad-spike` (2,599,089,810 B) and
+  `work/scratch/owner-check` (42,232,471 B) were preserved, not inspected or proposed
+  for deletion. Do not delete the owner's trusted CA/home as cycle cleanup.
+
+All cycle-specific r0b-* test roots and the generated ipad-pc-check home listed
+above were removed. Scratch is not empty; the report does not claim otherwise.
+No spike server is running: verifier cancellation completed and loopback ports
+8080/8443 rejected connections. Every runner launched by this cycle has exited.
+
+Operator: review the allowed-file diff and perform any Git recording separately.
+Designer: decide the next cycle for the two unresolved desktop E2E failures.
+Owner: perform the R0b re-check in OWNER_CHECK.md. Cleanup needing approval is
+limited to the explicitly listed remaining temp/empty-folder artifacts.
+
+
+## Previous: VE-R0
+
 Task ID / Cycle: VE-R0
 Status: PARTIAL
 
