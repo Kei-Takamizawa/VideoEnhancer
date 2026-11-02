@@ -1,3 +1,608 @@
+Task ID / Cycle: VE-R1a-2
+Status: COMPLETED
+
+## Outcome
+
+Implemented sections 2.1-2.5 and passed the required Python, JavaScript,
+static/type and browser checks. The explicitly replaced Windows-WebKit playback
+measurement still fails and is retained separately below. Real iPad handoff/save
+and real firewall/UAC effects remain owner checks. Current-cycle scratch artifacts
+were removed; pre-existing owner/other-cycle state was preserved. No commit,
+push, merge or real-installation update was performed.
+
+## Environment and scope
+
+Windows PowerShell; branch `claude/project-thread-yyrl3q`, starting HEAD
+`919f343f2db14a6d0bac2c4377f3e9b157c72c02`. Elevated read-only Git confirmed
+an initially clean tree. CURRENT_TASK.md was read completely and retained
+unchanged. AGENTS.md, CLAUDE.md, WORKSPACE.md and the R1a task at 5650209 were
+reviewed. All homes, libraries, temporary files and browser profiles used for
+verification are under work/scratch. The owner's real service, Scheduled Task,
+shortcut, library, firewall rules, trust store and network profile were untouched.
+
+## Implementation and changed files
+
+- `src/videoenhancer/remote/gateway.py`: bounded authenticated client diagnostics,
+  public HTTP setup/certificates, pairing-state guidance, hashed one-time download
+  links, UTF-8 attachment names, Range completion/expiry, redacted access logs,
+  per-connection TLS handshakes and icon probes.
+- `src/videoenhancer/remote/firewall.py` (new), `remote/install.py`: fakeable
+  program-specific Private-profile TCP firewall setup, narrow Block-rule removal,
+  UAC-decline reporting, connected-interface status/Public warning, and uninstall.
+  Windows venv launchers are resolved to their base pythonw image for firewall
+  matching. Scheduled Task and shortcut behavior are otherwise retained.
+- `remote/web/{app.mjs,logic.mjs,style.css,sw.js}`: one-Blob File construction with
+  parallel byte counting; canShare diagnostics and grey error names; threshold
+  and failure Safari option, x-safari URL, copyable HTTPS link/instructions;
+  pairing retry and updated shell cache version.
+- `src/videoenhancer/service/settings.py`: validated share_limit_bytes, default
+  900,000,000 bytes.
+- `tests/test_remote_{gateway,install,firewall}.py`,
+  `tests/test_remote_web.mjs`, `tests/remote_browser_smoke.py`: regression,
+  security-boundary, fake-PowerShell and browser coverage.
+- `docs/REMOTE.md`, `docs/API.md`: updated operator, API and security behavior.
+- `.ai/LAST_REPORT.md`: this report; the preceding R1a report is preserved below.
+
+## R1a owner results (reported by owner, not rerun here)
+
+2026-11-02 08:18-08:34 UTC, iPadOS 27.2, Home Screen app:
+
+- Network initially unreachable: Windows silently created inbound Block rules
+  for the hidden pythonw.exe under work/cache/py/cpython-3.12.15-windows-x86_64-none.
+  The PC profile was Public. A later firewall prompt was allowed; python.exe and
+  pythonw.exe were then allowed on Public. This cycle did not query/change those
+  actual rules or the actual profile.
+- The first two-minute setup window expired before CA installation. Three windows
+  were needed; one operator CLI pairing attempt was refused by the PC permission
+  check. The Start-menu shortcut was the reliable path.
+- Pairing: POST /api/pair/claim returned 200 at 08:22:05; library/storage loaded.
+- H.264 and HEVC playback worked with Range 206, without errors. The VE-R1a
+  Windows-WebKit playback gate is **replaced by owner iPad check, 2026-11-02**;
+  it is not relabeled as a local PASS.
+- H.264 deletion worked; the list/storage refreshed.
+- Small save worked: Download -> Save video -> share sheet -> Save Video to Photos.
+- 1.1 GB save FAILED: two full GETs took about 7.4 seconds each (200); Save video
+  always showed "This video could not be shared. Try again." Error name/message
+  were not captured. R0c had verified 500 MB using one response.blob().
+- Two GET /static 404s at 08:21:55 were probably icon probes, not confirmed paths.
+
+## Verification
+
+- PASS: final CI CPU command, exit 0: **817 passed, 26 skipped, 102 deselected**
+  in 416.77 seconds. The source checks use the existing installed/locked venv:
+  `. .\local-env.ps1`; `VE_DEV_M3_MEDIA=0`;
+  `VE_FFMPEG_DIR=work/cache/r0b-ffmpeg`;
+  `.venv/Scripts/python.exe -m pytest -m "not gpu and not soak" --basetemp=<absolute work/scratch/r1a2-cpu-final>`.
+  This run used approved execution because sandbox process termination/Git were
+  unavailable. All test homes and temps remained isolated under work/scratch.
+- PASS: final focused gateway/install/firewall run, **47 passed** in 39.71 seconds,
+  including four additional missing/wrong-cookie cases added after full-suite
+  collection. The counts are separate, not added to the full-suite count.
+- PASS: `python -m ruff check .`; `python -m ruff format --check .`
+  (237 files already formatted); `python -m pyright` (0 errors/warnings).
+- PASS: `node --test tests/test_remote_web.mjs`: **11 tests**; `node --check`
+  for app.mjs and sw.js. No JavaScript build/dependency installation is required.
+- PASS: final browser smoke exit 0, **11 independent checks passed**. Playback is
+  separately recorded as FAIL and its gate is replaced by the owner iPad result.
+  The smoke uses cache/ipad-venv with repo/src and the main venv site-packages on
+  PYTHONPATH, VE_FFMPEG_DIR set to the cached tools, and local-env.ps1 sourced.
+  The final smoke also verifies a network TypeError keeps its actual error name.
+- PASS: authenticated diagnostic/link Origin/cookie boundaries, 2 KB diagnostic
+  limit, name redaction, hash-only link state, Range completion, non-ASCII
+  attachment name, cookie-free use, one-time invalidation and expiry; permanent
+  public CA/setup with claim gating; fake firewall command/UAC-decline paths;
+  stalled TLS client does not delay the second request by one second.
+- SKIP: the full run's existing optional standalone-link tool fixtures (21),
+  private-sample checks (2), Linux parent-death signal (1), optional model case
+  (1), and Windows symlink creation privilege (1). None is reported as PASS.
+- WARNING: full-suite teardown could not write
+  `repo/.pytest_cache/v/cache/nodeids` (WinError 5). This was pytest's cache,
+  not a failed assertion; no retry or permission-changing workaround was used.
+- PASS: final read-only `git diff --check`; only task-allowed paths changed.
+  Git mutations are intentionally NOT_RUN.
+
+## GUI verification: Expected / Actual
+
+Expected: pair, list/storage, small download/cancel, share-failure Safari option
+and error name, load-failure diagnostic, delete/refresh, threshold bypass,
+copyable Safari URL and cookie-free attachment. Actual: browser smoke passed
+these checks against short generated H.264 fixtures. The fresh context had no
+cookies, downloaded identical bytes, then received 404 when reusing the URL.
+Diagnostics included NotAllowedError and can_share=true, and excluded names.
+Library bytes fell from 6,420 to 3,211. Portrait/landscape had no horizontal
+scroll. Library/item screenshot background pixels measured RGB [0,0,0].
+Screenshots were visually inspected; private evidence stays outside Git.
+
+Windows WebKit playback still FAILS with NotSupportedError/media error 4,
+readyState=0, networkState=3. Every actual browser run retains that measurement;
+it is the explicitly replaced gate, not a passing local playback result.
+Real Safari handoff, clipboard integration and Photos/Files delivery are owner
+checks; emulated share/cancel and the tested URL do not establish iPad success.
+
+## Errors, warnings and retained attempts
+
+- Normal-shell Git was not found; approved read-only execution at its installed
+  path verified branch/HEAD/clean tree. An attempted Get-Content of the .git
+  directory was rejected (it is a directory); no Git metadata was changed.
+- Pre-fix gateway tests: 6 FAIL / 23 PASS (setup, stalled TLS, diagnostics,
+  download links and icon probes). New firewall tests: 5 FAIL before the module
+  existed. New JS module collection failed before the new exports existed.
+- Initial Ruff invocation accidentally passed .mjs paths to Python Ruff;
+  syntax errors were command selection errors, not JS failures. Git verified
+  the existing JS test was not changed by that invocation. Import/format/type
+  errors in new Python code were corrected without suppression.
+- Browser dependency attempts: main venv lacked Playwright; cached iPad venv
+  lacked psutil. The existing cached browser environment plus main-venv
+  site-packages worked; no dependency was installed. First actual smoke passed
+  independent checks and recorded the known playback FAIL. An added route-based
+  load-failure injection did not intercept the service-worker fetch and failed
+  its assertion. Backend acquire failure injection replaced it; final smoke
+  passed the new check. Failed/successful run logs remain in cycle evidence.
+- Initial sandbox CPU run had missing-tool failures and stopped progressing
+  in an existing child-process termination test; it was interrupted, not passed.
+  A sandbox process query was denied. Approved read-only checks confirmed all
+  processes with that isolated basetemp had exited before the full rerun.
+- Git emits LF-to-CRLF normalization warnings. No tests were disabled or loosened.
+
+## Security notes and official references
+
+Device cookie and exact HTTPS Origin are required for diagnostic/link issuance.
+Client JSON is capped at 2,048 bytes, with only allowlisted fields logged. Unknown
+browser strings become generic text to exclude file names/URLs. Error messages
+are at most 200 characters. Tokens are random 256-bit secrets; only hashes are
+held in memory. A link expires after ten minutes or complete byte coverage, and
+server restart revokes it. HEAD/invalid Range do not consume a link; active
+concurrent use is refused. Completion means successful server write/flush,
+not proof that the user saved the file. At most 256 unexpired links are held.
+
+Consulted official references: [Python SSL](https://docs.python.org/3/library/ssl.html),
+[New-NetFirewallRule](https://learn.microsoft.com/en-us/powershell/module/netsecurity/new-netfirewallrule),
+and [Get-NetFirewallApplicationFilter](https://learn.microsoft.com/en-us/powershell/module/netsecurity/get-netfirewallapplicationfilter).
+No external service, dependency, CORS relaxation or new persistent secret store
+was added. Firewall tests use fakes only; real UAC/firewall effects are NOT_RUN.
+
+## Workspace and cleanup
+
+| Measurement (decimal GB) | Start | End after cleanup |
+| --- | ---: | ---: |
+| C free | 345.785205 | 345.767678 |
+| D free | 877.570961 | 877.569421 |
+| Current package | 0.125289 | 0.125289 |
+| This cycle evidence | 0.000178 | 0.001687 |
+| Scratch, accessible file lengths | 2.650833 | 2.650858 |
+| Complete cache | 12.251798 | 12.251798 |
+| Accessible workspace growth (non-overlapping roots) | - | 0.001587 |
+
+Start inventory was taken after instruction/environment reads and before source
+edits/tests, without downloads. Cache and package bytes did not change. Current
+cycle evidence is below 300 MB and cache below 40 GB. Accessible footprint growth
+(including scratch, conservatively) is about 0.0016 GB, below 1 GB; small final
+report/runner-log appends follow the snapshot. Logical file lengths are not
+allocated disk usage; drive-wide changes are not cleanup savings. These snapshots
+include no owner folders outside work.
+
+There are three pre-existing unreadable scratch paths. Their sizes are UNKNOWN,
+not zero; accessible start/end totals exclude them. This task never wrote to
+them. Thus a complete absolute workspace footprint is not claimed. Existing
+scratch/tmp grew by a small unattributed amount and was retained. Pre-existing
+scratch/home, ipad-spike (owner's trusted spike CA/home), owner-check, tmp and
+other-cycle caches were preserved. The prior report explicitly says not to
+delete the owner's trusted CA/home. The entire shared scratch directory is not
+empty; only this cycle's identified scratch artifacts were cleaned.
+
+Removed current-cycle artifacts: **13,660 bytes**, independently inventoried
+before native PowerShell Remove-Item. Rows below give per-item bytes removed;
+all seven removals succeeded without escalation, refusal or retry. No current
+cycle cleanup item remains for the owner. See private cleanup-results.json.
+Old evidence was not pruned: pre-existing evidence/owner-check-trial and older
+cycle evidence were retained for the operator's ownership/retention review.
+The last-three-cycle retention rule is therefore not claimed satisfied here.
+
+### For the owner to delete / review (pre-existing)
+
+These were inaccessible during inventory and were not deleted or modified;
+exact total size is UNKNOWN for each. No denied deletion was bypassed:
+
+- `work/scratch/r0c-cpu-final-cache`
+- `work/scratch/r1a-cpu-cache-elevated`
+- `work/scratch/r1a-cpu-cache-final`
+
+Do not treat preservation of the owner's trusted spike state as permission to
+remove it. Operator review is required for older/shared artifacts.
+
+
+### Current-cycle cleanup inventory and result
+
+| Removed scratch child | Bytes removed | Inventory errors |
+| --- | ---: | ---: |
+| r1a2-red | 0 | 0 |
+| r1a2-firewall-red | 0 | 0 |
+| r1a2-focused | 0 | 0 |
+| r1a2-cpu | 181 | 0 |
+| r1a2-cpu-final | 0 | 0 |
+| r1a2-focused-final | 0 | 0 |
+| r1a2-browser | 13479 | 0 |
+
+
+## For the owner
+
+- Recheck the retained HEVC and 1 GB R1a samples; do not remove either sample.
+- Above the default threshold, use Save to Files with Safari. Report whether
+  x-safari-https opens Safari, or Copy link/paste into Safari is needed, and
+  whether the complete video reaches Files. Actual scheme support is NOT_RUN.
+- To measure large-file sharing, the operator may set share_limit_bytes above
+  the sample size for a separate owner-approved check. Read out the grey error
+  name on any failure; sanitized diagnostics are now available.
+- Real Home Screen cookie retention after restart/24 hours remains owner-only.
+
+## Operator after commit: exact commands (NOT EXECUTED)
+
+Run after review/commit. Resolve the active home from the existing Scheduled Task
+rather than guessing or dot-sourcing local-env.ps1 (which selects a scratch home).
+
+```powershell
+Set-Location D:\my-workspace\VideoEnhancer\work\repo
+$task = Get-ScheduledTask -TaskName 'VideoEnhancer' -ErrorAction Stop
+$homeArgument = [regex]::Match($task.Actions[0].Arguments, '--home (?:"([^"]+)"|(\S+))')
+if (-not $homeArgument.Success) { throw 'The installed task has no readable --home argument.' }
+$env:VE_HOME = if ($homeArgument.Groups[1].Success) { $homeArgument.Groups[1].Value } else { $homeArgument.Groups[2].Value }
+Stop-ScheduledTask -TaskName 'VideoEnhancer' -ErrorAction Stop
+Start-Sleep -Seconds 2
+Start-ScheduledTask -TaskName 'VideoEnhancer' -ErrorAction Stop
+Start-Sleep -Seconds 3
+& .\.venv\Scripts\ve.exe remote status
+```
+
+Keep the existing installation and the two remaining samples. If the new
+firewall rule is needed, reinstall only as required and let the owner answer UAC:
+
+```powershell
+& .\.venv\Scripts\ve.exe remote install
+& .\.venv\Scripts\ve.exe remote status
+```
+
+## Questions for the designer / intentionally not run
+
+No new product-design decision was required. Real installation restart/reinstall,
+firewall/UAC changes, network-profile changes, owner media access, real iPad
+handoff/save and cookie persistence were intentionally not run. Legacy desktop
+E2E, Rust/native-player builds and production deployment are outside this cycle.
+No Git mutation or commit was performed; the operator records the changes.
+
+## Previous: VE-R1a
+
+Task ID / Cycle: VE-R1a
+Status: PARTIAL
+
+## Outcome
+
+Implemented the R1a headless service integration, HTTPS gateway, pairing, black
+web app and folder-backed library. The required Windows WebKit playback gate
+FAILS with NotSupportedError / media error 4. Do not merge this as COMPLETED.
+No product workaround was added and no real iPad result is inferred.
+
+## Scope and environment
+
+Windows PowerShell; branch `claude/project-thread-yyrl3q`, starting HEAD
+`56502092d5bbff2e1dfb3857934d716ecdf34d29`, containing `4340e22`.
+Elevated read-only Git confirmed a clean starting tree. CURRENT_TASK.md was read
+fully and retained unchanged. No Git mutations, commit, push, merge or fetch.
+Tests used isolated scratch homes and library folders. No owner library,
+VE-check, owner AppData, Scheduled Task, Start-menu shortcut or trust store was
+accessed or changed. The existing desktop was left running.
+
+## Implementation and changed files
+
+- `src/videoenhancer/remote/{__init__,adapter,certificates,security,gateway}.py`:
+  in-process adapter, IPv4-only HTTP/HTTPS, source/Host/Origin checks, sanitized
+  route-template logs, security headers, private state, multiple paired devices,
+  atomic first claim, two-minute windows and per-address rate limits.
+- `remote/library.py`: direct-folder video discovery, hidden/temp/reparse rejection,
+  opaque IDs, ffprobe cache, byte ranges, active-transfer deletion refusal and disk
+  usage. Bad videos remain listed and deletable; no database or thumbnails.
+- `remote/install.py`, `remote/launcher.py`: per-user least-privilege sign-in task,
+  windowless Python, restart policy, pairing shortcut/message box, install,
+  uninstall and complete status for stopped/plain/remote services. Uninstall
+  preserves the library and certificates; optional device forgetting only.
+- `remote/web/{index.html,style.css,app.mjs,logic.mjs,manifest.webmanifest,sw.js,
+  icon.svg,apple-touch-icon.png}`: original icon, black standalone shell, Library,
+  read-only Settings, hidden Add placeholder, video element, progress then a fresh
+  Save video tap for file sharing, cancel handling, delete confirmation and
+  shell-only service-worker caching.
+- `src/videoenhancer/cli.py`, `service/server.py`, `service/settings.py`:
+  remote commands/settings, gateway lifecycle, token-authenticated loopback
+  pairing, health status and remote shutdown refusal. Loopback authorization
+  rules were not widened. No processing/model/estimator/scheduler changes.
+- `gui/src-tauri/src/{engine,window}.rs`: only window Quit tolerates the recognized
+  remote 409; storage moves and other callers still require an actual service stop.
+- `pyproject.toml`, `uv.lock`: cryptography 47 plus its resolved dependencies.
+- `tests/test_remote_{certificates,gateway,install,library}.py`,
+  `tests/test_remote_web.mjs`, `tests/remote_browser_{smoke,diagnostics}.py`,
+  `tests/test_service.py`: automated coverage and scratch-only browser verifiers.
+- `docs/REMOTE.md`, `docs/API.md`, `.github/workflows/ci.yml`: operator/API/security
+  documentation and CI Node logic tests. `.ai/LAST_REPORT.md`: this report.
+
+## Verification
+
+Final CPU result: PASS: 807 passed, 26 skipped, 102 deselected in 397.47 seconds; approved isolated full rerun, exit 0.
+
+- PASS: `uv run ruff check .`, `uv run ruff format --check .`, `uv run pyright`
+  final source check: 235 files already formatted; Pyright 0 errors.
+- PASS: `node --test tests/test_remote_web.mjs`: 7 tests. app.mjs and sw.js syntax
+  checks also passed. No framework, bundler or node_modules added.
+- PASS: final cargo fmt --check and cargo test --locked: 30/30 tests.
+- PASS: `uv build --offline --wheel --out-dir <scratch>/r1a-wheel`; wheel inspection
+  verified all 8 web assets and the windowless launcher are included.
+- Focused tests: library 30 PASS / 1 SKIP, gateway/certificate tests passed in
+  successive batches; final counts come from the final CPU run, not their sum.
+- SKIP: actual Windows symlink creation lacks account privileges; independent
+  hidden/reparse rejection tests passed. Other CPU skip reasons remain in logs.
+- NOT_RUN: legacy desktop E2E suite, explicitly not required by this task;
+  production Scheduled Task/shortcut installation (CI uses fakes), real iPad
+  trust/Home Screen behavior, 1 GB iPad sharing, PC/iPad restarts and 24-hour cookies.
+
+### Failures and retries retained
+
+1. Initial four install/settings CLI tests failed before implementation.
+   Certificate collection initially failed because cryptography was absent;
+   library and Node collection initially failed before their modules existed.
+2. Network-restricted `uv lock` failed (socket access denied). Approved retry
+   updated the lock. `uv sync --locked` then failed removing the existing optional
+   GPU extension `.venv/Lib/site-packages/PyNvVideoCodec/PyNvVideoCodec_130.cp312-win_amd64.pyd`
+   (Access denied). That deletion was not retried. `uv sync --locked --inexact`
+   succeeded while preserving optional GPU files. Subsequent commands used
+   `UV_NO_SYNC=1` or `uv run --no-sync`. Concurrent initial gateway lint's uv run
+   reported removing 1 package/installing 4; it then switched to no-sync too.
+3. Initial Ruff checks found ordinary import/format errors; fixed, not suppressed.
+   Initial Pyright found wide certificate-key unions and status value typing;
+   fixed with explicit RSA validation and result typing, without ignored errors.
+4. First sandbox CPU run stalled in an existing stuck-child termination test and
+   was interrupted at about 32%; no PASS inferred. Read-only elevated process
+   check confirmed its identified test PIDs had exited. Approved isolated rerun:
+   803 PASS, 26 SKIP, 2 FAIL, 102 deselected in 399.65 seconds. Failures were new
+   implicit-encoding violations and a test racing request-log completion. Fixed
+   explicit encodings/binary-descriptor naming and synchronized the log test on
+   an event after actual logging. The existing encoding test was not weakened.
+5. Adapter concurrent-first-access regression reproduced 8 Library instances;
+   fixed with initialization locking. Rejected source/bad TLS could block
+   gateway shutdown; fixed accept handling and added bounded close coverage.
+6. Initial cargo format check failed; formatting corrected. One install XML test
+   expected Unix path separators on Windows; assertion now uses the actual Path.
+7. First wheel build attempted network resolution and failed; cached offline
+   build and wheel-content check passed.
+8. Browser attempt history is recorded below. No playback attempt passed.
+
+## GUI verification: Expected / Actual
+
+Expected: pair -> list two videos/storage -> open/play -> confirm delete -> list
+and storage refresh. Actual Windows Playwright WebKit:
+
+- PASS: unpaired screen, standalone-mode-emulated pairing, both synthetic items,
+  storage bar, item view, read-only Settings and portrait/landscape without overflow.
+- PASS: Blob download and simulated share cancellation, exactly one video fetch;
+  real iPad Save Video / Save to Files delivery is NOT_RUN.
+- PASS: named permanent-delete confirmation; library bytes fell 6420 -> 3211 and
+  the list/bar refreshed. Rounded GB text stays 0.0 for these tiny fixtures.
+- PASS: both screenshots visually inspected and first actual PNG background pixel
+  measured RGB [0,0,0], `#000000`: `evidence/VE-R1a/library.png`, `item.png`.
+- FAIL: native stream playback, NotSupportedError, media error 4, readyState 0,
+  networkState 3. canPlayType reports 'probably', but no video response event was
+  observed at the original playback attempt. Root cause remains unproven.
+- Diagnostic FAIL: fresh context without request interception still cannot play;
+  fetching the same H.264 file succeeds HTTP 200, but Blob URL playback also fails.
+  Therefore HTTPS transport alone is not established as the cause, and decoder
+  failure is not proven. Diagnostic script exits 0 to collect results, not to
+  declare the playback gate passed.
+- Browser attempts: one dependency-only attempt lacked psutil; six actual smoke
+  attempts (first three interrupted during playback/shutdown hangs, last three
+  exit 1 with playback failure). Final diagnosis measured two more failed playback
+  variants. No failed/interrupted attempt is reported as PASS.
+
+Private evidence: `browser-smoke.json`, `browser-smoke-original.json`,
+`browser-playback-diagnostics.json`, CPU logs and screenshots under
+`work/evidence/VE-R1a`; none belongs in Git. Browser context ignores TLS errors
+only for diagnostic automation; it does not prove iPad CA trust.
+
+## Certificates and owner-only checks
+
+CA name constraints: NOT USED. The R0 spike did not verify iPadOS acceptance, so
+this follows the task's explicit unconstrained fallback. CA validity is 3650 days;
+leaf validity is 397 days. IP-change/near-expiry renewal retains the CA.
+Paired Home Screen cookie after iPad restart: NOT_RUN (owner check).
+Paired Home Screen cookie after 24 hours: NOT_RUN (owner check).
+
+## Exact operator commands for section 8 (NOT EXECUTED)
+
+Run only after designer review and the operator's commit. Resolve the canonical
+storage pointer; do not guess an engine home. Stop if it is missing/unreadable.
+These commands intentionally access owner storage only when the operator runs them.
+
+```powershell
+Set-Location D:\my-workspace\VideoEnhancer\work\repo
+. .\local-env.ps1
+$pointer = Join-Path $env:APPDATA 'VideoEnhancer\storage-location.json'
+if (-not (Test-Path -LiteralPath $pointer)) { throw 'Active storage pointer is missing.' }
+$activeHome = (Get-Content -LiteralPath $pointer -Raw | ConvertFrom-Json).active
+if (-not $activeHome -or -not (Test-Path -LiteralPath $activeHome -PathType Container)) {
+    throw 'Active engine home is unavailable; do not guess.'
+}
+$env:VE_HOME = $activeHome
+
+# Ask the everyday desktop to close normally; do not force-stop its engine.
+$desktop = @(Get-Process -Name VideoEnhancer -ErrorAction SilentlyContinue)
+foreach ($process in $desktop) { [void]$process.CloseMainWindow() }
+foreach ($process in $desktop) {
+    if (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) {
+        Wait-Process -Id $process.Id -Timeout 30 -ErrorAction Stop
+    }
+}
+# Stop only Python processes whose command line names this checkout's spike server.
+$spikePath = (Join-Path (Get-Location) 'spikes\ipad\server.py')
+Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -in @('python.exe','pythonw.exe') -and
+    ($_.CommandLine -like "*$spikePath*" -or
+     ($_.CommandLine -match 'spikes[\\/]ipad[\\/]server\.py' -and
+      $_.ExecutablePath -like 'D:\my-workspace\VideoEnhancer\work\*'))
+} | ForEach-Object { Stop-Process -Id $_.ProcessId -ErrorAction Stop }
+
+# Use the approved lock without removing optional GPU dependencies.
+uv sync --locked --inexact
+if ($LASTEXITCODE -ne 0) { throw 'Dependency synchronization failed.' }
+# Empty library setting selects the approved D-drive/default Videos folder.
+& .\.venv\Scripts\python.exe -c "from videoenhancer.config import get_home; from videoenhancer.service.settings import save_settings; save_settings(get_home(), {'library_folder': ''})"
+if ($LASTEXITCODE -ne 0) { throw 'Library setting failed.' }
+& .\.venv\Scripts\ve.exe remote install
+if ($LASTEXITCODE -ne 0) { throw 'Remote install failed.' }
+& .\.venv\Scripts\ve.exe remote status
+$libraryFolder = & .\.venv\Scripts\python.exe -c "from videoenhancer.remote.library import resolve_library_folder; print(resolve_library_folder(''))"
+New-Item -ItemType Directory -Force -Path $libraryFolder | Out-Null
+$h264 = Join-Path $libraryFolder 'R1a sample H264.mp4'
+$hevc = Join-Path $libraryFolder 'R1a sample HEVC.mp4'
+$large = Join-Path $libraryFolder 'R1a sample 1GB.mp4'
+foreach ($sample in @($h264,$hevc,$large)) {
+    if (Test-Path -LiteralPath $sample) { throw "Sample already exists: $sample" }
+}
+$ffmpeg = 'D:\my-workspace\VideoEnhancer\work\cache\r0b-ffmpeg\ffmpeg.exe'
+& $ffmpeg -hide_banner -loglevel error -n -f lavfi -i 'testsrc2=size=1280x720:rate=24' -t 3 -an -c:v libx264 -pix_fmt yuv420p -movflags +faststart $h264
+if ($LASTEXITCODE -ne 0) { throw 'H264 generation failed.' }
+& $ffmpeg -hide_banner -loglevel error -n -f lavfi -i 'testsrc2=size=1280x720:rate=24' -t 3 -an -c:v libx265 -pix_fmt yuv420p -tag:v hvc1 -movflags +faststart $hevc
+if ($LASTEXITCODE -ne 0) { throw 'HEVC generation failed.' }
+foreach ($sample in @($h264,$hevc)) {
+    if ((Get-Item -LiteralPath $sample).Length -ge 50000000) { throw 'Small sample exceeds 50 MB.' }
+}
+# Repeated playable H264, stream copied; target is at least one decimal GB.
+$sourceBytes = (Get-Item -LiteralPath $h264).Length
+$repeatCount = [int][math]::Ceiling(1100000000 / $sourceBytes)
+& $ffmpeg -hide_banner -loglevel error -n -stream_loop $repeatCount -i $h264 -map 0:v:0 -c copy -movflags +faststart $large
+if ($LASTEXITCODE -ne 0) { throw 'Large sample generation failed.' }
+if ((Get-Item -LiteralPath $large).Length -lt 1000000000) { throw 'Sample is below 1 GB.' }
+Get-Item -LiteralPath $h264,$hevc,$large | Select-Object Name,Length
+& .\.venv\Scripts\ve.exe remote pair
+```
+
+After the owner finishes the check, remove only the three exact sample files,
+including any already deleted from the app, and keep the service installed:
+
+```powershell
+foreach ($sampleName in @('R1a sample H264.mp4','R1a sample HEVC.mp4','R1a sample 1GB.mp4')) {
+    $samplePath = Join-Path $libraryFolder $sampleName
+    if (Test-Path -LiteralPath $samplePath) { Remove-Item -LiteralPath $samplePath -ErrorAction Stop }
+}
+& .\.venv\Scripts\ve.exe remote status
+```
+
+These commands were prepared, not run against the owner home. The designer still
+supplies the Japanese iPad checklist from CURRENT_TASK.md section 8. Real setup
+must wait for the designer's decision on the failed playback gate.
+
+## Workspace and cleanup
+
+| Measurement (decimal GB) | Start | End / observed |
+| --- | ---: | ---: |
+| C free | NOT_RUN | 345.799029 |
+| D free | NOT_RUN | 878.672617 |
+| Current package | NOT_RUN | 0.125289 |
+| This cycle evidence | NOT_RUN | < 0.001 |
+| Scratch (accessible file lengths) | NOT_RUN | 2.650828, 3 inventory errors |
+| Complete cache | NOT_RUN | 12.186366, 0 inventory errors |
+| Persistent growth | NOT_RUN | NOT_VERIFIED (no pre-cycle baseline) |
+
+Earliest drive observation, taken after implementation had started, was C
+345.792688 GB / D 878.673015 GB; it is not relabeled as a start baseline.
+Cache is below 40 GB and this cycle evidence below 300 MB. The full 1 GB
+persistent-growth gate cannot be verified. Logical file sizes are not allocated
+space; drive-wide free-space changes are not counted as cleanup savings.
+
+Measured bytes removed: 519,413 across confirmed R1a development artifacts, using
+per-path inventories saved before removal; exact per-item bytes_removed and
+statuses are in private `cleanup-results.json`. Zero-byte basetemp directories
+were also removed. No refused deletion was retried. The wheel and synthetic
+browser media/private keys were removed with their cycle directories.
+
+Existing scratch children `home`, `ipad-spike`, `owner-check`,
+`r0c-cpu-final-cache`, `tmp` and `videoenhancer.jsonl` predated this cycle and were
+preserved rather than deleting another cycle's state. Their total accessible
+sizes dominate the remaining scratch row; one pre-existing inventory error
+remains. Other cycles' evidence/package/cache artifacts were not pruned.
+
+### For the owner to delete
+
+These R1a pytest cache directories could not be inventoried in the sandbox and
+were left untouched; total size is UNKNOWN, not zero (0 accessible bytes):
+
+- `D:\my-workspace\VideoEnhancer\work\scratch\r1a-cpu-cache-elevated`
+- `D:\my-workspace\VideoEnhancer\work\scratch\r1a-cpu-cache-final`
+
+No escalation or permission workaround was used to delete them. The unrelated
+existing GPU extension that uv could not remove was preserved by inexact sync.
+Final read-only `git diff --check` passed; changed paths are all within section 7.
+Git emitted only its existing LF-to-CRLF normalization warnings. The report is
+not evidence of completion: Status remains PARTIAL because playback failed and
+the start/growth baseline is missing.
+
+### Final cycle cleanup inventory (before deletion)
+
+| Scratch child | Measured bytes | Inventory errors |
+| --- | ---: | ---: |
+| r1-install-green | 0 | 0 |
+| r1-install-green2 | 0 | 0 |
+| r1-install-red | 0 | 0 |
+| r1-pytest-cache | 6172 | 0 |
+| r1a-adapter-red | 0 | 0 |
+| r1a-adapter-red-cache | 712 | 0 |
+| r1a-browser | 14237 | 0 |
+| r1a-cert-cache | 581 | 0 |
+| r1a-cert-final | 0 | 0 |
+| r1a-cert-final-cache | 790 | 0 |
+| r1a-cpu | 164346 | 0 |
+| r1a-cpu-cache-elevated | 0 | 1 |
+| r1a-cpu-cache-final | 0 | 1 |
+| r1a-cpu-elevated | 0 | 0 |
+| r1a-cpu-final | 0 | 0 |
+| r1a-encoding | 0 | 0 |
+| r1a-gateway-cache | 2498 | 0 |
+| r1a-gateway-cache2 | 2670 | 0 |
+| r1a-gateway-cache3 | 2766 | 0 |
+| r1a-gateway-final | 0 | 0 |
+| r1a-gateway-final-cache | 2937 | 0 |
+| r1a-gateway-pytest | 0 | 0 |
+| r1a-gateway-pytest2 | 0 | 0 |
+| r1a-gateway-pytest3 | 0 | 0 |
+| r1a-gateway-tls-final | 0 | 0 |
+| r1a-gateway-tls-final-cache | 2861 | 0 |
+| r1a-gateway-tls-recheck | 0 | 0 |
+| r1a-gateway-tls-recheck-cache | 790 | 0 |
+| r1a-install-final | 0 | 0 |
+| r1a-install-status | 0 | 0 |
+| r1a-install-status2 | 0 | 0 |
+| r1a-library-green | 0 | 0 |
+| r1a-library-green-cache | 2691 | 0 |
+| r1a-library-real | 0 | 0 |
+| r1a-library-real-cache | 3021 | 0 |
+| r1a-library-red-cache | 576 | 0 |
+| r1a-library-review | 0 | 0 |
+| r1a-library-review-cache | 2756 | 0 |
+| r1a-remote-final | 0 | 0 |
+| r1a-wheel | 309009 | 0 |
+
+## Unresolved / Questions for the designer
+
+- Required Windows WebKit playback gate fails, including Blob playback. Decide
+  the next investigation/environment validation; do not claim the owner iPad
+  will play based on desktop API tests or the older spike alone.
+- Real iPad setup, 1 GB share, restarts and 24-hour cookie persistence remain owner
+  checks. No workaround to cookie retention was attempted.
+- Pre-cycle disk baseline was not captured, so full persistent-growth compliance
+  cannot be claimed from the later inventory alone.
+
+## Intentionally not performed
+
+No processing/model/estimator/scheduler work, R1b/R2/R3 features, desktop removal,
+owner install, real-library sample creation/deletion, trust-store changes,
+Scheduled Task or Start-menu changes, legacy desktop E2E, Git mutations or merge.
+
+## Previous: VE-R0c
+
 Task ID / Cycle: VE-R0c
 Status: COMPLETED
 

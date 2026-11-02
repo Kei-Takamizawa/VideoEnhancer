@@ -74,12 +74,21 @@ pub fn request(
     let status = response.status();
     let data: Value = response.json().map_err(|e| e.to_string())?;
     if !status.is_success() {
+        if service_keeps_running(route, status.as_u16(), &data) {
+            return Ok(data);
+        }
         return Err(data["error"]
             .as_str()
             .unwrap_or("Engine request failed")
             .to_owned());
     }
     Ok(data)
+}
+fn service_keeps_running(route: &str, status: u16, data: &Value) -> bool {
+    route == "shutdown"
+        && status == 409
+        && data["code"] == "remote_service_running"
+        && data["service_keeps_running"] == true
 }
 pub fn root() -> Result<PathBuf> {
     if let Some(root) = std::env::var_os("VE_ENGINE_ROOT") {
@@ -190,7 +199,16 @@ pub fn alive(pid: u32) -> bool {
     }
 }
 pub fn stop(connection: &Connection) -> Result<()> {
-    request(connection, "shutdown", "POST", Some(&json!({})))?;
+    stop_for(connection, false)
+}
+pub fn close_desktop(connection: &Connection) -> Result<()> {
+    stop_for(connection, true)
+}
+fn stop_for(connection: &Connection, closing_window: bool) -> Result<()> {
+    let result = request(connection, "shutdown", "POST", Some(&json!({})))?;
+    if result["service_keeps_running"] == true {
+        return headless_stop_result(closing_window);
+    }
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
         if !alive(connection.pid) {
@@ -200,10 +218,31 @@ pub fn stop(connection: &Connection) -> Result<()> {
     }
     Err("The engine could not stop cleanly. Retry Quit.".into())
 }
+fn headless_stop_result(closing_window: bool) -> Result<()> {
+    if closing_window {
+        Ok(())
+    } else {
+        Err("The iPad service keeps running. Stop it before moving app data.".into())
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_headless_shutdown_refusal_allows_the_window_to_close() {
+        let data = json!({"code":"remote_service_running", "service_keeps_running":true});
+        assert!(service_keeps_running("shutdown", 409, &data));
+        assert!(!service_keeps_running("shutdown", 500, &data));
+        assert!(!service_keeps_running("settings", 409, &data));
+        assert!(!service_keeps_running(
+            "shutdown",
+            409,
+            &json!({"error":"other"})
+        ));
+        assert!(headless_stop_result(true).is_ok());
+        assert!(headless_stop_result(false).is_err());
+    }
     #[test]
     fn healthy_home_requires_an_existing_absolute_reported_path() {
         let home = std::env::temp_dir().join(format!("ve-health-home-{}", std::process::id()));
