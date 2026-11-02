@@ -2,7 +2,9 @@ const $ = selector => document.querySelector(selector);
 const status = $('#status');
 let config, registration, selectedUpload, shareFile, shareSize, eventSource, sleepStart, recoveryStart;
 shareSize = localStorage.getItem('shareSize') || '50MB';
-let downloadRun = JSON.parse(sessionStorage.getItem('downloadRun') || 'null');
+let downloadRun = JSON.parse(localStorage.getItem('downloadRun') || 'null');
+let downloadFile;
+const interruptedDownload = downloadRun && downloadRun.variant === 'B' && downloadRun.phase === 'loading';
 const pending = JSON.parse(localStorage.getItem('pendingResults') || '[]');
 let flushing;
 const displayMode = () => (window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true) ? 'standalone' : 'browser';
@@ -156,19 +158,58 @@ async function playback(codec) {
 }
 action('[data-codec]', b => playback(b.dataset.codec));
 
-document.querySelectorAll('[data-download]').forEach(b => b.addEventListener('click', () => {
-  downloadRun = {run:crypto.randomUUID(),background_target:b.dataset.download,started_ms:Date.now(),hidden_ms:null,background_intervals:[]};
-  sessionStorage.setItem('downloadRun',JSON.stringify(downloadRun));
-  b.href = `/media/1GB.mp4?download=1&run=${downloadRun.run}`;
-  record('T6', {...downloadRun,phase:'started'});
-  status.textContent = 'Check Safari downloads and switch away for the selected interval.';
-}));
-async function downloadObservation(pass) {
-  if (!downloadRun) throw new Error('Start a download first');
-  await record('T6', {...downloadRun,phase:'owner_observation',pass,observation_elapsed_s:(Date.now()-downloadRun.started_ms)/1000});
+function saveDownload() { localStorage.setItem('downloadRun',JSON.stringify(downloadRun)); }
+function downloadResult(phase, extra={}) {
+  return record('T6', {...downloadRun,phase,observation_elapsed_s:(Date.now()-downloadRun.started_ms)/1000,...extra});
 }
-action('#download-ok', () => downloadObservation(true));
-action('#download-fail', () => downloadObservation(false));
+function startDownload(variant, size) {
+  downloadFile = null; $('#download-share').disabled = true;
+  downloadRun = {run:crypto.randomUUID(),variant,size,started_ms:Date.now(),phase:'started',hidden_ms:null,background_intervals:[]};
+  saveDownload();
+  return downloadResult('started');
+}
+document.querySelectorAll('[data-download]').forEach(b => b.addEventListener('click', event => {
+  if (downloadRun?.phase === 'loading') { event.preventDefault(); status.textContent = 'Wait for the current Blob load to finish.'; return; }
+  const size = $('#download-size').value;
+  startDownload(b.dataset.download,size);
+  b.href = `/media/${size}.mp4?download=1&run=${downloadRun.run}`;
+  status.textContent = 'Check the file, return here and record whether the app returned normally.';
+}));
+async function loadDownloadBlob() {
+  downloadRun.phase = 'loading'; saveDownload();
+  try {
+    const response = await request(`/media/${downloadRun.size}.mp4?download=1&run=${downloadRun.run}`);
+    if (!response.ok) throw new Error(`File load ${response.status}`);
+    downloadFile = new File([await response.blob()], `${downloadRun.size}.mp4`, {type:'video/mp4'});
+    const canShare = !!navigator.canShare?.({files:[downloadFile]});
+    downloadRun.phase = 'loaded'; saveDownload();
+    await downloadResult('loaded', {bytes:downloadFile.size,can_share:canShare,pass:canShare});
+    $('#download-share').disabled = !canShare;
+    status.textContent = 'Loaded. Tap B: Share loaded download, then choose Save to Files or Save Video.';
+  } catch (error) {
+    downloadRun.phase = 'load_error'; saveDownload();
+    await downloadResult('load_error',{pass:false,error:error.message,memory_failure:error.name === 'RangeError'});
+  }
+}
+async function shareDownload() {
+  if (!downloadFile) throw new Error('Load variant B first');
+  try {
+    await navigator.share({files:[downloadFile]});
+    await downloadResult('finished',{share_returned:true,saved_file_unverified:true});
+  } catch (error) { await downloadResult('share_error',{pass:false,error:error.name}); }
+}
+async function downloadReturned(returned) {
+  if (!downloadRun) throw new Error('Start a download first');
+  downloadRun.phase = 'owner_return'; saveDownload();
+  await downloadResult('owner_return',{returned_without_relaunch:returned,usable:returned});
+}
+action('#download-blob', async () => { await startDownload('B',$('#download-size').value); await loadDownloadBlob(); });
+action('#download-share', shareDownload);
+action('#download-returned', () => downloadReturned(true));
+action('#download-relaunch', () => downloadReturned(false));
+action('#download-ok', () => downloadResult('owner_file',{pass:true}));
+action('#download-fail', () => downloadResult('owner_file',{pass:false}));
+
 action('[data-share-size]', async b => {
   shareSize = b.dataset.shareSize; shareFile = null; $('#share').disabled = true;
   localStorage.setItem('shareSize',shareSize);
@@ -214,7 +255,7 @@ document.addEventListener('visibilitychange', () => {
     else if (downloadRun.hidden_ms) {
       downloadRun.background_intervals.push({start_ms:downloadRun.hidden_ms,end_ms:Date.now()});downloadRun.hidden_ms=null;
     }
-    sessionStorage.setItem('downloadRun',JSON.stringify(downloadRun));
+    saveDownload();
   }
   if (!eventSource) return;
   if (document.hidden) sleepStart = Date.now();
@@ -239,6 +280,11 @@ async function init() {
     $('#pairing').hidden = true;
     registration = await navigator.serviceWorker.register('/sw.js');
     await flush(); status.textContent = 'Paired. Ready to test.';
+    if (interruptedDownload) {
+      downloadRun.phase = 'interrupted'; saveDownload();
+      await downloadResult('interrupted',{pass:false,memory_failure:'possible',page_reloaded:true,reason:'Page reloaded during Blob load; memory termination cannot be confirmed by JavaScript'});
+      status.textContent = 'Variant B was interrupted during loading (possible memory failure). Record whether relaunch was needed.';
+    }
     const query = new URLSearchParams(location.search);
     if (['shared_url','shared_text','shared_title'].some(k => query.has(k))) {
       $('#url').value = query.get('shared_url') || query.get('shared_text') || '';

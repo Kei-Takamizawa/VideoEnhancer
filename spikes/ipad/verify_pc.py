@@ -15,7 +15,7 @@ from server import WORK, private_addresses, serve
 
 async def verify():
     home = WORK / "scratch" / "ipad-pc-check"
-    evidence = WORK / "evidence" / "VE-R0b"
+    evidence = WORK / "evidence" / "VE-R0c"
     report = {
         "device": "PC automation (iPad Pro 11 viewport)",
         "browser": "WebKit Windows",
@@ -146,7 +146,8 @@ async def verify():
             start = time.perf_counter()
             try:
                 async with page.expect_download(timeout=15000) as info:
-                    await page.locator('[data-download="foreground"]').click()
+                    await page.locator("#download-size").select_option("1GB")
+                    await page.locator('[data-download="C"]').click()
                 download = await info.value
                 path = home / "downloads" / "1GB.mp4"
                 await download.save_as(path)

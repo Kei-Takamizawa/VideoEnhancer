@@ -1,3 +1,185 @@
+Task ID / Cycle: VE-R0c
+Status: COMPLETED
+
+## Outcome
+
+Implemented the approved spike changes; all required final automated checks pass. Real iPad re-checks and
+Apple delivery are NOT_RUN in this cycle, as assigned to the operator/owner.
+
+## Scope and environment
+
+Windows PowerShell, branch `claude/project-thread-yyrl3q`, HEAD `fece91257d89239243564f783b5c609cde5fa228`.
+The elevated read-only pre-edit Git status was clean. CURRENT_TASK.md was read
+fully and retained unchanged. No Git mutations, commits, pushes or remote updates.
+
+## Changes
+
+- `spikes/ipad/server.py`: shared scheduled/self-test push sender; public project
+  HTTPS subject by default, `--vapid-subject`, explicit endpoint-origin audience,
+  12-hour expiry. HTTP status, sanitized Apple reason and apns-id are recorded on
+  failures; no endpoint path, key, JWT or exception message is logged. Errors
+  without an HTTP response use null diagnostics. Self-test opens no listeners
+  and preserves the stored subscription, paired device and signing key.
+- Installed py-vapid rejects HTTPS contact paths with its strict regex. This was
+  reproduced before HTTP dispatch. The sender validates the URI itself and
+  disables only that legacy subject regex on its local Vapid instance. Actual
+  generated Authorization JWT fields are decoded by a unit test. Reference:
+  https://www.rfc-editor.org/rfc/rfc8292.html#section-2.1
+- `spikes/ipad/static/app.js`, `static/index.html`: T6 offers A (`target=_blank`),
+  B (Blob then separately tapped file share) and C (original attachment with a
+  visible trapping warning). Both 500 MB and 1 GB are selectable. Run IDs, variant,
+  size, start time, observable completion and owner return/usability observations
+  are recorded. Persisted in-flight B loads report possible memory termination
+  after reload; the cause cannot be proven in JavaScript. File arrival remains
+  an explicit owner observation, separate from transfer/share completion.
+- `spikes/ipad/test_server.py`, `test_browser_logic.cjs`: JWT, diagnostic privacy,
+  self-test parsing/preservation, Blob failure and variant/result correlation.
+- `spikes/ipad/verify_pc.py`: current T6 selector and VE-R0c evidence folder.
+- `spikes/ipad/OWNER_CHECK.md`, `README.md`: short re-check and operator commands.
+- `.ai/LAST_REPORT.md`: this report; all prior report sections retained below.
+
+## Validation
+
+| Check | Result | Measured result |
+| --- | --- | --- |
+| Spike unit final | PASS | 26 passed |
+| Spike JavaScript final | PASS | 8 passed |
+| `uv run ruff check .` | PASS | All checks passed |
+| `uv run ruff format --check .` | PASS | 220 files already formatted |
+| JS syntax (app and service worker) | PASS | Both exit 0 |
+| WebKit synthetic T6 | PASS | Load, share call, owner return and reload recovery; 9 bytes, mocked sharing |
+| Initial CPU suite in sandbox | FAIL / interrupted | Failure markers; Git/FFmpeg unavailable; stalled at 92% in test_storage.py and was interrupted; no completed summary |
+| CPU with tools and approved execution | PASS | 740 passed, 24 skipped, 102 deselected; 371.87 s |
+| Legacy desktop E2E | NOT_RUN | Explicitly excluded by task |
+| Large-media full PC verifier | NOT_RUN | No new 1 GB fixture or playback qualification; only its current selector adapted |
+| Real Apple send / iPad T3 and T6 | NOT_RUN | Operator/owner re-check required |
+
+Initial red: Python 23 passed/2 failed (missing new helpers), JS 5 passed/1 failed
+(missing startDownload). Interim VAPID test failed before HTTP due to py-vapid's
+contact regex. A JS memory-error test initially lacked File in its VM harness;
+adding the real Node File global corrected that harness. The first synthetic
+WebKit reload check overwrote localStorage without updating page state and timed
+out; the corrected fixture sets both in-memory and persisted state, and passed.
+Initial formatting/lint findings were corrected without disabling checks.
+Git initially was absent from PATH and then denied by the sandbox; approved
+read-only Git checks succeeded. Process inventory using CIM was denied; no
+bypass or system change was attempted.
+
+Commands (from repo, after `. .\local-env.ps1`; PYTHONDONTWRITEBYTECODE=1):
+
+```powershell
+& ..\cache\ipad-venv\Scripts\python.exe -m pytest -c spikes\ipad\pytest.ini spikes\ipad\test_server.py -q --basetemp D:\my-workspace\VideoEnhancer\work\scratch\r0c-unit-final -o cache_dir=D:\my-workspace\VideoEnhancer\work\scratch\r0c-cache
+node --test spikes\ipad\test_browser_logic.cjs
+node --check spikes\ipad\static\app.js
+node --check spikes\ipad\static\sw.js
+uv run ruff check .
+uv run ruff format --check .
+$env:PATH = "D:\my-workspace\VideoEnhancer\work\cache\r0b-ffmpeg;<installed Git cmd directory>;" + $env:PATH
+$env:VE_DEV_M3_MEDIA = '0'
+$env:VE_HOME = 'D:\my-workspace\VideoEnhancer\work\scratch\r0c-cpu-final-home'
+uv run pytest -m "not gpu and not soak" --basetemp=D:\my-workspace\VideoEnhancer\work\scratch\r0c-cpu-final -o cache_dir=D:\my-workspace\VideoEnhancer\work\scratch\r0c-cpu-final-cache
+```
+
+CPU logs: `work/evidence/VE-R0c/cpu-tests.log` (initial interrupted run) and
+`cpu-final.log` (approved rerun). WebKit reproducer: `verify-webkit.py`, result
+`webkit-t6.json` and screenshot `webkit-t6.png` in the same private evidence folder.
+The WebKit script has no real push endpoint or owner data. It starts no server.
+Expected/actual: required request/claim fields and download result transitions
+match automated expectations. An observed Done button, Apple acceptance/delivery,
+500 MB/1 GB memory capacity and normal iPad return remain unmeasured here.
+
+## Exact operator commands
+
+From `D:\my-workspace\VideoEnhancer\work\repo`:
+
+```powershell
+. .\local-env.ps1
+$env:PYTHONDONTWRITEBYTECODE = '1'
+& ..\cache\ipad-venv\Scripts\python.exe spikes\ipad\server.py --home D:\my-workspace\VideoEnhancer\work\scratch\ipad-spike
+# In a second shell, after the owner has subscribed:
+. .\local-env.ps1
+& ..\cache\ipad-venv\Scripts\python.exe spikes\ipad\server.py --home D:\my-workspace\VideoEnhancer\work\scratch\ipad-spike --push-selftest
+```
+
+Stop with Ctrl+C after the owner finishes. Omit `--redo-pairing` to keep the
+existing paired device and subscription. If the home was removed, regenerate
+samples, start with `--redo-pairing`, reinstall/trust the new CA as necessary,
+and tap Pair this app. Self-test records status/reason in
+`work/evidence/VE-R0c/ipad-results.jsonl`; exit 0 means send accepted, not delivery.
+Optional subject override on both commands:
+`--vapid-subject https://github.com/Kei-Takamizawa/VideoEnhancer`.
+
+## Disk and cleanup
+
+| Item (decimal GB) | Start | End |
+| --- | ---: | ---: |
+| C free | 345.816076 | 345.812673 |
+| D free | 878.414852 | 878.414381 |
+| work/package | 0.125288579 | 0.125288579 |
+| work/evidence/VE-R0c | 0.000194981 | 0.000610147 |
+| work/scratch | 2.650840802 | 2.650868083 |
+| work/cache | 12.232878736 | 12.232878736 |
+
+The initial inventory was captured after the first small test additions, before
+implementation. Sizes are logical file lengths, not allocated space; nested rows
+are not summed. Scratch's final restricted cache was measured separately by an
+approved read: 68,704 bytes. Other inventory read errors: 0.
+Managed persistent-folder growth plus a conservative upper bound for all changed
+tracked text and final report overhead is at most 0.001 GB (limit 1 GB).
+The whole ignored checkout had no initial size baseline; drive-wide free-space
+changes are not attributed to this cycle. No packages/tools were installed.
+This cycle's evidence is below 300 MB; existing older evidence was retained
+rather than deleting unrelated prior-cycle artifacts during this spike fix.
+
+Cleanup inventory (each size measured before removal; bytes are not inferred
+from drive-free changes):
+
+| Removed path under work/scratch | Bytes removed |
+| --- | ---: |
+| r0c-cache | 1964 |
+| r0c-cpu | 180 |
+| r0c-cpu-final | 0 |
+| r0c-cpu-final-home | 0 |
+| r0c-unit | 40501 |
+| r0c-unit-final | 41529 |
+| r0c-unit2 | 40990 |
+| r0c-unit3 | 41233 |
+| r0c-unit4 | 41523 |
+| r0c-unit5 | 41523 |
+| r0c-browser.py | 2978 |
+| r0c-edit.py | 4830 |
+| r0c-encoding.py | 239 |
+| r0c-fix.py | 1503 |
+| r0c-guard.py | 478 |
+| r0c-inventory.py | 504 |
+| r0c-report-fix.py | 749 |
+| r0c-report.py | 7420 |
+| r0c-testfix.py | 586 |
+| r0c-ui.py | 8732 |
+| r0c-verify-edit.py | 342 |
+
+### For the owner to delete
+
+- `D:\my-workspace\VideoEnhancer\work\scratch\r0c-cpu-final-cache`:
+  68,704 bytes. Sandbox inventory and deletion were denied. No deletion retry,
+  escalation to delete, ownership change or other workaround was attempted.
+  A later approved read-only measurement supplied the size above.
+
+The pre-existing paired `scratch/ipad-spike` home is intentionally preserved
+for the task's explicit re-check. Other pre-existing scratch items are retained.
+Scratch is therefore not claimed empty. No synthetic file was generated above
+100 MB in this cycle. This cycle's transient scripts and unit-test homes were
+removed; private browser evidence and its reproducer remain under evidence.
+
+## Unresolved / questions for the designer
+
+No new product or architecture decision is required. Owner must run the R0c
+addendum, report T3 delivery and select the usable T6 variant. A page kill is
+recorded as a possible memory failure, since the browser cannot prove its cause.
+No owner server was started by Codex. Commit/push belong to the operator.
+
+## Previous: VE-R0b
+
 Task ID / Cycle: VE-R0b
 Status: PARTIAL
 

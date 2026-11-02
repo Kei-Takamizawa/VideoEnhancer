@@ -149,3 +149,33 @@ Git checks also need the operator's installed Git on the session PATH. Desktop
 CDP tests required reviewed execution outside the filesystem sandbox, still with
 absolute isolated homes under `work/scratch`. The spike's dedicated environment
 and its bundled FFmpeg remain sufficient for sample generation and spike tests.
+
+
+## VE-R0c push and download re-check
+
+Keep the existing `scratch/ipad-spike` home, device, CA and subscription for the
+owner re-check. Do not redo pairing or regenerate keys on a normal restart.
+From the repository:
+
+```powershell
+. .\local-env.ps1
+& ..\cache\ipad-venv\Scripts\python.exe spikes\ipad\server.py
+# Once the owner has subscribed (no listeners are started by this command):
+& ..\cache\ipad-venv\Scripts\python.exe spikes\ipad\server.py --push-selftest
+```
+
+The default VAPID contact is the public project HTTPS URL. Override it with
+`--vapid-subject https://example.org/contact` on both commands if needed. No
+personal address is required. Claims use the endpoint origin and a 12-hour expiry.
+Self-test exits 0 on accepted send, 1 on failure or missing subscription. It records
+HTTP status, service reason and apns-id in `evidence/VE-R0c/ipad-results.jsonl`;
+these diagnose acceptance, not notification delivery. Errors without an HTTP
+response record null diagnostics. No endpoint path, keys or tokens are logged.
+
+T6 offers A (new browser sheet), B (Blob then a separate user-tapped share action)
+and C (original attachment, with trapping warning), at 500 MB and 1 GB. Server
+transfer completion does not prove the file was saved. Owner buttons record file
+arrival, normal return and the usable variant. A persisted interrupted Blob load
+records a possible memory failure after reload; JavaScript cannot establish why
+iPadOS killed a page. Historical T6 background instructions above describe R0/R0b;
+use the R0c addendum in OWNER_CHECK.md for this re-check.

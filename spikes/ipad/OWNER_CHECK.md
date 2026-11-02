@@ -91,3 +91,27 @@ starts the PC test server; no PC window needs to stay visible to you.
 
 The operator uses `work/evidence/VE-R0b/owner-server.log` for request diagnosis;
 owner records are in `ipad-results.jsonl`, PC automation in `pc-results.jsonl`.
+
+
+## R0c re-check, about 3 minutes
+
+The app is already installed and paired. Keep the existing server home and start
+without `--redo-pairing`. If the home was cleaned, the operator regenerates samples
+and starts with `--redo-pairing`; complete the CA setup again if necessary, then
+tap **Pair this app** in the installed app. Do not redo pairing otherwise.
+
+1. T3: tap **Allow notifications and send two pushes**, allow notifications,
+   close the app and wait 75 seconds. Reopen and record whether both appeared.
+   The operator can then run `--push-selftest` to capture the send status/reason.
+2. T6: choose **500 MB**, tap **A: Open download in new sheet**, save the file,
+   and try Done/back. Tap **Returned normally** or **Relaunch needed** and record
+   whether the file arrived.
+3. T6: choose **500 MB**, tap **B: Load download into memory**, wait for loading,
+   tap **B: Share loaded download**, then Save to Files or Save Video. Return and
+   tap the return observation and file observation. The return button records
+   which variant you consider usable. Repeat with 1 GB only if desired.
+4. If B reloads or closes during loading, reopen the app: it records an
+   interrupted load and possible memory failure, not a confirmed memory cause.
+   Tap **Relaunch needed** if appropriate. C is comparison only and may trap the app.
+
+Results and the private server log are under `work/evidence/VE-R0c`.

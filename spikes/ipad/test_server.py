@@ -281,3 +281,95 @@ async def test_request_log_uses_final_file_status(client):
     assert response.status == 304
     entry = json.loads((state.evidence.parent / "owner-server.log").read_text().splitlines()[-1])
     assert entry["status"] == 304
+
+
+def test_vapid_send_and_failure_privacy(tmp_path, monkeypatch):
+    import base64
+    import time
+    from types import SimpleNamespace
+
+    import pywebpush
+    import requests
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from server import DEFAULT_VAPID_SUBJECT, send_push
+
+    state = State(tmp_path, tmp_path / "results.jsonl", ["localhost"])
+    key = (
+        ec.generate_private_key(ec.SECP256R1())
+        .public_key()
+        .public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    )
+    subscription = {
+        "endpoint": "https://web.push.apple.com/private-endpoint",
+        "keys": {
+            "p256dh": base64.urlsafe_b64encode(key).decode().rstrip("="),
+            "auth": base64.urlsafe_b64encode(b"0123456789abcdef").decode().rstrip("="),
+        },
+    }
+    captured = []
+
+    def reject(self, url, **kwargs):
+        captured.append(kwargs["headers"]["authorization"])
+        response = requests.Response()
+        response.status_code = 403
+        response._content = b'{"reason":"BadJwtToken", "secret":"private-endpoint"}'
+        response.headers["apns-id"] = "12345678-1234-1234-1234-123456789abc"
+        return response
+
+    monkeypatch.setattr(requests, "post", lambda url, **kwargs: reject(None, url, **kwargs))
+    assert not send_push(state, subscription, {"title": "test"})
+    jwt = captured[0].split("t=")[1].split(",")[0]
+    claims = json.loads(base64.urlsafe_b64decode(jwt.split(".")[1] + "=="))
+    assert claims["sub"] == DEFAULT_VAPID_SUBJECT
+    assert DEFAULT_VAPID_SUBJECT == "https://github.com/Kei-Takamizawa/VideoEnhancer"
+    assert claims["aud"] == "https://web.push.apple.com"
+    assert time.time() < claims["exp"] <= time.time() + 86400
+    record = json.loads(state.evidence.read_text())
+    assert record["status"] == 403 and record["reason"] == "BadJwtToken"
+    assert record["apns_id"] == "12345678-1234-1234-1234-123456789abc"
+    assert "private-endpoint" not in state.evidence.read_text()
+    assert subscription["keys"]["auth"] not in state.evidence.read_text()
+    monkeypatch.setattr(
+        pywebpush, "webpush", lambda **kwargs: SimpleNamespace(status_code=201, headers={})
+    )
+    assert send_push(state, subscription, {})
+
+
+def test_push_arguments():
+    from server import DEFAULT_VAPID_SUBJECT, argument_parser
+
+    args = argument_parser().parse_args(["--push-selftest"])
+    assert args.push_selftest and args.vapid_subject == DEFAULT_VAPID_SUBJECT
+    args = argument_parser().parse_args(["--vapid-subject", "https://example.org/contact"])
+    assert args.vapid_subject == "https://example.org/contact"
+
+
+@pytest.mark.asyncio
+async def test_selftest_uses_existing_subscription_without_listeners(tmp_path, monkeypatch):
+    import server
+
+    home = tmp_path / "scratch" / "existing"
+    State(home, tmp_path / "owner-results.jsonl", ["localhost"])
+    subscription = {"endpoint": "https://web.push.apple.com/private"}
+    (home / "subscription.json").write_text(json.dumps(subscription))
+    before = (home / "vapid.key").read_bytes()
+    calls = []
+    monkeypatch.setattr(server, "WORK", tmp_path)
+    home.mkdir(exist_ok=True)
+    # The task home boundary is still enforced in self-test mode.
+    monkeypatch.setattr(server, "private_addresses", lambda: [])
+
+    def send(state, stored, payload, **metadata):
+        calls.append((stored, metadata, state.vapid_subject))
+        return True
+
+    monkeypatch.setattr(server, "send_push", send)
+    monkeypatch.setattr(server, "certificates", lambda *args: pytest.fail("No TLS listener setup"))
+    args = server.argument_parser().parse_args(["--home", str(home), "--push-selftest"])
+    with pytest.raises(SystemExit) as exit_info:
+        await server.serve(args)
+    assert exit_info.value.code == 0
+    assert calls == [(subscription, {"selftest": True}, server.DEFAULT_VAPID_SUBJECT)]
+    assert (home / "vapid.key").read_bytes() == before
+    assert json.loads((home / "subscription.json").read_text()) == subscription

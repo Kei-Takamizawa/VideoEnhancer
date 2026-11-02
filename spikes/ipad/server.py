@@ -27,6 +27,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 WORK = Path(__file__).resolve().parents[3]
 STATIC = Path(__file__).with_name("static")
+DEFAULT_VAPID_SUBJECT = "https://github.com/Kei-Takamizawa/VideoEnhancer"
 CHUNK = 4 * 1024 * 1024
 MEDIA = {"h264.mp4", "hevc.mp4", "av1.mp4", "50MB.mp4", "500MB.mp4", "1GB.mp4"}
 
@@ -208,6 +209,92 @@ class State:
         )
         with destination.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+
+def push_response(response):
+    # Copy only service diagnostics, never exception text, URLs or response bodies.
+    result = {"status": None, "reason": None, "apns_id": None}
+    if response is not None:
+        result["status"] = response.status_code
+        try:
+            reason = response.json().get("reason")
+            if isinstance(reason, str) and re.fullmatch(r"[A-Za-z]{1,80}", reason):
+                result["reason"] = reason
+        except (ValueError, AttributeError):
+            pass
+        identifier = response.headers.get("apns-id")
+        if identifier and re.fullmatch(r"[a-fA-F0-9-]{36}", identifier):
+            result["apns_id"] = identifier
+    return result
+
+
+def send_push(state, subscription, payload, **metadata):
+    from py_vapid import Vapid
+    from pywebpush import webpush
+
+    endpoint = urlsplit(subscription["endpoint"])
+    if (
+        endpoint.scheme != "https"
+        or endpoint.port not in {None, 443}
+        or endpoint.username
+        or endpoint.password
+        or not (
+            endpoint.hostname == "web.push.apple.com"
+            or (endpoint.hostname or "").endswith(".push.apple.com")
+        )
+    ):
+        state.record(
+            {
+                "test": "T3",
+                **metadata,
+                "phase": "send_error",
+                "error": "InvalidAppleEndpoint",
+                **push_response(None),
+            }
+        )
+        return False
+    origin = f"https://{endpoint.hostname}"
+    claims = {
+        "sub": getattr(state, "vapid_subject", DEFAULT_VAPID_SUBJECT),
+        "aud": origin,
+        "exp": int(time.time()) + 12 * 60 * 60,
+    }
+    try:
+        subject = urlsplit(claims["sub"])
+        if not (
+            (
+                subject.scheme == "https"
+                and subject.hostname
+                and not subject.username
+                and not subject.password
+            )
+            or (
+                subject.scheme == "mailto"
+                and re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", subject.path)
+            )
+        ):
+            raise ValueError("Invalid VAPID contact URI")
+        vapid = Vapid.from_file(str(state.home / "vapid.key"))
+        # py-vapid's strict regex rejects valid HTTPS contact paths (RFC 8292 2.1).
+        # Validate above, then bypass only that legacy contact regex.
+        vapid.conf["no-strict"] = True
+        response = webpush(
+            subscription_info=subscription,
+            data=json.dumps(payload),
+            vapid_private_key=vapid,
+            vapid_claims=claims,
+            ttl=300,
+            timeout=20,
+        )
+        result = {"phase": "sent", **push_response(response)}
+    except Exception as exc:
+        result = {
+            "phase": "send_error",
+            "error": type(exc).__name__,
+            **push_response(getattr(exc, "response", None)),
+        }
+    state.record({"test": "T3", **metadata, **result})
+    return result["phase"] == "sent"
 
 
 def make_app(state, plain=False):
@@ -551,51 +638,23 @@ enable full trust.</li>
         automated = getattr(state, "automated", False)
 
         async def send(delay):
-            from pywebpush import webpush
-
             await asyncio.sleep(delay)
-            try:
-                await asyncio.to_thread(
-                    webpush,
-                    subscription_info=subscription,
-                    data=json.dumps(
-                        {
-                            "title": "VideoEnhancer spike",
-                            "body": f"Test push after {delay} seconds",
-                            "run": run,
-                            "delay": delay,
-                        }
-                    ),
-                    vapid_private_key=str(state.home / "vapid.key"),
-                    vapid_claims={"sub": "mailto:spike@example.invalid"},
-                    ttl=300,
-                    timeout=20,
-                )
-                state.record(
-                    {
-                        "test": "T3",
-                        **diagnostics,
-                        "display_mode": mode,
-                        "automated": automated,
-                        "phase": "sent",
-                        "run": run,
-                        "delay": delay,
-                    }
-                )
-            except Exception as exc:
-                # Do not log subscription endpoints or credentials.
-                state.record(
-                    {
-                        "test": "T3",
-                        **diagnostics,
-                        "display_mode": mode,
-                        "automated": automated,
-                        "phase": "send_error",
-                        "run": run,
-                        "delay": delay,
-                        "error": type(exc).__name__,
-                    }
-                )
+            await asyncio.to_thread(
+                send_push,
+                state,
+                subscription,
+                {
+                    "title": "VideoEnhancer spike",
+                    "body": f"Test push after {delay} seconds",
+                    "run": run,
+                    "delay": delay,
+                },
+                **diagnostics,
+                display_mode=mode,
+                automated=automated,
+                run=run,
+                delay=delay,
+            )
 
         for delay in [10, 60]:
             task = asyncio.create_task(send(delay))
@@ -639,7 +698,9 @@ async def serve(args):
 
     addresses = private_addresses()
     binds = args.bind or addresses
-    if not binds or any(a not in addresses and a != "127.0.0.1" for a in binds):
+    if not getattr(args, "push_selftest", False) and (
+        not binds or any(a not in addresses and a != "127.0.0.1" for a in binds)
+    ):
         raise SystemExit(
             "Bind must be one of this PC's private IPv4 addresses (or loopback for tests)"
         )
@@ -650,11 +711,31 @@ async def serve(args):
     evidence = (
         WORK
         / "evidence"
-        / "VE-R0b"
+        / "VE-R0c"
         / ("pc-results.jsonl" if getattr(args, "automated", False) else "ipad-results.jsonl")
     )
+    if getattr(args, "push_selftest", False):
+        if not (home / "subscription.json").exists() or not (home / "vapid.key").exists():
+            print("No stored subscription/key. Subscribe from the paired app first.")
+            raise SystemExit(1)
+        state = State(home, evidence, names)
+        state.vapid_subject = args.vapid_subject
+        ok = await asyncio.to_thread(
+            send_push,
+            state,
+            json.loads((home / "subscription.json").read_text()),
+            {"title": "VideoEnhancer spike", "body": "PC push self-test"},
+            selftest=True,
+        )
+        print(
+            "Push self-test "
+            + ("sent" if ok else "failed")
+            + "; status/reason recorded in VE-R0c/ipad-results.jsonl"
+        )
+        raise SystemExit(0 if ok else 1)
     certificates(home, names, addresses + (["127.0.0.1"] if "127.0.0.1" in binds else []))
     state = State(home, evidence, names + addresses + ["127.0.0.1"])
+    state.vapid_subject = getattr(args, "vapid_subject", DEFAULT_VAPID_SUBJECT)
     state.automated = getattr(args, "automated", False)
     if args.redo_pairing or not state.pairing_file.exists():
         state.open_pairing(args.pair_seconds)
@@ -707,7 +788,7 @@ async def serve(args):
             await runner.cleanup()
 
 
-if __name__ == "__main__":
+def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--home", type=Path, default=WORK / "scratch" / "ipad-spike")
     parser.add_argument("--redo-pairing", action="store_true")
@@ -716,7 +797,17 @@ if __name__ == "__main__":
         "--bind", action="append", help="Repeat for each LAN address; default: all private IPv4"
     )
     parser.add_argument("--no-mdns", action="store_true", help="Only for isolated automated tests")
+    parser.add_argument(
+        "--push-selftest",
+        action="store_true",
+        help="Send once using the stored subscription; no listeners",
+    )
+    parser.add_argument("--vapid-subject", default=DEFAULT_VAPID_SUBJECT)
+    return parser
+
+
+if __name__ == "__main__":
     try:
-        asyncio.run(serve(parser.parse_args()))
+        asyncio.run(serve(argument_parser().parse_args()))
     except KeyboardInterrupt:
         pass

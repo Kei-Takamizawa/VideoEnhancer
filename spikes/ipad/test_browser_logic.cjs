@@ -15,7 +15,7 @@ function app(fetch) {
     window:{addEventListener(){}},navigator:{webdriver:true},location:{pathname:'/'},
     localStorage:{getItem:()=>null,setItem(){}},sessionStorage:{getItem:()=>null,setItem(){}},
     fetch:(path,options) => path === '/api/config' ? new Promise(()=>{}) : fetch(path,options),
-    crypto:webcrypto,performance,console,setTimeout,clearTimeout,AbortController,Blob,URL,
+    crypto:webcrypto,performance,console,setTimeout,clearTimeout,AbortController,Blob,File,URL,
   });
   vm.runInContext(fs.readFileSync(__dirname + '/static/app.js','utf8'), context);
   return {context,run:code=>vm.runInContext(code,context)};
@@ -97,4 +97,54 @@ test('service worker tags native requests and reports unauthorized sessions', as
   await response;
   assert.equal(outgoing[0].headers.get('X-Display-Mode'), 'standalone');
   assert.equal(messages[0].type, 'unpaired');
+});
+
+test('T6 variants record size, completion, return and usable choice', async () => {
+  const rows = [];
+  const a = app(async (path, options) => {
+    if (path === '/api/results') {rows.push(JSON.parse(options.body)); return {ok:true,json:async()=>({})};}
+    return {ok:true,blob:async()=>new Blob(['synthetic'])};
+  });
+  a.context.File = File;
+  a.context.navigator.canShare = () => true;
+  a.context.navigator.share = async () => {};
+  await a.run("startDownload('B','500MB')");
+  await a.run('loadDownloadBlob()');
+  await a.run('shareDownload()');
+  await a.run('downloadReturned(true)');
+  assert.deepEqual(rows.map(r=>r.phase), ['started','loaded','finished','owner_return']);
+  assert.ok(rows.every(r=>r.variant === 'B' && r.size === '500MB'));
+  assert.equal(rows.at(-1).usable, true);
+  assert.equal(rows.at(-1).returned_without_relaunch, true);
+  assert.ok(rows.at(-1).observation_elapsed_s >= 0);
+});
+
+test('T6 1GB Blob failure records memory error and return failure', async () => {
+  const rows = [];
+  const a = app(async (path, options) => {
+    if (path === '/api/results') {rows.push(JSON.parse(options.body));return {ok:true,json:async()=>({})};}
+    return {ok:true,blob:async()=>{const e = new Error('Out of memory');e.name='RangeError';throw e;}};
+  });
+  await a.run("startDownload('B','1GB')");
+  await a.run('loadDownloadBlob()');
+  await a.run('downloadReturned(false)');
+  assert.equal(rows[1].phase,'load_error');
+  assert.equal(rows[1].memory_failure,true);
+  assert.equal(rows[2].returned_without_relaunch,false);
+  assert.equal(rows[2].usable,false);
+  assert.ok(rows.every(r=>r.size === '1GB'));
+});
+
+test('T6 native choices preserve separate variant run IDs', async () => {
+  const rows = [];
+  const a = app(async (path, options) => {rows.push(JSON.parse(options.body));return {ok:true,json:async()=>({})};});
+  for (const variant of ['A','C']) {
+    await a.run(`startDownload('${variant}','500MB')`);
+    await a.run('downloadReturned(true)');
+  }
+  assert.deepEqual(rows.map(r=>r.variant),['A','A','C','C']);
+  assert.notEqual(rows[0].run,rows[2].run);
+  const html = fs.readFileSync(__dirname + '/static/index.html','utf8');
+  assert.match(html,/data-download="A"[^>]*target="_blank"/);
+  assert.match(html,/Warning: C may trap the app/);
 });

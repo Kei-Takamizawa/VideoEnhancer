@@ -17,9 +17,17 @@
 <button id="retry">Retry selected upload</button><p id="upload-status" role="status"></p></section>
 <section><h2>T5 · Playback</h2><button data-codec="h264">Play H.264</button><button data-codec="hevc">Play HEVC</button><button data-codec="av1">Play AV1</button>
 <video id="video" controls playsinline muted preload="none"></video><p>Allow about 15 seconds per codec. Seeking to 50% and 90% is automatic.</p></section>
-<section><h2>T6 · Download to Files</h2><p>Run once in the foreground, once with this app in the background for 30 seconds, and once for 3 minutes. A download that finishes before the wait ends cannot prove background continuation. Use Safari's download indicator to check.</p>
-<a class="button" data-download="foreground" href="/media/1GB.mp4?download=1" download>Download 1 GB · foreground</a><a class="button" data-download="30" href="/media/1GB.mp4?download=1" download>Download 1 GB · background 30 s</a><a class="button" data-download="180" href="/media/1GB.mp4?download=1" download>Download 1 GB · background 3 min</a>
-<button id="download-ok">Download continued and file arrived</button><button id="download-fail">Download stopped or failed</button></section>
+<section><h2>T6 - Download to Files</h2>
+<p>Try A and B first. Check the saved file, then record whether you returned normally. Select the variant you find usable by tapping Returned normally after trying it.</p>
+<label>Download size <select id="download-size"><option value="500MB">500 MB</option><option value="1GB">1 GB</option></select></label>
+<a class="button" data-download="A" href="/media/500MB.mp4?download=1" target="_blank" rel="noopener">A: Open download in new sheet</a>
+<p>A may open a browser sheet with a Done button. Record what actually happens.</p>
+<button id="download-blob">B: Load download into memory</button><button id="download-share" disabled>B: Share loaded download</button>
+<p>B loads the selected file, then shares it to Save to Files or Save Video. Large files may exceed memory; after a crash or reload, reopen the app to record the interruption.</p>
+<p><strong>Warning: C may trap the app in a full-screen download view and require relaunching.</strong> Comparison only.</p>
+<a class="button" data-download="C" href="/media/500MB.mp4?download=1" download>C: Original attachment download</a>
+<button id="download-returned">Returned normally - this variant is usable</button><button id="download-relaunch">Relaunch needed - this variant is not usable</button>
+<button id="download-ok">File arrived</button><button id="download-fail">File missing or failed</button></section>
 <section><h2>T7 · Save to Photos</h2><p>Each button loads a file and then enables Share. In the share sheet, choose Save Video. Loading large files may exceed this iPad's memory.</p>
 <button data-share-size="50MB">Load 50 MB</button><button data-share-size="500MB">Load 500 MB</button><button data-share-size="1GB">Load 1 GB</button>
 <button id="share" disabled>Share loaded video</button><button id="photos-ok">Save Video succeeded</button><button id="photos-fail">Save Video missing or failed</button></section>
