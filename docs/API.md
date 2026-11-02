@@ -532,3 +532,16 @@ disabled. Its existing Host, Origin and bearer-token requirements are unchanged.
 remote service; closing the desktop window therefore leaves that service running.
 The local `remote uninstall` command authenticates the same route with
 `{"remote_uninstall": true}` to stop it deliberately.
+
+`ve remote stop` and `ve remote restart` use the same explicit management shutdown
+flag; ordinary desktop shutdown still receives 409. Restart and installation
+start the registered Scheduled Task, rather than a child of the calling shell.
+
+The R1b device-cookie routes in [REMOTE.md](REMOTE.md#r1b-device-cookie-routes)
+add link checking, tool installation consent, bounded resumable uploads, queue
+estimates, immediate job admission/cancellation and encrypted Apple Web Push.
+They do not expose the loopback API or accept client filesystem paths/settings
+overrides. JSON requests are capped at 64 KiB; raw chunks at 4 MiB. Sources live
+under remote/incoming and terminal jobs are removed after safe library
+publication or failure cleanup. Gateway jobs retain a nameless activity log;
+the desktop's existing history and saved schedule/preferences are preserved.

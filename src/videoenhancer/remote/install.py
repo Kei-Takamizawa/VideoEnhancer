@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
@@ -178,20 +180,13 @@ def ensure_running(home: Path) -> None:
         return
     if health:
         stop_service(home)
-    root = engine_root()
-    python = root / ".venv/Scripts/pythonw.exe"
-    if not python.is_file():
-        raise FileNotFoundError("The checkout's windowless Python is missing.")
-    # Do not inherit development VE_HOME or any desktop-only startup hold.
-    env = {**os.environ, "VE_HOME": str(home)}
-    env.pop("VE_STORAGE_MOVE_HOLD", None)
-    proc.Popen(
-        [str(python), "-m", "videoenhancer.remote.launcher", "--home", str(home)],
-        cwd=root,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+    # Discovery disappears just before the task process exits. IgnoreNew would
+    # discard a start request while that process is still finishing.
+    _powershell(
+        "$ErrorActionPreference='Stop'; $deadline=[DateTime]::UtcNow.AddSeconds(25); "
+        "while ((Get-ScheduledTask -TaskName 'VideoEnhancer').State -eq 'Running') { "
+        "if ([DateTime]::UtcNow -ge $deadline) { throw 'The service task did not stop.' }; "
+        "Start-Sleep -Milliseconds 200 }; Start-ScheduledTask -TaskName 'VideoEnhancer'"
     )
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
@@ -242,10 +237,19 @@ def command(args, home: Path) -> dict:
         return install(home)
     if args.remote_command == "uninstall":
         return uninstall(home, args.forget_devices)
+    if args.remote_command in {"stop", "restart"}:
+        stop_service(home)
+        if args.remote_command == "restart":
+            ensure_running(home)
+        return {"service_running": args.remote_command == "restart"}
     if args.remote_command == "pair":
         result = request(home, "remote/pairing", "POST")
         if args.message_box:
-            message_box(f"{result['setup_address']}\nPairing closes at {result['closes_at']}.")
+            message_box(
+                f"{result['setup_address']}\nPairing closes at {result['closes_at']}.",
+                closes_at=result["closes_at"],
+                home=home,
+            )
         return result
     health = running(home)
     import socket
@@ -294,9 +298,49 @@ def command(args, home: Path) -> dict:
     return result
 
 
-def message_box(message: str) -> None:
+def message_box(
+    message: str, *, closes_at: str | float | None = None, home: Path | None = None
+) -> None:
+    if isinstance(closes_at, str):
+        closes_at = datetime.fromisoformat(closes_at).timestamp()
+    seconds = math.ceil(closes_at - time.time()) if closes_at is not None else 30
+    if seconds <= 0:
+        return
     if os.name != "nt":
         raise RuntimeError("The pairing message box requires Windows.")
-    import ctypes
-
-    ctypes.windll.user32.MessageBoxW(None, message, "VideoEnhancer - Redo pairing", 0)
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        f"(New-Object -ComObject WScript.Shell).Popup({_literal(message)}, "
+        f"{seconds}, 'VideoEnhancer - Redo pairing', 0) | Out-Null",
+    ]
+    streams: dict[str, Any] = dict(
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if home is None:
+        proc.run(command, timeout=seconds + 5, check=True, **streams)
+        return
+    # Pairing can close early after a claim. Only this owned popup process is terminated.
+    child = proc.Popen(command, **streams)
+    try:
+        deadline = time.time() + seconds
+        while child.poll() is None and time.time() < deadline:
+            try:
+                pairing = json.loads((home / "remote/pairing.json").read_text(encoding="utf-8"))
+                if pairing.get("closes_at", 0) <= time.time():
+                    break
+            except (OSError, ValueError):
+                break
+            time.sleep(0.25)
+    finally:
+        if child.poll() is None:
+            child.terminate()
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait(timeout=5)

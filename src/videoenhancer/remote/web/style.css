@@ -52,3 +52,18 @@ dialog { width: min(560px, calc(100% - 32px)); padding: 28px; color: #f5f5f7; ba
 dialog::backdrop { background: #000b; }
 #delete-description { overflow-wrap: anywhere; }
 @media (max-width: 600px) { .shell { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); } header { min-height: 72px; } main { padding-top: 24px; } h1 { font-size: 30px; } .pairing { padding: 20px; } dl div { grid-template-columns: 1fr; gap: 8px; } .video-row { padding: 20px 12px; } }
+.add-card { background: var(--surface); border: 1px solid #333337; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+.add-card label { display: block; margin-bottom: 12px; line-height: 1.5; }
+input { font: inherit; color: inherit; accent-color: var(--accent); }
+input[type=url] { width: 100%; min-height: 48px; padding: 12px; background: var(--raised); border: 1px solid #414145; border-radius: 10px; }
+input[type=file] { max-width: 100%; min-height: 48px; }
+input:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.add-card .playlist-row { display: flex; align-items: start; gap: 16px; min-height: 48px; padding: 16px 0; border-bottom: 1px solid #333337; }
+.playlist-row input { width: 24px; height: 24px; flex: none; }
+.playlist-row span { overflow-wrap: anywhere; }
+.playlist-row small { display: block; margin-top: 8px; line-height: 1.6; }
+.notification-card { padding: 16px 0; margin-bottom: 16px; border-bottom: 1px solid #333337; }
+.running-jobs { margin-bottom: 24px; }
+.running-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 12px 0; }
+.running-row small { overflow-wrap: anywhere; line-height: 1.6; }
+@media (max-width: 600px) { .add-card { padding: 16px; } .tab { padding: 12px; } }

@@ -1,3 +1,5 @@
+import {mountAdd} from './add-ui.mjs';
+import {finishText} from './add.mjs';
 import {
   downloadProgress, formatDuration, formatSize, pairingScreen,
   shareFile, storageSegments, storageText, loadFile, needsSafari, safariURL, safariInstructions,
@@ -10,6 +12,7 @@ const offlineMessage = "Can't reach the PC. Check that it is on and on the same 
 let session;
 let activeTab = 'library';
 let releaseDownload = () => {};
+let addedBanner = false;
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -51,7 +54,7 @@ async function response(path, options = {}) {
     let message = 'The request could not be completed. Try again.';
     try {
       const body = await result.json();
-      message = body.error || body.message || message;
+      message = body.error?.message || body.error || body.message || message;
     } catch { /* A disconnected PC can return an incomplete response. */ }
     const error = new Error(message);
     error.status = result.status;
@@ -200,6 +203,19 @@ async function libraryView() {
     const [library, storage] = await Promise.all([api('/api/library'), api('/api/storage')]);
     if (activeTab !== 'library' || !content.isConnected) return;
     content.append(renderStorage(storage));
+    if (addedBanner) {
+      const banner = element('p', "Added. You'll get a notification when it's ready.");
+      banner.setAttribute('role', 'status'); content.append(banner); addedBanner = false;
+    }
+    if (!session.notifications_on) content.append(notificationCard());
+    const running = element('div', undefined, 'running-jobs'); content.append(running);
+    void activeJobs(running);
+    const requested = /^#item=([A-Za-z0-9_-]{1,128})$/.exec(location.hash);
+    if (requested) {
+      const item = library.items.find(value => value.id === requested[1]);
+      history.replaceState(null, '', '/');
+      if (item) { itemView(item); return; }
+    }
     if (!library.items.length) content.append(element('p', 'Your library is empty.', 'muted'));
     const list = element('ul', undefined, 'videos');
     for (const item of library.items) {
@@ -363,6 +379,78 @@ function settingsView() {
     details.append(row);
   }
   main.append(details);
+  const notifications = element('section', undefined, 'add-card');
+  notifications.append(element('h2', 'Notifications'), element('p', session.notifications_on ? 'Notifications are on for this iPad.' : 'Notifications are off for this iPad.'));
+  if (session.notifications_on) {
+    const status = element('p', '', 'muted'); status.setAttribute('role', 'status');
+    const send = button('Send a test notification', async () => {
+      send.disabled = true;
+      try {
+        const result = await api('/api/push/test', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+        status.textContent = result.ok ? 'Test notification sent.' : 'The notification could not be sent. Turn notifications on again from the Library tab.';
+        if ([404, 410].includes(result.status)) session.notifications_on = false;
+      } catch (error) { status.textContent = error.message; }
+      finally { send.disabled = false; }
+    });
+    notifications.append(send, status);
+  } else notifications.append(notificationCard());
+  main.append(notifications);
+}
+
+
+function notificationCard() {
+  const card = element('section', undefined, 'notification-card');
+  card.append(element('p', 'Get a notification when a video is ready.'));
+  const status = element('p', '', 'muted'); status.setAttribute('role', 'status');
+  const enable = button('Turn on notifications', async () => {
+    enable.disabled = true;
+    try {
+      if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Open this app from the Home Screen to turn on notifications.');
+      // This call must happen during the tap, before waiting for the service worker.
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('Notifications are off. Allow notifications in iPad Settings, then try again.');
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        const value = session.push_key;
+        const key = Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4)), c => c.charCodeAt(0));
+        subscription = await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: key});
+      }
+      await api('/api/push/subscribe', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(subscription.toJSON())});
+      session.notifications_on = true; card.remove();
+      if (activeTab === 'settings') settingsView();
+    } catch (error) { status.textContent = error.message; enable.disabled = false; }
+  }, 'primary');
+  card.append(enable, status); return card;
+}
+
+async function activeJobs(container) {
+  try {
+    const {jobs} = await api('/api/jobs/active');
+    if (!container.isConnected) return;
+    container.replaceChildren();
+    if (jobs?.length) {
+      container.append(element('p', `${jobs.length} ${jobs.length === 1 ? 'video' : 'videos'} in progress`, 'muted'));
+      for (const job of jobs) {
+        const row = element('div', undefined, 'running-row');
+        row.append(element('small', `${job.title} ? ${finishText({finish: job.finish, seconds: job.seconds})}`, 'muted'));
+        row.append(button('Cancel', async () => {
+          if (!window.confirm('Cancel this video? Its source and unfinished files will be deleted.')) return;
+          try {
+            await api(`/api/jobs/${encodeURIComponent(job.id)}/cancel`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+            await libraryView();
+          } catch (error) { row.append(element('p', error.message, 'error')); }
+        }));
+        container.append(row);
+      }
+    }
+  } catch (error) { if (container.isConnected) container.replaceChildren(element('p', error.message, 'error')); }
+  if (container.isConnected) setTimeout(() => { if (container.isConnected) void activeJobs(container); }, 15000);
+}
+
+function addView() {
+  clearView(); setTab('add'); main.append(element('h1', 'Add'));
+  mountAdd({main, element, button, api, added: async () => { addedBanner = true; await libraryView(); }});
 }
 
 async function boot() {
@@ -386,6 +474,8 @@ async function boot() {
 
 document.querySelector('#library-tab').addEventListener('click', libraryView);
 document.querySelector('#settings-tab').addEventListener('click', settingsView);
+document.querySelector('#add-tab').addEventListener('click', addView);
+window.addEventListener('hashchange', () => { if (session?.paired && location.hash.startsWith('#item=')) void libraryView(); });
 window.addEventListener('pagehide', () => releaseDownload());
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 boot();
