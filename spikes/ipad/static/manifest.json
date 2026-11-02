@@ -1,0 +1,1 @@
+{"id":"/","name":"VideoEnhancer iPad spike","short_name":"VE spike","start_url":"/","scope":"/","display":"standalone","background_color":"#edf3f6","theme_color":"#153d53","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}],"share_target":{"action":"/","method":"GET","params":{"title":"shared_title","text":"shared_text","url":"shared_url"}}}
