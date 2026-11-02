@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = "MIT"
 dependencies = [
+  "cryptography>=46,<48",
   "torch==2.14.1",
   "numpy>=2.2,<3",
   "psutil>=7,<8",

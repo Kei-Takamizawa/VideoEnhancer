@@ -106,7 +106,16 @@ def _parser() -> argparse.ArgumentParser:
     bench.add_argument("--calibrate", action="store_true")
     bench.add_argument("--models", default=None, metavar="all|NAMES")
     bench.add_argument("--output-dir", type=Path)
-    commands.add_parser("serve", help="Run the authenticated local desktop engine service")
+    service = commands.add_parser("serve", help="Run the authenticated local engine service")
+    service.add_argument("--remote", action="store_true", help="Enable the iPad HTTPS gateway")
+    remote = commands.add_parser("remote", help="Manage the headless iPad service")
+    remote_commands = remote.add_subparsers(dest="remote_command", required=True)
+    remote_commands.add_parser("install", help="Install the per-user sign-in task")
+    uninstall = remote_commands.add_parser("uninstall", help="Remove the task and stop the service")
+    uninstall.add_argument("--forget-devices", action="store_true")
+    pair = remote_commands.add_parser("pair", help="Open pairing for two minutes")
+    pair.add_argument("--message-box", action="store_true", help=argparse.SUPPRESS)
+    remote_commands.add_parser("status", help="Show service and gateway status")
     return parser
 
 
@@ -352,7 +361,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "serve":
             from videoenhancer.service.server import serve
 
-            return serve(home)
+            return serve(home, remote=args.remote)
+        elif args.command == "remote":
+            from videoenhancer.remote.install import command
+
+            result = command(args, home)
+            _emit(result, json.dumps(result, indent=2), as_json)
         elif args.command == "probe":
             from videoenhancer.media.decode import choose_backend
             from videoenhancer.media.probe import probe

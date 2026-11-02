@@ -74,6 +74,38 @@ def test_production_engine_does_not_expose_prototype_media_urls(api):
         assert error.value.code == 401
 
 
+def test_remote_shutdown_refusal_and_authenticated_pairing(api):
+    engine, server, request = api
+
+    class Gateway:
+        def open_pairing(self):
+            return {"pairing_open": True}
+
+        def status(self):
+            return {"gateway_running": True}
+
+    server.remote_gateway = Gateway()
+    with pytest.raises(urllib.error.HTTPError) as error:
+        request("shutdown", "POST", {})
+    assert error.value.code == 409
+    assert json.load(error.value)["service_keeps_running"] is True
+    assert not engine.stop.is_set()
+    with pytest.raises(urllib.error.HTTPError) as error:
+        request("remote/pairing", "POST", {}, token=False)
+    assert error.value.code == 401
+    with request("remote/pairing", "POST", {}) as response:
+        assert json.load(response)["pairing_open"] is True
+    with request("health") as response:
+        assert json.load(response)["remote"]["gateway_running"] is True
+
+
+def test_plain_shutdown_still_stops_engine(api):
+    engine, _, request = api
+    with request("shutdown", "POST", {}) as response:
+        assert json.load(response)["stopped"] is True
+    assert engine.stop.is_set()
+
+
 def test_link_r2_after_download_keeps_file_and_queue_available(api, video_factory, monkeypatch):
     """CPU-only tiny oversized refusal fixture; never analysed or processed."""
     import shutil

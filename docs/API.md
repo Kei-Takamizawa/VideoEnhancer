@@ -514,3 +514,16 @@ record handling remains available.
 Admission refuses input above 10-bit color with the same reason for local files
 and links. Previously queued unfinished jobs fail at their next start; completed
 records are retained. Link-tool install/uninstall refuses active link operations.
+
+## iPad gateway
+
+See [REMOTE.md](REMOTE.md) for the separate device-cookie HTTPS API and setup rules.
+The existing bearer-authenticated loopback API also accepts `POST /v1/remote/pairing`
+with an empty JSON object to open the gateway's two-minute pairing window. It
+returns gateway status, `setup_address` and `closes_at`, or 409 if the gateway is
+disabled. Its existing Host, Origin and bearer-token requirements are unchanged.
+`GET /v1/health` includes `remote` status. `POST /v1/shutdown` returns 409 with
+`code: remote_service_running` and `service_keeps_running: true` for a headless
+remote service; closing the desktop window therefore leaves that service running.
+The local `remote uninstall` command authenticates the same route with
+`{"remote_uninstall": true}` to stop it deliberately.

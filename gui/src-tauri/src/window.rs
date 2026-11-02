@@ -294,7 +294,9 @@ pub fn quit(app: &tauri::AppHandle) {
     let handle = app.clone();
     std::thread::spawn(move || {
         let state = handle.state::<std::sync::Arc<crate::State>>();
-        let result = state.connected().and_then(|c| crate::engine::stop(&c));
+        let result = state
+            .connected()
+            .and_then(|c| crate::engine::close_desktop(&c));
         match result {
             Ok(()) => {
                 state.quitting.store(true, Ordering::SeqCst);

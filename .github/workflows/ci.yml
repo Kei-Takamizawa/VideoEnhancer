@@ -69,6 +69,8 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: gui/package-lock.json
+      - name: Remote web app logic
+        run: node --test tests/test_remote_web.mjs
       - run: npm ci
         working-directory: gui
       - run: npm run lint

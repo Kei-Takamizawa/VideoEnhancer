@@ -104,8 +104,9 @@ class LocalServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
 
-    def __init__(self, engine: Engine):
+    def __init__(self, engine: Engine, remote_gateway: Any = None):
         self.engine = engine
+        self.remote_gateway = remote_gateway
         self.token = secrets.token_urlsafe(32)
         super().__init__(("127.0.0.1", 0), Handler)
         engine.start_publication()
@@ -300,11 +301,33 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(value, dict):
                     raise ValueError("Request body must be a JSON object.")
             if parts == ["shutdown"] and self.command == "POST":
+                if self.server.remote_gateway is not None and not value.get("remote_uninstall"):
+                    self._json(
+                        409,
+                        {
+                            "code": "remote_service_running",
+                            "service_keeps_running": True,
+                            "error": "The window can close. The iPad service keeps running.",
+                        },
+                    )
+                    return
                 self.server.engine.close()
                 self._json(200, {"stopped": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
+            if parts == ["remote", "pairing"] and self.command == "POST":
+                if self.server.remote_gateway is None:
+                    self._json(409, {"error": "Start the service with --remote to pair an iPad."})
+                else:
+                    self._json(200, self.server.remote_gateway.open_pairing())
+                return
             result = self.server.engine.dispatch(self.command, parts, value)
+            if parts == ["health"] and self.command == "GET":
+                result["remote"] = (
+                    self.server.remote_gateway.status()
+                    if self.server.remote_gateway is not None
+                    else {"gateway_running": False}
+                )
             self._json(200, result)
         except ConnectionError:
             pass
@@ -355,13 +378,32 @@ class Handler(BaseHTTPRequestHandler):
     do_DELETE = _request
 
 
-def serve(home: Path) -> int:
+def serve(home: Path, *, remote: bool = False) -> int:
     try:
         with service_lock(home):
             engine = Engine(home)
-            server = LocalServer(engine)
-            discovery(home, server.server_port, server.token)
-            engine.start()
+            from videoenhancer.service.settings import read_settings
+
+            settings = read_settings(home)
+            gateway = None
+            server = None
+            try:
+                if remote or settings["remote_enabled"]:
+                    from videoenhancer.remote.gateway import Gateway
+
+                    gateway = Gateway(engine, home, settings)
+                    gateway.start()
+                server = LocalServer(engine, gateway)
+                discovery(home, server.server_port, server.token)
+                engine.start()
+            except Exception:
+                if gateway is not None:
+                    gateway.close()
+                if server is not None:
+                    server.server_close()
+                engine.close()
+                (home / "serve.json").unlink(missing_ok=True)
+                raise
 
             def stop(_signum: int, _frame: Any) -> None:
                 engine.stop.set()
@@ -377,6 +419,8 @@ def serve(home: Path) -> int:
             try:
                 server.serve_forever(poll_interval=0.25)
             finally:
+                if gateway is not None:
+                    gateway.close()
                 engine.close()
                 server.server_close()
                 (home / "serve.json").unlink(missing_ok=True)

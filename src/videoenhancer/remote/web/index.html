@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.mjs"></script>
+  <title>VideoEnhancer</title>
+</head>
+<body>
+  <div class="shell">
+    <header><span class="brand">VideoEnhancer</span><span id="connection" aria-live="polite"></span></header>
+    <main id="main" aria-busy="true"><p class="muted">Connecting to your PC…</p></main>
+    <nav id="tabs" aria-label="Main navigation" hidden>
+      <button id="library-tab" class="tab active" aria-current="page">Library</button>
+      <button id="add-tab" hidden tabindex="-1" disabled>Add</button>
+      <button id="settings-tab" class="tab">Settings</button>
+    </nav>
+  </div>
+  <dialog id="delete-sheet" aria-labelledby="delete-heading">
+    <form method="dialog">
+      <h2 id="delete-heading">Delete video?</h2>
+      <p id="delete-description"></p>
+      <p class="muted">This permanently deletes the video from the PC.</p>
+      <p id="delete-error" class="error" role="alert"></p>
+      <div class="actions"><button id="cancel-delete" value="cancel">Cancel</button><button id="confirm-delete" class="danger" value="delete">Delete permanently</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
