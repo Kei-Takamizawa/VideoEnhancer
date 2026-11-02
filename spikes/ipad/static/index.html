@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#153d53">
+<link rel="manifest" href="/manifest.json"><link rel="stylesheet" href="/style.css"><title>iPad spike</title></head>
+<body><main><h1>VideoEnhancer iPad spike</h1><p id="status" role="status">Connecting…</p>
+<p>Results are saved on the PC. Keep this app on home Wi-Fi. Each result describes this device only.</p>
+<section><h2>T1 · Certificate</h2><p>Did Safari show a certificate warning when opening this page?</p>
+<button data-result="T1" data-pass="true">I saw no warning</button><button data-result="T1" data-pass="false">I saw a warning</button></section>
+<section><h2>T2 · Home Screen</h2><button id="standalone">Check Home Screen install</button></section>
+<section><h2>T3 · Notifications</h2><button id="push">Allow notifications and send two pushes</button>
+<p>Close this app immediately. Notifications are sent after 10 and 60 seconds. Reopen after 75 seconds.</p>
+<button data-result="T3" data-pass="true">I saw both notifications</button><button data-result="T3" data-pass="false">One or both were missing</button></section>
+<section><h2>T4 · Upload and resume</h2><p>Choose a short video from each source. The test aborts one request, asks the PC for its offset, then resumes. To test real loss, turn Wi-Fi off briefly during a larger upload, turn it back on, then tap Retry.</p>
+<label>Choose from Photos <input id="photos" type="file" accept="video/*"></label>
+<label>Choose from Files <input id="files" type="file" accept=".mp4,.mov,.m4v,.mkv,.webm"></label>
+<button id="retry">Retry selected upload</button><p id="upload-status" role="status"></p></section>
+<section><h2>T5 · Playback</h2><button data-codec="h264">Play H.264</button><button data-codec="hevc">Play HEVC</button><button data-codec="av1">Play AV1</button>
+<video id="video" controls playsinline muted preload="none"></video><p>Allow about 15 seconds per codec. Seeking to 50% and 90% is automatic.</p></section>
+<section><h2>T6 · Download to Files</h2><p>Run once in the foreground, once with this app in the background for 30 seconds, and once for 3 minutes. A download that finishes before the wait ends cannot prove background continuation. Use Safari's download indicator to check.</p>
+<a class="button" data-download="foreground" href="/media/1GB.mp4?download=1" download>Download 1 GB · foreground</a><a class="button" data-download="30" href="/media/1GB.mp4?download=1" download>Download 1 GB · background 30 s</a><a class="button" data-download="180" href="/media/1GB.mp4?download=1" download>Download 1 GB · background 3 min</a>
+<button id="download-ok">Download continued and file arrived</button><button id="download-fail">Download stopped or failed</button></section>
+<section><h2>T7 · Save to Photos</h2><p>Each button loads a file and then enables Share. In the share sheet, choose Save Video. Loading large files may exceed this iPad's memory.</p>
+<button data-share-size="50MB">Load 50 MB</button><button data-share-size="500MB">Load 500 MB</button><button data-share-size="1GB">Load 1 GB</button>
+<button id="share" disabled>Share loaded video</button><button id="photos-ok">Save Video succeeded</button><button id="photos-fail">Save Video missing or failed</button></section>
+<section><h2>T8 · Paste and share target</h2><label>Paste a URL <input id="url" type="url" placeholder="https://example.com/video"></label>
+<button id="paste">Read clipboard</button><button id="paste-check">Record pasted URL</button>
+<p>From Safari, share a URL and look for this installed app. Return and record whether it was listed. URLs themselves are never saved in results.</p>
+<button id="target-missing">App was not in the share sheet</button></section>
+<section><h2>T9 · Sleep and recover</h2><button id="sse">Start sleep test</button><p>Lock the iPad for one minute, unlock, and return here. Recovery time is recorded automatically.</p></section>
+<h2>Latest results</h2><pre id="results" aria-live="polite"></pre></main><script src="/app.js"></script></body></html>

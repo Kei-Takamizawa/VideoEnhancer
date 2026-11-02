@@ -1,0 +1,229 @@
+const $ = selector => document.querySelector(selector);
+const status = $('#status');
+let config, registration, selectedUpload, shareFile, shareSize, eventSource, sleepStart, recoveryStart;
+shareSize = localStorage.getItem('shareSize') || '50MB';
+let downloadRun = JSON.parse(sessionStorage.getItem('downloadRun') || 'null');
+const pending = JSON.parse(localStorage.getItem('pendingResults') || '[]');
+let flushing;
+async function api(path, options = {}) {
+  const response = await fetch(path, {credentials:'same-origin', ...options});
+  if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
+  return response.json();
+}
+async function post(path, data) {
+  return api(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+}
+async function record(test, result) {
+  const item = {test, automated:navigator.webdriver === true, ...result};
+  $('#results').textContent = JSON.stringify(item, null, 2) + '\n' + $('#results').textContent;
+  pending.push(item);
+  localStorage.setItem('pendingResults', JSON.stringify(pending));
+  await flush();
+}
+function flush() {
+  if (flushing) return flushing;
+  flushing = (async () => {
+    while (pending.length) {
+      try { await post('/api/results', pending[0]); } catch { status.textContent = 'Result queued. Reconnect to home Wi-Fi.'; return; }
+      pending.shift(); localStorage.setItem('pendingResults', JSON.stringify(pending));
+    }
+  })().finally(() => { flushing = undefined; });
+  return flushing;
+}
+function action(selector, fn) {
+  document.querySelectorAll(selector).forEach(element => element.addEventListener('click', async () => {
+    element.disabled = true;
+    try { await fn(element); } catch (error) { status.textContent = error.message; }
+    finally { element.disabled = false; }
+  }));
+}
+action('[data-result]', b => record(b.dataset.result, {pass:b.dataset.pass === 'true',phase:'owner_observation'}));
+action('#standalone', () => record('T2', {pass:matchMedia('(display-mode: standalone)').matches || navigator.standalone === true}));
+action('#push', async () => {
+  try {
+    if (!('Notification' in window) || !('PushManager' in window)) throw new Error('Web Push unavailable. Open from the Home Screen.');
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') throw new Error(`Notification permission: ${permission}`);
+    registration = await navigator.serviceWorker.ready;
+    const encoded = config.vapid.replace(/-/g,'+').replace(/_/g,'/');
+    const key = Uint8Array.from(atob(encoded + '='.repeat((4-encoded.length%4)%4)), c => c.charCodeAt(0));
+    const subscription = await registration.pushManager.getSubscription() || await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
+    const scheduled = await post('/api/push', {subscription:subscription.toJSON()});
+    await record('T3', {phase:'subscribed',pass:true,...scheduled});
+    status.textContent = 'Close the app now. Reopen after 75 seconds.';
+  } catch (error) { await record('T3', {phase:'subscribe',pass:false,error:error.message}); }
+});
+
+async function upload(file, source) {
+  const started = performance.now();
+  let aborted = false, abortObserved = false, resumedBytes = 0;
+  try {
+    $('#upload-status').textContent = 'Computing SHA-256 locally…';
+    // shortcut: WebCrypto needs one contiguous buffer; record failure on large iPad files.
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer())), b => b.toString(16).padStart(2,'0')).join('');
+    const path = `/api/upload/${digest}`;
+    let offset = (await api(path)).offset;
+    const initialOffset = offset;
+    while (offset < file.size) {
+      // Windows WebKit's fetch(Blob slice) sent offset-zero bytes in the spike.
+      // Materialize only one chunk so every browser sends the requested range.
+      const part = await file.slice(offset, offset + config.chunk_bytes).arrayBuffer();
+      if (!aborted && offset > initialOffset) {
+        const controller = new AbortController();
+        const request = fetch(path + `?offset=${offset}`, {method:'PUT',body:part,signal:controller.signal});
+        setTimeout(() => controller.abort(), 1);
+        try { await request; } catch (error) { if (error.name !== 'AbortError') throw error;abortObserved = true; }
+        aborted = true;
+        offset = (await api(path)).offset;
+        continue;
+      }
+      const response = await api(path + `?offset=${offset}`, {method:'PUT',body:part});
+      if (abortObserved) resumedBytes += response.offset - offset;
+      offset = response.offset;
+      $('#upload-status').textContent = `${Math.round(offset / 1e6)} / ${Math.round(file.size / 1e6)} MB`;
+    }
+    const result = await post(path + '/finish', {size:file.size});
+    const seconds = (performance.now() - started) / 1000;
+    await record('T4', {source,pass:result.sha256 === digest,hash_matches:result.sha256 === digest,
+      bytes:file.size,seconds,MB_s:(file.size-initialOffset)/1e6/seconds,chunk_bytes:config.chunk_bytes,
+      forced_abort_attempted:aborted,abort_observed:abortObserved,resume_ok:abortObserved && resumedBytes > 0,
+      transferred_bytes:file.size-initialOffset,resumed_bytes:resumedBytes,resume_offset:initialOffset});
+  } catch (error) {
+    await record('T4', {source,pass:false,error:error.message,forced_abort_attempted:aborted});
+    $('#upload-status').textContent = 'Upload stopped. Restore Wi-Fi and tap Retry selected upload.';
+  }
+}
+for (const source of ['photos','files']) {
+  $('#' + source).addEventListener('change', async event => {
+    const file = event.target.files[0];
+    if (file) { selectedUpload = {file,source}; await upload(file,source); }
+  });
+}
+action('#retry', async () => { if (selectedUpload) await upload(selectedUpload.file, selectedUpload.source); });
+
+function waitEvent(element, type, timeout=20000) {
+  return new Promise((resolve,reject) => {
+    const timer = setTimeout(() => done(new Error(`Timeout: ${type}`)), timeout);
+    const ok = () => done();
+    const fail = () => done(new Error(`Media error ${element.error?.code}: ${element.error?.message || ''}`));
+    function done(error) { clearTimeout(timer);element.removeEventListener(type,ok);element.removeEventListener('error',fail);error ? reject(error) : resolve(); }
+    element.addEventListener(type,ok,{once:true});element.addEventListener('error',fail,{once:true});
+  });
+}
+let playingTest = false;
+async function playback(codec) {
+  if (playingTest) return;
+  playingTest = true;
+  const video = $('#video'), start = performance.now(), result = {codec};
+  try {
+    const ready = waitEvent(video,'canplay');
+    video.src = `/media/${codec}.mp4`;
+    video.load();
+    const play = video.play();
+    play.catch(() => {});
+    await ready; result.canplay_ms = performance.now() - start;
+    await play;
+    if ('requestVideoFrameCallback' in video) {
+      await new Promise((resolve,reject) => {
+        const timer = setTimeout(() => reject(new Error('First frame timeout')),20000);
+        video.requestVideoFrameCallback(() => {clearTimeout(timer);resolve();});
+      });
+    } else await waitEvent(video,'timeupdate');
+    result.first_frame_ms = performance.now() - start;
+    for (const fraction of [.5,.9]) {
+      const seekStart = performance.now(), seeked = waitEvent(video,'seeked');
+      video.currentTime = video.duration * fraction; await seeked;
+      result[`seek_${fraction*100}_ms`] = performance.now() - seekStart;
+    }
+    await record('T5', {...result,pass:true,errors:[]});
+  } catch (error) { await record('T5', {...result,pass:false,errors:[error.message]}); }
+  finally { video.pause(); playingTest = false; }
+}
+action('[data-codec]', b => playback(b.dataset.codec));
+
+document.querySelectorAll('[data-download]').forEach(b => b.addEventListener('click', () => {
+  downloadRun = {run:crypto.randomUUID(),background_target:b.dataset.download,started_ms:Date.now(),hidden_ms:null,background_intervals:[]};
+  sessionStorage.setItem('downloadRun',JSON.stringify(downloadRun));
+  b.href = `/media/1GB.mp4?download=1&run=${downloadRun.run}`;
+  record('T6', {...downloadRun,phase:'started'});
+  status.textContent = 'Check Safari downloads and switch away for the selected interval.';
+}));
+async function downloadObservation(pass) {
+  if (!downloadRun) throw new Error('Start a download first');
+  await record('T6', {...downloadRun,phase:'owner_observation',pass,observation_elapsed_s:(Date.now()-downloadRun.started_ms)/1000});
+}
+action('#download-ok', () => downloadObservation(true));
+action('#download-fail', () => downloadObservation(false));
+action('[data-share-size]', async b => {
+  shareSize = b.dataset.shareSize; shareFile = null; $('#share').disabled = true;
+  localStorage.setItem('shareSize',shareSize);
+  await record('T7',{phase:'load_started',size:shareSize});
+  try {
+    const start = performance.now(), response = await fetch(`/media/${shareSize}.mp4`);
+    if (!response.ok) throw new Error(`File load ${response.status}`);
+    shareFile = new File([await response.blob()], `${shareSize}.mp4`, {type:'video/mp4'});
+    const canShare = !!navigator.canShare?.({files:[shareFile]});
+    await record('T7', {phase:'loaded',size:shareSize,bytes:shareFile.size,load_ms:performance.now()-start,can_share:canShare,pass:canShare});
+    $('#share').disabled = !canShare; status.textContent = 'File loaded. Tap Share loaded video.';
+  } catch (error) { await record('T7',{size:shareSize,phase:'load',pass:false,error:error.message}); }
+});
+action('#share', async () => {
+  try { await navigator.share({files:[shareFile],title:'VideoEnhancer spike'});await record('T7',{size:shareSize,phase:'share_sheet_returned',pass:true}); }
+  catch(error) { await record('T7',{size:shareSize,phase:'share_sheet',pass:false,error:error.name + ': ' + error.message}); }
+});
+action('#photos-ok', () => record('T7',{size:shareSize,phase:'saved_to_photos',pass:true}));
+action('#photos-fail', () => record('T7',{size:shareSize,phase:'saved_to_photos',pass:false}));
+action('#paste', async () => {
+  try { $('#url').value = await navigator.clipboard.readText();await record('T8',{phase:'clipboard_api',pass:validURL($('#url').value)}); }
+  catch(error) { await record('T8',{phase:'clipboard_api',pass:false,error:error.name}); }
+});
+function validURL(text) { try { return ['http:','https:'].includes(new URL(text).protocol); } catch { return false; } }
+action('#paste-check', () => record('T8',{phase:'manual_paste',pass:validURL($('#url').value)}));
+action('#target-missing', () => record('T8',{phase:'share_target',pass:false,reason:'Not offered by iPadOS share sheet'}));
+action('#sse', async () => {
+  eventSource?.close();sleepStart = undefined;recoveryStart = undefined;
+  eventSource = new EventSource('/api/events');
+  eventSource.onmessage = async () => {
+    if (recoveryStart !== undefined) {
+      const ms = performance.now() - recoveryStart;recoveryStart = undefined;
+      await record('T9',{pass:true,reconnect_ms:ms,sleep_s:(Date.now()-sleepStart)/1000});
+    }
+    status.textContent = 'Status connected. Lock for one minute.';
+  };
+  eventSource.onerror = () => { status.textContent = 'Status disconnected; reconnecting…'; };
+  await record('T9',{phase:'started'});
+});
+document.addEventListener('visibilitychange', () => {
+  if (downloadRun) {
+    if (document.hidden) downloadRun.hidden_ms = Date.now();
+    else if (downloadRun.hidden_ms) {
+      downloadRun.background_intervals.push({start_ms:downloadRun.hidden_ms,end_ms:Date.now()});downloadRun.hidden_ms=null;
+    }
+    sessionStorage.setItem('downloadRun',JSON.stringify(downloadRun));
+  }
+  if (!eventSource) return;
+  if (document.hidden) sleepStart = Date.now();
+  else if (sleepStart) {
+    recoveryStart = performance.now();
+    setTimeout(() => { if (recoveryStart !== undefined) { recoveryStart=undefined;record('T9',{pass:false,error:'No SSE event within 20 seconds after resume'}); } },20000);
+  }
+});
+window.addEventListener('online', flush);
+async function init() {
+  try {
+    if (location.pathname === '/pair/finish') {
+      const secret = location.hash.slice(1); history.replaceState(null,'','/pair/finish');
+      await post('/api/pair/finish',{secret}); location.replace('/'); return;
+    }
+    config = await api('/api/config');
+    registration = await navigator.serviceWorker.register('/sw.js');
+    await flush(); status.textContent = 'Paired. Ready to test.';
+    const query = new URLSearchParams(location.search);
+    if (['shared_url','shared_text','shared_title'].some(k => query.has(k))) {
+      $('#url').value = query.get('shared_url') || query.get('shared_text') || '';
+      history.replaceState(null,'','/');
+      await record('T8',{phase:'share_target',pass:validURL($('#url').value)});
+    }
+  } catch(error) { status.textContent = `Setup: ${error.message}. Use the original pairing finish link if needed.`; }
+}
+init();
