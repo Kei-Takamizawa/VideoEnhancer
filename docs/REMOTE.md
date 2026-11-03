@@ -1,4 +1,4 @@
-# VideoEnhancer on an iPad
+# VideoEnhancer on an iPad or Mac
 
 The Windows PC runs the engine without a visible window. Use the iPad Home Screen
 web app on the same home Wi-Fi to browse, play, save and permanently delete videos
@@ -70,6 +70,16 @@ the service is installed again.
 
 ## First iPad setup
 
+To add a Mac from an already paired iPad, open **Settings > Add a new device**.
+Use **Copy address** to transfer the HTTP setup address to Safari on the Mac.
+Follow that page to install the CA profile and trust the certificate in Keychain
+Access, then open the HTTPS app and select **Pair this device** within the live
+two-minute countdown. If setup takes longer, press **Add a new device** again on
+the iPad after the window closes. Settings shows **New device added: <label>.**
+and refreshes the paired devices, or shows **Pairing closed.** on expiry. Reloading
+Settings restores an open window. The PC shortcut and `ve remote pair` remain
+available. Adding a device requires no service restart or PC interaction.
+
 1. Open the printed setup address in Safari at any time, normally
    `http://<COMPUTERNAME>.local:8080/`.
 2. Download the **VideoEnhancer Local CA** configuration profile. In Settings,
@@ -81,7 +91,8 @@ the service is installed again.
    `https://<COMPUTERNAME>.local:8443/`. In Safari choose **Share > Add to Home
    Screen**, leaving **Open as Web App** on.
 5. Open that Home Screen app and tap **Pair this iPad**. If the two-minute window
-   closed, run **VideoEnhancer - Redo pairing** on the PC and try again.
+   closed, select **Settings > Add a new device** on a paired device, or run
+   **VideoEnhancer - Redo pairing** on the PC and try again.
 
 Pair inside the Home Screen app: Safari and the Home Screen app have separate
 cookie storage. The first accepted claim closes the pairing window immediately.
@@ -89,8 +100,9 @@ An open window permits a device on the home network to claim pairing, so open it
 only when setting up an intended device. The HTTP setup page also offers the
 plain CA certificate at `/ca.cer` for manual inspection.
 The setup page and certificate stay available when pairing is closed. Only the
-claim needs an open window. When you are ready to pair, click
-**VideoEnhancer - Redo pairing** on the PC, then tap **Pair this iPad** within
+claim needs an open window. When you are ready to pair, select **Settings > Add a
+new device** on a paired device, or click **VideoEnhancer - Redo pairing** on the
+PC, then tap **Pair this iPad** within
 2 minutes. **Try again** on the unpaired screen rechecks the pairing state.
 
 Use the address printed by `remote status`. The PC name with `.local`, its plain
@@ -151,6 +163,7 @@ times or ISO 8601 UTC strings for session and certificate dates.
 | `GET /` and fixed shell assets | Public app shell; it renders the pairing screen until authorized. |
 | `GET /api/session` | Unpaired: `{paired:false,pairing_open}`. Paired: `{paired:true,device_label,paired_at,pc_name,addresses,cert_expires,version,share_limit_bytes}`. |
 | `POST /api/pair/claim` | Claim the open pairing window; sets the device cookie. No existing cookie required. |
+| `POST /api/pair/open` | Paired device opens a two-minute window with `{}`; five openings per device per ten minutes. Returns `closes_at`. |
 | `GET /api/library` | `{items:[...]}` newest first. Items contain `id`, `name`, `filename`, `mime`, `size`, `modified` (Unix seconds), `duration` (seconds), `width`, `height`, `codec`, and optional `error`. Probe failures use null metadata. |
 | `GET /api/library/{id}/video` | Video bytes; accepts one `Range: bytes=...` range, including suffix ranges. |
 | `HEAD /api/library/{id}/video` | The same video response headers without a body. |
@@ -325,3 +338,80 @@ without whole-file buffering. Operation and upload identifiers are device-owned.
 Authenticated `GET /api/session` also includes `push_key` (base64url P-256 public
 key) and `notifications_on`. Unknown/malformed selections return 400, oversized
 bodies return 413, and an unavailable processing engine returns 503.
+
+
+## Mac browsers, library images and player controls (R1c)
+
+On a Mac, visit the PC's HTTP setup address and download the CA profile. In
+System Settings > General > Device Management (or Profiles), select the profile
+and install it. Open the HTTPS address and check that it opens without a warning.
+If Safari still rejects it, find VideoEnhancer Local CA in Keychain Access,
+open Trust and choose Always Trust for Secure Sockets Layer (SSL). Installing a
+profile alone does not necessarily enable TLS trust on macOS 13 and later.
+These directions follow Apple's documentation; the owner's macOS wording still
+needs a physical-device check:
+[profiles](https://support.apple.com/guide/mac-help/install-a-configuration-profile-mh35561/mac),
+[certificate trust](https://support.apple.com/guide/keychain-access/change-the-trust-settings-of-a-certificate-kyca11871/mac),
+[manually installed roots](https://support.apple.com/guide/deployment/intro-to-certificate-management-depb5eff8914/web).
+The iPad setup directions remain unchanged. A Macintosh user agent with multiple
+touch points is treated as an iPad.
+
+Select **Settings > Add a new device** on a paired device, or run
+**VideoEnhancer - Redo pairing** on the PC, then select **Pair this device**
+within two minutes in a normal Safari or Chrome tab. Each browser keeps its own
+cookie; opening another pairing window preserves previous devices. Safari's
+**File > Add to Dock** is optional. Settings lists paired-device labels and dates;
+removing a device is deferred to R2.
+
+On a Mac, Download uses a normal attachment at every size. It never loads a
+whole video into a JavaScript File or invokes sharing. Add accepts the file
+picker or one dropped video; upload limits and resume are unchanged. Notification
+subscriptions accept HTTPS endpoints on web.push.apple.com and fcm.googleapis.com
+only, with the existing port, credential, redirect and endpoint restrictions.
+
+The Library uses a lazy-loaded poster grid. Each video's hidden
+`.videoenhancer/<item id>/` sidecar contains a JPEG poster, JPEG storyboard sheets
+and storyboard.json. Posters have a 270-pixel short side and start at 10% of the
+video; up to three later samples avoid luma below 16. Storyboard tiles are
+160 pixels wide, at intervals of max(2 seconds, duration / 200), with at most
+100 tiles per sheet and 8,000,000 bytes of sheets per video. JPEG quality is
+reduced before refusing an oversized storyboard. Missing images show a neutral
+placeholder. Deletion removes sidecars and startup removes orphaned sidecars.
+
+One low-priority CPU worker generates images for existing or newly published
+videos. The engine suspends it and waits for its current work to stop before a
+GPU segment, and resumes it at the between-segments boundary after publication
+and the Ready notification. Interrupted partial images are removed and retried.
+Keyframe-only decoding is used when the measured maximum keyframe gap fits the
+storyboard interval; otherwise decoding is full. No processing sources or job
+records are retained for this feature.
+
+The player has custom Play/Pause, time, seek and full-screen controls. Mac also
+has volume and Space/Left/Right shortcuts (seek by five seconds). Hovering or
+dragging the seek bar shows a bounded storyboard preview, or just its time while
+images are unavailable. Mac uses the Fullscreen API on the player container;
+iPad uses webkitEnterFullscreen on the video when available, handing control to
+the native player. Range playback, Download and permanent Delete remain available.
+
+
+### Player keyboard and pointer controls
+
+Keyboard shortcuts work immediately after opening a Library video or a notification
+link, including when returning through browser history. Space/K plays or pauses;
+Left/Right seeks 5 seconds (Shift: 30 seconds); M mutes; F toggles fullscreen;
+Escape exits fullscreen. Up/Down changes the page-controlled Mac volume by 10%.
+Text entry and Cmd/Ctrl/Alt browser shortcuts retain their normal behavior.
+
+The original floating player controls and title fade after 2.5 seconds of playback
+inactivity. Pointer movement, a key press or pausing reveals them. Hovering over
+a bar or dragging the seek slider keeps controls visible. A mouse click on the
+video plays/pauses after a short double-click delay; a double click toggles
+fullscreen without changing playback. Touch taps reveal/hide controls; use the
+play button to play/pause. Mac fullscreen includes the control bars; iPad keeps
+its native video fullscreen. Storyboard previews remain above the seek slider.
+
+If push registration fails in Brave, open `brave://settings/privacy`, enable
+**Use Google services for push messaging**, restart Brave, and retry **Turn on
+notifications**. The app preserves the browser's error and shows this hint when
+Brave identifies itself. Brave's `fcm.googleapis.com` push endpoints use the same
+server validation as Chrome.

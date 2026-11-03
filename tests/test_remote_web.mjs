@@ -1,11 +1,22 @@
+import './test_remote_r1c.mjs';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 import {runInNewContext} from 'node:vm';
 import {
-  downloadProgress, formatDuration, formatSize, pairingScreen,
+  downloadProgress, formatDuration, formatSize, pairingScreen, pairingStatus,
   shareFile, storageSegments, storageText, loadFile, needsSafari, safariURL, safariInstructions,
 } from '../src/videoenhancer/remote/web/logic.mjs';
+
+test('pairing countdown, expiry and claim states', () => {
+  const original = [{id: 'first', label: 'iPad'}];
+  const state = {pairing_open: true, closes_at: new Date(120000).toISOString(), devices: original};
+  assert.equal(pairingStatus(state, original, 0), 'Pairing is open for 2:00.');
+  assert.equal(pairingStatus(state, original, 61000), 'Pairing is open for 0:59.');
+  assert.equal(pairingStatus(state, original, 120000), 'Pairing closed.');
+  assert.equal(pairingStatus({...state, pairing_open: false}, original, 0), 'Pairing closed.');
+  assert.equal(pairingStatus({...state, pairing_open: false, devices: [...original, {id: 'new', label: 'Mac, Safari 26'}]}, original, 0), 'New device added: Mac, Safari 26.');
+});
 
 test('storage segments distinguish library, other used, and free space', () => {
   assert.deepEqual(storageSegments({total: 1000, free: 400, library_bytes: 200}), [20, 40, 40]);

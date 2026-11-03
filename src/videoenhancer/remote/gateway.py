@@ -34,8 +34,9 @@ CSP = (
 )
 
 PAIRING_HELP = (
-    "When you are ready to pair, click 'VideoEnhancer - Redo pairing' on the PC, "
-    "then tap Pair this iPad within 2 minutes."
+    "When you are ready to pair, select Settings > Add a new device on a paired device, "
+    "or click 'VideoEnhancer - Redo pairing' on the PC, "
+    "then select Pair this device within 2 minutes."
 )
 
 
@@ -112,6 +113,15 @@ class Gateway:
         self.setup_port = settings.get("remote_setup_port", 8080)
         self.downloads: dict[str, Download] = {}
         self.download_lock = threading.Lock()
+        from videoenhancer.remote.thumbnails import Thumbnails
+
+        self.thumbnails = (
+            Thumbnails(self.adapter.library)
+            if engine is not None or settings.get("library_folder")
+            else None
+        )
+        if self.jobs is not None:
+            self.jobs.thumbnails = self.thumbnails
 
     def start(self):
         if self.servers:
@@ -135,11 +145,18 @@ class Gateway:
                 self.threads.append(thread)
             if self.jobs is not None:
                 self.jobs.start()
+            if self.thumbnails is not None:
+                self.thumbnails.cleanup()
+                if self.jobs is not None:
+                    self.thumbnails.pause()
+                self.thumbnails.thread.start()
         except Exception:
             self.close()
             raise
 
     def close(self):
+        if self.thumbnails is not None:
+            self.thumbnails.close()
         if self.jobs is not None:
             self.jobs.close()
         for server, thread in zip(self.servers, self.threads, strict=False):
@@ -188,11 +205,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", CSP)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", (headers or {}).get("Cache-Control", "no-store"))
         self.send_header("Connection", "close")
         self.close_connection = True
         for key, value in (headers or {}).items():
-            self.send_header(key, value)
+            if key != "Cache-Control":
+                self.send_header(key, value)
         self.end_headers()
         self._status = status
         if getattr(self, "command", None) != "HEAD":
@@ -227,6 +245,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/storage",
             "/api/session",
             "/api/pair/claim",
+            "/api/pair/open",
             "/api/client-event",
         }:
             return path
@@ -279,7 +298,7 @@ class Handler(BaseHTTPRequestHandler):
                 len(self.headers.get_all("Origin", [])) != 1
                 or self.headers.get("Origin") != f"https://{host}"
             ):
-                return self._error(403, "Open VideoEnhancer from its own Home Screen app.")
+                return self._error(403, "Open VideoEnhancer from its own app address.")
             lengths = self.headers.get_all("Content-Length", [])
             length_text = self.headers.get("Content-Length", "0")
             if (
@@ -310,9 +329,12 @@ class Handler(BaseHTTPRequestHandler):
                 not streamed
                 and not bounded
                 and path != "/api/client-event"
+                and path != "/api/pair/claim"
                 and length not in {0, 2}
             ):
                 return self._error(400, "The request body is invalid.")
+            if path == "/api/pair/claim" and length > 256:
+                return self._error(413, "The request body is too large.")
             self.length = length
             self.body = self.rfile.read(length) if length and not streamed else b""
             self._body_consumed = not streamed
@@ -320,12 +342,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/session" and self.command == "GET":
             if not device:
                 return self._json(
-                    200, {"paired": False, "pairing_open": gateway.devices.pairing_open}
+                    200,
+                    {
+                        "paired": False,
+                        "pairing_open": gateway.devices.pairing_open,
+                        "closes_at": gateway.status()["closes_at"],
+                    },
                 )
             return self._json(
                 200,
                 {
                     "paired": True,
+                    "pairing_open": gateway.devices.pairing_open,
+                    "closes_at": gateway.status()["closes_at"],
+                    "setup_address": gateway.status()["setup_address"],
                     "device_label": device["label"],
                     "paired_at": device["created"],
                     "pc_name": gateway.pc_name,
@@ -335,11 +365,21 @@ class Handler(BaseHTTPRequestHandler):
                     "share_limit_bytes": gateway.settings.get("share_limit_bytes", 900_000_000),
                     "push_key": gateway.push.public_key,
                     "notifications_on": gateway.push.subscribed(device["id"]),
+                    "devices": [
+                        {"id": row["id"], "label": row["label"], "created": row["created"]}
+                        for row in gateway.devices.devices
+                    ],
                 },
             )
         if path == "/api/pair/claim" and self.command == "POST":
+            try:
+                claim = json.loads(self.body or b"{}")
+            except (ValueError, UnicodeError):
+                return self._error(400, "The pairing body must be a valid JSON object.")
+            if not isinstance(claim, dict):
+                return self._error(400, "The pairing body must be a valid JSON object.")
             status, value = gateway.devices.claim(
-                self.client_address[0], self.headers.get("User-Agent", "")
+                self.client_address[0], self.headers.get("User-Agent", ""), claim.get("platform")
             )
             if status != 200:
                 return self._error(status, value)
@@ -356,7 +396,15 @@ class Handler(BaseHTTPRequestHandler):
         if not path.startswith("/api/"):
             return self._static(path)
         if not device:
-            return self._error(401, "Pair this iPad to use VideoEnhancer.")
+            return self._error(401, "Pair this device to use VideoEnhancer.")
+        if path == "/api/pair/open" and self.command == "POST":
+            if self.body != b"{}":
+                return self._error(400, "The request body must be {}.")
+            deadline = gateway.devices.open_from_device(device["id"])
+            if deadline is None:
+                return self._error(429, "Too many pairing windows. Wait ten minutes and try again.")
+            gateway.logger.info("POST /api/pair/open device=%s", device["id"])
+            return self._json(200, {"closes_at": datetime.fromtimestamp(deadline, UTC).isoformat()})
         if path == "/api/client-event" and self.command == "POST":
             return self._client_event()
         if self._remote_api(path, device["id"]):
@@ -367,6 +415,21 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/storage" and self.command == "GET":
             return self._json(200, library.storage())
         parts = path.strip("/").split("/")
+        image = re.fullmatch(
+            r"/api/library/([0-9a-f]{64})/(poster\.jpg|storyboard\.json|storyboard/(\d{1,2})\.jpg)",
+            path,
+        )
+        if image and self.command in {"GET", "HEAD"}:
+            if gateway.thumbnails is None:
+                raise FileNotFoundError("Images are not ready.")
+            name = f"{int(image[3])}.jpg" if image[3] is not None else image[2]
+            data, etag = gateway.thumbnails.read(image[1], name)
+            headers = {"Cache-Control": "private, max-age=86400", "ETag": etag}
+            if self.headers.get("If-None-Match") == etag:
+                return self._send(304, headers=headers)
+            return self._send(
+                200, data, "application/json" if name.endswith("json") else "image/jpeg", headers
+            )
         if (
             len(parts) == 4
             and parts[:2] == ["api", "library"]
@@ -493,6 +556,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _setup(self, path):
         gateway = self.server.gateway
+        if path in {"/platform.mjs", "/setup.mjs"} and self.command in {"GET", "HEAD"}:
+            return self._send(200, (WEB / path[1:]).read_bytes(), "text/javascript")
         if self.command not in {"GET", "HEAD"}:
             return self._error(404, "This page is not available.")
         if path in {"/ca.mobileconfig", "/ca.cer"}:
@@ -512,7 +577,8 @@ class Handler(BaseHTTPRequestHandler):
         )
         body = f'''<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Set up VideoEnhancer</title><h1>Set up VideoEnhancer</h1><ol>
+<title>Set up VideoEnhancer</title><script type="module" src="/setup.mjs"></script>
+<h1>Set up VideoEnhancer</h1><ol id="setup-steps" data-address="{address}">
 <li><a href="/ca.mobileconfig">Install the VideoEnhancer CA profile</a>
 (or <a href="/ca.cer">download the certificate</a>).</li>
 <li>Open Settings &gt; General &gt; VPN &amp; Device Management.
@@ -549,13 +615,22 @@ In Safari, tap Share &gt; Add to Home Screen, with Open as Web App on.</li>
 
     def _client_event(self):
         event = json.loads(self.body)
-        if not isinstance(event, dict) or event.get("kind") not in {
-            "share_failure",
-            "load_failure",
-            "share_check",
-        }:
+        if (
+            not isinstance(event, dict)
+            or not isinstance(event.get("kind"), str)
+            or event.get("kind")
+            not in {
+                "share_failure",
+                "load_failure",
+                "share_check",
+            }
+        ):
             raise ValueError("Invalid client event.")
-        if event.get("phase") not in {"load", "share", "playback"}:
+        if not isinstance(event.get("phase"), str) or event.get("phase") not in {
+            "load",
+            "share",
+            "playback",
+        }:
             raise ValueError("Invalid phase.")
         size = event.get("size_bytes")
         if type(size) is not int or not 0 <= size <= 2**53 - 1:

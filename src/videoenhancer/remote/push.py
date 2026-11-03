@@ -1,4 +1,4 @@
-"""Private, Apple-only encrypted Web Push notifications."""
+"""Private encrypted Web Push notifications to approved browser services."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def _subscription(value: dict) -> dict:
         url = urlsplit(endpoint)
         if (
             url.scheme != "https"
-            or url.hostname != "web.push.apple.com"
+            or url.hostname not in {"web.push.apple.com", "fcm.googleapis.com"}
             or url.port not in (None, 443)
             or url.username is not None
             or url.password is not None

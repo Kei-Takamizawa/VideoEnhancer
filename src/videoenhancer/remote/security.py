@@ -79,7 +79,20 @@ def cookie_secret(header: str | None) -> str:
         return ""
 
 
-def device_label(agent: str) -> str:
+def device_label(agent: str, hint: str | None = None) -> str:
+    if hint is not None:
+        if not isinstance(hint, str) or hint not in {"mac", "ipad", "other"}:
+            raise ValueError("Invalid device hint.")
+        if hint in {"mac", "ipad"} and not any(word in agent for word in ("Macintosh", "iPad")):
+            raise ValueError("The device hint does not match the browser.")
+        kind = {"mac": "Mac", "ipad": "iPad", "other": "Browser"}[hint]
+        chrome = re.search(r"Chrome/(\d{1,3})\b", agent)
+        safari = re.search(r"Version/(\d{1,3})\b", agent)
+        if chrome:
+            return f"{kind}, Chrome {chrome.group(1)}"
+        if safari and "Safari/" in agent:
+            return f"{kind}, Safari {safari.group(1)}"
+        return kind
     kind = "iPad" if "iPad" in agent or "Macintosh" in agent and "Mobile" in agent else "Browser"
     version = re.search(r"Version/(\d{1,3})", agent)
     return f"{kind}, Safari {version.group(1)}" if version else kind
@@ -91,6 +104,7 @@ class Devices:
         self.clock = clock
         self.lock = threading.RLock()
         self.attempts: dict[str, deque[float]] = defaultdict(deque)
+        self.open_attempts: dict[str, deque[float]] = defaultdict(deque)
         self.devices: list[dict[str, Any]] = self._read("devices.json", [])
         self.deadline = self._read("pairing.json", {}).get("closes_at", 0)
 
@@ -112,7 +126,8 @@ class Devices:
             self._save("pairing.json", {"closes_at": self.deadline})
             return self.deadline
 
-    def claim(self, address: str, agent: str) -> tuple[int, str]:
+    def claim(self, address: str, agent: str, hint: str | None = None) -> tuple[int, str]:
+        label = device_label(agent, hint)
         with self.lock:
             now = self.clock()
             attempts = self.attempts[address]
@@ -128,7 +143,7 @@ class Devices:
             device = {
                 "id": uuid.uuid4().hex,
                 "secret_hash": hashlib.sha256(secret.encode()).hexdigest(),
-                "label": device_label(agent),
+                "label": label,
                 "created": stamp,
                 "last_seen": stamp,
             }
@@ -138,6 +153,17 @@ class Devices:
             self._save("devices.json", [*self.devices, device])
             self.devices.append(device)
             return 200, secret
+
+    def open_from_device(self, identifier: str) -> float | None:
+        with self.lock:
+            now = self.clock()
+            attempts = self.open_attempts[identifier]
+            while attempts and attempts[0] <= now - 600:
+                attempts.popleft()
+            if len(attempts) >= 5:
+                return None
+            attempts.append(now)
+            return self.open_pairing()
 
     def authenticate(self, secret: str) -> dict[str, Any] | None:
         if not secret or len(secret) > 128:

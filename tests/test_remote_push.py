@@ -219,3 +219,21 @@ def test_unpaired_and_missing_subscription(setup_push):
     assert not push.subscribed("other")
     assert push.test("other") == {"ok": False, "status": None}
     assert not sent
+
+
+def test_chrome_and_brave_fcm_endpoint_and_strict_hosts(setup_push):
+    push, _, subscription, _, _, sent = setup_push
+    subscription["endpoint"] = "https://fcm.googleapis.com/fcm/send/synthetic"
+    push.subscribe("ipad", subscription)
+    assert push.test("ipad")["ok"]
+    assert sent[-1][0] == subscription["endpoint"]
+    for endpoint in (
+        "http://fcm.googleapis.com/a",
+        "https://fcm.googleapis.com.evil.test/a",
+        "https://fcm.googleapis.com:444/a",
+        "https://user@fcm.googleapis.com/a",
+        "https://fcm.googleapis.com/a#fragment",
+        "https://example.com/a",
+    ):
+        with pytest.raises(ValueError):
+            push.subscribe("ipad", {**subscription, "endpoint": endpoint})

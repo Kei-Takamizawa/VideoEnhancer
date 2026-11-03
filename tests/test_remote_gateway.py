@@ -71,6 +71,70 @@ def pair(gateway):
     return headers["Set-Cookie"].split(";", 1)[0]
 
 
+def test_open_pairing_security_session_claim_and_log(gateway, caplog):
+    route = "/api/pair/open"
+    assert request(gateway, route, "POST", body="{}")[0] == 401
+    cookie = pair(gateway)
+    assert request(gateway, route, "POST", cookie=cookie, origin=False, body="{}")[0] == 403
+    assert request(gateway, route, "POST", cookie=cookie, host="evil.invalid", body="{}")[0] == 421
+    assert request(gateway, route, "POST", cookie=cookie, body="[]")[0] == 400
+    with caplog.at_level(logging.INFO, logger="videoenhancer.remote"):
+        status, _, body = request(gateway, route, "POST", cookie=cookie, body="{}")
+    assert status == 200
+    opened = json.loads(body)
+    session = json.loads(request(gateway, "/api/session", cookie=cookie)[2])
+    assert session["pairing_open"] is True
+    assert session["closes_at"] == opened["closes_at"]
+    assert session["setup_address"].startswith("http://")
+    assert "/api/pair/open" in caplog.text
+    assert gateway.devices.devices[0]["id"] in caplog.text
+    assert cookie.split("=", 1)[1] not in caplog.text
+    assert "secret_hash" not in caplog.text
+    assert request(gateway, "/api/pair/claim", "POST", body="{}")[0] == 200
+    closed = json.loads(request(gateway, "/api/session", cookie=cookie)[2])
+    assert closed["pairing_open"] is False
+    assert len(closed["devices"]) == 2
+
+
+def test_open_pairing_rate_limit_per_device(gateway):
+    first = pair(gateway)
+    second = pair(gateway)
+    now = [gateway.devices.clock()]
+    gateway.devices.clock = lambda: now[0]
+    for _ in range(5):
+        assert request(gateway, "/api/pair/open", "POST", cookie=first, body="{}")[0] == 200
+    assert request(gateway, "/api/pair/open", "POST", cookie=first, body="{}")[0] == 429
+    assert request(gateway, "/api/pair/open", "POST", cookie=second, body="{}")[0] == 200
+    now[0] += 600
+    assert request(gateway, "/api/pair/open", "POST", cookie=first, body="{}")[0] == 200
+
+
+@pytest.mark.parametrize("body", ["[]", "null", "1", '"hint"', "{", b"\xff"])
+def test_bad_claim_body_returns_clear_400(gateway, body):
+    status, _, result = request(gateway, "/api/pair/claim", "POST", body=body)
+    assert status == 400
+    assert "JSON object" in json.loads(result)["error"]
+
+
+@pytest.mark.parametrize("hint", [[], {}, True, 1, "unknown"])
+def test_claim_rejects_invalid_platform_types(gateway, hint):
+    gateway.open_pairing()
+    assert (
+        request(gateway, "/api/pair/claim", "POST", body=json.dumps({"platform": hint}))[0] == 400
+    )
+    assert gateway.devices.pairing_open
+
+
+@pytest.mark.parametrize("field", ["kind", "phase"])
+def test_client_event_rejects_unhashable_input(gateway, field):
+    cookie = pair(gateway)
+    body = {"kind": "share_failure", "phase": "share", "size_bytes": 1, field: []}
+    assert (
+        request(gateway, "/api/client-event", "POST", cookie=cookie, body=json.dumps(body))[0]
+        == 400
+    )
+
+
 def test_unauthenticated_upload_body_reliably_returns_status(gateway):
     path = "/api/uploads/" + "a" * 32 + "/chunk?offset=0"
     for _ in range(50):
@@ -124,6 +188,7 @@ def test_pairing_single_claim_secret_hash_cookie_and_session(gateway):
     assert json.loads(request(gateway, "/api/session")[2]) == {
         "paired": False,
         "pairing_open": False,
+        "closes_at": "1970-01-01T00:00:00+00:00",
     }
     gateway.open_pairing()
     status, headers, _ = request(
@@ -255,7 +320,7 @@ def test_download_tokens_ranges_expiry_hashes_and_log_redaction(gateway, caplog,
 
     cookie = pair(gateway)
     folder = gateway.home / "library"
-    folder.mkdir()
+    folder.mkdir(exist_ok=True)
     (folder / "日本語.mp4").write_bytes(b"0123456789")
     identifier = gateway.adapter.library.list()[0]["id"]
     route = f"/api/library/{identifier}/download-link"
@@ -402,7 +467,7 @@ def test_concurrent_first_requests_share_one_library(tmp_path, monkeypatch):
 def test_delete_while_stream_active_and_after_release(gateway):
     cookie = pair(gateway)
     folder = gateway.home / "library"
-    folder.mkdir()
+    folder.mkdir(exist_ok=True)
     (folder / "sample.mp4").write_bytes(b"synthetic")
     library = gateway.adapter.library
     identifier = library.list()[0]["id"]
@@ -427,7 +492,7 @@ def test_delete_while_stream_active_and_after_release(gateway):
 def test_real_range_streams(gateway, range_header, expected, body):
     cookie = pair(gateway)
     folder = gateway.home / "library"
-    folder.mkdir()
+    folder.mkdir(exist_ok=True)
     (folder / "sample.mp4").write_bytes(b"0123456789")
     library = gateway.adapter.library
     item = library.list()[0]
