@@ -1,3 +1,80 @@
+Task ID / Cycle: VE-R1d-2 / Windows
+Status: BLOCKED
+
+## Questions for the designer
+
+The task requires computing selected poster times for three owner videos on the
+real home (CURRENT_TASK.md, section 3). AGENTS.md, Workspace, forbids reading the
+owner AppData and requires an isolated scratch VE_HOME for every test; CLAUDE.md
+also forbids touching owner data outside work. AGENTS.md explicitly says to stop
+and ask when CURRENT_TASK.md conflicts with those rules.
+
+Please provide an explicit read-only exception with the permitted home/media
+scope, or provide authorized evaluation inputs inside work and revise the real
+home acceptance requirement. No owner home or private media was inspected.
+Product implementation and acceptance validation have not started.
+
+## Dependency preflight
+
+PASS: the existing .venv imports onnxruntime 1.30.0, installed as
+onnxruntime-gpu 1.30.0. Available providers: TensorRT, CUDA, CPU.
+OpenCV is absent (cv2 raises ModuleNotFoundError). This does not establish that a
+new dependency is necessary: a CPU ONNX implementation remains a possible path.
+Actual detector inference: NOT_RUN. No dependency, lockfile, model, or service
+was changed; uv sync was not run. The real service was not started or stopped.
+
+## Changes and verification
+
+Changed file: .ai/LAST_REPORT.md only; older reports are retained below.
+CURRENT_TASK.md already contains the complete instruction and was preserved.
+Git status, branch and HEAD: NOT_RUN successfully; git was not on PATH.
+The initial three invocations returned CommandNotFoundException. No Git mutation
+was attempted; the operator must confirm the branch, HEAD and existing changes.
+No existing source changes were overwritten.
+
+NOT_RUN: scoring unit tests, people-count/version/GPU-gate tests, integration
+clips, mask accuracy, 10-minute 1080p timing, real-home selected times, ruff check,
+ruff format --check, pyright, CI CPU pytest, Node tests, desktop E2E, GUI checks.
+Expected: resolve instruction conflict before implementation.
+Actual: preflight stopped; no implementation or acceptance claim.
+
+## Errors and warnings
+
+The first inline Python dependency probe failed with SyntaxError due to Windows
+argument quoting. A stdin Python probe then completed successfully.
+Get-CimInstance disk query returned Access denied; Python shutil.disk_usage then
+successfully measured both drives. One rg glob returned a path syntax error;
+explicit instruction-file matches still identified the conflict.
+
+## Disk inventory (decimal GB)
+
+| Item | Baseline | End |
+| --- | ---: | ---: |
+| C free | 342.871867392 | 343.635546112 |
+| D free | 872.722432000 | 872.722432000 |
+| Current package | 0.125288579 | 0.125288579 |
+| Cycle evidence | 0.000035453 | 0.000050868 |
+| Scratch | 2.651203778 | 2.651203778 |
+| Cache | 12.446380608 | 12.446380608 |
+
+Logical file lengths, not allocated disk space. Evidence includes an externally
+written codex-exec.log and can grow during this run. Baseline was measured after
+local-env.ps1 created/confirmed scratch/tmp. Pre-existing scratch was preserved;
+no files were created there by tests and no unrelated artifacts were deleted.
+Bytes removed: 0. For the owner to delete: no refused deletions.
+Persistent growth attributable to this cycle is the report text (under 0.00001 GB);
+external runner-log growth is not fully attributable at report time. The 1 GB
+gate has no identified implementation-related growth.
+
+## Resume and owner checks
+
+Resolve the conflict above, confirm the authorized branch/tree, then resume the
+same task. No commit or push was made (operator-only under AGENTS.md). All product
+work, testing, timing, accuracy measurements and designer review remain pending.
+Do not restart the service on the strength of this report.
+
+---
+
 Task ID / Cycle: VE-R1d / Windows
 Status: COMPLETED
 
