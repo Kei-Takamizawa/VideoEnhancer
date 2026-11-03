@@ -71,6 +71,55 @@ def pair(gateway):
     return headers["Set-Cookie"].split(";", 1)[0]
 
 
+def test_unauthenticated_upload_body_reliably_returns_status(gateway):
+    path = "/api/uploads/" + "a" * 32 + "/chunk?offset=0"
+    for _ in range(50):
+        assert request(gateway, path, "PUT", body=b"x" * 32000)[0] == 401
+    assert request(gateway, path, "PUT", body=b"x" * 65537)[0] == 413
+
+
+def test_gateway_start_expires_abandoned_uploads(tmp_path, monkeypatch):
+    from videoenhancer.remote.uploads import Uploads
+
+    monkeypatch.setattr("videoenhancer.remote.gateway.local_addresses", lambda: ["127.0.0.1"])
+    uploads = Uploads(tmp_path / "remote/incoming", clock=lambda: 0)
+    identifier = uploads.create("d", "clip.mp4", 1)["id"]
+    gateway = Gateway(None, tmp_path, {"remote_https_port": 0, "remote_setup_port": 0})
+    gateway.adapter.uploads.clock = lambda: 86400
+    try:
+        gateway.start()
+        assert not (uploads.folder / identifier).exists()
+    finally:
+        gateway.close()
+
+
+def test_authenticated_streamed_upload_resume_and_body_limits(gateway, monkeypatch):
+    monkeypatch.setattr(
+        gateway.adapter.uploads, "probe", lambda _: {"width": 1920, "height": 1080, "duration": 1}
+    )
+    value = json.dumps({"name": "Private title.mp4", "size": 6})
+    assert request(gateway, "/api/uploads", "POST", body=value)[0] == 401
+    cookie = pair(gateway)
+    status, _, body = request(gateway, "/api/uploads", "POST", cookie=cookie, body=value)
+    assert status == 200
+    identifier = json.loads(body)["id"]
+    path = f"/api/uploads/{identifier}"
+    assert request(gateway, path + "/chunk?offset=0", "PUT", cookie=cookie, body=b"abc")[0] == 200
+    assert json.loads(request(gateway, path, cookie=cookie)[2])["offset"] == 3
+    assert request(gateway, path + "/chunk?offset=0", "PUT", cookie=cookie, body=b"abc")[0] == 400
+    assert request(gateway, path + "/chunk?offset=3", "PUT", cookie=cookie, body=b"def")[0] == 200
+    status, _, body = request(
+        gateway,
+        path + "/finish",
+        "POST",
+        cookie=cookie,
+        body=json.dumps({"sha256": hashlib.sha256(b"abcdef").hexdigest()}),
+    )
+    assert status == 200 and json.loads(body)["ready"]
+    assert request(gateway, "/api/uploads", "POST", cookie=cookie, body=b" " * 65537)[0] == 413
+    assert request(gateway, path + "/chunk?offset=0", "PUT", body=b"x")[0] == 401
+
+
 def test_pairing_single_claim_secret_hash_cookie_and_session(gateway):
     assert json.loads(request(gateway, "/api/session")[2]) == {
         "paired": False,

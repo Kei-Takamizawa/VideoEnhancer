@@ -1,3 +1,1037 @@
+Task ID / Cycle: VE-R1b-3 / Windows
+Status: COMPLETED
+
+## Outcome and classification
+
+PRE-EXISTING: all four measured runs failed at the same unchanged assertion in
+gui/tests/e2e/p1f3-visual.spec.ts:72. After opening the Japanese-named History
+video, video.readyState did not become greater than 1 within 5000 ms. Both runs
+on the operator-provided main b54f2b6 worktree reproduced it before testing the
+current branch. This is a local, pre-existing desktop playback issue outside
+R1b's scope; it is not classified as an R1b regression.
+
+Under CURRENT_TASK.md's acceptance rule, sections 1 to 6 of VE-R1b-2 pass and its
+remaining gate is satisfied by this classification. The local E2E remains FAIL,
+recorded as a known pre-existing local failure that CI passes. CI's two green
+Windows CPU/desktop runs on d22e389 and the section 6 owner check are supplied
+by the designer/current task and preceding report; they were not rerun or
+independently queried in this cycle. This cycle establishes the local comparison,
+not a playback fix or a new CI/device pass.
+
+## Instructions, environment and changed files
+
+The user's continuation resolves the earlier Git-worktree workflow blocker:
+the operator created work/scratch/r1b3-main detached at main b54f2b6, Codex runs
+the tests without any Git commands, and the operator removes the worktree.
+No Git command was run during this continuation. Branch/HEAD identity is
+operator-supplied, not newly verified with Git. Earlier reports are retained below.
+CURRENT_TASK.md already contains the full task and was preserved.
+
+Only .ai/LAST_REPORT.md is changed in repository source/document files.
+No product, GUI, test, dependency or lockfile edits were made. A SHA-256 manifest
+confirmed existing branch source/test files unchanged after the four runs.
+No commit, push, merge, real remote service, owner home/library, Scheduled Task
+or firewall operation was performed.
+
+Every build/test shell dot-sourced repo/local-env.ps1. Main reused the installed
+dependency environments through temporary .venv and gui/node_modules junctions;
+there was no dependency installation or synchronization. PYTHONPATH explicitly
+selected each checkout's src; a Python import-location assertion passed for
+each run. The spec prepended that checkout's synthetic environment shim.
+VE_HOME, TEMP/TMP, APPDATA, LOCALAPPDATA, WebView2 profiles and generated media
+were isolated under work/scratch. Absolute output paths were containment-checked.
+The existing installed FFmpeg was read/executed, not modified.
+
+Frontend output for main was built inside its scratch worktree. Both Cargo
+builds reused the configured work/cache/tauri-target dependency/build cache;
+the resulting separate executable snapshots and existing unchanged player/DLL
+payloads were copied to scratch/r1b3-runs/main-bin and branch-bin before testing.
+Native-player source matched across checkouts after line-ending normalization.
+The same normalization confirmed identical spec, desktop launch helper, fixture
+generator, npm lockfile and Cargo lockfile. Raw hashes differ where checkout
+line endings differ. No GUI assertion or timeout was changed.
+
+## Builds and verification
+
+| Check | Result | Exit code | Wall time |
+| --- | --- | ---: | ---: |
+| main: npm run build | PASS | 0 | 4.594992 s |
+| main: cargo build --offline --locked --manifest-path scratch/r1b3-main/gui/src-tauri/Cargo.toml --features e2e | PASS | 0 | 40.349433 s |
+| branch: npm run build | PASS | 0 | 3.510768 s |
+| branch: cargo build --offline --locked --manifest-path src-tauri/Cargo.toml --features e2e (from repo/gui) | PASS | 0 | 6.357800 s |
+
+Main executable SHA-256:
+f9ed48f8a5256cb77f8729c33795117b7624341f0f31d7ce80661bbf4681b037
+
+Branch executable SHA-256:
+78324d888288b7f0d686d460ff3e87bf6c77f29b99c49af145efc67d37467c49
+
+All four runs used this command from the respective checkout's gui directory:
+
+```powershell
+npm run test:e2e -- tests/e2e/p1f3-visual.spec.ts -g "fresh calibration" --output "$evidenceRoot/test-results"
+```
+
+The only additional option routes Playwright artifacts outside the checkout.
+For main runs 1/2, evidenceRoot was work/evidence/VE-R1b-3/main-1 and main-2;
+for branch runs 1/2 it was work/evidence/VE-R1b-3/branch-1 and branch-2.
+VE_GUI_TEST_ROOT selected scratch/r1b3-runs/<checkout>-<run>/fixtures;
+VE_GUI_EVIDENCE selected each evidenceRoot/screenshots directory.
+
+| Checkout / run | Result | Exit code | Total command wall time | Started UTC |
+| --- | --- | ---: | ---: | --- |
+| main / 1 | FAIL | 1 | 27.619623 s | 2026-11-03T05:29:58.0860707Z |
+| main / 2 | FAIL | 1 | 26.052173 s | 2026-11-03T05:30:33.7710477Z |
+| branch / 1 | FAIL | 1 | 25.740863 s | 2026-11-03T05:31:36.3982437Z |
+| branch / 2 | FAIL | 1 | 25.358567 s | 2026-11-03T05:32:11.3778124Z |
+
+Each invocation selected exactly one test, with one worker; no retries or
+overlapping E2E runners were used. Playwright's individual test durations were
+26.4, 24.9, 24.7 and 24.2 seconds respectively. The table includes npm/runner
+overhead. Each reported one failed test, with the same 5000 ms predicate timeout.
+Console logs, result.json, traces and synthetic screenshots are retained privately
+under work/evidence/VE-R1b-3, outside the checkout.
+
+## GUI operations / Expected / Actual
+
+Automated desktop GUI ran four times: launch at 1280x800, confirm synthetic
+health, open Settings, select dark theme, verify speed-profile notice, copy the
+synthetic startup warning, trigger/copy the synthetic save error and verify its
+fade, open Home and History, then open the Japanese-named video.
+Expected: video.readyState > 1, followed by Copy details and remaining scenarios.
+Actual: the video readiness predicate timed out on all four runs. Later details,
+Add scenarios and the light-theme iteration were not reached. This is not a
+PASS for the complete two-theme test. Additional manual Computer Use, full CPU,
+other E2E cases, GPU/soak and owner-device checks were NOT_RUN in this cycle.
+
+## Errors and warnings
+
+A preliminary direct ffmpeg -version probe failed in the sandbox with
+"Program 'ffmpeg.exe' failed to run: Access is denied" (exit 1). No E2E was
+attempted in that restricted context. All four E2E invocations then ran with
+reviewed escalation and reached the GUI/video assertion, so this setup denial
+is separate from the four measured playback failures. No auto-review rejection
+occurred. Node emitted NO_COLOR/FORCE_COLOR precedence warnings in all runs.
+PowerShell formatted native stderr as NativeCommandError, including normal
+Cargo progress; actual build exit codes were 0 as recorded above.
+
+## Disk baseline and growth
+
+Decimal GB; logical file lengths are not allocated disk size. Drive free space
+was obtained with Python shutil.disk_usage; Get-PSDrive had returned null in the
+earlier blocked attempt. Baseline was taken after operator worktree creation,
+before builds and E2E. Junction targets are excluded from folder sums.
+
+| Item | Baseline GB | End GB |
+| --- | ---: | ---: |
+| C:/ free | 343.088418816 | 343.709945856 |
+| D:/ free | 872.737251328 | 872.734932992 |
+| package | 0.125288579 | 0.125288579 |
+| evidence/VE-R1b-3 | 0.000111443 | 0.002234676 |
+| scratch | 2.655788900 | 2.655905936 |
+| cache | 12.446311928 | 12.446381743 |
+
+Measured persistent growth across non-overlapping package, cycle evidence and
+cache rows: 2193048 bytes (0.002193048 GB), below 1 GB. The cache is below
+40 GB and cycle evidence below 300 MB. Measurements exclude this report edit
+and later operator log growth. Drive-wide changes are not attributed to cleanup.
+Scratch inventory remains partial with the same three pre-existing access-denied
+directories: work/scratch/r0c-cpu-final-cache, r1a-cpu-cache-elevated and
+r1a-cpu-cache-final. Readable scratch grew by 117036 bytes; shared pre-existing temporary content
+was not independently attributed or deleted. Complete scratch size/growth is
+UNKNOWN; unreadable content
+was not treated as zero. No attempt was made to bypass these inherited denials.
+
+## Cleanup inventory and operator handoff
+
+These exact candidates were measured and listed in this report before cleanup.
+
+| Path | Logical bytes before removal | Action |
+| --- | ---: | --- |
+| work/scratch/r1b3-runs | 117460004 | Removed |
+| work/scratch/r1b3-main/gui/dist | 611732 | Removed |
+| work/scratch/r1b3-main/.venv | 0 | Removed (junction only) |
+| work/scratch/r1b3-main/gui/node_modules | 0 | Removed (junction only) |
+| work/scratch/r1b3-main/gui/src-tauri/gen/schemas | 303157 | Removed |
+
+Cleanup completed for all listed candidates; junction targets were preserved.
+The test finally blocks already removed their generated fixture homes/media;
+their transient peak size was not measured and is not claimed as removal bytes.
+The explicit cleanup removed 118374893
+measured logical bytes, independently of free-space changes.
+The operator-owned worktree itself remains at work/scratch/r1b3-main for the
+operator to remove, as instructed. No Git worktree metadata was modified by Codex.
+Other inherited scratch content was preserved; it was not authorized cycle output.
+No cleanup refusal occurred for this cycle's artifacts.
+
+## Questions for the designer / unresolved scope
+
+No design decision is needed for this classification. The underlying desktop
+playback issue remains unfixed and outside R1b scope. Operator worktree removal
+is the remaining operator action. No dependency changes, gui/** fixes, full-suite
+reruns, production deployment or service restart were performed.
+
+---
+
+Task ID / Cycle: VE-R1b-3 / Windows
+Status: BLOCKED
+
+## Outcome
+
+Failure classification is NOT_RUN. No product, GUI, test or dependency changes
+were made. The four required E2E runs were not started because the repository
+instructions explicitly require stopping on the conflict described below.
+VE-R1b-2 remains PARTIAL; this cycle does not establish that sections 1-6 pass.
+The CI outcome described in CURRENT_TASK.md is designer-supplied background,
+not independently verified evidence from this cycle.
+
+## Questions for the designer
+
+AGENTS.md says: "If the two conflict, stop and ask under 'Questions for the
+designer' in your report." Its Git section says: "Do not run Git commands that
+change anything" and "The operator does all Git work."
+CURRENT_TASK.md section 2 requires Codex to create a temporary Git worktree of
+main at b54f2b6 and later remove it using git worktree remove. These are Git
+mutations. The task also says to follow AGENTS.md for the workflow and does not
+explicitly resolve this conflict.
+
+Please explicitly authorize Codex to run only the required worktree add/remove
+operations for this cycle, or have the operator create and remove the worktree
+and provide its path. Do not change gui/** to resolve this workflow blocker.
+
+## Environment and changed files
+
+Read AGENTS.md, CLAUDE.md, CURRENT_TASK.md, docs/WORKSPACE.md and local-env.ps1.
+CURRENT_TASK.md already contains the complete task and was preserved.
+Only .ai/LAST_REPORT.md was changed; older reports are retained below.
+PowerShell could not resolve git: "The term 'git' is not recognized as the name
+of a cmdlet, function, script file, or operable program." The conventional
+C:\Program Files\Git\cmd\git.exe path was absent. No Git permission denial was
+observed. Branch, HEAD and initial working-tree cleanliness are NOT_VERIFIED;
+the expected branch is taken only from CURRENT_TASK.md. No Git mutation,
+commit, push, worktree creation or cleanup was attempted.
+
+## Verification
+
+Required command, from each checkout's gui directory:
+`npm run test:e2e -- tests/e2e/p1f3-visual.spec.ts -g "fresh calibration"`
+
+| Checkout / run | Result | Exit code | Timing |
+| --- | --- | --- | --- |
+| main b54f2b6 / 1 | NOT_RUN: instruction conflict | N/A | N/A |
+| main b54f2b6 / 2 | NOT_RUN: instruction conflict | N/A | N/A |
+| Current branch / 1 | NOT_RUN: instruction conflict | N/A | N/A |
+| Current branch / 2 | NOT_RUN: instruction conflict | N/A | N/A |
+| Build / dependency installation | NOT_RUN: blocked before setup | N/A | N/A |
+| GUI operations | NOT_RUN | N/A | N/A |
+
+Expected: four measured runs permit a baseline/branch comparison.
+Actual: no comparison evidence; neither pre-existing nor regression is claimed.
+No test was skipped, disabled, loosened or reported PASS without execution.
+
+## Disk baseline and growth
+
+Decimal GB; logical file lengths, not allocated size. Two read-only inventories
+returned identical folder totals. No build, download or test output was created.
+
+| Item | Start GB | End GB | Notes |
+| --- | ---: | ---: | --- |
+| C free | unavailable | unavailable | Get-PSDrive Free returned null |
+| D free | unavailable | unavailable | Get-PSDrive Free returned null |
+| Current package | 0.125288579 | 0.125288579 | 125288579 bytes |
+| This cycle evidence | 0.000043773 | 0.000043773 | 43773 pre-existing bytes; not created by this run |
+| Scratch | 2.650909728 | 2.650909728 | Partial inventory: 3 enumeration errors |
+| Cache | 12.446311928 | 12.446311928 | 12446311928 bytes |
+
+Measured growth across the listed readable files: 0 bytes, excluding this report
+edit and any concurrent external changes. Complete persistent growth is not
+established because scratch enumeration is incomplete and free space unavailable.
+No files were deleted; bytes removed: 0. No worktree or scratch output was
+created by this run. Pre-existing scratch was preserved at the blocking stop.
+
+## For the owner to delete
+
+None from this run. Pre-existing scratch has not been classified for cleanup.
+
+## Unresolved and intentionally not performed
+
+Resolve the Git-worktree instruction conflict, then execute all four runs,
+record commands/exit codes/timings, classify, and remove the temporary worktree.
+No owner service, home, library, Scheduled Task, firewall or owner data was touched.
+No broad validation, independent design change or Git recording was performed.
+
+---
+Task ID / Cycle: VE-R1b-2 / Windows
+Status: PARTIAL
+
+## Outcome
+
+Sections 1-5 are implemented and their automated regression checks pass. The
+owner-supplied result in section 6 is recorded below. Completion is not claimed:
+the unchanged default desktop E2E suite fails the P1f-3 fresh History video
+readiness check, including a repeat after the CPU suite exited. GUI changes are
+outside this task's allowed files. Initial drive free-space readings were also
+unavailable; the measured persistent-folder baseline and growth are reported
+without reconstructing missing measurements.
+
+The real remote service was not started, stopped, installed, restarted or queried.
+Its home, library, Scheduled Task and firewall were not accessed or modified.
+No dependency synchronization, dependency/lock changes, Git mutation, commit,
+push or merge was performed. The operator must retain the designer-review gate
+before restarting the real service.
+
+## Environment and instructions
+
+Windows PowerShell, Python 3.12.15. Read AGENTS.md, CLAUDE.md, CURRENT_TASK.md and
+docs/WORKSPACE.md. Elevated read-only Git confirmed a clean starting tree on
+claude/project-thread-yyrl3q at 37efb868f2cd4b9d70d5506e2369a4dd8ffdedcc.
+No branch switch or remote mutation was made. CURRENT_TASK.md was already complete
+and was retained intact. The user's continuation retained the existing test
+changes. All older reports are preserved below this report.
+
+Every test/build shell dot-sourced local-env.ps1. Homes, pytest basetemps, TEMP/TMP,
+desktop profiles and evidence used absolute work-contained paths. Containment
+was asserted before desktop runs. No prohibited social-site download was used.
+The existing e2e-enabled debug desktop/player binaries were reused; Python service
+code is loaded from this checkout. No GUI source or E2E spec was modified.
+
+## Implementation and changed files
+
+- src/videoenhancer/remote/metadata.py: remote_info returns a dictionary or None
+  for missing/null/non-dictionary source or remote metadata.
+- src/videoenhancer/remote/adapter.py, remote/jobs.py: replace every R1b remote
+  ownership read with that helper. Protect job-owned upload folders against
+  expiry under the same adapter lock that serializes Add; run expiry hourly.
+- src/videoenhancer/service/engine.py: use the helper in recovery/cancellation;
+  skip dictionary-only download cleanup for non-dictionary source records.
+- src/videoenhancer/remote/http.py, remote/gateway.py,
+  src/videoenhancer/service/server.py: drain valid unread early-error bodies up
+  to 65,536 bytes, return 413 above that bound and close error connections.
+  Track already-consumed JSON bodies to avoid reading them twice. Gateway startup
+  also expires abandoned uploads.
+- src/videoenhancer/remote/uploads.py: persist activity timestamps; expire
+  unfinished sessions after 24 hours without an accepted chunk and verified
+  sessions 24 hours after finish if no job owns them. Existing sessions fall back
+  to metadata mtime. Busy uploads are protected. Resume reports exactly
+  "This upload expired. Choose the video again." Network reads/hash/probe execute
+  outside the global lock, with one busy update per upload and a clear rejection
+  for a second chunk/finish. Internal timestamps are excluded from API responses.
+- src/videoenhancer/remote/push.py: Ready/Couldn't-finish TTL is 86,400 seconds;
+  test notifications retain 3,600 seconds.
+- tests/test_remote_jobs.py, test_remote_uploads.py, test_remote_gateway.py,
+  test_remote_push.py, test_service.py: regression, fake-clock, startup/hourly,
+  ownership, concurrent-update/status and 50-request HTTP checks.
+- docs/REMOTE.md: document retention, concurrent updates and notification TTLs.
+- .ai/LAST_REPORT.md: this report, with older reports retained below.
+
+## Verification
+
+All counts below are separate runs, not additive coverage totals. No test was
+skipped, disabled, weakened or given a longer timeout by this change.
+
+| Check/run | Result | Measured outcome |
+| --- | --- | --- |
+| Initial diagnostic test invocation | INCOMPLETE | Output showed failures; process handle unavailable after user continuation; no final count claimed |
+| Repeated pre-fix focused regression run | FAIL (expected diagnostic) | 10 failed, 48 deselected, 5.18 s; one overly strict cancellation byte-equality assertion was corrected to allow normal bookkeeping while asserting remote operations leave the record unchanged |
+| First style check | FAIL, corrected | E731 lambda assignments in added tests; replaced with def, no suppression |
+| Post-fix focused regression selection | PASS | 10 passed, 82 deselected, 7.51 s |
+| Related Python files in sandbox | PASS with skips | 88 passed, 4 skipped, 94.18 s; FFmpeg-dependent cases unavailable in sandbox |
+| Expanded remote-focused run | PASS | 80 passed, 101.18 s, including new fake-clock cadence/startup and job protection |
+| CI CPU pytest selection on Windows | PASS with skips/warning | 879 passed, 25 skipped, 103 deselected, 524.35 s; exit 0 |
+| Final jobs/uploads regressions | PASS | 25 passed, 46.01 s; includes added tests collected after the full CPU run began |
+| Refined finish-vs-last-chunk boundary | PASS | 8 passed, 1.76 s |
+| Final public upload status checks | PASS | 8 passed, 1.65 s |
+| Final early-error HTTP checks | PASS | 2 passed, 53 deselected, 3.74 s; 50 unauthenticated requests with bodies per server, plus over-bound 413 checks |
+| Final ruff check . | PASS | All checks passed |
+| Final ruff format --check . | PASS | 250 files already formatted |
+| Final pyright | PASS | 0 errors, 0 warnings |
+| Node remote web logic | PASS | 18 tests |
+| GUI npm test | PASS | 18 files, 86 tests |
+| GUI npm run test:payload | PASS | 1 test |
+| GUI npm run lint / typecheck / build | PASS | Exit 0; Vite build completed |
+| First sandbox requested E2E specs | FAIL (setup) | All 3 failed to seed because FFmpeg was not accessible; no UI assertion result from that run |
+| Requested unchanged p1f2-review / p1f3-copy E2E specs with existing tools | PASS | 3 passed, 50.4 s |
+| First default desktop E2E suite | FAIL | 24 passed, 1 failed, 15 existing skips, 3.8 min |
+| Default desktop E2E repeat after CPU exited | FAIL | 24 passed, same 1 failed, 15 existing skips, 3.5 min |
+| Git diff --check | PASS | Exit 0; only line-ending conversion notices |
+| New owner iPad check / GPU / soak / deployment / production restart | NOT_RUN | Outside this implementation cycle; no new device evidence claimed |
+
+The CPU command used the CI marker expression with work-contained temp/cache
+paths instead of CI's checkout-local basetemp:
+
+```powershell
+. .\local-env.ps1
+.\.venv\Scripts\python.exe -m pytest -m "not gpu and not soak" --basetemp=D:\my-workspace\VideoEnhancer\work\scratch\r1b2-cpu -o cache_dir=D:\my-workspace\VideoEnhancer\work\scratch\r1b2-pytest-cache
+```
+
+The full CPU run collected before seven later maintenance/helper test cases were
+added. Those cases passed in the expanded/final focused runs. Later small HTTP
+header-state and upload-response changes were checked by the final affected
+HTTP/uploads tests and final static checks; the whole CPU suite was not rerun.
+The CPU run emitted one PytestCacheWarning: access denied creating
+scratch/r1b2-pytest-cache/v/cache/nodeids. Test execution passed; this warning was
+not hidden. Node reported NO_COLOR/FORCE_COLOR precedence and Vite reported
+plugin timing information. Git reported expected LF/CRLF conversion notices.
+
+## GUI operations and Expected / Actual
+
+Requested regressions exercised unknown/damaged History records in both themes,
+reuse/nested link lists, video/tray Quit during storage verification/removal, and
+50 repeated unreadable-record Copy details operations. Expected: damaged-record
+History remains visible and usable; actual: all three unchanged E2E tests passed,
+including during both full-suite runs.
+
+The remaining failure is tests/e2e/p1f3-visual.spec.ts:72, state "fresh". After
+opening the synthetic Japanese-named History video, expected video.readyState > 1
+within the existing 5-second poll; actual: timeout. It reproduced after the CPU
+runner exited, so CPU overlap alone does not explain it. Calibration assertions
+before playback passed; failed/driver/no-GPU variants also passed. An older
+report already records this same symptom. No root cause is asserted and no
+unexecuted native-window or iPad verification is reported as PASS.
+
+Reproduce with local-env.ps1, absolute isolated VE_GUI_TEST_ROOT/VE_GUI_EVIDENCE,
+VE_TAURI_EXE and VE_PLAYER_FAULT_TEST_EXE under work, then from gui:
+`npm run test:e2e -- tests/e2e/p1f3-visual.spec.ts -g "fresh calibration"`.
+Actual repeated full commands were `npm run test:e2e -- --output=<absolute work
+scratch results>`; no retry flag or test alteration was used.
+
+Evidence under work/evidence/VE-R1b-2 includes cpu.log, red.log, green.log,
+focused.log, focused2.log, http-final.log, e2e-regressions.log,
+e2e-regressions-elevated.log, e2e-all.log, e2e-serial.log and both failure trace /
+error-context folders. Screenshots and traces stay outside Git.
+
+## Owner iPad check
+
+The task author reports R1b passed on 2026-11-03: notifications, URL job, upload,
+approximate predicted finish and playback. No findings were supplied. This is
+owner-supplied evidence, not an iPad check performed by this Codex run.
+
+## Workspace and disk
+
+Decimal GB below are logical file lengths, not allocated disk usage. Start was
+2026-11-02 20:12 local; final comparable folder inventory was 20:57. Both folder
+inventories used the sandbox access context. An intermediate elevated inventory
+could not read repo/.pytest_cache; it was not substituted into the comparable
+folder totals. Drive end free space came from the reviewed read-only drive query.
+Start drive free space was null in the sandbox output and cannot be recovered.
+
+| Disjoint folder / drive | Start GB | End GB |
+| --- | ---: | ---: |
+| `repo` | 3.728363 | 3.728379 |
+| `package` | 0.125289 | 0.125289 |
+| `evidence` | 0.115807 | 0.131877 |
+| `scratch` | 2.650874 | 2.650910 |
+| `cache` | 12.446311 | 12.446312 |
+| This cycle evidence (subset of evidence, do not add) | Not separately measured | 0.016176 |
+| C: free | Unavailable | 343.711666 |
+| D: free | Unavailable | 872.743596 |
+
+Measured persistent growth across disjoint repo/package/evidence/cache rows:
+16,086,429 bytes (0.016086 GB), below 1 GB. Cycle evidence is below 300 MB
+and cache is below 40 GB. Final inventory preceded this report's final text and
+last JSON bookkeeping by a few KB. The accessible scratch delta is
+35,707 bytes; shared/pre-existing scratch contents
+were not attributed to this cycle. No drive-wide free-space change is treated as
+bytes removed or as proof of project growth. Unknown inherited scratch sizes
+prevent a complete whole-workspace attribution.
+
+### Cleanup
+
+All current-cycle r1b2-* scratch roots were inventoried in this report before
+deletion, resolved and checked to be direct children of work/scratch, then removed
+from inside the sandbox without ACL changes, escalation or deletion retries.
+Saved failure evidence first. Removed logical bytes: 1,314,595,611
+(1.314596 GB). No current-cycle cleanup refusal occurred. The inventory
+and individual results are saved as cleanup-inventory.json / cleanup-results.json.
+
+| Path under work/scratch | Independently measured bytes removed |
+| --- | ---: |
+| `r1b2-cpu` | 0 |
+| `r1b2-e2e` | 202,504,964 |
+| `r1b2-e2e-all` | 556,984,385 |
+| `r1b2-e2e-all-results` | 20,579 |
+| `r1b2-e2e-results` | 45 |
+| `r1b2-e2e-serial` | 555,054,078 |
+| `r1b2-e2e-serial-results` | 20,535 |
+| `r1b2-final-regression` | 0 |
+| `r1b2-focused` | 0 |
+| `r1b2-focused2` | 0 |
+| `r1b2-green` | 0 |
+| `r1b2-http-cache` | 1,408 |
+| `r1b2-http-final` | 0 |
+| `r1b2-public-final` | 0 |
+| `r1b2-pytest-cache` | 9,617 |
+| `r1b2-red` | 0 |
+| `r1b2-red2` | 0 |
+| `r1b2-upload-final` | 0 |
+
+### For the owner / inherited retained paths
+
+The following directories were already unreadable at the initial and final
+sandbox inventories. Their current complete sizes are UNKNOWN, not zero:
+
+- work/scratch/r0c-cpu-final-cache
+- work/scratch/r1a-cpu-cache-elevated
+- work/scratch/r1a-cpu-cache-final
+
+No deletion of these inherited paths was attempted, and no refused deletion was
+worked around. Other pre-existing scratch/evidence and the current portable
+package were retained. Scratch is therefore not claimed globally empty; only
+this cycle's named scratch roots were removed. Historical evidence retention was
+not expanded into an unrelated cleanup cycle.
+
+## Unresolved items / Questions for the designer
+
+1. The full desktop gate is still FAIL at the unchanged P1f-3 fresh History
+   readyState poll. Review the two current traces and the historical report;
+   authorize a separate diagnosis/fix scope if GUI or desktop-test changes are
+   required. This task forbids gui/** changes. No test expectation was weakened.
+2. Initial C/D free-space values and complete inherited scratch sizes are
+   unavailable. Measured persistent-folder growth is reported separately; missing
+   values were not invented. Global scratch cleanup remains incomplete because
+   inherited artifacts were preserved.
+3. Review the implementation/diff before the operator performs any real-service
+   restart. Codex did not commit/push or restart it.
+
+## Intentionally not performed
+
+No independent product/UI/architecture changes, GUI edits, dependency installs,
+real-service changes, live owner-data inspection, social-site download, new
+owner iPad/GPU/soak check, release/package replacement, commit, push or merge.
+No further retry loop was started after the same desktop failure reproduced.
+
+---
+
+Task ID / Cycle: VE-R1b / resumed after runtime stop and usage reset
+Status: PARTIAL
+
+## Outcome
+
+The requested implementation and automated functional verification are finished,
+including the Directory-not-empty deletion race. The cycle remains PARTIAL for
+workspace closeout: two scratch cache directories refused both inventory and
+deletion, and the original pre-interruption disk baseline was not captured.
+Whole-cycle persistent growth therefore cannot honestly be certified. The
+measured resumed-run components grew by about 0.520 GB; this is not a substitute
+for the missing original baseline.
+
+The designer explicitly stopped the installed service and authorized replacing
+files in the shared .venv. Dependency synchronization then succeeded. The real
+service was NOT started, installed, stopped, restarted or queried by this run.
+Its home, library, device records, Scheduled Task and firewall were not accessed.
+No Git mutation, commit, push or merge was performed. The operator must review
+this report and the diff before any production action.
+
+The previous BLOCKED report and earlier reports are preserved below. Their
+runtime blocker is superseded by the authorized dependency sync; their historical
+measurements and failures are not rewritten as current proof.
+
+## Environment and instructions
+
+Windows PowerShell; branch `claude/project-thread-yyrl3q`, starting and ending
+HEAD `c9199defe7b3677ab5b8f3be0285b479a9161262`. Read-only elevated Git confirmed
+the existing partial changes before resumption; they were preserved and extended.
+AGENTS.md and CURRENT_TASK.md were read completely, and the prior CLAUDE.md and
+WORKSPACE.md instructions remain applicable. CURRENT_TASK.md was retained intact.
+The later instruction to fix `DELETE queue` / `[Errno 39] Directory not empty`
+was included in this implementation.
+
+Every install/build/test shell dot-sourced local-env.ps1. Test homes, TEMP/TMP,
+pytest basetemps, browser profiles and build output used absolute paths under
+work/scratch; reusable tools/models came from work/cache. No forbidden social
+site was contacted. Real link tests used a loopback HTTP server and generated
+synthetic media, following the existing downloader tests' permitted pattern.
+
+## Implementation and changed files
+
+- `src/videoenhancer/remote/adapter.py`: device-owned check/tool operations,
+  automatic SDR/1080p selection, saved-default admission, cumulative finish
+  estimates, duplicate Add protection, remote-only source/output paths and
+  suppression of named remote-job diagnostics.
+- `remote/uploads.py` (new): durable upload offsets, device ownership, 20 GB and
+  free-space admission, 4 MiB bounded chunks, SHA-256 verification, shared display
+  geometry/color admission and deletion on rejection.
+- `remote/jobs.py`, `remote/power.py` (new): safe library publication, Windows
+  filename cleaning and clash suffixes, terminal cleanup at the controller's
+  safe boundary, durable finishing journal, bounded nameless activity log and
+  thread-scoped system wake requests without display wakefulness.
+- `remote/push.py` (new): private persistent VAPID key, encrypted Apple Web Push,
+  device subscriptions, safe status/reason logging and 404/410 subscription removal.
+- `remote/gateway.py`: bounded authenticated JSON routes, streamed upload chunks,
+  owned operation/status/cancellation routes, estimates and push endpoints.
+- `remote/install.py`, `src/videoenhancer/cli.py`: Scheduled Task ownership of
+  starts, graceful remote stop/restart, and deadline/early-claim popup closure
+  with the owned helper reaped. The existing desktop shutdown 409 remains intact.
+- `service/engine.py`, `service/link_jobs.py`: minimal hooks for remote source
+  ownership, remote-only download location, schedule bypass, resumable upload
+  preparation, terminal recovery/cleanup and bounded deletion retry.
+- `remote/web/app.mjs`, `index.html`, `style.css`, `sw.js`, new `add.mjs` and
+  `add-ui.mjs`: Add cards, clipboard fallback, playlist selection, resumable
+  IndexedDB-backed uploads with incremental hashing, finish-time text, compact
+  active summary/cancellation, tap-triggered notification permission and item
+  routing from notification clicks.
+- `pyproject.toml`, `uv.lock`: pywebpush 2.x dependency (locked at 2.5.0).
+- `docs/REMOTE.md`, `docs/API.md`: behavior, management commands, body limits and
+  device-cookie API contracts.
+- Tests: new `test_remote_admission.py`, `test_remote_controls.py`,
+  `test_remote_jobs.py`, `test_remote_push.py`, `test_remote_r1b_gpu.py`,
+  `test_remote_uploads.py`, `remote_r1b_browser.py`; updated
+  `test_remote_gateway.py`, `test_remote_web.mjs`, `test_service.py`.
+- `.ai/LAST_REPORT.md`: this report, preserving history.
+
+The final Git status contains only allowed paths. Browser databases accidentally
+created in the repository were inventoried and removed; the standalone smoke now
+sets the WebKit process working directory inside scratch. No media, weights,
+screenshots, package output, downloaded tools or browser databases remain in the
+Git diff. Processing pipeline/model/estimator mathematics were not modified.
+
+## Verification results
+
+Counts overlap across targeted runs and must not be added together.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| CI CPU pytest selection | PASS | 885 passed, 7 skipped, 103 deselected; 689.79 s |
+| Final affected Python tests | PASS | 106 passed; 104.93 s |
+| Additional preview cleanup assertions | PASS | 3 passed; done/failed/cancelled all remove source, work record and check preview |
+| Node remote web tests | PASS | 18 passed, 0 skipped |
+| Ruff check | PASS | Repository-wide |
+| Ruff format --check | PASS | 248 files already formatted |
+| Pyright | PASS | 0 errors, 0 warnings |
+| Python sdist/wheel build | PASS | uv build --offline; both artifacts built in scratch and removed |
+| Real GPU link + uploaded 1080p clip | PASS | Standard preset, CUDA; both complete and cleaned; final reported ranges contain the measured intervals |
+| WebKit browser UI | PASS with declared mocks | 11 checks; real isolated TLS/static/pairing, R1b APIs and notification permission mocked |
+| Git diff --check / allowed paths | PASS | Read-only check; only standard LF-to-CRLF notices |
+| Real iPad notification permission/delivery/tap | NOT_RUN / OWNER | Explicitly deferred by task |
+| Real Scheduled Task / installed popup operation | NOT_RUN / OWNER | Production operation prohibited during this cycle; control tests use fakes |
+| Original whole-cycle persistent-growth gate | NOT_MEASURED | Missing original baseline; no PASS claim |
+
+Full CPU verification completed before the final small review corrections; the
+affected paths were then rechecked by the 106-test run and the explicit preview
+cleanup assertions. The seven CPU skips remain skips, not passes. The full
+suite's 103 deselections are its GPU/soak exclusions.
+
+Primary commands, from repo after dot-sourcing local-env.ps1 and setting the
+isolated home/FFmpeg/tool locations:
+
+```powershell
+uv sync --locked --all-extras --inexact
+& .\.venv\Scripts\python.exe -m pytest -m 'not gpu and not soak' --tb=short -o cache_dir=D:\my-workspace\VideoEnhancer\work\scratch\r1b-cpu-cache --basetemp=D:\my-workspace\VideoEnhancer\work\scratch\r1b-cpu-complete -q
+& .\.venv\Scripts\python.exe -m ruff check .
+& .\.venv\Scripts\python.exe -m ruff format --check .
+& .\.venv\Scripts\python.exe -m pyright
+node --test tests/test_remote_web.mjs
+uv build --offline --out-dir D:\my-workspace\VideoEnhancer\work\scratch\r1b-build
+```
+
+The CPU command used an approved elevated read-only Git/FFmpeg execution context
+because sandbox Git execution was refused. It still used isolated homes and
+scratch. The framework cache directory itself later refused sandbox cleanup.
+
+## Deletion race, recovery and review findings
+
+Expected: a finished job can be deleted while preserving its completed output,
+even if a final logger flush creates a late file. Actual before the fix: the
+new regression failed on the first ENOTEMPTY instead of retrying. After the
+fix: bounded retries cover ENOTEMPTY and Windows sharing/not-empty errors;
+unrelated access errors still propagate. A persistent failure stops after five
+attempts, with at most 0.75 seconds of backoff. No error is reported as success
+while the directory still exists.
+
+The requested `test_cpu_queue_sse_controls_and_completed_output` ran and passed
+with the configured FFmpeg. The first attempt without FFmpeg was SKIP, retained
+as such. The new late-file regressions were red (2 failed) before the fix and
+green afterwards; existing bounded sharing-violation tests remain passing.
+
+Review also found and corrected own-output reservation during preparation
+recovery, stale cancellation snapshots, a running-segment flag left across
+restart, duplicate URL submission and request-map/admission cleanup locking.
+Their focused regressions pass. The final review's anamorphic-input finding was
+reproduced as red, then fixed by reusing source_warning inside upload completion;
+all five upload tests pass, including deletion of display geometry above 1080p.
+Pairing popup tests also cover successful pairing closing the window early,
+rather than leaving the helper alive until the full two-minute deadline.
+
+## GPU measurements and expected / actual
+
+Both final inputs were generated 1920x1080 SDR H.264, 30 fps, 60 frames / 2 seconds.
+Saved test defaults were Standard, H.264, Keep size and frame doubling Off.
+The real NVIDIA RTX 4060 Ti/CUDA path used cached C1 weights; no weights were
+downloaded. Both published library outputs were 6,729,318 bytes.
+
+| Path | Prediction point | Reported seconds | Reported range s | Measured s | Result |
+| --- | --- | --- | --- | --- | --- |
+| URL | Before download | Unknown | Not an end-to-end promise | 64.250 total Add-to-cleanup | Correct unknown display |
+| URL | First queued/running estimate after download | 48.236 | 36.177-60.296 | 60.265 after that prediction | PASS |
+| Upload | Before Add | 51.022 | 38.266-63.777 | 62.844 Add-to-cleanup | PASS |
+
+Completion was polled every 0.2 seconds. The link result is near the upper bound;
+these short synthetic runs do not establish general estimate accuracy. The
+URL's initially unknown network time is not silently counted as known processing
+time. The Library active route computes a known estimate once processing can
+be forecast; unknown work ahead keeps later completion times unknown.
+
+Verified deleted paths relative to the isolated scratch home:
+
+- URL: `remote/incoming/8dcbd5ee92af4d6b917df59265427e8a/link [link].mkv`, its whole
+  incoming folder, and `jobs/8dcbd5ee92af4d6b917df59265427e8a/` (all segment,
+  analysis, control and working files). The associated check preview is removed
+  by the same tested cleanup; its exact GPU-run check ID was not separately saved.
+- Upload: `remote/incoming/a6a4b12c48cd4fec8fe36f6a3714e6be/source`, its whole
+  upload session folder, and `jobs/bedda39b288a442da7ba413f5e944138/`.
+- Final assertions confirmed two library videos, an empty incoming folder and
+  exactly two activity lines with no test title, filename or URL. Done/failed/
+  cancelled preview and source removal are also covered by unit tests.
+
+### Earlier GPU attempts (retained, not superseded as PASS)
+
+| Attempt | Actual result |
+| --- | --- |
+| 1 | FAIL before processing: test tried to save an unsupported advanced backend option. Removed that test-only option; automatic CUDA selection was used. |
+| 2 | FAIL: 0.2 s link fixture failed because Pillow was absent; 7.281 s elapsed. No upload measurement reached. |
+| 3 | FAIL: same missing Pillow; link 7.406 s, upload 4.125 s, both failed and cleaned. |
+| 4 | Both 0.2 s videos completed; old processing-only URL prediction failed (12.984 s actual versus 3.617-6.029 s). Upload passed (12.609 versus 8.268-13.781 s). |
+| 5 | Both 2 s videos completed; old processing-only URL prediction failed (65.735 versus 36.175-60.291 s). Upload passed (61.969 versus 39.377-65.628 s). |
+| 6 | PASS with truthful unknown pre-download handling and the prediction points documented above. |
+
+Missing model extras were restored with the locked all-extras sync after the
+Pillow failure. No retry widened estimator ranges or changed the processing
+pipeline. Loopback header-probe connection resets are test-server diagnostics,
+not processing failures.
+
+## GUI operations and limitations
+
+WebKit on Windows used an 834x1194 touch viewport, also checked at 1194x834 and
+320x800. It paired to a real isolated TLS/static gateway; R1b API responses and
+Apple permission/PushManager were browser mocks. Checks covered Add cards,
+clipboard denial/manual paste, playlist defaults/estimate/Add/banner, two-chunk
+5,750,000-byte upload and whole-file SHA-256, persisted File recovery after page
+reload, upload Add/banner, permission from a tap, subscription card hiding,
+Settings test notification and absence of horizontal overflow/application errors.
+Screenshots were inspected visually and remain only in evidence.
+
+Early smoke attempts failed on runtime module paths, reusing synthetic pairing
+state, a mojibake separator and an overly broad console assertion. These were
+corrected; the smoke now uses a fresh persistent profile and scratch process cwd.
+Three console messages remain explicitly recorded: Playwright's WebKit screenshot
+synchronization inserts an inline `body {}` style and the shipped CSP rejects it.
+The test verifies these exact screenshot-only messages separately; CSP was not
+relaxed, no application exception was hidden, and no external request was allowed.
+
+Actual iPad persistence/quota for very large Files/Photos inputs, CA trust,
+Home Screen permission, Apple delivery and notification tap behavior remain
+owner checks. Desktop WebKit plus mocked permission does not establish them.
+
+## Warnings, errors and intentionally unperformed work
+
+Network-restricted sandbox uv attempts failed with os error 10013; approved
+elevated synchronization succeeded. Read-only Git similarly required elevation.
+The interrupted CPU run did not finish. The next full run stopped with 538 PASS,
+7 SKIP and one real failure: two missing explicit UTF-8 arguments. Those were
+fixed, then the complete 885-test pass was obtained. A separate sandbox cached
+failure replay had 6 PASS and Git Access denied; it was not relabeled PASS.
+Initial lint/format/type findings and TDD-red failures were fixed and rechecked.
+
+Two cleanup scripts initially failed on shell array/argument serialization before
+any valid delete target was reached. The corrected contained cleanup succeeded
+for the inventoried owned artifacts, except the two explicit access denials below.
+No automatic approval-review rejection occurred; these were command/OS errors.
+
+No real service control, real device push, public social-site download, owner-data
+access, system environment/driver/Windows-setting change, package replacement,
+Git staging/commit/push/merge or deployment was performed. The native Windows
+popup/task behavior uses fake tests rather than controlling the installed task.
+
+## Workspace measurements
+
+Decimal GB, logical file lengths. Resumed baseline was recorded after the first
+successful resumed dependency sync, not before the original interrupted cycle.
+Drive changes include unrelated system activity and are not bytes removed.
+
+| Item | Resumed baseline GB | End inventory GB | Qualification |
+| --- | --- | --- | --- |
+| C available | 345.769500672 | 345.751007232 | Point-in-time DriveInfo values |
+| D available | 878.668324864 | 878.404100096 | Point-in-time DriveInfo values |
+| package | 0.125288579 | 0.125288579 | Candidate unchanged |
+| evidence/VE-R1b | 0.000411346 | approximately 0.0013 | Includes pre-existing operator log; under 300 MB |
+| scratch | NOT_CAPTURED completely | at least 2.650874021 | Five inventory access errors; pre-existing work retained |
+| cache | 12.186734417 | 12.446287168 | Under 40 GB |
+| repo/.venv | 3.258978548 | 3.518759418 | Locked runtime/model extras restored |
+
+Measured cache/.venv/evidence component growth is about 0.520 GB plus the small
+source/report changes. Original whole-cycle growth is NOT_MEASURED because the
+first run lacked a baseline. Do not sum these rows into another overlapping
+workspace total or equate logical bytes with allocated space.
+
+## Questions for the designer / remaining closeout
+
+No unresolved implementation design change is proposed. Review the unknown URL
+network-time treatment, preserved historical estimate failures and normal code
+diff. Workspace closeout still requires the two refused cache removals below
+and an explicit assessment of the missing original disk baseline. That is why
+this report does not claim COMPLETED despite passing functional checks.
+
+## Operator after review (NOT executed)
+
+Use the real home only after designer review and the operator's Git work:
+
+```powershell
+ve remote restart
+ve remote status
+```
+
+Confirm paired_devices remains 1. If the reviewed restart is refused, the task
+allows the operator to stop the service processes and then run:
+
+```powershell
+Start-ScheduledTask -TaskName VideoEnhancer
+ve remote status
+```
+
+The owner then:
+
+1. Opens the iPad Home Screen app and taps Turn on notifications in Library.
+2. Opens Settings, verifies notifications are on and sends a test notification.
+3. Pastes one short allowed public video URL, checks the selected entry/resolution
+   and finish-time/unknown text, then taps Add.
+4. Uploads one short Photos video, sees bytes/speed and the predicted local finish,
+   then taps Add. Keep the app open while uploading.
+5. Receives both Ready notifications, taps each and plays both completed library items.
+6. With the operator, confirms incoming is empty and activity.log has two nameless
+   lines. Separately checks an interrupted upload reopened on the iPad, and a
+   confirmed cancellation, without expecting a processing percentage or history.
+
+All real-device and production-control steps above remain NOT_RUN / OWNER.
+
+
+## Cleanup inventory and results
+
+All candidates were recorded in this report before permanent cleanup. Pre-existing scratch state was preserved.
+
+| Path relative to work | Measured logical bytes | Actual |
+| --- | --- | --- |
+| scratch\r1b-admission | 0 | Removed; absence verified |
+| scratch\r1b-browser | 373938 | Removed; absence verified |
+| scratch\r1b-build | 5392304 | Removed; absence verified |
+| scratch\r1b-control-final | 0 | Removed; absence verified |
+| scratch\r1b-cpu | 153010 | Removed; absence verified |
+| scratch\r1b-cpu-cache | UNKNOWN | REFUSED; still exists |
+| scratch\r1b-cpu-complete | 0 | Removed; absence verified |
+| scratch\r1b-cpu-final | 0 | Removed; absence verified |
+| scratch\r1b-final-check | 0 | Removed; absence verified |
+| scratch\r1b-focused | 0 | Removed; absence verified |
+| scratch\r1b-gpu | 0 | Removed; absence verified |
+| scratch\r1b-gpu-cache | UNKNOWN | REFUSED; still exists |
+| scratch\r1b-home | 0 | Removed; absence verified |
+| scratch\r1b-lf | 0 | Removed; absence verified |
+| scratch\r1b-regression | 0 | Removed; absence verified |
+| scratch\r1b-review | 0 | Removed; absence verified |
+| scratch\r1b-tests | 0 | Removed; absence verified |
+| scratch\r1b-browser | 210751 | Removed; absence verified |
+| repo\AlternativeServices | 119 | Removed; absence verified |
+| repo\IsolatedSites | 73856 | Removed; absence verified |
+| repo\Storage | 170 | Removed; absence verified |
+| scratch/r1b-preview-check | 0 | Removed; absence verified |
+
+Known logical bytes removed by explicit cycle cleanup: 6,204,148. Fixture teardowns separately removed their own media, temporary model links and outputs; those unmeasured amounts are not added to this number.
+
+## For the owner to delete
+
+- `D:\my-workspace\VideoEnhancer\work\scratch\r1b-cpu-cache` — size UNKNOWN: inventory and deletion both returned `[WinError 5] Access is denied`. No retry, ACL change or escalation workaround was used.
+- `D:\my-workspace\VideoEnhancer\work\scratch\r1b-gpu-cache` — size UNKNOWN: inventory and deletion both returned `[WinError 5] Access is denied`. No retry, ACL change or escalation workaround was used.
+
+These are test framework cache directories, not service data. Pre-existing scratch contents were not cleaned without established ownership.
+
+
+<!-- Previous reports -->
+
+Task ID / Cycle: VE-R1b
+Status: BLOCKED
+
+## Outcome and stop reason
+
+The task is incomplete. Do not commit, deploy, restart the installed service,
+or treat the new modules as a working R1b implementation.
+
+Dependency synchronization failed on a native extension in the checkout's
+shared environment. The task explicitly says the owner's service runs from
+this checkout and must not be touched. No service stop, process termination,
+file unlock, repeated removal, or workaround for the refused removal was
+attempted. The environment's installed-package state after the failed sync
+has not been verified; do not assume it is unchanged. The designer/operator
+must resolve the development-runtime isolation before resuming this cycle.
+
+## Environment and scope
+
+Windows PowerShell. Starting branch `claude/project-thread-yyrl3q`, HEAD
+`c9199defe7b3677ab5b8f3be0285b479a9161262`; elevated read-only Git confirmed
+an initially clean working tree. Git was absent from PATH; its absolute
+executable initially returned Access is denied, and the approved elevated
+read-only retry succeeded. AGENTS.md, CLAUDE.md, CURRENT_TASK.md and
+docs/WORKSPACE.md were read. CURRENT_TASK.md already contains the full
+instructions and was retained unchanged. No other implementation worker was
+started. No Git mutation was performed.
+
+The owner's home, library, Scheduled Task, firewall and device records were
+not inspected or deliberately modified. The attempted `uv sync --locked`
+did target the shared checkout environment, which was a mistake: it should
+have used a separate development environment. A successful editable project
+build was reported before synchronization failed; the exact package state
+is unknown. No claim about the running service's current health is made.
+
+## Partial changes
+
+- `src/videoenhancer/remote/uploads.py`: standalone device-owned upload
+  sessions, disk/file limits, bounded chunk reads, durable offsets, streamed
+  SHA-256 verification, probe admission and deletion on rejection.
+- `src/videoenhancer/remote/power.py`: thread-scoped system wake request.
+- `src/videoenhancer/remote/jobs.py`: preliminary naming, non-overwriting
+  library publication, bounded nameless activity log, and unfinished lifecycle
+  coordinator. The coordinator is NOT integrated or validated. Crash recovery,
+  ownership admission, cleanup races, notification dispatch and restart safety
+  still need implementation/review; do not enable it.
+- `tests/test_remote_uploads.py`, `tests/test_remote_jobs.py`: focused unit tests.
+- `pyproject.toml`, `uv.lock`: added `pywebpush>=2.0,<3`; resolution selected
+  2.5.0. Dependency resolution succeeded; environment synchronization did not.
+- `.ai/LAST_REPORT.md`: this report; previous reports preserved below.
+
+The gateway, adapter, engine, web app, service commands and API documentation
+were not changed. All current changed paths are within the task's allowlist.
+No GUI or processing behavior was delivered.
+
+## Executed commands and evidence
+
+All installation/testing shells dot-sourced `local-env.ps1`. Tests used
+`VE_HOME` under work/scratch and the explicit absolute basetemp
+`work/scratch/r1b-pytest`; TEMP and TMP were under work/scratch/tmp.
+
+| Check | Result | Actual |
+| --- | --- | --- |
+| Upload tests before implementation | FAIL, expected red | Collection error: missing remote.uploads module |
+| Upload tests after implementation | PASS | 4 passed in 0.12 s |
+| Naming/log/power tests before implementation | FAIL, expected red | Collection error: missing remote.jobs module |
+| Naming/log/power tests after implementation | PASS | 3 passed in 43.98 s |
+| `uv add 'pywebpush>=2.0,<3' --no-sync`, sandbox | FAIL | Network access denied, os error 10013 |
+| Same dependency resolution, elevated | PASS | Resolved 72 packages in 819 ms |
+| `uv sync --locked`, sandbox | FAIL | Hatchling build dependency fetch denied, os error 10013 |
+| `uv sync --locked`, elevated | FAIL / blocker | Editable project built; native-extension removal denied, os error 5 |
+| Ruff check, five new Python files | FAIL | Two E501 findings and one E731 finding |
+| Ruff format --check, five new Python files | FAIL | Three files need formatting; two already formatted |
+| Full CI CPU pytest command | NOT_RUN | Stopped at shared-runtime blocker |
+| Repository-wide Ruff and pyright | NOT_RUN | Stopped at shared-runtime blocker |
+| Node tests | NOT_RUN | Web implementation not started |
+| Real GPU link and upload runs | NOT_RUN | No job integration; runtime synchronization blocked |
+| GUI / Computer Use | NOT_RUN | No Add/notification UI delivered |
+| Real-device push | NOT_RUN / owner | Deferred until implementation and review |
+
+Unit-test commands (from repo, after dot-sourcing local-env.ps1):
+
+```powershell
+& .\.venv\Scripts\python.exe -m pytest tests/test_remote_uploads.py -q --basetemp=D:\my-workspace\VideoEnhancer\work\scratch\r1b-pytest
+& .\.venv\Scripts\python.exe -m pytest tests/test_remote_jobs.py -q --basetemp=D:\my-workspace\VideoEnhancer\work\scratch\r1b-pytest
+```
+
+Expected: dependency synchronization prepares a usable test runtime without
+affecting the installed service. Actual: synchronization attempted to remove
+a native extension from the shared environment and stopped:
+
+```text
+error: failed to remove file `D:\my-workspace\VideoEnhancer\work\repo\.venv\Lib\site-packages\PyNvVideoCodec/PyNvVideoCodec_130.cp312-win_amd64.pyd`: Access is denied. (os error 5)
+```
+
+This is a runtime/environment failure, not a failed processing assertion.
+Whether the file is locked by the service or restricted by permissions was
+not established. No automatic approval-review rejection occurred: elevation
+was approved, then the command itself failed.
+
+## Expected / actual and remaining work
+
+The seven passing unit tests cover helper behavior only. They do not prove
+HTTP authentication/body handling, concurrent uploads, browser resume after
+reopening, admission into the engine, job-end cleanup, restart recovery,
+schedule bypass, estimates including the queue, push encryption/JWTs,
+subscription removal, or Windows service control. Those requirements remain
+unfinished, along with all Add/notification UI and API documentation.
+
+No GPU runs were performed, so predicted versus actual finish measurements,
+estimator-range compliance and job-end deletion paths are NOT_RUN.
+
+## Questions for the designer / operator
+
+1. Resolve the shared development/runtime environment before continuing.
+   Do not stop the live service or force-delete the refused native extension
+   to unblock this cycle. Use a separate development runtime under work and
+   account for its disk budget; verify the existing shared runtime separately
+   before any reviewed production restart.
+2. Resume VE-R1b only after the isolation is established. The current partial
+   modules need integration, formatting, tests and review; this is not a
+   merge-ready or deployable change.
+
+## Operator and iPad checks (future, NOT executed)
+
+Only after a completed implementation and designer review:
+
+```powershell
+ve remote restart
+ve remote status
+```
+
+The new restart command is not implemented in this partial cycle. Do not run
+it now. After implementation, the operator must confirm the paired-device
+count remains 1. If the reviewed restart is refused, the task permits the
+operator to stop the service processes and run:
+
+```powershell
+Start-ScheduledTask -TaskName VideoEnhancer
+ve remote status
+```
+
+Then the owner opens the iPad Home Screen app, enables notifications from the
+Library button, sends a test notification from Settings, adds a short allowed
+public video URL, uploads a short Photos video, checks each predicted finish,
+receives both Ready notifications, taps them and plays both library items.
+The operator confirms incoming is empty and activity.log contains two lines
+without titles, filenames, URLs or paths. All these checks remain NOT_RUN.
+
+## Workspace and disk table
+
+Decimal GB, logical file lengths. Start sizes/free space were not captured;
+the initial Get-PSDrive query returned blank free-space fields. Persistent
+growth therefore cannot be measured or claimed within the 1 GB gate.
+
+| Item | Start GB | End inventory GB | Notes |
+| --- | --- | --- | --- |
+| C available | NOT_CAPTURED | 345.775374336 | DriveInfo measurement |
+| D available | NOT_CAPTURED | 878.668894208 | DriveInfo measurement |
+| package | NOT_CAPTURED | 0.125288579 | No package operation |
+| evidence/VE-R1b | NOT_CAPTURED | 0.000038429 | Pre-existing operator evidence preserved |
+| scratch | NOT_CAPTURED | at least 2.650858131 | Three inventory access errors; incomplete |
+| cache | NOT_CAPTURED | 12.186734417 | No cache pruning |
+| persistent growth | NOT_CAPTURED | NOT_MEASURED | No valid start baseline |
+
+The current-cycle pytest basetemp was inventoried after the tests: zero files,
+zero logical bytes. That verified contained directory was removed successfully;
+the subsequent existence check returned false. Removed logical bytes: 0.
+Pre-existing scratch directories and tmp contents belong
+to other work and were preserved. No media, weights, GUI build output or
+screenshots were created by this run. No drive-wide free-space delta is
+presented as bytes removed.
+
+## For the owner to delete
+
+None requested. The refused native-extension removal is a dependency/runtime
+problem, not a request to delete that file. Pre-existing scratch cleanup is
+deferred because ownership and access were not established.
+
+## Intentionally not performed
+
+No service restart/stop/install/uninstall, real-home status request, real
+device access, firewall or task change, GPU run, public-site download,
+Git mutation, commit, push, merge or deployment. No retry of the refused
+native-extension removal. Implementation stopped at the runtime blocker.
+
+---
+
 Task ID / Cycle: VE-R1a-2
 Status: COMPLETED
 

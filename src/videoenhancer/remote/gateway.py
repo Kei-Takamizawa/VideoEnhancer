@@ -18,11 +18,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 from videoenhancer.remote.adapter import EngineAdapter
 from videoenhancer.remote.certificates import ensure_certificates, local_addresses
+from videoenhancer.remote.power import Awake
 from videoenhancer.remote.security import Devices, cookie_secret, private_ipv4
+from videoenhancer.remote.uploads import MAX_CHUNK
 
 WEB = Path(__file__).with_name("web")
 CSP = (
@@ -97,6 +99,15 @@ class Gateway:
         self.servers: list[LANServer] = []
         self.threads: list[threading.Thread] = []
         self.logger = logging.getLogger("videoenhancer.remote")
+        from videoenhancer.remote.jobs import RemoteJobs
+        from videoenhancer.remote.push import Push
+
+        self.push = Push(home, self.devices, self.logger)
+        self.jobs = RemoteJobs(self.adapter, self.push) if engine is not None else None
+        self.adapter.jobs = self.jobs
+        if engine is not None:
+            engine.ignore_schedule = True
+            engine.remote_jobs = self.jobs
         self.https_port = settings.get("remote_https_port", 8443)
         self.setup_port = settings.get("remote_setup_port", 8080)
         self.downloads: dict[str, Download] = {}
@@ -105,6 +116,7 @@ class Gateway:
     def start(self):
         if self.servers:
             return
+        self.adapter.expire_uploads()
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(
@@ -121,11 +133,15 @@ class Gateway:
                 thread = threading.Thread(target=server.serve_forever, daemon=True)
                 thread.start()
                 self.threads.append(thread)
+            if self.jobs is not None:
+                self.jobs.start()
         except Exception:
             self.close()
             raise
 
     def close(self):
+        if self.jobs is not None:
+            self.jobs.close()
         for server, thread in zip(self.servers, self.threads, strict=False):
             server.shutdown()
             thread.join(timeout=5)
@@ -186,9 +202,22 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(value).encode(), headers=headers)
 
     def _error(self, status, message):
+        from videoenhancer.remote.http import drain_error_body
+
+        status = drain_error_body(self, status)
+        if status == 413:
+            message = "The request body is too large."
         self._json(status, {"error": message})
 
     def _route_template(self, path):
+        for root in ("/api/uploads", "/api/jobs", "/api/links/check", "/api/link-tools"):
+            if path.startswith(root + "/"):
+                suffix = path.rsplit("/", 1)[-1]
+                return (
+                    root
+                    + "/{id}"
+                    + ("/" + suffix if suffix in {"chunk", "finish", "cancel"} else "")
+                )
         if path.startswith("/dl/"):
             return "/dl/{token}"
         if path.startswith("/api/library/"):
@@ -204,6 +233,7 @@ class Handler(BaseHTTPRequestHandler):
         return "/static" if not path.startswith("/api/") else "/api/unknown"
 
     def _request(self):
+        self._body_consumed = False
         started = time.monotonic()
         path = urlsplit(self.path).path
         self._status = 500
@@ -259,11 +289,33 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 return self._error(400, "The request body is invalid.")
             length = int(length_text)
+            streamed = bool(re.fullmatch(r"/api/uploads/[0-9a-f]{32}/chunk", path))
+            bounded = path in {
+                "/api/links/check",
+                "/api/uploads",
+                "/api/estimate",
+                "/api/jobs",
+                "/api/push/subscribe",
+                "/api/push/test",
+                "/api/link-tools/check",
+                "/api/link-tools/install",
+            } or bool(re.fullmatch(r"/api/uploads/[0-9a-f]{32}/finish", path))
             if path == "/api/client-event" and length > 2048:
                 return self._error(413, "The request body is too large.")
-            if path != "/api/client-event" and length not in {0, 2}:
+            if streamed and not 0 < length <= MAX_CHUNK:
+                return self._error(413, "Upload chunks must be no larger than 4 MiB.")
+            if bounded and length > 65536:
+                return self._error(413, "The request body is too large.")
+            if (
+                not streamed
+                and not bounded
+                and path != "/api/client-event"
+                and length not in {0, 2}
+            ):
                 return self._error(400, "The request body is invalid.")
-            self.body = self.rfile.read(length) if length else b""
+            self.length = length
+            self.body = self.rfile.read(length) if length and not streamed else b""
+            self._body_consumed = not streamed
         device = gateway.devices.authenticate(cookie_secret(self.headers.get("Cookie")))
         if path == "/api/session" and self.command == "GET":
             if not device:
@@ -281,6 +333,8 @@ class Handler(BaseHTTPRequestHandler):
                     "cert_expires": gateway.certificates.expires,
                     "version": "0.1.0",
                     "share_limit_bytes": gateway.settings.get("share_limit_bytes", 900_000_000),
+                    "push_key": gateway.push.public_key,
+                    "notifications_on": gateway.push.subscribed(device["id"]),
                 },
             )
         if path == "/api/pair/claim" and self.command == "POST":
@@ -305,6 +359,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(401, "Pair this iPad to use VideoEnhancer.")
         if path == "/api/client-event" and self.command == "POST":
             return self._client_event()
+        if self._remote_api(path, device["id"]):
+            return
         library = gateway.adapter.library
         if path == "/api/library" and self.command == "GET":
             return self._json(200, {"items": library.list()})
@@ -341,6 +397,99 @@ class Handler(BaseHTTPRequestHandler):
             library.delete(parts[2])
             return self._json(200, {"deleted": True})
         return self._error(404, "This page is not available.")
+
+    def _remote_api(self, path, device):
+        gateway = self.server.gateway
+        adapter = gateway.adapter
+        parts = path.strip("/").split("/")
+        if not any(
+            path.startswith(prefix)
+            for prefix in (
+                "/api/uploads",
+                "/api/jobs",
+                "/api/estimate",
+                "/api/links/",
+                "/api/link-tools",
+                "/api/push/",
+            )
+        ):
+            return False
+        try:
+            value = json.loads(self.body or b"{}") if self.command not in {"GET", "HEAD"} else {}
+            if not isinstance(value, dict):
+                raise ValueError("The request body must be a JSON object.")
+            result = None
+            if path == "/api/push/subscribe" and self.command == "POST":
+                result = gateway.push.subscribe(device, value)
+            elif path == "/api/push/test" and self.command == "POST":
+                result = gateway.push.test(device)
+            elif path == "/api/uploads" and self.command == "POST":
+                result = adapter.uploads.create(device, value.get("name"), value.get("size"))
+            elif len(parts) == 3 and parts[:2] == ["api", "uploads"] and self.command == "GET":
+                result = adapter.uploads.status(device, parts[2])
+            elif len(parts) == 4 and parts[:2] == ["api", "uploads"]:
+                if parts[3] == "chunk" and self.command == "PUT":
+                    query = parse_qs(urlsplit(self.path).query, strict_parsing=True)
+                    offset = int(query["offset"][0])
+                    with Awake():
+                        self._body_consumed = True
+                        result = adapter.uploads.chunk(
+                            device, parts[2], offset, self.rfile, self.length
+                        )
+                elif parts[3] == "finish" and self.command == "POST":
+                    with Awake():
+                        result = adapter.uploads.finish(device, parts[2], value.get("sha256"))
+            elif gateway.jobs is None:
+                self._error(503, "The processing engine is not available.")
+                return True
+            elif path == "/api/links/check" and self.command == "POST":
+                result = adapter.check_link(device, value)
+            elif (
+                len(parts) == 4 and parts[:3] == ["api", "links", "check"] and self.command == "GET"
+            ):
+                result = adapter.check_result(device, parts[3])
+            elif path == "/api/estimate" and self.command == "POST":
+                result = adapter.estimate(device, value)
+            elif path == "/api/jobs" and self.command == "POST":
+                result = adapter.add(device, value)
+            elif path == "/api/jobs/active" and self.command == "GET":
+                result = gateway.jobs.active(device)
+            elif (
+                len(parts) == 4
+                and parts[:2] == ["api", "jobs"]
+                and parts[3] == "cancel"
+                and self.command == "POST"
+            ):
+                result = gateway.jobs.cancel(device, parts[2])
+            elif path == "/api/link-tools" and self.command == "GET":
+                result = {"available": adapter.engine.link_tools.status()["available"]}
+            elif (
+                path in {"/api/link-tools/check", "/api/link-tools/install"}
+                and self.command == "POST"
+            ):
+                result = adapter.track(
+                    device, adapter.engine.link_tools_operation(parts[-1], value)
+                )
+            elif len(parts) == 3 and parts[:2] == ["api", "link-tools"] and self.command == "GET":
+                op = adapter.operation(device, parts[2])
+                result = {key: op[key] for key in ("id", "state", "result") if key in op}
+                if op["state"] == "failed":
+                    result["error"] = "Link tools could not be installed. Try again."
+            if result is None:
+                self._error(404, "This page is not available.")
+            else:
+                self._json(200, result)
+        except (ValueError, KeyError, TypeError) as error:
+            message = str(error)
+            if (
+                not isinstance(error, ValueError)
+                or "\\" in message
+                or "/" in message
+                or len(message) > 300
+            ):
+                message = "The request is invalid. Check the video and try again."
+            self._error(400, message)
+        return True
 
     def _setup(self, path):
         gateway = self.server.gateway

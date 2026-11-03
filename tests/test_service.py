@@ -99,6 +99,17 @@ def test_remote_shutdown_refusal_and_authenticated_pairing(api):
         assert json.load(response)["remote"]["gateway_running"] is True
 
 
+def test_unauthenticated_post_body_reliably_returns_status(api):
+    _, _, request = api
+    for _ in range(50):
+        with pytest.raises(urllib.error.HTTPError) as error:
+            request("remote/pairing", "POST", {"padding": "x" * 32000}, token=False)
+        assert error.value.code == 401
+    with pytest.raises(urllib.error.HTTPError) as error:
+        request("remote/pairing", "POST", {"padding": "x" * 65536}, token=False)
+    assert error.value.code == 413
+
+
 def test_plain_shutdown_still_stops_engine(api):
     engine, _, request = api
     with request("shutdown", "POST", {}) as response:
@@ -283,6 +294,46 @@ def test_history_remove_retries_only_bounded_sharing_violations(
         assert len(sleeps) == attempts - 1
         assert sum(sleeps) <= 0.75
         assert output.read_bytes() == b"preserved output"
+    finally:
+        engine.close()
+
+
+@pytest.mark.parametrize("persistent", [False, True])
+def test_remove_retries_late_job_files(tmp_path, monkeypatch, persistent):
+    import errno
+    from pathlib import Path
+
+    from test_controller import _job
+
+    from videoenhancer.service import engine as module
+
+    engine = Engine(tmp_path / "home")
+    job = _job(engine.store, tmp_path)
+    job["state"] = "done"
+    job["segments"][0]["state"] = "done"
+    engine.store.save(job)
+    directory = engine.store.job_dir(job["id"])
+    original = module.shutil.rmtree
+    calls = []
+
+    def late_file(path, *args, **kwargs):
+        if Path(path) == directory:
+            calls.append(path)
+            if persistent or len(calls) == 1:
+                (directory / "late.log").write_text("late logger flush")
+                raise OSError(errno.ENOTEMPTY, "Directory not empty", str(directory))
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(module.shutil, "rmtree", late_file)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    try:
+        if persistent:
+            with pytest.raises(OSError):
+                engine.remove(job["id"])
+            assert len(calls) == 5
+        else:
+            engine.remove(job["id"])
+            assert len(calls) == 2 and not directory.exists()
     finally:
         engine.close()
 

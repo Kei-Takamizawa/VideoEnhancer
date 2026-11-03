@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import errno
 import json
 import os
 import shutil
@@ -37,6 +38,7 @@ from videoenhancer.logging import get_logger
 from videoenhancer.media.decode import choose_backend
 from videoenhancer.media.probe import probe
 from videoenhancer.models.registry import ModelRegistry, selected_models
+from videoenhancer.remote.metadata import remote_info
 from videoenhancer.schedule.controller import (
     ProcessExecutor,
     SystemClock,
@@ -114,6 +116,8 @@ class Engine:
         self.storage_moving = False
         self._cleanup_checked = 0.0
         self.paused = os.environ.get("VE_STORAGE_MOVE_HOLD") == "1"
+        self.ignore_schedule = False
+        self.remote_jobs: Any = None
         self._event_lock = OrderedLock("published events", 20, test_lock_order)
         self._event_build_lock = threading.RLock()
         self._publishing = False
@@ -219,6 +223,16 @@ class Engine:
         for job in self.store.list_jobs(skip_damaged=True):
             from videoenhancer.jobs.checks import job_support_reason
 
+            if remote_info(job) and job["state"] in {
+                "done",
+                "failed",
+                "cancelled",
+            }:
+                # No worker survives service recovery; an interrupted cancel can leave this flag.
+                for segment in job["segments"]:
+                    if segment["state"] == "running":
+                        segment["state"] = "pending"
+                self.store.save(job)
             unsupported = job_support_reason(job)
             if job["state"] not in {"done", "failed", "cancelled"} and unsupported:
                 for segment in job["segments"]:
@@ -251,6 +265,18 @@ class Engine:
                 for path in self.store.job_dir(job["id"]).glob("seg_*.tmp.*"):
                     path.unlink(missing_ok=True)
             elif job["state"] == "preparing":
+                remote = remote_info(job)
+                if remote and not job.get("link_unanalysed"):
+                    self.add(
+                        {
+                            "file": job["input"]["path"],
+                            "output": job["output"],
+                            "settings": job["settings"],
+                        },
+                        remote=remote,
+                        job_id=job["id"],
+                    )
+                    continue
                 if job.get("link_unanalysed") and job.get("source", {}).get("downloaded_at"):
                     job["state"] = "downloading"
                 else:
@@ -474,8 +500,11 @@ class Engine:
                     ):
                         self.compare_worker.close()
                     self._auxiliary()
+                    if self.remote_jobs is not None:
+                        self.remote_jobs.sweep()
 
                 run_queue(
+                    ignore_schedule=self.ignore_schedule,
                     home=self.home,
                     clock=ServiceClock(self.stop),
                     stopped=self.stop.is_set,
@@ -1482,9 +1511,9 @@ class Engine:
             "output": str(output),
         }
 
-    def add(self, value: dict[str, Any]) -> dict[str, Any]:
+    def add(self, value: dict[str, Any], *, remote=None, job_id=None) -> dict[str, Any]:
         source = Path(value["file"]).resolve(strict=True)
-        job_id = uuid.uuid4().hex
+        job_id = job_id or uuid.uuid4().hex
         now = datetime.now(UTC).isoformat()
         settings = {**read_settings(self.home), **value.get("settings", {})}
         check = self.estimate({**value, "file": str(source), "settings": settings})
@@ -1526,10 +1555,12 @@ class Engine:
             ],
             control_generation=0,
         )
+        if remote:
+            job["source"] = {"remote": remote, "downloaded_at": now}
         with self._mutation_lock:
             from videoenhancer.jobs.store import _require_unreserved_output
 
-            _require_unreserved_output(self.store, output)
+            _require_unreserved_output(self.store, output, job_id)
             job["position"] = len(self.store.list_jobs()) + 1
             self.store.save(job)
 
@@ -1549,6 +1580,14 @@ class Engine:
                     home=self.home,
                     job_id=job_id,
                     target_segment_seconds=float(value.get("segment_seconds", 180)),
+                    source_info=job.get("source"),
+                    cancelled=(
+                        lambda: (
+                            self.stop.is_set() or self.store.load(job_id)["state"] == "cancelled"
+                        )
+                    )
+                    if remote
+                    else None,
                 )
                 self.store.patch_existing(
                     job_id,
@@ -1559,8 +1598,10 @@ class Engine:
                     },
                 )
             except Exception as error:
-                self._error(job_id, error)
                 latest = self.store.load(job_id)
+                if remote and (latest["state"] == "cancelled" or self.stop.is_set()):
+                    return  # Preserve interrupted preparation for the next service start.
+                self._error(job_id, error)
                 latest.update(state="failed", error=f"Preparation failed: {error}")
                 self.store.save(latest)
 
@@ -1583,7 +1624,8 @@ class Engine:
             and self.link_jobs.active[job_id] is not threading.current_thread()
         ):
             raise ValueError("Cancel this download before removing its job.")
-        self.video_links.cleanup_download(job)
+        if isinstance(job.get("source"), dict):
+            self.video_links.cleanup_download(job)
         directory = self.store.job_dir(job_id).resolve()
         if any(
             Path(path).resolve().is_relative_to(directory)
@@ -1627,9 +1669,17 @@ class Engine:
                     else:
                         shutil.rmtree(directory)
                     break
-                except PermissionError as error:
-                    # A concurrent finished-job reader can briefly hold manifest.lock.
-                    if getattr(error, "winerror", None) != 32 or attempt == 4:
+                except FileNotFoundError:
+                    if directory.exists():
+                        raise
+                    break
+                except OSError as error:
+                    # Readers can hold manifest.lock; final logger flushes can add late files.
+                    transient = (
+                        getattr(error, "winerror", None) in {32, 145}
+                        or error.errno == errno.ENOTEMPTY
+                    )
+                    if not transient or attempt == 4:
                         raise
                     time.sleep(0.05 * 2**attempt)
         self.link_jobs.pending.pop(job_id, None)
@@ -1952,7 +2002,12 @@ class Engine:
         schedule(job["history_hidden_until"] - time.time())
 
     def _clean_cancelled(self, job: dict[str, Any]) -> dict[str, Any]:
-        self.video_links.cleanup_download(job)
+        if remote_info(job):
+            job.update(cancel_cleanup=False, remove_on_cancel=False)
+            self.store.save(job)
+            return job
+        if isinstance(job.get("source"), dict):
+            self.video_links.cleanup_download(job)
         if job.get("remove_on_cancel"):
             return self.remove(job["id"])
         directory = self.store.job_dir(job["id"])

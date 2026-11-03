@@ -2,8 +2,10 @@
 
 The Windows PC runs the engine without a visible window. Use the iPad Home Screen
 web app on the same home Wi-Fi to browse, play, save and permanently delete videos
-in the PC's library. R1a provides Library and read-only Settings; adding processing
-jobs and notifications come later.
+in the PC's library. Add a video by pasting its URL or choosing a video from
+Photos or Files. The PC uses the saved processing defaults and starts immediately;
+the iPad has no processing progress screen or job history. Notifications announce
+completed or failed videos.
 
 ## Install and manage the service
 
@@ -21,7 +23,8 @@ $env:VE_HOME = '<active engine home>'
 
 `remote install` creates a local certificate authority and server certificate,
 enables the gateway, registers the **VideoEnhancer** task at sign-in, creates
-**VideoEnhancer - Redo pairing**, starts the service and opens pairing for two
+**VideoEnhancer - Redo pairing**, starts the service through that Scheduled Task
+and opens pairing for two
 minutes. Running installation again updates the same task and shortcut. The
 task uses this checkout's `.venv\Scripts\pythonw.exe`, so keep the checkout and
 virtual environment in place. Failed starts are retried three times, one minute
@@ -38,8 +41,16 @@ network is Public, set it to Private in **Settings > Network & internet**.
 
 `remote pair` opens another two-minute pairing window without removing existing
 devices. The Start-menu shortcut does the same and displays one message box with
-the setup address and closing time. `remote status` shows service and gateway
+the setup address and closing time. That message closes automatically when the
+window expires. `remote status` shows service and gateway
 availability, addresses, certificate expiry, device count and pairing state.
+
+`ve remote stop` gracefully shuts down the service through its authenticated
+loopback endpoint. `ve remote restart` stops it, waits for shutdown and starts
+the Scheduled Task again. These commands preserve paired devices, sources,
+unfinished jobs, certificates and the library. They do not reinstall the task
+or change firewall rules. Installation also uses the task, rather than leaving
+the service attached to the installation shell.
 
 For a foreground diagnostic run, use `ve serve --remote`. Ordinary `ve serve`
 keeps its existing behavior unless the saved `remote_enabled` setting is true.
@@ -215,3 +226,102 @@ If the PC cannot be reached, check its power and Wi-Fi connection and tap
 **Retry**. Real iPad cookie retention after restart and after 24 hours, trusted
 profile setup and saving a 1 GB file need the owner's device checks; desktop
 browser automation does not establish those results.
+
+## Adding and finishing videos
+
+In **Add**, paste a video URL and tap **Check link**. Clipboard permission is
+optional; touch and hold the field to paste when the Paste button is refused.
+The app automatically selects the best supported SDR stream with a short side
+no larger than 1080 pixels. Playlist entries are checked by default; unavailable
+entries cannot be selected. If link tools are missing, **Install link tools**
+shows the existing release plan and notices before asking for explicit consent.
+
+Choose a file from Photos or Files to upload it. The PC rejects files over 20 GB
+or over 90% of currently available incoming-drive space before accepting bytes.
+Chunks are at most 4 MiB; the PC persists the accepted offset and verifies the
+complete SHA-256 digest before probing. A refused video above the 1080p class,
+HDR input or invalid digest is deleted. Keep the app open during transfer.
+The app saves the selected file in device-local IndexedDB for reopening and
+resuming. If the browser cannot persist it, the app explicitly asks you to keep
+it open; device storage quotas and actual iPad retention need an owner check.
+
+The PC removes abandoned sessions at service start and hourly: unfinished uploads
+expire 24 hours after their last accepted chunk, and completed uploads expire
+24 hours after verification if they were never added to a job. Uploads belonging
+to jobs are preserved. An expired resume shows "This upload expired. Choose the
+video again." Network reads and hashing do not hold the shared upload lock;
+another update to the same upload is refused until the current update finishes.
+
+Before adding an uploaded video, the app displays the local predicted finish
+time, including work already queued. An unstarted URL transfer has no measured
+network speed, so its end-to-end finish time is unknown until downloading starts;
+processing cost alone is not presented as an end-to-end promise. Unfinished
+downloads also make subsequent queue finish times unknown. After admission,
+Library displays a compact in-progress summary and a confirmed Cancel action,
+without percentages or live processing progress.
+
+Gateway processing bypasses the saved schedule for that service session; it does
+not rewrite the schedule. Sources are isolated under `VE_HOME/remote/incoming/`.
+Outputs initially have hidden `.partial.mp4` names in the library. Only completed
+files are published, with Windows-safe titles of at most 120 UTF-16 code units,
+` (enhanced).mp4`, and ` 2`, ` 3`, etc. before the extension on collisions.
+Publication never overwrites another file. After completion, failure or
+cancellation, the source folder, job/segment files, previews and job record are
+deleted. A durable finishing journal retries interrupted cleanup after restart;
+unfinished processing retains its source and uses the existing engine recovery.
+
+Only the nameless completion summary is retained in `remote/activity.log`: UTC
+time, outcome, preset, input resolution/duration, output bytes, processing
+seconds and a fixed failure category. The log is capped at 1,000,000 bytes by
+dropping old lines. Remote job diagnostics are suppressed; transfer access logs
+use route templates. The PC requests system wakefulness during remote processing
+and transfers, without holding the display on. Upload wakefulness has a 60-second
+idle lease so a disconnected browser cannot keep the PC awake forever.
+
+## Notifications
+
+On the iPad Home Screen app, tap **Turn on notifications** in Library. Permission
+is requested directly from that tap. Settings shows the current iPad's status
+and **Send a test notification**. Subscription secrets are stored with the paired
+device using the existing private-file permissions. VAPID keys are generated
+once in `VE_HOME/remote/vapid.pem`; the subject is
+`https://github.com/Kei-Takamizawa/VideoEnhancer`.
+
+Done notifications say **Ready** and open the completed library item. Failures
+say **Couldn't finish** with a generic plain sentence. Payloads are encrypted by
+Web Push and remain eligible for delivery for 24 hours; test notifications expire
+after one hour. Payloads, endpoints and keys are never logged. The push sender accepts
+only HTTPS Apple Web Push subscriptions, does not follow redirects or use
+environment proxies, and removes subscriptions on HTTP 404 or 410. Gateway logs
+record only HTTP status and an allowlisted Apple reason. Real iPad permission,
+delivery and notification tap behavior remain device checks.
+
+### R1b device-cookie routes
+
+All routes below require a paired device cookie. Writes require an exact HTTPS
+Origin and one decimal Content-Length, with no Transfer-Encoding. JSON bodies
+are limited to 65,536 bytes and must be objects; upload chunk bodies are streamed
+without whole-file buffering. Operation and upload identifiers are device-owned.
+
+| Route | Request / response |
+| --- | --- |
+| `POST /api/links/check` | `{url}` -> `{id,state}`; missing tools -> `{state:"tools_required",tools_required:true}`. |
+| `GET /api/links/check/{id}` | `{id,state,entries?}`; entries include key, title, duration, selected dimensions/format, estimate or a safe error. |
+| `GET /api/link-tools` | `{available}`. |
+| `POST /api/link-tools/check` | `{}` -> operation ID; fetch its result to display the release plan. |
+| `GET /api/link-tools/{id}` | `{id,state,result?,error?}`. |
+| `POST /api/link-tools/install` | `{consent:true,plan_id}` -> operation ID; existing verified installation flow. |
+| `POST /api/uploads` | `{name,size}` -> `{id,name,size,offset,ready}`. |
+| `GET /api/uploads/{id}` | Current durable upload offset and readiness, plus probed media when ready. |
+| `PUT /api/uploads/{id}/chunk?offset=N` | Raw bytes, maximum 4 MiB. Offset must match; retry from GET status after a dropped response. |
+| `POST /api/uploads/{id}/finish` | `{sha256}` -> ready status and media; mismatch or refused input deletes the session. |
+| `POST /api/estimate` | `{upload_id}` or `{check_id,entry_keys:[...]}` -> `{entries:[...]}` with `{finish,seconds,low?,high?}` estimates. Null finish/seconds means unknown. |
+| `POST /api/jobs` | Same selection as estimate -> `{added:[{id}]}`. Client paths and output/settings overrides are not accepted. |
+| `GET /api/jobs/active` | `{jobs:[{id,title,finish,seconds}]}` for this device; no percentages. |
+| `POST /api/jobs/{id}/cancel` | `{}` -> `{cancelled:true}` after requesting engine cancellation; cleanup follows when work releases its handles. |
+| `POST /api/push/subscribe` | PushSubscription JSON -> `{ok:true}`. |
+| `POST /api/push/test` | `{}` -> `{ok,status}`. |
+
+Authenticated `GET /api/session` also includes `push_key` (base64url P-256 public
+key) and `notifications_on`. Unknown/malformed selections return 400, oversized
+bodies return 413, and an unavailable processing engine returns 503.

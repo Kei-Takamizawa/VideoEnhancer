@@ -111,6 +111,8 @@ def _parser() -> argparse.ArgumentParser:
     remote = commands.add_parser("remote", help="Manage the headless iPad service")
     remote_commands = remote.add_subparsers(dest="remote_command", required=True)
     remote_commands.add_parser("install", help="Install the per-user sign-in task")
+    remote_commands.add_parser("restart", help="Gracefully restart the remote service")
+    remote_commands.add_parser("stop", help="Gracefully stop the remote service")
     uninstall = remote_commands.add_parser("uninstall", help="Remove the task and stop the service")
     uninstall.add_argument("--forget-devices", action="store_true")
     pair = remote_commands.add_parser("pair", help="Open pairing for two minutes")

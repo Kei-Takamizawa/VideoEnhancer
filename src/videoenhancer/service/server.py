@@ -150,8 +150,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _json(self, status: int, value: Any) -> None:
+        if status >= 400:
+            from videoenhancer.remote.http import drain_error_body
+
+            status = drain_error_body(self, status)
+            if status == 413:
+                value = {"error": "Request body is too large or not supported."}
         raw = json.dumps(value, default=str, allow_nan=False).encode()
-        self._headers(status, "application/json", len(raw))
+        extra = {"Connection": "close"} if status >= 400 else None
+        if status >= 400:
+            self.close_connection = True
+        self._headers(status, "application/json", len(raw), extra)
         self.wfile.write(raw)
 
     def _local(self) -> bool:
@@ -180,6 +189,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _request(self) -> None:
+        self._body_consumed = False
         try:
             if not self._local():
                 self._json(403, {"error": "Only the local desktop app is allowed."})
@@ -297,7 +307,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(413, {"error": "Request body is too large or not supported."})
                 return
             if length:
-                value = json.loads(self.rfile.read(length))
+                body = self.rfile.read(length)
+                self._body_consumed = True
+                value = json.loads(body)
                 if not isinstance(value, dict):
                     raise ValueError("Request body must be a JSON object.")
             if parts == ["shutdown"] and self.command == "POST":

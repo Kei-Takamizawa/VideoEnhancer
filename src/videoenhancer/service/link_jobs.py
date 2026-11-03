@@ -42,7 +42,7 @@ class LinkJobs:
                 self.pending[job["id"]] = None
         self.thread.start()
 
-    def queue(self, value: dict[str, Any]) -> dict[str, Any]:
+    def queue(self, value: dict[str, Any], *, remote=None, job_id=None) -> dict[str, Any]:
         engine = self.engine
         original, entry = engine.video_links.metadata(
             str(value.get("check_id", "")), str(value.get("entry_key", ""))
@@ -50,6 +50,8 @@ class LinkJobs:
         settings = engine.chosen(value.get("settings", {}))
         video, audio = engine.video_links.selected(original, entry, str(value.get("format_id", "")))
         preferences = read_settings(engine.home)
+        if remote:
+            preferences["video_download_folder"] = remote["folder"]
         reuse_id = str(value.get("reuse_job_id") or "")
         reused = engine.video_links.reusable(entry, engine.store) if reuse_id else None
         if reuse_id and (not reused or reused["job_id"] != reuse_id):
@@ -64,7 +66,7 @@ class LinkJobs:
         if not folder.is_absolute():
             raise ValueError("Choose an absolute video-download folder.")
         folder.mkdir(parents=True, exist_ok=True)
-        job_id = uuid.uuid4().hex
+        job_id = job_id or uuid.uuid4().hex
         title = safe_filename(entry.get("title") or "Video", str(entry.get("id", "video")))
         source_path = Path(reused["path"]) if reused else folder / (title + ".mkv")
         selected = [video] + ([audio] if audio else [])
@@ -95,6 +97,8 @@ class LinkJobs:
             format=str(video["format_id"]),
             title=entry.get("title") or title,
         )
+        if remote:
+            source["remote"] = remote
         if reused:
             previous = engine.store.load(reuse_id)
             source.update(
