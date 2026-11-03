@@ -104,6 +104,7 @@ class Devices:
         self.clock = clock
         self.lock = threading.RLock()
         self.attempts: dict[str, deque[float]] = defaultdict(deque)
+        self.open_attempts: dict[str, deque[float]] = defaultdict(deque)
         self.devices: list[dict[str, Any]] = self._read("devices.json", [])
         self.deadline = self._read("pairing.json", {}).get("closes_at", 0)
 
@@ -152,6 +153,17 @@ class Devices:
             self._save("devices.json", [*self.devices, device])
             self.devices.append(device)
             return 200, secret
+
+    def open_from_device(self, identifier: str) -> float | None:
+        with self.lock:
+            now = self.clock()
+            attempts = self.open_attempts[identifier]
+            while attempts and attempts[0] <= now - 600:
+                attempts.popleft()
+            if len(attempts) >= 5:
+                return None
+            attempts.append(now)
+            return self.open_pairing()
 
     def authenticate(self, secret: str) -> dict[str, Any] | None:
         if not secret or len(secret) > 128:

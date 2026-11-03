@@ -36,6 +36,14 @@ export function pairingScreen(session, standalone) {
   return standalone ? 'claim' : 'install';
 }
 
+export function pairingStatus(session, original, now = Date.now()) {
+  const added = session.devices?.find(device => !original.some(row => row.id === device.id));
+  if (added) return `New device added: ${added.label}.`;
+  const seconds = Math.max(0, Math.ceil((Date.parse(session.closes_at) - now) / 1000));
+  if (!session.pairing_open || !seconds) return 'Pairing closed.';
+  return `Pairing is open for ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}.`;
+}
+
 export const safariInstructions = 'Paste this link into Safari to save the video to Files.';
 
 export function needsSafari(size, limit = 900000000) {

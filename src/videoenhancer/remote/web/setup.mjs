@@ -9,7 +9,7 @@ if (platform() === 'mac') {
     ['Open System Settings > General > Device Management (or Profiles), select VideoEnhancer Local CA and install the profile.'],
     ['Confirm that VideoEnhancer opens over HTTPS without a warning.', address],
     ['If Safari still does not trust the certificate, open Keychain Access, find VideoEnhancer Local CA, open Trust and choose Always Trust for Secure Sockets Layer (SSL).'],
-    ['Run VideoEnhancer - Redo pairing on the PC, then select Pair this device in Safari or Chrome within 2 minutes. Each browser is paired separately.'],
+    ['Open Settings > Add a new device on a paired device, or run VideoEnhancer - Redo pairing on the PC, then select Pair this device in Safari or Chrome within 2 minutes. Each browser is paired separately.'],
     ['Optional: in Safari, choose File > Add to Dock.'],
   ];
   for (const [text, href] of lines) {

@@ -224,7 +224,13 @@ def test_claim_hint_boundary_and_paired_device_list(gateway):
     assert status == 200
     cookie = headers["Set-Cookie"].split(";", 1)[0]
     session = json.loads(request(gateway, "/api/session", cookie=cookie)[2])
-    assert session["devices"] == [{"label": "Mac, Chrome 142", "created": session["paired_at"]}]
+    assert session["devices"] == [
+        {
+            "id": gateway.devices.devices[0]["id"],
+            "label": "Mac, Chrome 142",
+            "created": session["paired_at"],
+        }
+    ]
     assert all("secret" not in key for row in session["devices"] for key in row)
 
 

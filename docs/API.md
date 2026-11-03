@@ -517,6 +517,16 @@ records are retained. Link-tool install/uninstall refuses active link operations
 
 ## iPad gateway
 
+`POST /api/pair/open` accepts `{}` from a paired device over HTTPS. The device
+cookie, allowed Host, matching Origin and private IPv4 source are required.
+It opens the existing two-minute pairing window and returns `closes_at` (UTC ISO
+8601). Each device may open five windows per ten minutes; further requests return
+429. The opening audit event contains only the route and device id, never cookies.
+`GET /api/session` includes `pairing_open` and `closes_at`; paired sessions also
+include the HTTP `setup_address` and device ids, labels and creation dates.
+`POST /api/pair/claim` still closes the window on the first successful claim.
+Invalid JSON and non-object claim bodies return 400 with a clear error.
+
 See [REMOTE.md](REMOTE.md) for the separate device-cookie HTTPS API and setup rules.
 It also documents bounded `POST /api/client-event` diagnostics, authenticated
 `POST /api/library/{id}/download-link`, and the cookie-free one-time

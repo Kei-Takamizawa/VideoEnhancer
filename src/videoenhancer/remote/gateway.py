@@ -34,7 +34,8 @@ CSP = (
 )
 
 PAIRING_HELP = (
-    "When you are ready to pair, click 'VideoEnhancer - Redo pairing' on the PC, "
+    "When you are ready to pair, select Settings > Add a new device on a paired device, "
+    "or click 'VideoEnhancer - Redo pairing' on the PC, "
     "then select Pair this device within 2 minutes."
 )
 
@@ -244,6 +245,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/storage",
             "/api/session",
             "/api/pair/claim",
+            "/api/pair/open",
             "/api/client-event",
         }:
             return path
@@ -340,12 +342,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/session" and self.command == "GET":
             if not device:
                 return self._json(
-                    200, {"paired": False, "pairing_open": gateway.devices.pairing_open}
+                    200,
+                    {
+                        "paired": False,
+                        "pairing_open": gateway.devices.pairing_open,
+                        "closes_at": gateway.status()["closes_at"],
+                    },
                 )
             return self._json(
                 200,
                 {
                     "paired": True,
+                    "pairing_open": gateway.devices.pairing_open,
+                    "closes_at": gateway.status()["closes_at"],
+                    "setup_address": gateway.status()["setup_address"],
                     "device_label": device["label"],
                     "paired_at": device["created"],
                     "pc_name": gateway.pc_name,
@@ -356,15 +366,18 @@ class Handler(BaseHTTPRequestHandler):
                     "push_key": gateway.push.public_key,
                     "notifications_on": gateway.push.subscribed(device["id"]),
                     "devices": [
-                        {"label": row["label"], "created": row["created"]}
+                        {"id": row["id"], "label": row["label"], "created": row["created"]}
                         for row in gateway.devices.devices
                     ],
                 },
             )
         if path == "/api/pair/claim" and self.command == "POST":
-            claim = json.loads(self.body or b"{}")
+            try:
+                claim = json.loads(self.body or b"{}")
+            except (ValueError, UnicodeError):
+                return self._error(400, "The pairing body must be a valid JSON object.")
             if not isinstance(claim, dict):
-                raise ValueError("Invalid device hint.")
+                return self._error(400, "The pairing body must be a valid JSON object.")
             status, value = gateway.devices.claim(
                 self.client_address[0], self.headers.get("User-Agent", ""), claim.get("platform")
             )
@@ -384,6 +397,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._static(path)
         if not device:
             return self._error(401, "Pair this device to use VideoEnhancer.")
+        if path == "/api/pair/open" and self.command == "POST":
+            if self.body != b"{}":
+                return self._error(400, "The request body must be {}.")
+            deadline = gateway.devices.open_from_device(device["id"])
+            if deadline is None:
+                return self._error(429, "Too many pairing windows. Wait ten minutes and try again.")
+            gateway.logger.info("POST /api/pair/open device=%s", device["id"])
+            return self._json(200, {"closes_at": datetime.fromtimestamp(deadline, UTC).isoformat()})
         if path == "/api/client-event" and self.command == "POST":
             return self._client_event()
         if self._remote_api(path, device["id"]):
@@ -594,13 +615,22 @@ In Safari, tap Share &gt; Add to Home Screen, with Open as Web App on.</li>
 
     def _client_event(self):
         event = json.loads(self.body)
-        if not isinstance(event, dict) or event.get("kind") not in {
-            "share_failure",
-            "load_failure",
-            "share_check",
-        }:
+        if (
+            not isinstance(event, dict)
+            or not isinstance(event.get("kind"), str)
+            or event.get("kind")
+            not in {
+                "share_failure",
+                "load_failure",
+                "share_check",
+            }
+        ):
             raise ValueError("Invalid client event.")
-        if event.get("phase") not in {"load", "share", "playback"}:
+        if not isinstance(event.get("phase"), str) or event.get("phase") not in {
+            "load",
+            "share",
+            "playback",
+        }:
             raise ValueError("Invalid phase.")
         size = event.get("size_bytes")
         if type(size) is not int or not 0 <= size <= 2**53 - 1:

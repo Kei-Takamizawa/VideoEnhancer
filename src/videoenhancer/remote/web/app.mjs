@@ -1,6 +1,7 @@
 import {platform, downloadMode} from './platform.mjs';
 import {mountPlayer} from './player.mjs';
 import {mountAdd} from './add-ui.mjs';
+import {mountPairing} from './pairing-ui.mjs';
 import {finishText} from './add.mjs';
 import {
   downloadProgress, formatDuration, formatSize, pairingScreen,
@@ -135,17 +136,17 @@ function pairingView() {
   const state = pairingScreen(session, standalone || platform() === 'mac');
   const panel = element('section', undefined, 'pairing');
   panel.append(element('h1', 'Pair your device'));
-  if (platform() === 'mac') panel.append(element('p', 'Install the CA profile from the setup page, then open HTTPS in Safari or Chrome. Run Redo pairing on the PC. Optional in Safari: File > Add to Dock.'));
+  if (platform() === 'mac') panel.append(element('p', 'Install the CA profile from the setup page, then open HTTPS in Safari or Chrome. Open pairing from a paired device or the PC. Optional in Safari: File > Add to Dock.'));
   const steps = element('ol');
   for (const text of (platform() === 'mac' ? [] : [
-    "On the PC, run ‘VideoEnhancer - Redo pairing’, then open the setup address in Safari.",
+    "Open Settings > Add a new device on a paired device, or run ‘VideoEnhancer - Redo pairing’ on the PC, then open the setup address in Safari.",
     'Install the VideoEnhancer CA profile. In Settings, open General → VPN & Device Management → Downloaded Profile → Install.',
     'In Settings, open General → About → Certificate Trust Settings and enable full trust for VideoEnhancer Local CA.',
     'Open the HTTPS app address in Safari. Tap Share → Add to Home Screen, keep “Open as Web App” on, then tap Add.',
     'Open VideoEnhancer from the Home Screen and tap Pair this device.',
   ])) steps.append(element('li', text));
   panel.append(steps);
-  panel.append(element('p', "When you are ready to pair, click 'VideoEnhancer - Redo pairing' on the PC, then tap Pair this device within 2 minutes.", 'muted'));
+  panel.append(element('p', "When you are ready to pair, select Settings > Add a new device on a paired device, or click 'VideoEnhancer - Redo pairing' on the PC, then tap Pair this device within 2 minutes.", 'muted'));
   if (state === 'claim') {
     const claim = button('Pair this device', async () => {
       claim.disabled = true;
@@ -396,8 +397,13 @@ function settingsView() {
   }
   main.append(details);
   const devices = element('section'); devices.append(element('h2', 'Paired devices'));
-  for (const device of session.devices || []) devices.append(element('p', `${device.label} ? Paired ${date(device.created)}`));
+  const refreshDevices = () => {
+    devices.replaceChildren(element('h2', 'Paired devices'));
+    for (const device of session.devices || []) devices.append(element('p', `${device.label} · Paired ${date(device.created)}`));
+  };
+  refreshDevices();
   main.append(devices);
+  mountPairing({container: main, element, button, api, session, update: next => { session = next; refreshDevices(); }});
   const notifications = element('section', undefined, 'add-card');
   notifications.append(element('h2', 'Notifications'), element('p', session.notifications_on ? 'Notifications are on for this device.' : 'Notifications are off for this device.'));
   if (session.notifications_on) {

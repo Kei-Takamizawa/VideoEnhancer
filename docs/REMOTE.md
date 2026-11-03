@@ -70,6 +70,16 @@ the service is installed again.
 
 ## First iPad setup
 
+To add a Mac from an already paired iPad, open **Settings > Add a new device**.
+Use **Copy address** to transfer the HTTP setup address to Safari on the Mac.
+Follow that page to install the CA profile and trust the certificate in Keychain
+Access, then open the HTTPS app and select **Pair this device** within the live
+two-minute countdown. If setup takes longer, press **Add a new device** again on
+the iPad after the window closes. Settings shows **New device added: <label>.**
+and refreshes the paired devices, or shows **Pairing closed.** on expiry. Reloading
+Settings restores an open window. The PC shortcut and `ve remote pair` remain
+available. Adding a device requires no service restart or PC interaction.
+
 1. Open the printed setup address in Safari at any time, normally
    `http://<COMPUTERNAME>.local:8080/`.
 2. Download the **VideoEnhancer Local CA** configuration profile. In Settings,
@@ -81,7 +91,8 @@ the service is installed again.
    `https://<COMPUTERNAME>.local:8443/`. In Safari choose **Share > Add to Home
    Screen**, leaving **Open as Web App** on.
 5. Open that Home Screen app and tap **Pair this iPad**. If the two-minute window
-   closed, run **VideoEnhancer - Redo pairing** on the PC and try again.
+   closed, select **Settings > Add a new device** on a paired device, or run
+   **VideoEnhancer - Redo pairing** on the PC and try again.
 
 Pair inside the Home Screen app: Safari and the Home Screen app have separate
 cookie storage. The first accepted claim closes the pairing window immediately.
@@ -89,8 +100,9 @@ An open window permits a device on the home network to claim pairing, so open it
 only when setting up an intended device. The HTTP setup page also offers the
 plain CA certificate at `/ca.cer` for manual inspection.
 The setup page and certificate stay available when pairing is closed. Only the
-claim needs an open window. When you are ready to pair, click
-**VideoEnhancer - Redo pairing** on the PC, then tap **Pair this iPad** within
+claim needs an open window. When you are ready to pair, select **Settings > Add a
+new device** on a paired device, or click **VideoEnhancer - Redo pairing** on the
+PC, then tap **Pair this iPad** within
 2 minutes. **Try again** on the unpaired screen rechecks the pairing state.
 
 Use the address printed by `remote status`. The PC name with `.local`, its plain
@@ -151,6 +163,7 @@ times or ISO 8601 UTC strings for session and certificate dates.
 | `GET /` and fixed shell assets | Public app shell; it renders the pairing screen until authorized. |
 | `GET /api/session` | Unpaired: `{paired:false,pairing_open}`. Paired: `{paired:true,device_label,paired_at,pc_name,addresses,cert_expires,version,share_limit_bytes}`. |
 | `POST /api/pair/claim` | Claim the open pairing window; sets the device cookie. No existing cookie required. |
+| `POST /api/pair/open` | Paired device opens a two-minute window with `{}`; five openings per device per ten minutes. Returns `closes_at`. |
 | `GET /api/library` | `{items:[...]}` newest first. Items contain `id`, `name`, `filename`, `mime`, `size`, `modified` (Unix seconds), `duration` (seconds), `width`, `height`, `codec`, and optional `error`. Probe failures use null metadata. |
 | `GET /api/library/{id}/video` | Video bytes; accepts one `Range: bytes=...` range, including suffix ranges. |
 | `HEAD /api/library/{id}/video` | The same video response headers without a body. |
@@ -343,7 +356,8 @@ needs a physical-device check:
 The iPad setup directions remain unchanged. A Macintosh user agent with multiple
 touch points is treated as an iPad.
 
-Run **VideoEnhancer - Redo pairing** on the PC, then select **Pair this device**
+Select **Settings > Add a new device** on a paired device, or run
+**VideoEnhancer - Redo pairing** on the PC, then select **Pair this device**
 within two minutes in a normal Safari or Chrome tab. Each browser keeps its own
 cookie; opening another pairing window preserves previous devices. Safari's
 **File > Add to Dock** is optional. Settings lists paired-device labels and dates;

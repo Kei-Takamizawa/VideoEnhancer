@@ -13,6 +13,7 @@ from pathlib import Path
 
 from videoenhancer.remote.metadata import remote_info
 from videoenhancer.remote.power import Awake
+from videoenhancer.remote.thumbnails import Thumbnails
 from videoenhancer.service.settings import write_json
 
 TERMINAL = {"done", "failed", "cancelled"}
@@ -103,6 +104,7 @@ class RemoteJobs:
         self.engine = adapter.engine
         self.home = adapter.home
         self.push = push
+        self.thumbnails: Thumbnails | None = None
         self.lock = threading.RLock()
         self.path = self.home / "remote/finishing.json"
         self.records = (
