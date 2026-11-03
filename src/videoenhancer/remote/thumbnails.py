@@ -12,9 +12,18 @@ import time
 
 from videoenhancer import proc
 from videoenhancer.config import executable
+from videoenhancer.remote import faces
 from videoenhancer.service.settings import write_json
 
 MAX_BYTES = 8_000_000
+
+
+def current_images(index, signature):
+    return (
+        index.get("signature") == signature
+        and index.get("version") == faces.VERSION
+        and index.get("face_ready") is True
+    )
 
 
 def storyboard_plan(duration, width, height):
@@ -93,7 +102,8 @@ class Thumbnails:
             target = folder / name
             if target.is_symlink() or target.is_junction():
                 raise FileNotFoundError("Images are not ready.")
-            return target.read_bytes(), '"' + signature + '"'
+            data = target.read_bytes()
+            return data, '"' + hashlib.sha256(data).hexdigest() + '"'
 
     def cleanup(self):
         with self.library._lock:
@@ -126,9 +136,23 @@ class Thumbnails:
                 raise ValueError("Invalid image folder.")
             staging.mkdir(exist_ok=True)
             try:
+                if self._cancelled():
+                    raise InterruptedError("Poster interrupted.")
+                selected, face_ready, elapsed = None, False, 0.0
+                try:
+                    selected, elapsed = faces.select(
+                        path, metadata, self.library.home, self._cancelled
+                    )
+                    face_ready = True
+                except InterruptedError:
+                    raise
+                except Exception:
+                    # Optional inference backends use their own exception hierarchy.
+                    # Publish the usable R1c poster now; the watcher retries later.
+                    pass
                 # A small gray sample measures luma without an image-library dependency.
-                position = duration * 0.1
-                for attempt in range(4):
+                position = selected["time"] if selected else duration * 0.1
+                for attempt in range(0 if selected else 4):
                     sample = staging / "luma.raw"
                     self._run(
                         [
@@ -169,6 +193,15 @@ class Thumbnails:
                         "4",
                         str(staging / "poster.jpg"),
                     ]
+                )
+                write_json(
+                    staging / "poster.json",
+                    {
+                        **(selected or dict(time=position, N=0, face_count=0, unmasked_count=0)),
+                        "version": faces.VERSION,
+                        "face_ready": face_ready,
+                        "seconds": elapsed,
+                    },
                 )
                 # Keyframe-only decoding is accurate enough only when no gap exceeds the interval.
                 keyframe_path = staging / "keyframes.json"
@@ -239,6 +272,8 @@ class Thumbnails:
                     sheets=sheets,
                     signature=self.signature(info),
                     keyframe_only=key_only,
+                    version=faces.VERSION,
+                    face_ready=face_ready,
                 )
                 write_json(staging / "storyboard.json", index)
                 with self.library._lock:
@@ -267,7 +302,7 @@ class Thumbnails:
                                 encoding="utf-8"
                             )
                         )
-                        if index.get("signature") == self.signature(info):
+                        if current_images(index, self.signature(info)):
                             continue
                     except (OSError, ValueError):
                         pass
@@ -276,7 +311,9 @@ class Thumbnails:
                             break
                         self.idle.clear()
                     try:
-                        self.generate(identifier)
+                        index = self.generate(identifier)
+                        if not index.get("face_ready"):
+                            retry[identifier] = time.monotonic() + 60
                     except InterruptedError:
                         pass
                     except (
