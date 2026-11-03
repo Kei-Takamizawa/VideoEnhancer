@@ -260,6 +260,16 @@ class Library:
                 raise InUseError(
                     "This video is being streamed or downloaded. Try again afterwards."
                 )
+            sidecar = self.folder / ".videoenhancer" / identifier
+            if (
+                sidecar.parent.is_symlink()
+                or sidecar.parent.is_junction()
+                or sidecar.is_symlink()
+                or sidecar.is_junction()
+            ):
+                raise ValueError("Invalid image folder.")
             path.unlink()
+            if sidecar.exists():
+                shutil.rmtree(sidecar)
             self._cache.pop(identifier, None)
             write_json(self._cache_path, self._cache)

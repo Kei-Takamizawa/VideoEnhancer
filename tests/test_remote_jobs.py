@@ -160,8 +160,17 @@ def test_terminal_cleanup_keeps_only_finished_library_file(tmp_path, outcome):
     engine = Engine(home)
     adapter = EngineAdapter(engine, home, {"library_folder": str(tmp_path / "library")})
     notices = []
-    push = SimpleNamespace(finished=lambda *args: notices.append(args))
+    image_events = []
+
+    def finished(*args):
+        assert image_events == ["paused"]
+        if outcome == "done":
+            assert len(list(adapter.library.folder.glob("*.mp4"))) == 1
+        notices.append(args)
+
+    push = SimpleNamespace(finished=finished)
     manager = RemoteJobs(adapter, push)
+    manager.thumbnails = SimpleNamespace(pause=lambda: image_events.append("paused"))
     job = _job(engine.store, tmp_path)
     incoming = home / "remote/incoming" / job["id"]
     incoming.mkdir(parents=True)

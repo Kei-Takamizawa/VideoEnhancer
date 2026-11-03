@@ -194,6 +194,9 @@ class RemoteJobs:
                 if remote_info(job) and job["state"] in TERMINAL:
                     self.records.setdefault(job["id"], {"job": job})
             if self.records:
+                images = getattr(self, "thumbnails", None)
+                if images is not None:
+                    images.pause()
                 self._save()
             for identifier in list(self.records):
                 try:

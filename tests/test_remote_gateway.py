@@ -255,7 +255,7 @@ def test_download_tokens_ranges_expiry_hashes_and_log_redaction(gateway, caplog,
 
     cookie = pair(gateway)
     folder = gateway.home / "library"
-    folder.mkdir()
+    folder.mkdir(exist_ok=True)
     (folder / "日本語.mp4").write_bytes(b"0123456789")
     identifier = gateway.adapter.library.list()[0]["id"]
     route = f"/api/library/{identifier}/download-link"
@@ -402,7 +402,7 @@ def test_concurrent_first_requests_share_one_library(tmp_path, monkeypatch):
 def test_delete_while_stream_active_and_after_release(gateway):
     cookie = pair(gateway)
     folder = gateway.home / "library"
-    folder.mkdir()
+    folder.mkdir(exist_ok=True)
     (folder / "sample.mp4").write_bytes(b"synthetic")
     library = gateway.adapter.library
     identifier = library.list()[0]["id"]
@@ -427,7 +427,7 @@ def test_delete_while_stream_active_and_after_release(gateway):
 def test_real_range_streams(gateway, range_header, expected, body):
     cookie = pair(gateway)
     folder = gateway.home / "library"
-    folder.mkdir()
+    folder.mkdir(exist_ok=True)
     (folder / "sample.mp4").write_bytes(b"0123456789")
     library = gateway.adapter.library
     item = library.list()[0]

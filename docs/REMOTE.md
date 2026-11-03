@@ -1,4 +1,4 @@
-# VideoEnhancer on an iPad
+# VideoEnhancer on an iPad or Mac
 
 The Windows PC runs the engine without a visible window. Use the iPad Home Screen
 web app on the same home Wi-Fi to browse, play, save and permanently delete videos
@@ -325,3 +325,56 @@ without whole-file buffering. Operation and upload identifiers are device-owned.
 Authenticated `GET /api/session` also includes `push_key` (base64url P-256 public
 key) and `notifications_on`. Unknown/malformed selections return 400, oversized
 bodies return 413, and an unavailable processing engine returns 503.
+
+
+## Mac browsers, library images and player controls (R1c)
+
+On a Mac, visit the PC's HTTP setup address and download the CA profile. In
+System Settings > General > Device Management (or Profiles), select the profile
+and install it. Open the HTTPS address and check that it opens without a warning.
+If Safari still rejects it, find VideoEnhancer Local CA in Keychain Access,
+open Trust and choose Always Trust for Secure Sockets Layer (SSL). Installing a
+profile alone does not necessarily enable TLS trust on macOS 13 and later.
+These directions follow Apple's documentation; the owner's macOS wording still
+needs a physical-device check:
+[profiles](https://support.apple.com/guide/mac-help/install-a-configuration-profile-mh35561/mac),
+[certificate trust](https://support.apple.com/guide/keychain-access/change-the-trust-settings-of-a-certificate-kyca11871/mac),
+[manually installed roots](https://support.apple.com/guide/deployment/intro-to-certificate-management-depb5eff8914/web).
+The iPad setup directions remain unchanged. A Macintosh user agent with multiple
+touch points is treated as an iPad.
+
+Run **VideoEnhancer - Redo pairing** on the PC, then select **Pair this device**
+within two minutes in a normal Safari or Chrome tab. Each browser keeps its own
+cookie; opening another pairing window preserves previous devices. Safari's
+**File > Add to Dock** is optional. Settings lists paired-device labels and dates;
+removing a device is deferred to R2.
+
+On a Mac, Download uses a normal attachment at every size. It never loads a
+whole video into a JavaScript File or invokes sharing. Add accepts the file
+picker or one dropped video; upload limits and resume are unchanged. Notification
+subscriptions accept HTTPS endpoints on web.push.apple.com and fcm.googleapis.com
+only, with the existing port, credential, redirect and endpoint restrictions.
+
+The Library uses a lazy-loaded poster grid. Each video's hidden
+`.videoenhancer/<item id>/` sidecar contains a JPEG poster, JPEG storyboard sheets
+and storyboard.json. Posters have a 270-pixel short side and start at 10% of the
+video; up to three later samples avoid luma below 16. Storyboard tiles are
+160 pixels wide, at intervals of max(2 seconds, duration / 200), with at most
+100 tiles per sheet and 8,000,000 bytes of sheets per video. JPEG quality is
+reduced before refusing an oversized storyboard. Missing images show a neutral
+placeholder. Deletion removes sidecars and startup removes orphaned sidecars.
+
+One low-priority CPU worker generates images for existing or newly published
+videos. The engine suspends it and waits for its current work to stop before a
+GPU segment, and resumes it at the between-segments boundary after publication
+and the Ready notification. Interrupted partial images are removed and retried.
+Keyframe-only decoding is used when the measured maximum keyframe gap fits the
+storyboard interval; otherwise decoding is full. No processing sources or job
+records are retained for this feature.
+
+The player has custom Play/Pause, time, seek and full-screen controls. Mac also
+has volume and Space/Left/Right shortcuts (seek by five seconds). Hovering or
+dragging the seek bar shows a bounded storyboard preview, or just its time while
+images are unavailable. Mac uses the Fullscreen API on the player container;
+iPad uses webkitEnterFullscreen on the video when available, handing control to
+the native player. Range playback, Download and permanent Delete remain available.

@@ -1,3 +1,287 @@
+Task ID / Cycle: VE-R1c / Windows
+Status: PARTIAL
+
+## Outcome
+
+Implemented the approved Mac browser support, library image sidecars, poster grid
+and custom player with seek previews. Scratch cleanup is PARTIAL after a
+permission refusal, and the desktop E2E gate remains FAIL:
+21 passed, 1 failed, 18 skipped. Do not treat this report as approval to restart
+the real remote service or merge the branch.
+
+The initial branch was claude/project-thread-yyrl3q, HEAD
+7b627cceb7a9a8b5c3e4c340ecc51a7420b12cf8, with a clean working tree, verified by
+read-only Git after escalation. CURRENT_TASK.md was read in full and preserved.
+No Git mutation, dependency installation/change, real remote-service management,
+owner-home/library access, Scheduled Task or firewall change was performed.
+Older reports are retained below this one.
+
+## Implementation and changed files
+
+- src/videoenhancer/remote/thumbnails.py: interruptible, single-worker CPU image
+  generation; black-poster avoidance, keyframe-gap selection, JPEG size cap,
+  signature validation, startup orphan cleanup and staged publication.
+- src/videoenhancer/remote/gateway.py: authenticated image routes, private cache
+  headers/ETags and 304 responses; bounded platform hints; paired-device labels
+  and dates; platform-specific setup module and worker lifecycle.
+- src/videoenhancer/remote/library.py: delete the video's sidecar; reject links
+  or junctions at the sidecar boundary.
+- src/videoenhancer/remote/jobs.py: pause images before publication/notification.
+- src/videoenhancer/remote/security.py: validate platform hints and derive labels
+  with Safari/Chrome major versions; preserve existing pairing/cookie semantics.
+- src/videoenhancer/remote/push.py: allow strict HTTPS fcm.googleapis.com endpoints
+  alongside web.push.apple.com; other endpoint restrictions remain enforced.
+- src/videoenhancer/remote/web/platform.mjs and setup.mjs: distinguish a real Mac
+  from desktop-mode iPad; Mac profile/Keychain instructions and optional Add to Dock.
+- src/videoenhancer/remote/web/player.mjs: custom controls, bounded hover/drag
+  storyboard previews, Mac volume and keyboard handling. Space and five-second
+  seeks work with the seek slider focused as well as the player container.
+- src/videoenhancer/remote/web/app.mjs: poster grid, normal-tab Mac pairing,
+  attachment-only Mac downloads for all sizes, shared device wording and device list.
+- src/videoenhancer/remote/web/add-ui.mjs: one-video Mac drop through the existing
+  upload/resume path.
+- src/videoenhancer/remote/web/style.css and sw.js: responsive cards/controls and
+  the additional offline shell modules.
+- src/videoenhancer/service/engine.py: minimal pause/resume signals around GPU
+  segments and auxiliary GPU work. Idle boundaries do not repeatedly cancel images.
+- tests/test_remote_r1c.py and tests/test_remote_r1c.mjs: generated landscape,
+  1080x1920 portrait, black opening, sparse keyframes, image-budget rejection,
+  sidecar filtering/deletion/orphans, GPU wait/idle behavior, cookie/cache routes,
+  platform-hint validation, geometry, drop rules and download selection.
+- tests/test_remote_gateway.py: setup mkdir tolerates startup-created library.
+- tests/test_remote_jobs.py: assert images are paused and publication has happened
+  before the Ready callback.
+- tests/test_remote_push.py: Chrome acceptance and strict-host refusals.
+- tests/test_remote_web.mjs: include the R1c JavaScript tests in the existing CI command.
+- tests/remote_r1c_browser.py: isolated, routed WebKit/Chromium UI smoke.
+- tests/remote_r1c_benchmark.py: reproducible synthetic 10-minute 1080p measurement.
+- docs/REMOTE.md and docs/API.md: usage, sidecars, controls and API contracts.
+- .ai/LAST_REPORT.md: this report, with historical reports retained.
+
+All source/document changes are within the allowed paths. Existing code and
+fixtures were reused without adding dependencies or changing saved defaults.
+
+## Validation results
+
+| Check | Result | Observed result |
+| --- | --- | --- |
+| Final CI CPU selection | PASS | 897 passed, 25 skipped, 103 deselected in 468.30 s |
+| Focused Python, final fixes | PASS | 41 passed in 53.77 s |
+| node --test tests/test_remote_web.mjs | PASS | 21 passed |
+| Ruff check | PASS | All checks passed |
+| Ruff format --check | PASS | 254 files already formatted |
+| JavaScript syntax checks | PASS | app.mjs, add-ui.mjs, player.mjs |
+| Final Git scope / diff --check | PASS | Only allowed paths; HEAD and task/dependencies/gui unchanged |
+| Browser smoke | PASS | Four configurations, details below |
+| Desktop E2E, elevated | FAIL | 21 passed, 1 failed, 18 existing opt-in skips; 3.5 min |
+| Physical Mac/iPad, real push/download/upload/full screen | NOT_RUN | No reachable physical device session available |
+| Build/package/CI publication | NOT_RUN | No desktop build changes; existing E2E executable used; no publication authorized |
+
+Commands dot-sourced local-env.ps1. FFmpeg/ffprobe used the existing cache/r0b-ffmpeg
+tools. Browser smoke used the existing cache/ipad-venv Playwright environment;
+no browser or Python package was installed. CPU selection was
+`python -m pytest -m "not gpu and not soak" -q`, with absolute --basetemp and
+VE_HOME/TEMP/TMP under scratch; the final run also isolated pytest's cache there.
+The desktop command was the complete `npm run test:e2e`, with absolute isolated
+VE_GUI_TEST_ROOT, VE_HOME, evidence and existing VE_TAURI_EXE paths.
+
+### Failed and interrupted runs
+
+- Red tests: the initial Python tests failed twice for missing hint support and
+  thumbnail code; the initial JavaScript run failed for the missing platform module.
+- First focused Python run: 72 passed, 8 failed. All eight were existing gateway
+  fixtures creating a library directory already created by startup orphan cleanup.
+  A diagnostic -x run reproduced the first failure (21 passed, 1 failed).
+  Setup mkdir was corrected; assertions were retained.
+- Initial sandbox CPU run: interrupted after the existing deliberately stuck
+  trial test could not terminate its child. A direct taskkill of that isolated
+  child returned Access denied. This run has no completed suite result.
+- Initial sandbox desktop run: interrupted after six completed WebView/CDP
+  startup failures and twelve skips. Isolated test PIDs/command lines were checked
+  before escalation terminated those test trees; the real service was not targeted.
+- Elevated CPU run before the final fixes: 895 passed, 1 failed, 25 skipped,
+  103 deselected in 487.65 s. The failure was the repository's explicit-text-encoding
+  guard for the new probe call. Probe capture was replaced with cancellable
+  file output and explicit UTF-8 reading. Its two pytest-cache write warnings
+  were avoided by placing the final pytest cache under scratch.
+- The idle-worker regression test first exposed repeated cancellation at idle
+  boundaries. Its first diagnostic harness itself failed to stop after an
+  assertion and was terminated by matching only its isolated test command line.
+  The corrected test reproduced the product failure, then passed after the fix.
+- Browser attempts exposed test-environment issues (Playwright absent from the
+  main venv, Chrome absent, service-worker interception, off-screen pointer
+  coordinates and a routed-handler argument error). Existing Playwright/Edge,
+  blocked service workers and corrected test setup resolved them without installs.
+  The slider-focused keyboard regression was observed failing before its fix.
+- Intermediate Ruff line-length/binding failures were fixed without suppressions.
+
+Final read-only Git verification also emitted an LF-to-CRLF advisory for push.py;
+there were no diff --check errors. HEAD remains unchanged.
+
+Every completed desktop gate is recorded as FAIL where applicable. No test was
+removed, disabled or relaxed to obtain a passing result.
+
+### Desktop failure and reproduction
+
+`gui/tests/e2e/p1f3-visual.spec.ts:72`, fresh calibration case: after opening the
+synthetic Japanese-named History video, `video.readyState` did not become > 1
+within 5000 ms. The assertion, GUI source and test were not changed.
+Reproduce with the isolated E2E environment above and
+`npm run test:e2e -- tests/e2e/p1f3-visual.spec.ts -g "fresh calibration"`.
+The preceding R1b report records a similar historical failure, but no new baseline
+checkout was run this cycle; this report does not claim a newly proven
+pre-existing classification. Minimal logs, error context and trace were retained
+in evidence/VE-R1c. Fixing this separate desktop playback path is outside the
+allowed product-code paths for R1c and needs a designer decision.
+
+## Browser and GUI checks: expected / actual
+
+Windows Playwright WebKit and Chromium via installed Edge were each checked at
+1440x900/mouse and 1180x820/touch. Actual: 500 lazy poster cards render; card click
+opens custom controls; hover and pointer drag show a sheet tile/time; preview
+stays within horizontal player edges; Mac volume exists and iPad volume does not.
+Mac Space/Left/Right controls and five-second seeks with the slider focused pass.
+Normal-tab Mac pairing is checked with standalone=false and an open pairing window.
+Four final configurations passed without page errors; screenshots were inspected.
+
+Backend replies/images are synthetic routed data. Playback is deliberately
+poster-only, and keyboard tests mock media readiness/play/pause. Touch drag also
+uses dispatched touch-pointer handlers with pointer capture stubbed. These checks
+do not prove physical touch behavior, codec playback, real push, downloads or uploads.
+The owner checks below remain necessary.
+
+Mac full screen uses requestFullscreen on the player container so custom controls
+remain. iPad uses video.webkitEnterFullscreen when available, allowing native
+controls to take over; the container API is a fallback. Neither physical full-screen
+path was exercised here.
+
+Mac setup wording follows Apple's documentation, including the macOS 13+ manually
+installed-root TLS-trust caveat. Profile and Keychain links are in docs/REMOTE.md.
+The owner's actual macOS/System Settings wording remains UNVERIFIED. Direct page
+fetches for two Apple help pages were unavailable/rate-limited; Apple's deployment
+certificate documentation was available. No warning-bypass advice is used.
+
+## Thumbnail measurement
+
+Fixture: generated static grid, H.264 1920x1080, 30 fps, 600 seconds, GOP 60;
+source 11,185,666 bytes. This simple synthetic fixture is not a representative
+real-footage speed benchmark. No GPU encoding/decoding was requested.
+
+Both measured generation runs are retained: 0.9174304 s initially and 0.9068997 s
+with the final cancellable-probe implementation. Each produced 200 frames at a
+3-second interval in two 1600x900 sheets of 160x90 tiles. Keyframe-only decoding
+was selected. Sizes: poster 13,564 bytes; sheets 179,733 and 178,453 bytes;
+index 201 bytes; total sidecar 371,951 bytes (storyboard sheets 358,186 bytes).
+The synthetic source and temporary sidecars were removed in the cleanup below;
+only measurements remain in evidence/VE-R1c/benchmark*.json.
+
+## Disk and cleanup
+
+All sizes are logical file lengths in decimal GB, not allocated bytes. The entry
+inventory and final non-overlapping folder totals are recorded in
+`evidence/VE-R1c/disk-baseline.json` and `disk-end.json`.
+
+| Item | Entry GB | End GB |
+| --- | ---: | ---: |
+| C free | NOT_AVAILABLE | 343.671255040 |
+| D free | NOT_AVAILABLE | 872.731459584 |
+| Repo including existing venv | 3.728682421 | 3.728759875 |
+| Current package | 0.125288579 | 0.125288579 |
+| All evidence | 0.134584711 | 0.143307763 |
+| This cycle evidence (subset; not added again) | 0 | 0.008778517 |
+| Scratch, readable lengths only | 2.651035154 | 2.651090824 |
+| Complete cache | 12.446381743 | 12.446382097 |
+
+The initial PowerShell drive sample returned empty Free fields. The first
+successful free-space sample was after initial edits: C 343.679451136 GB,
+D 872.740237312 GB. These are late samples, not true entry drive baselines.
+The entry recursive inventory suppressed inaccessible entries. Final scratch
+inventory also reports inaccessible pre-existing cache folders and this cycle's
+pytest cache. Folder deltas are observed logical totals with incomplete attribution;
+free-space changes are not used as cleanup or growth proof.
+
+Measured persistent-folder delta (repo + package + all evidence + cache, with no
+overlapping rows) is 0.008800860 GB, below 1 GB. This is an observed folder delta,
+not a complete attribution of every host write. This cycle's evidence is below
+300 MB and cache is below 40 GB. Numbers are the final-inventory snapshot before
+this disk section was inserted; small report/JSON size differences can follow.
+
+### Cleanup and For the owner to delete
+
+Before removal, `scratch/r1c` had 590,545,962 measured readable bytes in 16,015 files.
+No task-owned processes remained. Essential failure trace/context, measurements
+and synthetic UI screenshots were retained in evidence/VE-R1c first. The absolute
+cleanup target was checked against the work/scratch root, then Remove-Item ran
+inside the sandbox. It removed most artifacts but returned Access denied for
+`scratch/r1c/pytest-cache`. No alternate deletion, escalation, ACL change or bypass
+was attempted after that refusal.
+
+Remaining exact paths for the owner:
+
+| Path under work | Remaining measured bytes | Note |
+| --- | ---: | --- |
+| scratch/r1c/pytest-cache | NOT_AVAILABLE | Directory enumeration/deletion denied |
+| scratch/r1c/videoenhancer.jsonl | 52,132 | Synthetic test log; not read for publication |
+| scratch/r1c/regression | 0 | Empty directory |
+| scratch/r1c (whole task folder) | at least 52,132 | Includes the inaccessible pytest cache |
+
+The readable-length decrease was 590,493,830 bytes, measured independently of
+free-space changes. An exact complete removed-byte total is NOT_AVAILABLE because
+the refused cache cannot be enumerated. Cleanup is PARTIAL, not PASS.
+
+Pre-existing scratch assets were preserved: ipad-spike (2,599,090,194 measured
+bytes), owner-check (42,232,471 bytes), existing home/tmp/log files and prior
+inaccessible r0c/r1a pytest-cache directories. Thus scratch is not empty; other
+cycles' or owner-check assets were not silently removed. Existing evidence also
+contains more than three historical cycles plus owner-check evidence; it was not
+pruned during this cycle. The operator must resolve that pre-existing retention
+state separately, with the historical reports preserved. Only this cycle's
+isolated artifacts were submitted to cleanup.
+
+## Exact operator/owner checks after designer review
+
+1. Operator only: record paired-device count, restart the real service on its real
+   home with `ve remote restart`, then report `ve remote status` and confirm the
+   paired count is unchanged. Do not reinstall or alter firewall rules.
+2. Operator: after ten minutes, report existing-video count and how many have both
+   a poster and storyboard. Check that background generation progresses while idle.
+3. iPad: open the existing Home Screen app; verify the cookie is retained, grid,
+   storage/in-progress lines, landscape and portrait playback, touch scrubbing at
+   start/middle/end, placeholder behavior, native full screen, and existing save flow.
+   Confirm there is no in-page volume slider.
+4. Mac Safari: record macOS/Safari versions. Open the HTTP setup page, install the
+   CA profile using the displayed steps, apply Keychain SSL Always Trust if needed,
+   and confirm HTTPS has no certificate warning. Run Redo pairing and pair within
+   two minutes from a normal tab. Confirm Settings shows Mac, Safari N and date,
+   and the previously paired iPad remains paired. Add to Dock is optional.
+5. Mac Chrome: open a separate pairing window and pair a normal Chrome tab.
+   Confirm its own cookie and Mac, Chrome N label, with all earlier devices kept.
+6. On each Mac browser: inspect grid/posters; hover and drag the seek bar at both
+   edges; verify time/tile, Space, Left/Right five-second seeking, volume and
+   container full screen with custom controls. Try a small and a >share-limit
+   library video download: both must be normal attachment downloads, with no
+   share sheet or Safari hand-off.
+7. Add on Mac: drop two files and a non-video and confirm refusal, then drop one
+   disposable video and finish one upload. Also check the picker/resume path.
+   Enable notifications and send a test; confirm Ready after that disposable job
+   in Safari and Chrome. Use only the disposable result to test deletion/sidecar removal.
+
+## Unresolved / Questions for the designer
+
+- Decide how to handle the unchanged desktop History playback gate before accepting
+  R1c. No out-of-scope desktop playback fix or baseline Git checkout was attempted.
+- Physical Mac/iPad checks and post-review real-service restart/count remain NOT_RUN.
+- Disk baseline/retention qualifications and pre-existing scratch assets must remain
+  visible in the final report; they are not evidence of a clean initial workspace.
+
+## Intentionally not performed
+
+No commit, push, PR, merge, service restart/install/stop, task/firewall changes,
+owner-data cleanup, dependency/browser installation, external social-media download,
+physical-device claim or real Apple/Google push transmission. No next cycle started.
+
+---
+
 Task ID / Cycle: VE-R1b-3 / Windows
 Status: COMPLETED
 

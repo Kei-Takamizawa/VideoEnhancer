@@ -1,3 +1,4 @@
+import {platform, droppedVideo} from './platform.mjs';
 /** Render the approved Add flow using the existing shell's controls. */
 import {entryDescription, selectedEntries, transferUpload, uploadRecord, uploadText, resumeText, keepOpenText} from './add.mjs';
 
@@ -140,8 +141,7 @@ export function mountAdd({main, element, button, api, added}) {
       uploadActions.append(button('Resume upload', () => run(record), 'primary'));
     } finally { busy = false; fileInput.disabled = false; }
   }
-  fileInput.onchange = async () => {
-    const file = fileInput.files?.[0]; if (!file || busy) return;
+  async function chooseFile(file) { if (!file || busy) return;
     if (file.size > 20000000000) { uploadMessage.textContent = 'Choose a video smaller than 20 GB.'; return; }
     if (current && !window.confirm('Replace the saved upload with this video?')) { fileInput.value = ''; return; }
     fileInput.disabled = true; busy = true;
@@ -151,12 +151,22 @@ export function mountAdd({main, element, button, api, added}) {
       const status = await post('/api/uploads', {name: file.name, size: file.size});
       current = {id: status.id, file, name: file.name, size: file.size};
       try { await uploadRecord('put', current); }
-      catch { resumeWarning.textContent = 'Keep this app open. This iPad could not save the video for resuming after reopening.'; }
+      catch { resumeWarning.textContent = 'Keep this app open. This device could not save the video for resuming after reopening.'; }
       busy = false;
       await run(current);
     } catch (error) { uploadMessage.textContent = error.message; }
     finally { busy = false; fileInput.disabled = false; }
   };
+  fileInput.onchange = () => chooseFile(fileInput.files?.[0]);
+  if (platform() === 'mac') {
+    upload.append(element('p', 'Or drop one video file here.', 'muted'));
+    upload.ondragover = event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; };
+    upload.ondrop = event => {
+      event.preventDefault();
+      try { void chooseFile(droppedVideo(event.dataTransfer.files)); }
+      catch (error) { uploadMessage.textContent = error.message; }
+    };
+  }
   void uploadRecord('get').then(async record => {
     if (!record || !upload.isConnected || busy || current) return;
     current = record;

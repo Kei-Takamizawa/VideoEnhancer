@@ -492,6 +492,11 @@ class Engine:
                 executor = ProcessExecutor(ServiceClock(self.stop), self._progress, reuse=True)
 
                 def auxiliary(executor: ProcessExecutor = executor) -> None:
+                    images = getattr(self.remote_jobs, "thumbnails", None)
+                    if images is not None and any(
+                        op["state"] == "waiting" for op in self.operations.values()
+                    ):
+                        images.pause()
                     if any(op["state"] == "waiting" for op in self.operations.values()):
                         executor.close()
                     if any(
@@ -502,6 +507,14 @@ class Engine:
                     self._auxiliary()
                     if self.remote_jobs is not None:
                         self.remote_jobs.sweep()
+                    if images is not None:
+                        images.resume()
+
+                def before_segment() -> None:
+                    images = getattr(self.remote_jobs, "thumbnails", None)
+                    if images is not None:
+                        images.pause()
+                    self.compare_worker.close()
 
                 run_queue(
                     ignore_schedule=self.ignore_schedule,
@@ -511,7 +524,7 @@ class Engine:
                     paused_all=lambda: self.paused,
                     between_segments=auxiliary,
                     executor=executor,
-                    before_segment=self.compare_worker.close,
+                    before_segment=before_segment,
                     on_error=self._error,
                     on_progress=self._progress,
                 )

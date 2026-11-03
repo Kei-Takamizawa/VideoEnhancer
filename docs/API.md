@@ -545,3 +545,25 @@ overrides. JSON requests are capped at 64 KiB; raw chunks at 4 MiB. Sources live
 under remote/incoming and terminal jobs are removed after safe library
 publication or failure cleanup. Gateway jobs retain a nameless activity log;
 the desktop's existing history and saved schedule/preferences are preserved.
+
+
+### R1c device and library-image additions
+
+`POST /api/pair/claim` accepts an optional JSON `platform` hint (`mac`, `ipad`,
+`other`), bounded to 256 request bytes. The server validates the enum and its
+consistency with the user agent; it constructs the label itself, including the
+Safari or Chrome major version. The two-minute claim window and cookie flags
+are unchanged. The hint is a display label, never an authorization decision.
+`GET /api/session` includes `devices`, each with only `label` and `created`.
+
+Device-cookie authentication is required for `GET /api/library/{id}/poster.jpg`,
+`GET /api/library/{id}/storyboard.json` and
+`GET /api/library/{id}/storyboard/{n}.jpg` (zero-based sheet number).
+Ready images return `Cache-Control: private, max-age=86400` and an ETag derived
+from the video size and modification timestamp. Matching `If-None-Match` returns
+304; missing or stale images return 404. The index provides `interval`, tile
+`width` and `height`, `frames`, `sheets`, `signature` and `keyframe_only`.
+Tiles are row-major in 10-column sheets of at most 10 rows.
+Mac downloads use the existing one-time `/dl/{token}` attachment for every size.
+Push subscriptions additionally accept `https://fcm.googleapis.com/` endpoints
+under the same strict validation rules as Apple's push service.

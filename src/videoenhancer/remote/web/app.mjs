@@ -1,8 +1,10 @@
+import {platform, downloadMode} from './platform.mjs';
+import {mountPlayer} from './player.mjs';
 import {mountAdd} from './add-ui.mjs';
 import {finishText} from './add.mjs';
 import {
   downloadProgress, formatDuration, formatSize, pairingScreen,
-  shareFile, storageSegments, storageText, loadFile, needsSafari, safariURL, safariInstructions,
+  shareFile, storageSegments, storageText, loadFile, safariURL, safariInstructions,
 } from './logic.mjs';
 
 const main = document.querySelector('#main');
@@ -78,7 +80,7 @@ function showFailure(error, retry, container = main) {
 function clientEvent(kind, error, item, phase, canShare = null) {
   // Never transmit browser messages containing a video name or a URL.
   const safe = new Set(['', 'Failed to fetch', 'Load failed', 'The operation is not allowed.',
-    'File sharing is unavailable on this iPad.']);
+    'File sharing is unavailable on this device.']);
   const message = safe.has(error?.message || '') ? error?.message || '' : 'Browser operation failed.';
   void api('/api/client-event', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({kind, error_name: error?.name || '', error_message: message,
@@ -130,25 +132,26 @@ function pairingView() {
   clearView();
   tabs.hidden = true;
   const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
-  const state = pairingScreen(session, standalone);
+  const state = pairingScreen(session, standalone || platform() === 'mac');
   const panel = element('section', undefined, 'pairing');
-  panel.append(element('h1', 'Pair your iPad'));
+  panel.append(element('h1', 'Pair your device'));
+  if (platform() === 'mac') panel.append(element('p', 'Install the CA profile from the setup page, then open HTTPS in Safari or Chrome. Run Redo pairing on the PC. Optional in Safari: File > Add to Dock.'));
   const steps = element('ol');
-  for (const text of [
+  for (const text of (platform() === 'mac' ? [] : [
     "On the PC, run ‘VideoEnhancer - Redo pairing’, then open the setup address in Safari.",
     'Install the VideoEnhancer CA profile. In Settings, open General → VPN & Device Management → Downloaded Profile → Install.',
     'In Settings, open General → About → Certificate Trust Settings and enable full trust for VideoEnhancer Local CA.',
     'Open the HTTPS app address in Safari. Tap Share → Add to Home Screen, keep “Open as Web App” on, then tap Add.',
-    'Open VideoEnhancer from the Home Screen and tap Pair this iPad.',
-  ]) steps.append(element('li', text));
+    'Open VideoEnhancer from the Home Screen and tap Pair this device.',
+  ])) steps.append(element('li', text));
   panel.append(steps);
-  panel.append(element('p', "When you are ready to pair, click 'VideoEnhancer - Redo pairing' on the PC, then tap Pair this iPad within 2 minutes.", 'muted'));
+  panel.append(element('p', "When you are ready to pair, click 'VideoEnhancer - Redo pairing' on the PC, then tap Pair this device within 2 minutes.", 'muted'));
   if (state === 'claim') {
-    const claim = button('Pair this iPad', async () => {
+    const claim = button('Pair this device', async () => {
       claim.disabled = true;
       panel.querySelector('.error')?.remove();
       try {
-        await api('/api/pair/claim', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+        await api('/api/pair/claim', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({platform: platform()})});
         await boot();
       } catch (error) {
         panel.append(element('p', error.message, 'error'));
@@ -157,7 +160,7 @@ function pairingView() {
     }, 'primary');
     panel.append(claim);
   } else {
-    if (state !== 'closed') panel.append(element('p', 'Open this app from the Home Screen to pair this iPad.', 'muted'));
+    if (state !== 'closed') panel.append(element('p', 'Open this app from the Home Screen to pair this device.', 'muted'));
   }
   panel.append(button('Try again', boot));
   main.append(panel);
@@ -220,12 +223,16 @@ async function libraryView() {
     const list = element('ul', undefined, 'videos');
     for (const item of library.items) {
       const row = button('', () => itemView(item), 'video-row');
+      const poster = element('img', undefined, 'poster'); poster.alt = ''; poster.loading = 'lazy';
+      poster.src = `/api/library/${encodeURIComponent(item.id)}/poster.jpg`;
+      poster.onerror = () => { poster.style.visibility = 'hidden'; };
+      const box = element('div', undefined, 'poster-box'); box.append(poster); row.append(box);
       const label = element('span');
-      label.append(element('span', item.name, 'video-name'), element('span', itemMetadata(item), 'metadata'));
+      label.append(element('span', item.name, 'video-name'), element('span', `${formatDuration(item.duration)} · ${formatSize(item.size)}`, 'metadata'));
       if (item.error) label.append(element('span', "Can't read this video", 'metadata error'));
       const chevron = element('span', '›', 'chevron');
       chevron.setAttribute('aria-hidden', 'true');
-      row.append(label, chevron);
+      row.append(label);
       const li = element('li');
       li.append(row);
       list.append(li);
@@ -258,25 +265,34 @@ function itemView(item) {
     clientEvent('load_failure', error, item, 'playback');
     errorDetail(error, itemError);
   });
-  main.append(video, itemError);
+  main.append(mountPlayer(video, item, {element, button}), itemError);
   const actions = element('div', undefined, 'actions');
   const progress = element('p', '', 'muted');
   progress.setAttribute('aria-live', 'polite');
   const download = button('Download', () => downloadVideo(item, download, progress), 'primary');
   const deletion = button('Delete', () => confirmDelete(item), 'danger');
-  if (!needsSafari(item.size, session.share_limit_bytes)) actions.append(download);
+  if (downloadMode(platform(), item.size, session.share_limit_bytes) !== 'safari') actions.append(download);
   actions.append(deletion);
   main.append(actions, progress);
-  if (needsSafari(item.size, session.share_limit_bytes)) safariOption(item, progress);
+  if (downloadMode(platform(), item.size, session.share_limit_bytes) === 'safari') safariOption(item, progress);
   if (sessionStorage.getItem('ve-loading-video')) {
     sessionStorage.removeItem('ve-loading-video');
-    progress.textContent = 'The download was interrupted. This iPad may not have enough memory for this video.';
+    progress.textContent = 'The download was interrupted. This device may not have enough memory for this video.';
   }
 }
 
 async function downloadVideo(item, download, progress) {
+  if (platform() === 'mac') {
+    download.disabled = true;
+    try {
+      const {url} = await api(`/api/library/${encodeURIComponent(item.id)}/download-link`, {method: 'POST'});
+      const link = element('a'); link.href = url; link.download = item.filename || ''; main.append(link); link.click(); link.remove();
+    } catch (error) { progress.textContent = error.message; }
+    finally { download.disabled = false; }
+    return;
+  }
   if (typeof navigator.share !== 'function') {
-    progress.textContent = 'File sharing is unavailable on this iPad.';
+    progress.textContent = 'File sharing is unavailable on this device.';
     const error = new Error(progress.textContent);
     clientEvent('share_failure', error, item, 'share', false);
     errorDetail(error, progress);
@@ -333,7 +349,7 @@ async function downloadVideo(item, download, progress) {
     clientEvent('load_failure', error, item, 'load');
     file = undefined;
     progress.textContent = error.name === 'RangeError'
-      ? 'This iPad does not have enough memory to download this video.' : error.message || offlineMessage;
+      ? 'This device does not have enough memory to download this video.' : error.message || offlineMessage;
     download.disabled = false;
     sessionStorage.removeItem('ve-loading-video');
     errorDetail(error, progress);
@@ -371,7 +387,7 @@ function settingsView() {
   for (const [name, value] of [
     ['PC name', session.pc_name], ['PC address', (session.addresses || []).join('\n')],
     ['Certificate expires', date(session.cert_expires)],
-    ['Pairing', `This iPad is paired since ${date(session.paired_at)}`],
+    ['Pairing', `This device is paired since ${date(session.paired_at)}`],
     ['App version', session.version || '0.1.0'],
   ]) {
     const row = element('div');
@@ -379,8 +395,11 @@ function settingsView() {
     details.append(row);
   }
   main.append(details);
+  const devices = element('section'); devices.append(element('h2', 'Paired devices'));
+  for (const device of session.devices || []) devices.append(element('p', `${device.label} ? Paired ${date(device.created)}`));
+  main.append(devices);
   const notifications = element('section', undefined, 'add-card');
-  notifications.append(element('h2', 'Notifications'), element('p', session.notifications_on ? 'Notifications are on for this iPad.' : 'Notifications are off for this iPad.'));
+  notifications.append(element('h2', 'Notifications'), element('p', session.notifications_on ? 'Notifications are on for this device.' : 'Notifications are off for this device.'));
   if (session.notifications_on) {
     const status = element('p', '', 'muted'); status.setAttribute('role', 'status');
     const send = button('Send a test notification', async () => {
@@ -405,10 +424,10 @@ function notificationCard() {
   const enable = button('Turn on notifications', async () => {
     enable.disabled = true;
     try {
-      if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Open this app from the Home Screen to turn on notifications.');
+      if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error(platform() === 'mac' ? 'Notifications are unavailable in this browser.' : 'Open this app from the Home Screen to turn on notifications.');
       // This call must happen during the tap, before waiting for the service worker.
       const permission = await Notification.requestPermission();
-      if (permission !== 'granted') throw new Error('Notifications are off. Allow notifications in iPad Settings, then try again.');
+      if (permission !== 'granted') throw new Error('Notifications are off. Allow notifications in browser or device settings, then try again.');
       const registration = await navigator.serviceWorker.ready;
       let subscription = await registration.pushManager.getSubscription();
       if (!subscription) {
