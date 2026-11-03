@@ -116,6 +116,7 @@ class Gateway:
     def start(self):
         if self.servers:
             return
+        self.adapter.expire_uploads()
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(
@@ -201,6 +202,11 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(value).encode(), headers=headers)
 
     def _error(self, status, message):
+        from videoenhancer.remote.http import drain_error_body
+
+        status = drain_error_body(self, status)
+        if status == 413:
+            message = "The request body is too large."
         self._json(status, {"error": message})
 
     def _route_template(self, path):
@@ -227,6 +233,7 @@ class Handler(BaseHTTPRequestHandler):
         return "/static" if not path.startswith("/api/") else "/api/unknown"
 
     def _request(self):
+        self._body_consumed = False
         started = time.monotonic()
         path = urlsplit(self.path).path
         self._status = 500
@@ -308,6 +315,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(400, "The request body is invalid.")
             self.length = length
             self.body = self.rfile.read(length) if length and not streamed else b""
+            self._body_consumed = not streamed
         device = gateway.devices.authenticate(cookie_secret(self.headers.get("Cookie")))
         if path == "/api/session" and self.command == "GET":
             if not device:
@@ -424,6 +432,7 @@ class Handler(BaseHTTPRequestHandler):
                     query = parse_qs(urlsplit(self.path).query, strict_parsing=True)
                     offset = int(query["offset"][0])
                     with Awake():
+                        self._body_consumed = True
                         result = adapter.uploads.chunk(
                             device, parts[2], offset, self.rfile, self.length
                         )

@@ -6,10 +6,12 @@ import json
 import os
 import re
 import threading
+import time
 import unicodedata
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from videoenhancer.remote.metadata import remote_info
 from videoenhancer.remote.power import Awake
 from videoenhancer.service.settings import write_json
 
@@ -122,7 +124,7 @@ class RemoteJobs:
 
     def owned(self, device, identifier):
         job = self.engine.store.load_existing(identifier)
-        if not job or job.get("source", {}).get("remote", {}).get("device") != device:
+        if not job or (remote_info(job) or {}).get("device") != device:
             raise ValueError("This video is no longer in progress.")
         return job
 
@@ -155,7 +157,7 @@ class RemoteJobs:
                 estimate = estimate_job(current).seconds
             predicted = finish_estimate(estimate, ahead)
             ahead = predicted["seconds"]
-            remote = job.get("source", {}).get("remote", {})
+            remote = remote_info(job) or {}
             if remote.get("device") == device:
                 result.append(dict(id=job["id"], title=remote["title"], **predicted))
         return {"jobs": result}
@@ -167,10 +169,14 @@ class RemoteJobs:
 
     def _watch(self):
         awake = None
+        next_expiry = time.monotonic() + 3600
         try:
             while not self.stop.wait(0.5):
+                if time.monotonic() >= next_expiry:
+                    self.adapter.expire_uploads()
+                    next_expiry = time.monotonic() + 3600
                 busy = self.adapter.uploads.active() or any(
-                    job.get("source", {}).get("remote") for job in self.engine.store.queue_jobs()
+                    remote_info(job) for job in self.engine.store.queue_jobs()
                 )
                 if busy and awake is None:
                     awake = Awake()
@@ -185,7 +191,7 @@ class RemoteJobs:
     def sweep(self):
         with self.adapter.lock, self.lock:
             for job in self.engine.store.list_jobs():
-                if job.get("source", {}).get("remote") and job["state"] in TERMINAL:
+                if remote_info(job) and job["state"] in TERMINAL:
                     self.records.setdefault(job["id"], {"job": job})
             if self.records:
                 self._save()
@@ -206,7 +212,9 @@ class RemoteJobs:
             record["job"] = live
             self._save()
         job = record["job"]
-        remote = job["source"]["remote"]
+        remote = remote_info(job)
+        if not remote:
+            raise ValueError("Remote ownership is missing.")
         if identifier in self.engine.processes or identifier in self.engine.link_jobs.active:
             return
         if any(
@@ -254,10 +262,7 @@ class RemoteJobs:
         check_id = remote.get("check_id")
         if check_id:
             others = self.engine.store.list_jobs()
-            if not any(
-                row.get("source", {}).get("remote", {}).get("check_id") == check_id
-                for row in others
-            ):
+            if not any((remote_info(row) or {}).get("check_id") == check_id for row in others):
                 preview = self.home / "previews" / check_id
                 if preview.exists():
                     shutil.rmtree(preview)

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from videoenhancer.remote.jobs import automatic_format, finish_estimate
+from videoenhancer.remote.metadata import remote_info
 from videoenhancer.remote.uploads import Uploads
 from videoenhancer.service.settings import write_json
 
@@ -37,7 +38,7 @@ class EngineAdapter:
         )
         if engine is not None:
             for job in engine.store.queue_jobs():
-                if job.get("source", {}).get("remote"):
+                if remote_info(job):
                     self.private_job(job["id"])
 
     @staticmethod
@@ -45,6 +46,16 @@ class EngineAdapter:
         logger = logging.getLogger(f"videoenhancer.{identifier}")
         if not any(isinstance(item, PrivateJob) for item in logger.filters):
             logger.addFilter(PrivateJob())
+
+    def expire_uploads(self):
+        # Add holds this same lock until the upload's job is durably stored.
+        with self.lock:
+            owned = {
+                remote["folder"]
+                for job in (self.engine.store.list_jobs() if self.engine is not None else [])
+                if (remote := remote_info(job)) and remote.get("folder")
+            }
+            self.uploads.sweep(owned)
 
     def operation(self, device, identifier):
         if self.requests.get(identifier) != device:
@@ -200,7 +211,7 @@ class EngineAdapter:
                         (
                             job
                             for job in self.engine.store.queue_jobs()
-                            if job.get("source", {}).get("remote", {}).get("folder") == str(folder)
+                            if (remote_info(job) or {}).get("folder") == str(folder)
                         ),
                         None,
                     )
@@ -212,11 +223,9 @@ class EngineAdapter:
                         (
                             job
                             for job in self.engine.store.queue_jobs()
-                            if job.get("source", {}).get("remote", {}).get("device") == device
-                            and job.get("source", {}).get("remote", {}).get("check_id")
-                            == value["check_id"]
-                            and job.get("source", {}).get("remote", {}).get("entry_key")
-                            == row["key"]
+                            if (remote_info(job) or {}).get("device") == device
+                            and (remote_info(job) or {}).get("check_id") == value["check_id"]
+                            and (remote_info(job) or {}).get("entry_key") == row["key"]
                         ),
                         None,
                     )

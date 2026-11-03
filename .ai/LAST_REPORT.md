@@ -1,3 +1,244 @@
+Task ID / Cycle: VE-R1b-2 / Windows
+Status: PARTIAL
+
+## Outcome
+
+Sections 1-5 are implemented and their automated regression checks pass. The
+owner-supplied result in section 6 is recorded below. Completion is not claimed:
+the unchanged default desktop E2E suite fails the P1f-3 fresh History video
+readiness check, including a repeat after the CPU suite exited. GUI changes are
+outside this task's allowed files. Initial drive free-space readings were also
+unavailable; the measured persistent-folder baseline and growth are reported
+without reconstructing missing measurements.
+
+The real remote service was not started, stopped, installed, restarted or queried.
+Its home, library, Scheduled Task and firewall were not accessed or modified.
+No dependency synchronization, dependency/lock changes, Git mutation, commit,
+push or merge was performed. The operator must retain the designer-review gate
+before restarting the real service.
+
+## Environment and instructions
+
+Windows PowerShell, Python 3.12.15. Read AGENTS.md, CLAUDE.md, CURRENT_TASK.md and
+docs/WORKSPACE.md. Elevated read-only Git confirmed a clean starting tree on
+claude/project-thread-yyrl3q at 37efb868f2cd4b9d70d5506e2369a4dd8ffdedcc.
+No branch switch or remote mutation was made. CURRENT_TASK.md was already complete
+and was retained intact. The user's continuation retained the existing test
+changes. All older reports are preserved below this report.
+
+Every test/build shell dot-sourced local-env.ps1. Homes, pytest basetemps, TEMP/TMP,
+desktop profiles and evidence used absolute work-contained paths. Containment
+was asserted before desktop runs. No prohibited social-site download was used.
+The existing e2e-enabled debug desktop/player binaries were reused; Python service
+code is loaded from this checkout. No GUI source or E2E spec was modified.
+
+## Implementation and changed files
+
+- src/videoenhancer/remote/metadata.py: remote_info returns a dictionary or None
+  for missing/null/non-dictionary source or remote metadata.
+- src/videoenhancer/remote/adapter.py, remote/jobs.py: replace every R1b remote
+  ownership read with that helper. Protect job-owned upload folders against
+  expiry under the same adapter lock that serializes Add; run expiry hourly.
+- src/videoenhancer/service/engine.py: use the helper in recovery/cancellation;
+  skip dictionary-only download cleanup for non-dictionary source records.
+- src/videoenhancer/remote/http.py, remote/gateway.py,
+  src/videoenhancer/service/server.py: drain valid unread early-error bodies up
+  to 65,536 bytes, return 413 above that bound and close error connections.
+  Track already-consumed JSON bodies to avoid reading them twice. Gateway startup
+  also expires abandoned uploads.
+- src/videoenhancer/remote/uploads.py: persist activity timestamps; expire
+  unfinished sessions after 24 hours without an accepted chunk and verified
+  sessions 24 hours after finish if no job owns them. Existing sessions fall back
+  to metadata mtime. Busy uploads are protected. Resume reports exactly
+  "This upload expired. Choose the video again." Network reads/hash/probe execute
+  outside the global lock, with one busy update per upload and a clear rejection
+  for a second chunk/finish. Internal timestamps are excluded from API responses.
+- src/videoenhancer/remote/push.py: Ready/Couldn't-finish TTL is 86,400 seconds;
+  test notifications retain 3,600 seconds.
+- tests/test_remote_jobs.py, test_remote_uploads.py, test_remote_gateway.py,
+  test_remote_push.py, test_service.py: regression, fake-clock, startup/hourly,
+  ownership, concurrent-update/status and 50-request HTTP checks.
+- docs/REMOTE.md: document retention, concurrent updates and notification TTLs.
+- .ai/LAST_REPORT.md: this report, with older reports retained below.
+
+## Verification
+
+All counts below are separate runs, not additive coverage totals. No test was
+skipped, disabled, weakened or given a longer timeout by this change.
+
+| Check/run | Result | Measured outcome |
+| --- | --- | --- |
+| Initial diagnostic test invocation | INCOMPLETE | Output showed failures; process handle unavailable after user continuation; no final count claimed |
+| Repeated pre-fix focused regression run | FAIL (expected diagnostic) | 10 failed, 48 deselected, 5.18 s; one overly strict cancellation byte-equality assertion was corrected to allow normal bookkeeping while asserting remote operations leave the record unchanged |
+| First style check | FAIL, corrected | E731 lambda assignments in added tests; replaced with def, no suppression |
+| Post-fix focused regression selection | PASS | 10 passed, 82 deselected, 7.51 s |
+| Related Python files in sandbox | PASS with skips | 88 passed, 4 skipped, 94.18 s; FFmpeg-dependent cases unavailable in sandbox |
+| Expanded remote-focused run | PASS | 80 passed, 101.18 s, including new fake-clock cadence/startup and job protection |
+| CI CPU pytest selection on Windows | PASS with skips/warning | 879 passed, 25 skipped, 103 deselected, 524.35 s; exit 0 |
+| Final jobs/uploads regressions | PASS | 25 passed, 46.01 s; includes added tests collected after the full CPU run began |
+| Refined finish-vs-last-chunk boundary | PASS | 8 passed, 1.76 s |
+| Final public upload status checks | PASS | 8 passed, 1.65 s |
+| Final early-error HTTP checks | PASS | 2 passed, 53 deselected, 3.74 s; 50 unauthenticated requests with bodies per server, plus over-bound 413 checks |
+| Final ruff check . | PASS | All checks passed |
+| Final ruff format --check . | PASS | 250 files already formatted |
+| Final pyright | PASS | 0 errors, 0 warnings |
+| Node remote web logic | PASS | 18 tests |
+| GUI npm test | PASS | 18 files, 86 tests |
+| GUI npm run test:payload | PASS | 1 test |
+| GUI npm run lint / typecheck / build | PASS | Exit 0; Vite build completed |
+| First sandbox requested E2E specs | FAIL (setup) | All 3 failed to seed because FFmpeg was not accessible; no UI assertion result from that run |
+| Requested unchanged p1f2-review / p1f3-copy E2E specs with existing tools | PASS | 3 passed, 50.4 s |
+| First default desktop E2E suite | FAIL | 24 passed, 1 failed, 15 existing skips, 3.8 min |
+| Default desktop E2E repeat after CPU exited | FAIL | 24 passed, same 1 failed, 15 existing skips, 3.5 min |
+| Git diff --check | PASS | Exit 0; only line-ending conversion notices |
+| New owner iPad check / GPU / soak / deployment / production restart | NOT_RUN | Outside this implementation cycle; no new device evidence claimed |
+
+The CPU command used the CI marker expression with work-contained temp/cache
+paths instead of CI's checkout-local basetemp:
+
+```powershell
+. .\local-env.ps1
+.\.venv\Scripts\python.exe -m pytest -m "not gpu and not soak" --basetemp=D:\my-workspace\VideoEnhancer\work\scratch\r1b2-cpu -o cache_dir=D:\my-workspace\VideoEnhancer\work\scratch\r1b2-pytest-cache
+```
+
+The full CPU run collected before seven later maintenance/helper test cases were
+added. Those cases passed in the expanded/final focused runs. Later small HTTP
+header-state and upload-response changes were checked by the final affected
+HTTP/uploads tests and final static checks; the whole CPU suite was not rerun.
+The CPU run emitted one PytestCacheWarning: access denied creating
+scratch/r1b2-pytest-cache/v/cache/nodeids. Test execution passed; this warning was
+not hidden. Node reported NO_COLOR/FORCE_COLOR precedence and Vite reported
+plugin timing information. Git reported expected LF/CRLF conversion notices.
+
+## GUI operations and Expected / Actual
+
+Requested regressions exercised unknown/damaged History records in both themes,
+reuse/nested link lists, video/tray Quit during storage verification/removal, and
+50 repeated unreadable-record Copy details operations. Expected: damaged-record
+History remains visible and usable; actual: all three unchanged E2E tests passed,
+including during both full-suite runs.
+
+The remaining failure is tests/e2e/p1f3-visual.spec.ts:72, state "fresh". After
+opening the synthetic Japanese-named History video, expected video.readyState > 1
+within the existing 5-second poll; actual: timeout. It reproduced after the CPU
+runner exited, so CPU overlap alone does not explain it. Calibration assertions
+before playback passed; failed/driver/no-GPU variants also passed. An older
+report already records this same symptom. No root cause is asserted and no
+unexecuted native-window or iPad verification is reported as PASS.
+
+Reproduce with local-env.ps1, absolute isolated VE_GUI_TEST_ROOT/VE_GUI_EVIDENCE,
+VE_TAURI_EXE and VE_PLAYER_FAULT_TEST_EXE under work, then from gui:
+`npm run test:e2e -- tests/e2e/p1f3-visual.spec.ts -g "fresh calibration"`.
+Actual repeated full commands were `npm run test:e2e -- --output=<absolute work
+scratch results>`; no retry flag or test alteration was used.
+
+Evidence under work/evidence/VE-R1b-2 includes cpu.log, red.log, green.log,
+focused.log, focused2.log, http-final.log, e2e-regressions.log,
+e2e-regressions-elevated.log, e2e-all.log, e2e-serial.log and both failure trace /
+error-context folders. Screenshots and traces stay outside Git.
+
+## Owner iPad check
+
+The task author reports R1b passed on 2026-11-03: notifications, URL job, upload,
+approximate predicted finish and playback. No findings were supplied. This is
+owner-supplied evidence, not an iPad check performed by this Codex run.
+
+## Workspace and disk
+
+Decimal GB below are logical file lengths, not allocated disk usage. Start was
+2026-11-02 20:12 local; final comparable folder inventory was 20:57. Both folder
+inventories used the sandbox access context. An intermediate elevated inventory
+could not read repo/.pytest_cache; it was not substituted into the comparable
+folder totals. Drive end free space came from the reviewed read-only drive query.
+Start drive free space was null in the sandbox output and cannot be recovered.
+
+| Disjoint folder / drive | Start GB | End GB |
+| --- | ---: | ---: |
+| `repo` | 3.728363 | 3.728379 |
+| `package` | 0.125289 | 0.125289 |
+| `evidence` | 0.115807 | 0.131877 |
+| `scratch` | 2.650874 | 2.650910 |
+| `cache` | 12.446311 | 12.446312 |
+| This cycle evidence (subset of evidence, do not add) | Not separately measured | 0.016176 |
+| C: free | Unavailable | 343.711666 |
+| D: free | Unavailable | 872.743596 |
+
+Measured persistent growth across disjoint repo/package/evidence/cache rows:
+16,086,429 bytes (0.016086 GB), below 1 GB. Cycle evidence is below 300 MB
+and cache is below 40 GB. Final inventory preceded this report's final text and
+last JSON bookkeeping by a few KB. The accessible scratch delta is
+35,707 bytes; shared/pre-existing scratch contents
+were not attributed to this cycle. No drive-wide free-space change is treated as
+bytes removed or as proof of project growth. Unknown inherited scratch sizes
+prevent a complete whole-workspace attribution.
+
+### Cleanup
+
+All current-cycle r1b2-* scratch roots were inventoried in this report before
+deletion, resolved and checked to be direct children of work/scratch, then removed
+from inside the sandbox without ACL changes, escalation or deletion retries.
+Saved failure evidence first. Removed logical bytes: 1,314,595,611
+(1.314596 GB). No current-cycle cleanup refusal occurred. The inventory
+and individual results are saved as cleanup-inventory.json / cleanup-results.json.
+
+| Path under work/scratch | Independently measured bytes removed |
+| --- | ---: |
+| `r1b2-cpu` | 0 |
+| `r1b2-e2e` | 202,504,964 |
+| `r1b2-e2e-all` | 556,984,385 |
+| `r1b2-e2e-all-results` | 20,579 |
+| `r1b2-e2e-results` | 45 |
+| `r1b2-e2e-serial` | 555,054,078 |
+| `r1b2-e2e-serial-results` | 20,535 |
+| `r1b2-final-regression` | 0 |
+| `r1b2-focused` | 0 |
+| `r1b2-focused2` | 0 |
+| `r1b2-green` | 0 |
+| `r1b2-http-cache` | 1,408 |
+| `r1b2-http-final` | 0 |
+| `r1b2-public-final` | 0 |
+| `r1b2-pytest-cache` | 9,617 |
+| `r1b2-red` | 0 |
+| `r1b2-red2` | 0 |
+| `r1b2-upload-final` | 0 |
+
+### For the owner / inherited retained paths
+
+The following directories were already unreadable at the initial and final
+sandbox inventories. Their current complete sizes are UNKNOWN, not zero:
+
+- work/scratch/r0c-cpu-final-cache
+- work/scratch/r1a-cpu-cache-elevated
+- work/scratch/r1a-cpu-cache-final
+
+No deletion of these inherited paths was attempted, and no refused deletion was
+worked around. Other pre-existing scratch/evidence and the current portable
+package were retained. Scratch is therefore not claimed globally empty; only
+this cycle's named scratch roots were removed. Historical evidence retention was
+not expanded into an unrelated cleanup cycle.
+
+## Unresolved items / Questions for the designer
+
+1. The full desktop gate is still FAIL at the unchanged P1f-3 fresh History
+   readyState poll. Review the two current traces and the historical report;
+   authorize a separate diagnosis/fix scope if GUI or desktop-test changes are
+   required. This task forbids gui/** changes. No test expectation was weakened.
+2. Initial C/D free-space values and complete inherited scratch sizes are
+   unavailable. Measured persistent-folder growth is reported separately; missing
+   values were not invented. Global scratch cleanup remains incomplete because
+   inherited artifacts were preserved.
+3. Review the implementation/diff before the operator performs any real-service
+   restart. Codex did not commit/push or restart it.
+
+## Intentionally not performed
+
+No independent product/UI/architecture changes, GUI edits, dependency installs,
+real-service changes, live owner-data inspection, social-site download, new
+owner iPad/GPU/soak check, release/package replacement, commit, push or merge.
+No further retry loop was started after the same desktop failure reproduced.
+
+---
+
 Task ID / Cycle: VE-R1b / resumed after runtime stop and usage reset
 Status: PARTIAL
 

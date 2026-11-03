@@ -99,6 +99,17 @@ def test_remote_shutdown_refusal_and_authenticated_pairing(api):
         assert json.load(response)["remote"]["gateway_running"] is True
 
 
+def test_unauthenticated_post_body_reliably_returns_status(api):
+    _, _, request = api
+    for _ in range(50):
+        with pytest.raises(urllib.error.HTTPError) as error:
+            request("remote/pairing", "POST", {"padding": "x" * 32000}, token=False)
+        assert error.value.code == 401
+    with pytest.raises(urllib.error.HTTPError) as error:
+        request("remote/pairing", "POST", {"padding": "x" * 65536}, token=False)
+    assert error.value.code == 413
+
+
 def test_plain_shutdown_still_stops_engine(api):
     engine, _, request = api
     with request("shutdown", "POST", {}) as response:

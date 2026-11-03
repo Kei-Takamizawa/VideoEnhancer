@@ -10,6 +10,7 @@ import shutil
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from videoenhancer.jobs.checks import source_warning
@@ -26,11 +27,38 @@ def probe_video(path):
 
 
 class Uploads:
-    def __init__(self, folder: Path, *, probe=probe_video):
+    def __init__(self, folder: Path, *, probe=probe_video, clock=time.time):
         self.folder = folder.resolve()
         self.probe = probe
         self.lock = threading.RLock()
         self.last_activity = 0.0
+        self.clock = clock
+        self.busy = set()
+
+    @contextmanager
+    def _update(self, device, identifier):
+        with self.lock:
+            item, directory = self._load(device, identifier)
+            if identifier in self.busy:
+                raise ValueError("This upload is already being updated. Try again shortly.")
+            self.busy.add(identifier)
+        try:
+            yield item, directory
+        finally:
+            with self.lock:
+                self.busy.remove(identifier)
+
+    def sweep(self, owned):
+        with self.lock:
+            protected = {Path(folder).resolve() for folder in owned}
+            for metadata in self.folder.glob("*/upload.json"):
+                directory = self._directory(metadata.parent.name)
+                if directory in protected or directory.name in self.busy:
+                    continue
+                item = json.loads(metadata.read_text(encoding="utf-8"))
+                updated = item.get("updated_at", metadata.stat().st_mtime)
+                if self.clock() - updated >= 86400:
+                    shutil.rmtree(directory)
 
     def active(self):
         return time.monotonic() - self.last_activity < 60
@@ -48,9 +76,7 @@ class Uploads:
         try:
             item = json.loads((directory / "upload.json").read_text(encoding="utf-8"))
         except FileNotFoundError:
-            raise ValueError(
-                "This upload is no longer available. Choose the video again."
-            ) from None
+            raise ValueError("This upload expired. Choose the video again.") from None
         if item["device"] != device:
             raise ValueError("This upload belongs to another device.")
         return item, directory
@@ -71,7 +97,15 @@ class Uploads:
             identifier = uuid.uuid4().hex
             directory = self._directory(identifier)
             directory.mkdir()
-            item = dict(id=identifier, device=device, name=name, size=size, offset=0, ready=False)
+            item = dict(
+                id=identifier,
+                device=device,
+                name=name,
+                size=size,
+                offset=0,
+                ready=False,
+                updated_at=self.clock(),
+            )
             (directory / "source").touch()
             write_json(directory / "upload.json", item)
             self.last_activity = time.monotonic()
@@ -79,7 +113,7 @@ class Uploads:
 
     @staticmethod
     def _public(item):
-        return {key: value for key, value in item.items() if key != "device"}
+        return {key: value for key, value in item.items() if key not in {"device", "updated_at"}}
 
     def status(self, device, identifier):
         with self.lock:
@@ -94,8 +128,7 @@ class Uploads:
             return directory / "source"
 
     def chunk(self, device, identifier, offset, stream, length):
-        with self.lock:
-            item, directory = self._load(device, identifier)
+        with self._update(device, identifier) as (item, directory):
             self.last_activity = time.monotonic()
             if (
                 item["ready"]
@@ -121,12 +154,12 @@ class Uploads:
                     target.truncate(offset)
                     raise
             item["offset"] += length
+            item["updated_at"] = self.clock()
             write_json(directory / "upload.json", item)
             return self._public(item)
 
     def finish(self, device, identifier, digest):
-        with self.lock:
-            item, directory = self._load(device, identifier)
+        with self._update(device, identifier) as (item, directory):
             if item["ready"]:
                 return self._public(item)
             if item["offset"] != item["size"]:
@@ -144,7 +177,7 @@ class Uploads:
             except Exception:
                 shutil.rmtree(directory)
                 raise
-            item.update(ready=True, media=media)
+            item.update(ready=True, media=media, updated_at=self.clock())
             write_json(directory / "upload.json", item)
             self.last_activity = 0
             return self._public(item)

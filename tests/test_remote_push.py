@@ -76,6 +76,7 @@ def test_encryption_jwt_persistence(setup_push, tmp_path):
     assert push.key_path.read_bytes() == original
     assert push.finished("ipad", "Sample", "done", "abc123") == {"ok": True, "status": 201}
     url, request = sent[0]
+    assert int(request["headers"]["ttl"]) == 86400
     assert url == subscription["endpoint"]
     assert request["allow_redirects"] is False
     plaintext = http_ece.decrypt(
@@ -104,6 +105,13 @@ def test_encryption_jwt_persistence(setup_push, tmp_path):
         ec.ECDSA(hashes.SHA256()),
     )
     assert Devices(devices.home).devices[0]["push_subscription"] == subscription
+
+
+def test_notification_lifetimes(setup_push):
+    push, _, _, _, _, sent = setup_push
+    push.finished("ipad", "Sample", "failed")
+    push.test("ipad")
+    assert [int(request["headers"]["ttl"]) for _, request in sent] == [86400, 3600]
 
 
 @pytest.mark.parametrize(

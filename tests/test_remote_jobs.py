@@ -8,6 +8,98 @@ from videoenhancer.remote.jobs import RemoteJobs, activity, automatic_format, cl
 from videoenhancer.remote.power import Awake
 
 
+@pytest.mark.parametrize("job", [{}, {"source": None}, {"source": []}, {"source": {"remote": 1}}])
+def test_remote_info_tolerates_legacy_metadata(job):
+    from videoenhancer.remote.metadata import remote_info
+
+    assert remote_info(job) is None
+
+
+def test_upload_expiration_runs_hourly_with_fake_clock(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from videoenhancer.remote import jobs
+
+    now = [0]
+    calls = []
+
+    class Stop:
+        def wait(self, _):
+            now[0] += 1800
+            return now[0] > 7200
+
+    adapter = SimpleNamespace(
+        engine=SimpleNamespace(
+            store=SimpleNamespace(queue_jobs=lambda: [{"source": None}, {"source": "legacy"}])
+        ),
+        home=tmp_path,
+        uploads=SimpleNamespace(active=lambda: False),
+        expire_uploads=lambda: calls.append(now[0]),
+    )
+    monkeypatch.setattr(jobs, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    manager = RemoteJobs(adapter, None)
+    manager.stop = Stop()
+    manager._watch()
+    assert calls == [3600, 7200]
+
+
+def test_adapter_preserves_uploads_referenced_by_jobs(tmp_path):
+    from types import SimpleNamespace
+
+    from videoenhancer.remote.adapter import EngineAdapter
+
+    adapter = EngineAdapter(None, tmp_path, {})
+    now = [0]
+    adapter.uploads.clock = lambda: now[0]
+    owned, abandoned = [adapter.uploads.create("d", "clip.mp4", 1)["id"] for _ in range(2)]
+    folder = adapter.uploads.folder / owned
+    adapter.engine = SimpleNamespace(
+        store=SimpleNamespace(
+            list_jobs=lambda: [
+                {"source": None},
+                {"source": {"remote": {"folder": str(folder)}}},
+            ]
+        )
+    )
+    now[0] = 86400
+    adapter.expire_uploads()
+    assert adapter.uploads.status("d", owned)
+    assert not (adapter.uploads.folder / abandoned).exists()
+
+
+@pytest.mark.parametrize("source", [None, "legacy", {}])
+def test_non_remote_records_survive_recovery_and_remote_operations(tmp_path, source):
+    from types import SimpleNamespace
+
+    from test_controller import _job
+
+    from videoenhancer.remote.adapter import EngineAdapter
+    from videoenhancer.service.engine import Engine
+
+    engine = Engine(tmp_path / "home")
+    job = _job(engine.store, tmp_path)
+    job.update(source=source, state="done")
+    engine.store.save(job)
+    before = (engine.store.job_dir(job["id"]) / "manifest.json").read_bytes()
+    try:
+        engine._recover()
+        adapter = EngineAdapter(engine, engine.home, {})
+        manager = RemoteJobs(adapter, SimpleNamespace(finished=lambda *_: None))
+        manager.sweep()
+        assert manager.active("device") == {"jobs": []}
+        with pytest.raises(ValueError, match="no longer in progress"):
+            manager.cancel("device", job["id"])
+        assert (engine.store.job_dir(job["id"]) / "manifest.json").read_bytes() == before
+        engine._clean_cancelled(dict(job))
+        assert engine.store.load(job["id"])["source"] == source
+        assert (tmp_path / "input.mp4").read_bytes() == b"example"
+        job["state"] = "queued"
+        engine.store.save(job)
+        assert manager.active("device") == {"jobs": []}
+    finally:
+        engine.close()
+
+
 def test_clean_title_and_clash_publication(tmp_path):
     assert clean_title("CON.txt") == "_CON.txt"
     assert clean_title("a/b:*? .") == "a_b___"

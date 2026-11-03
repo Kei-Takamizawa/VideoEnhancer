@@ -71,6 +71,28 @@ def pair(gateway):
     return headers["Set-Cookie"].split(";", 1)[0]
 
 
+def test_unauthenticated_upload_body_reliably_returns_status(gateway):
+    path = "/api/uploads/" + "a" * 32 + "/chunk?offset=0"
+    for _ in range(50):
+        assert request(gateway, path, "PUT", body=b"x" * 32000)[0] == 401
+    assert request(gateway, path, "PUT", body=b"x" * 65537)[0] == 413
+
+
+def test_gateway_start_expires_abandoned_uploads(tmp_path, monkeypatch):
+    from videoenhancer.remote.uploads import Uploads
+
+    monkeypatch.setattr("videoenhancer.remote.gateway.local_addresses", lambda: ["127.0.0.1"])
+    uploads = Uploads(tmp_path / "remote/incoming", clock=lambda: 0)
+    identifier = uploads.create("d", "clip.mp4", 1)["id"]
+    gateway = Gateway(None, tmp_path, {"remote_https_port": 0, "remote_setup_port": 0})
+    gateway.adapter.uploads.clock = lambda: 86400
+    try:
+        gateway.start()
+        assert not (uploads.folder / identifier).exists()
+    finally:
+        gateway.close()
+
+
 def test_authenticated_streamed_upload_resume_and_body_limits(gateway, monkeypatch):
     monkeypatch.setattr(
         gateway.adapter.uploads, "probe", lambda _: {"width": 1920, "height": 1080, "duration": 1}

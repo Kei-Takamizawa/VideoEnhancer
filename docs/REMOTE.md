@@ -245,6 +245,13 @@ The app saves the selected file in device-local IndexedDB for reopening and
 resuming. If the browser cannot persist it, the app explicitly asks you to keep
 it open; device storage quotas and actual iPad retention need an owner check.
 
+The PC removes abandoned sessions at service start and hourly: unfinished uploads
+expire 24 hours after their last accepted chunk, and completed uploads expire
+24 hours after verification if they were never added to a job. Uploads belonging
+to jobs are preserved. An expired resume shows "This upload expired. Choose the
+video again." Network reads and hashing do not hold the shared upload lock;
+another update to the same upload is refused until the current update finishes.
+
 Before adding an uploaded video, the app displays the local predicted finish
 time, including work already queued. An unstarted URL transfer has no measured
 network speed, so its end-to-end finish time is unknown until downloading starts;
@@ -282,7 +289,8 @@ once in `VE_HOME/remote/vapid.pem`; the subject is
 
 Done notifications say **Ready** and open the completed library item. Failures
 say **Couldn't finish** with a generic plain sentence. Payloads are encrypted by
-Web Push; payloads, endpoints and keys are never logged. The push sender accepts
+Web Push and remain eligible for delivery for 24 hours; test notifications expire
+after one hour. Payloads, endpoints and keys are never logged. The push sender accepts
 only HTTPS Apple Web Push subscriptions, does not follow redirects or use
 environment proxies, and removes subscriptions on HTTP 404 or 410. Gateway logs
 record only HTTP status and an allowlisted Apple reason. Real iPad permission,

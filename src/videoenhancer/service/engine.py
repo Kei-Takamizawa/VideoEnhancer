@@ -38,6 +38,7 @@ from videoenhancer.logging import get_logger
 from videoenhancer.media.decode import choose_backend
 from videoenhancer.media.probe import probe
 from videoenhancer.models.registry import ModelRegistry, selected_models
+from videoenhancer.remote.metadata import remote_info
 from videoenhancer.schedule.controller import (
     ProcessExecutor,
     SystemClock,
@@ -222,7 +223,7 @@ class Engine:
         for job in self.store.list_jobs(skip_damaged=True):
             from videoenhancer.jobs.checks import job_support_reason
 
-            if job.get("source", {}).get("remote") and job["state"] in {
+            if remote_info(job) and job["state"] in {
                 "done",
                 "failed",
                 "cancelled",
@@ -264,7 +265,7 @@ class Engine:
                 for path in self.store.job_dir(job["id"]).glob("seg_*.tmp.*"):
                     path.unlink(missing_ok=True)
             elif job["state"] == "preparing":
-                remote = job.get("source", {}).get("remote")
+                remote = remote_info(job)
                 if remote and not job.get("link_unanalysed"):
                     self.add(
                         {
@@ -1623,7 +1624,8 @@ class Engine:
             and self.link_jobs.active[job_id] is not threading.current_thread()
         ):
             raise ValueError("Cancel this download before removing its job.")
-        self.video_links.cleanup_download(job)
+        if isinstance(job.get("source"), dict):
+            self.video_links.cleanup_download(job)
         directory = self.store.job_dir(job_id).resolve()
         if any(
             Path(path).resolve().is_relative_to(directory)
@@ -2000,11 +2002,12 @@ class Engine:
         schedule(job["history_hidden_until"] - time.time())
 
     def _clean_cancelled(self, job: dict[str, Any]) -> dict[str, Any]:
-        if job.get("source", {}).get("remote"):
+        if remote_info(job):
             job.update(cancel_cleanup=False, remove_on_cancel=False)
             self.store.save(job)
             return job
-        self.video_links.cleanup_download(job)
+        if isinstance(job.get("source"), dict):
+            self.video_links.cleanup_download(job)
         if job.get("remove_on_cancel"):
             return self.remove(job["id"])
         directory = self.store.job_dir(job["id"])

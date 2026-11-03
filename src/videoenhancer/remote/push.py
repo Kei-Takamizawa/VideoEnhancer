@@ -161,7 +161,7 @@ class Push:
                 d["id"] == device_id and d.get("push_subscription") for d in self.devices.devices
             )
 
-    def _send(self, device_id: str, payload: dict) -> dict:
+    def _send(self, device_id: str, payload: dict, *, ttl=3600) -> dict:
         with self.devices.lock:
             subscription = next(
                 (d.get("push_subscription") for d in self.devices.devices if d["id"] == device_id),
@@ -179,7 +179,7 @@ class Push:
                     vapid_private_key=self.vapid,
                     vapid_claims={"sub": SUBJECT},
                     timeout=15,
-                    ttl=3600,
+                    ttl=ttl,
                     requests_session=session,
                 )
         except WebPushException as exc:
@@ -237,4 +237,4 @@ class Push:
                 "body": f"{title}: The video could not be processed. Please try again.",
                 "url": "/",
             }
-        return self._send(device_id, payload)
+        return self._send(device_id, payload, ttl=86400)
