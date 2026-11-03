@@ -392,3 +392,26 @@ dragging the seek bar shows a bounded storyboard preview, or just its time while
 images are unavailable. Mac uses the Fullscreen API on the player container;
 iPad uses webkitEnterFullscreen on the video when available, handing control to
 the native player. Range playback, Download and permanent Delete remain available.
+
+
+### Player keyboard and pointer controls
+
+Keyboard shortcuts work immediately after opening a Library video or a notification
+link, including when returning through browser history. Space/K plays or pauses;
+Left/Right seeks 5 seconds (Shift: 30 seconds); M mutes; F toggles fullscreen;
+Escape exits fullscreen. Up/Down changes the page-controlled Mac volume by 10%.
+Text entry and Cmd/Ctrl/Alt browser shortcuts retain their normal behavior.
+
+The original floating player controls and title fade after 2.5 seconds of playback
+inactivity. Pointer movement, a key press or pausing reveals them. Hovering over
+a bar or dragging the seek slider keeps controls visible. A mouse click on the
+video plays/pauses after a short double-click delay; a double click toggles
+fullscreen without changing playback. Touch taps reveal/hide controls; use the
+play button to play/pause. Mac fullscreen includes the control bars; iPad keeps
+its native video fullscreen. Storyboard previews remain above the seek slider.
+
+If push registration fails in Brave, open `brave://settings/privacy`, enable
+**Use Google services for push messaging**, restart Brave, and retry **Turn on
+notifications**. The app preserves the browser's error and shows this hint when
+Brave identifies itself. Brave's `fcm.googleapis.com` push endpoints use the same
+server validation as Chrome.

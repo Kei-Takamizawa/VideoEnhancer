@@ -20,3 +20,12 @@ export function droppedVideo(files) {
 export function downloadMode(kind, size, limit) {
   return kind === 'mac' ? 'attachment' : size > limit ? 'safari' : 'share';
 }
+
+export async function pushFailure(error, nav = navigator) {
+  let brave = false;
+  try { brave = await nav.brave?.isBrave() === true; } catch { /* Detection may be unavailable. */ }
+  const hint = brave
+    ? 'In Brave, open brave://settings/privacy, turn on Use Google services for push messaging, restart Brave, and try again.'
+    : 'Check notification settings in your browser, then try again.';
+  return `${error.message || 'Could not turn on notifications.'} ${hint}`;
+}

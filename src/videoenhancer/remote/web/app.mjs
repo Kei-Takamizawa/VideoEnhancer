@@ -1,4 +1,4 @@
-import {platform, downloadMode} from './platform.mjs';
+import {platform, downloadMode, pushFailure} from './platform.mjs';
 import {mountPlayer} from './player.mjs';
 import {mountAdd} from './add-ui.mjs';
 import {mountPairing} from './pairing-ui.mjs';
@@ -34,6 +34,7 @@ function button(text, action, className) {
 function clearView() {
   releaseDownload();
   releaseDownload = () => {};
+  main.querySelector('.player')?.dispose();
   const video = main.querySelector('video');
   if (video) {
     video.pause();
@@ -217,7 +218,6 @@ async function libraryView() {
     const requested = /^#item=([A-Za-z0-9_-]{1,128})$/.exec(location.hash);
     if (requested) {
       const item = library.items.find(value => value.id === requested[1]);
-      history.replaceState(null, '', '/');
       if (item) { itemView(item); return; }
     }
     if (!library.items.length) content.append(element('p', 'Your library is empty.', 'muted'));
@@ -249,9 +249,15 @@ async function libraryView() {
   }
 }
 
+function openLibrary() {
+  if (location.hash) history.pushState(null, '', '/');
+  void libraryView();
+}
+
 function itemView(item) {
+  if (location.hash !== `#item=${item.id}`) history.pushState(null, '', `#item=${item.id}`);
   clearView();
-  main.append(button('‹ Library', libraryView, 'back'), element('h1', item.name, 'item-title'),
+  main.append(button('‹ Library', openLibrary, 'back'), element('h1', item.name, 'item-title'),
     element('p', itemMetadata(item), 'muted item-meta'));
   const itemError = element('p', item.error ? "Can't read this video" : '', 'error');
   itemError.setAttribute('role', 'alert');
@@ -444,7 +450,7 @@ function notificationCard() {
       await api('/api/push/subscribe', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(subscription.toJSON())});
       session.notifications_on = true; card.remove();
       if (activeTab === 'settings') settingsView();
-    } catch (error) { status.textContent = error.message; enable.disabled = false; }
+    } catch (error) { status.textContent = await pushFailure(error); enable.disabled = false; }
   }, 'primary');
   card.append(enable, status); return card;
 }
@@ -497,10 +503,10 @@ async function boot() {
   }
 }
 
-document.querySelector('#library-tab').addEventListener('click', libraryView);
+document.querySelector('#library-tab').addEventListener('click', openLibrary);
 document.querySelector('#settings-tab').addEventListener('click', settingsView);
 document.querySelector('#add-tab').addEventListener('click', addView);
-window.addEventListener('hashchange', () => { if (session?.paired && location.hash.startsWith('#item=')) void libraryView(); });
+window.addEventListener('hashchange', () => { if (session?.paired) void libraryView(); });
 window.addEventListener('pagehide', () => releaseDownload());
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 boot();

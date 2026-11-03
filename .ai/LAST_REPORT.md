@@ -1,3 +1,350 @@
+Task ID / Cycle: VE-R1c-3 / Windows
+Status: COMPLETED
+
+## Outcome and execution boundary
+
+Implemented the approved keyboard, floating-player and Brave notification fixes.
+All task checks passed except the explicitly exempted pre-existing desktop
+fresh-calibration test. That result remains FAIL, not PASS. One 83,381-byte
+cycle cache could not be deleted; CURRENT_TASK.md explicitly says cleanup refusal
+alone does not make this cycle PARTIAL. No product decision is outstanding.
+Physical Apple-device checks and the production restart remain for the owner/operator.
+
+Initial/final branch: claude/project-thread-yyrl3q. HEAD:
+cb334478dfddea6fbff9f0f9b4fd5eaff049d9b2. Initial working tree was clean.
+AGENTS.md, CLAUDE.md, WORKSPACE.md and the complete CURRENT_TASK.md were read.
+CURRENT_TASK.md was already present and was preserved unchanged. No Git mutation,
+commit, push, dependency installation/change, package replacement, real remote
+service operation, home/library access, task change or firewall change was performed.
+The operator owns Git and any post-review restart. Prior reports remain verbatim below.
+
+## Owner-check results and prior closeout
+
+The task supplies the owner's 2026-11-03 iPad and Mac (macOS 27.2) results:
+all checks passed except step 8 (Mac shortcuts required clicking a button first)
+and step 11 (Brave Nightly reported Registration failed - push service error).
+These are owner-supplied observations, not new physical-device measurements.
+Brave's disabled Google push messaging setting is the task's diagnosed cause;
+this cycle adds the requested browser-specific guidance rather than changing the server.
+
+VE-R1c-2 closeout is resolved: the operator reported deleting
+scratch/r1c2-pytest-cache-elevated (83,034 bytes) and
+scratch/r1c2-pytest-cache-final (83,367 bytes). Both paths were independently
+checked with Test-Path during this cycle and returned False.
+
+## Implementation and changed files
+
+- src/videoenhancer/remote/web/player.mjs: document-level shortcuts with explicit
+  disposal on view close; editable/modifier/composition/dialog guards; all specified
+  shortcuts and default prevention. Original inline SVG controls, 10-second skip,
+  current/remaining time, Mac volume, title overlay and floating controls; 2.5-second
+  idle hiding and cursor hiding; hover/drag/pause pinning; delayed mouse click,
+  double-click fullscreen, touch-only control visibility and central feedback.
+  Container Fullscreen API and iPad native fullscreen paths remain distinct.
+- src/videoenhancer/remote/web/app.mjs: release player listeners/timers on navigation;
+  retain item hash URLs in browser history for notification and Back/Forward entry;
+  explicit Library navigation clears the item URL; connect the Brave failure hint.
+- src/videoenhancer/remote/web/platform.mjs: preserve browser error text and detect
+  Brave asynchronously, falling back to generic guidance when detection fails.
+- src/videoenhancer/remote/web/style.css: translucent floating bars with blur and a
+  solid fallback, original icon styling, idle fade/cursor rules, focus-visible rings,
+  reduced-motion support and viewport fit above the fixed navigation.
+- src/videoenhancer/remote/web/sw.js: bump shell version for the changed assets.
+- tests/test_remote_r1c3.mjs: real mounted-player DOM tests using the already installed
+  GUI jsdom and Node fake timers; keyboard, editing/modifiers, disposal, click timing,
+  idle rules, touch, remaining time, skip bounds, fullscreen and Brave selection.
+- tests/test_remote_push.py: explicitly name the Chrome/Brave FCM endpoint acceptance
+  coverage; actual Push.subscribe and encrypted send/strict-host checks execute.
+  Existing fcm.googleapis.com support required no server implementation change.
+- tests/remote_r1c3_browser.py: repeatable isolated WebKit/Chromium browser regression.
+- docs/REMOTE.md: approved controls, pointer behavior and Brave setting/retry steps.
+- .ai/LAST_REPORT.md: this report, with earlier reports retained below.
+
+Range streaming, storyboard routes, Download, Delete and Back remain in place.
+No IINA code, icons or assets were copied. No new module/dependency is required
+by the service worker. Scope/self-review checked behavior, lifecycle, accessibility,
+constant-only SVG insertion, retained server boundaries and dependency changes.
+Designer review is still required before the operator records/publishes this work.
+
+## Build and test results
+
+| Check | Verdict | Result |
+| --- | --- | --- |
+| ruff check . | PASS | No findings in final run |
+| ruff format --check . | PASS | 256 files already formatted |
+| uv run pyright | PASS | 0 errors, 0 warnings |
+| CI CPU selector, final elevated run | PASS | 912 passed, 25 skipped, 103 deselected; 499.01 s |
+| Focused push Python suite | PASS | 20 passed; 0.45 s; includes Chrome/Brave FCM acceptance |
+| Remote Node tests, final | PASS | 30 passed, including 8 new mounted-player/hint tests |
+| GUI lint / typecheck / build | PASS | All commands exit 0 |
+| GUI unit tests | PASS | 86 tests in 18 files |
+| Native-player payload Node test | PASS | 1 passed |
+| Remote browser regression | PASS | 4 configurations; no page errors; media state stubbed |
+| Complete elevated desktop E2E | FAIL, task exemption | 24 passed, 15 existing opt-in skips, 1 known failure; 3.6 min |
+| Final Git scope / diff --check | PASS | Only allowed files; HEAD/task/dependencies unchanged |
+| Physical macOS/iPad playback and Brave push delivery | NOT_RUN | Owner re-check required |
+| Actual remote CI / production restart/status | NOT_RUN | Reserved for designer/operator |
+
+Every install/build/test shell dot-sourced local-env.ps1. Test homes were under
+work/scratch; TEMP/TMP were scratch/tmp. FFmpeg/ffprobe came from the existing
+work/cache/r0b-ffmpeg. No dependencies were installed. The CPU command was:
+
+`uv run pytest -m "not gpu and not soak" --basetemp=<absolute work/scratch/r1c3-cpu-elevated> -o cache_dir=<absolute work/scratch/r1c3-cpu-elevated-cache>`
+
+It used VE_HOME=work/scratch/r1c3-cpu-elevated-home. Desktop E2E used the existing
+cache/tauri-target/debug test executables, an absolute cycle-specific
+VE_GUI_TEST_ROOT, and evidence under evidence/VE-R1c-3. The desktop harness isolates
+roaming/local app data and WebView profiles. No native build/package was needed.
+
+Node commands: `node --test tests/test_remote_web.mjs tests/test_remote_r1c3.mjs`
+and GUI `npm run test:payload`. The new mounted-player file uses the existing GUI
+jsdom installation; run it after the normal GUI dependency setup. The original
+CPU-CI remote Node entry remains dependency-free; no workflow was changed.
+GUI commands: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`,
+`npm run test:e2e -- --output=<absolute cycle scratch results>`.
+Browser command: the existing cache/ipad-venv Python running
+`tests/remote_r1c3_browser.py` after sourcing local-env.ps1.
+
+## Every failed/interrupted attempt and warnings
+
+- Git was absent from PATH; the conventional Program Files path was absent.
+  The actual user-local Git executable was denied by the sandbox; read-only
+  escalation succeeded. A later diff invocation used work instead of repo;
+  it was corrected and the final repo diff check passed.
+- Initial Node harness setup used mock.property on absent globals and failed.
+  After fixing the harness, the regression run had 5 expected failures/1 pass:
+  no initial-focus shortcuts, click behavior, idle hiding, remaining text or hint.
+  An intermediate cleanup hook lacked a global document after restoration;
+  the player now uses its actual ownerDocument. A later non-Mac fullscreen-toggle
+  regression failed before the shared exit path was fixed. Final Node: 30 passed.
+- The editing helper initially hit a Windows text-decoding error, then a missing
+  Path import when resuming. It was corrected to UTF-8; final Git inspection
+  confirmed no unrelated text/encoding changes.
+- Browser harness development hit a non-configurable media-stub property, then
+  exposed the real missing browser-history return. It also tried mouse hover
+  on the touch configuration; that check now uses a touch drag for the preview.
+  A same-hash fixture navigation timed out because it did not mount a new video;
+  the deep-link test now first opens the Library. These are reported separately
+  from product regression evidence. One intermediate log was superseded by the
+  final run; no claim is made that every intermediate log was retained.
+- Screenshot inspection exposed the real controls/nav overlap. A browser geometry
+  assertion failed (control bottom 855.4375 versus nav top 827); viewport fit fixed
+  it and the final four configurations passed. Long Python fixture lines caused
+  ruff failures during development; formatting/splitting fixed them without suppression.
+- The initial restricted CPU run stalled at 28% with a --test-stuck-trial process
+  still present. It was interrupted, without a final suite verdict. A scoped check
+  after interruption found no remaining cycle stuck-trial process (Stopped 0).
+  The full elevated run passed; the initial run is not counted as PASS.
+- The initial restricted desktop run had three CDP startup failures (desktop
+  startup, tooltips, links), then was interrupted. Diagnostics stopped at creating
+  webview. After that runner and its test GUI processes exited, the elevated full
+  run produced 24 passes and only the known exempt failure.
+- The exempt test is gui/tests/e2e/p1f3-visual.spec.ts:72: fresh calibration,
+  waiting for video.readyState > 1 for the existing synthetic History video.
+  No test was loosened, skipped or disabled to avoid this failure.
+- Existing NO_COLOR/FORCE_COLOR and Git LF-to-CRLF advisories were emitted.
+  The final diff has no whitespace errors. Existing repo/.pytest_cache could not
+  be enumerated even during elevated disk inventory; it was not modified.
+  Scratch CPU-cache enumeration needed read-only elevation; its deletion failed
+  inside the sandbox and was not retried with elevation.
+
+Bounded logs, final browser.json, four PNGs, initial CDP error contexts, and the
+known failure's error context/trace are in evidence/VE-R1c-3 outside the checkout.
+These are synthetic local results; no production or actual remote-CI pass is claimed.
+
+## Browser/GUI expected and actual
+
+WebKit and Chromium (Edge) on Windows, each at Mac-like 1440x900/mouse and
+iPad-like 1180x820/touch:
+
+1. Opened the Library video; without focusing/clicking another element, Space
+   played and Right sought from 60 to 65 seconds. Space paused again.
+2. Mouse single-click toggled playback after the delay; double-click entered
+   actual container fullscreen in both engines without changing playback.
+   Escape exited. After 2.8 seconds idle, bars and cursor hid; mouse movement restored them.
+3. Touch tap hid/revealed bars without playing. The play/pause button remains
+   the touch playback action. Explicit taps can hide paused controls as requested;
+   the idle timer itself never hides paused controls.
+4. Checked -8:55 remaining time, Mac-only volume, storyboard preview, no horizontal
+   overflow, and the control bar fitting above fixed navigation. Opened the
+   notification-style item hash and returned through Back/Forward; shortcuts
+   worked on each fresh mount without another click.
+
+The media decoder/state was stubbed for both engines for comparable interaction
+checks; synthetic video-load errors were suppressed by the harness. Real
+fullscreen, pointer events, keyboard events, CSS and application navigation were
+used. On iPad preview capture, the harness dispatched the touch pointer with
+pointer capture stubbed; physical iPad native fullscreen/playback are NOT_RUN.
+Server Range support is covered by the passing CPU suite, not by the media stub.
+
+Screenshots: webkit-mac.png, chromium-mac.png, webkit-ipad.png,
+chromium-ipad.png in evidence/VE-R1c-3. They show an original synthetic landscape,
+translucent top title, floating controls and seek preview. Mac includes volume;
+iPad omits it. Mac/Chromium and iPad/WebKit screenshots were visually inspected;
+control bars are visible and no longer overlap the bottom navigation.
+
+## Exact owner re-check steps
+
+After designer review and the operator's authorized restart:
+
+1. Mac (macOS 27.2): open a Library video and immediately press Space and Right
+   without clicking the player or a button. Expect play/pause and +5 seconds.
+   Also open its notification link and return using browser Back/Forward;
+   shortcuts must work immediately. Check K, Shift+arrows (+/-30 s), Up/Down
+   volume (+/-10%), M, F, and Escape. Cmd/Ctrl/Alt shortcuts and text fields
+   must retain their normal behavior; keyboard Tab focus must remain visible.
+2. Mac: single-click the video to play/pause, then double-click it. Expect
+   fullscreen with the same playback state and floating controls. While playing,
+   leave the pointer idle for 2.5 seconds: both bars/cursor fade; movement or a
+   key reveals them. Pause, hover a bar, and drag Seek: controls must stay visible.
+   Check the seek preview, remaining time, Download, Delete and Back to Library.
+3. Brave Nightly: retry Turn on notifications. If registration fails, confirm
+   the original browser error plus the Brave-specific hint. Open
+   brave://settings/privacy, enable Use Google services for push messaging,
+   restart Brave, reopen the paired app and retry; then use Test notification.
+   Actual Brave registration/delivery remains an owner check.
+4. iPad: tap the video twice to hide then reveal the bars; playback state must
+   stay unchanged. Use the play button to play/pause, drag Seek for the preview,
+   and check native fullscreen via webkitEnterFullscreen.
+
+Do not restart the real service as part of this Codex cycle. The designer must
+relay the owner's go-ahead for this cycle; the older R1c-2 authorization is not
+reused. The operator then runs ve remote restart and reports ve remote status.
+
+## Disk baseline, growth and cleanup
+
+Decimal GB, logical file lengths rather than allocated disk usage. Non-overlapping
+folder rows are not summed with the explicitly marked evidence subset. The
+baseline was captured before source edits/tests. The end snapshot is taken at
+report closeout; the operator's live Codex log can continue growing slightly.
+
+| Item | Baseline GB | End GB |
+| --- | ---: | ---: |
+| C free | 343.562043392 | 343.637848064 |
+| D free | 872.721227776 | 872.692051968 |
+| repo | 3.721951718 | 3.721925811 |
+| package | 0.125288579 | 0.125288579 |
+| evidence | 0.151918243 | 0.159577867 |
+| scratch | 2.651100724 | 2.651436929 |
+| cache | 12.446381423 | 12.446380624 |
+| this cycle evidence (subset) | 0.000000000 | 0.007693114 |
+
+Observed persistent growth (repo + package + evidence + cache): 0.007632918 GB,
+below 1 GB. Cache remains below 40 GB and cycle evidence below 300 MB. Counts
+exclude inaccessible repo/.pytest_cache; the baseline silently omitted unreadable
+entries, so attribution is incomplete rather than a full-disk audit. Drive free
+space changes include unrelated activity and are not bytes removed. Shared
+scratch/tmp and the existing scratch log also changed during tests; pre-existing
+shared data was preserved. Historical evidence, including owner-check evidence,
+was not pruned in this cycle; the pre-existing older-than-three-cycle retention
+backlog is not represented as a new retention pass.
+
+Independently measured removal: 634,699,993 bytes. Each following path was
+inventoried in this report before deletion, resolved under scratch, then deleted
+inside the sandbox. Cycle-owned Playwright tracing/AV1-probe temp folders were
+identified by tool prefix and creation time after the initial Node test.
+No refused deletion was bypassed. No existing unrelated scratch tree was deleted.
+
+| Path relative to work | Before bytes | Removed bytes | Result |
+| --- | ---: | ---: | --- |
+| scratch/r1c3-cpu | 172497 | 172497 | REMOVED |
+| scratch/r1c3-desktop | 76458864 | 76458864 | REMOVED |
+| scratch/r1c3-desktop-elevated | 557944692 | 557944692 | REMOVED |
+| scratch/r1c3-e2e-elevated-results | 20427 | 20427 | REMOVED |
+| scratch/r1c3-e2e-results | 84094 | 84094 | REMOVED |
+| scratch/r1c3-push | 0 | 0 | REMOVED |
+| scratch/r1c3-pytest-cache | 2211 | 2211 | REMOVED |
+| scratch/r1c3-edit-rest.py | 4492 | 4492 | REMOVED |
+| scratch/r1c3-edit.py | 11640 | 11640 | REMOVED |
+| scratch/r1c3-cpu-elevated | 0 | 0 | REMOVED |
+| scratch/r1c3-cpu-elevated-cache | 83381 | 0 | REFUSED |
+| scratch/r1c3-cpu-elevated-home | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-0F6JKu | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-0rSfDq | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-1npuFH | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-37AHqQ | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-52ew3H | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-5VpAwf | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-90GpiZ | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-9H9xc4 | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-cjWToL | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-D9jolR | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-e2Rc4X | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-EEvTl9 | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-FWgqiC | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-guIz57 | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-GXbpEU | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-gZySgP | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-h0Wvd5 | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-Ijrve6 | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-iN44ST | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-J4N66d | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-JIAWrP | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-KBII7v | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-kLtUEl | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-KvzXiB | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-l1uSSR | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-LmPOEH | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-luKF9s | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-LyOx4Y | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-M4thaY | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-m4TJn3 | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-M6p1OE | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-MXWijF | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-n7xxFd | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-nOqwOX | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-otsCUe | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-ozNLdT | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-PSADya | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-pvgfik | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-r1hqx6 | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-RbfjT1 | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-rGL2Zl | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-rluIak | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-Tem5WU | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-UpsTpo | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-vc1KkD | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-vkugsO | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-vs1jo9 | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-wJhfMu | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-xIzkKd | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-XldVKA | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-YbNxx2 | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-YYRnjd | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-ZANYuJ | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-ZgGjMl | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-zOLOr4 | 0 | 0 | REMOVED |
+| scratch/tmp/playwright-tracing-ZQP3oc | 0 | 0 | REMOVED |
+| scratch/tmp/ve-av1-probe-0111eb7e3a8b4223a65b670754d9ad7c | 73 | 73 | REMOVED |
+| scratch/tmp/ve-av1-probe-60edf5986254481fbc7d1ae2fbaa6283 | 0 | 0 | REMOVED |
+| scratch/tmp/ve-av1-probe-662dd31a274a4966b9b478081ad14025 | 1003 | 1003 | REMOVED |
+| scratch/tmp/ve-av1-probe-790ae0da08754624afb1b6d52728bbda | 0 | 0 | REMOVED |
+| scratch/tmp/ve-av1-probe-c830d3788c7145b0bc5aec63864fb277 | 0 | 0 | REMOVED |
+| scratch/tmp/ve-av1-probe-f41b16ac41af41a3bcaa26701c0b903c | 0 | 0 | REMOVED |
+
+### For the operator to delete
+
+`D:\my-workspace\VideoEnhancer\work\scratch\r1c3-cpu-elevated-cache`
+- 83,381 bytes (measured read-only with elevation before deletion).
+- Sandbox deletion: Access to the path is denied. No elevated delete or ACL
+  workaround was attempted. This is the only refused cycle folder.
+
+## Remaining work / designer decisions / intentional omissions
+
+- No new specification or architecture decision is needed. Designer review and
+  operator Git recording are pending by workflow, not implementation failures.
+- Owner physical Mac/iPad/Brave qualification and authorized production restart
+  are NOT_RUN here. No remote CI outcome is claimed.
+- The known desktop fresh-calibration failure is retained as FAIL under the
+  task exemption. Its test and desktop implementation were not changed.
+- No downloads from media sites, real owner media, GPU/soak qualification,
+  dependency change, native/package rebuild or unrelated cleanup was performed.
+
+
+---
+
+<!-- Previous cycle reports retained verbatim below. -->
+
 Task ID / Cycle: VE-R1c-2 / Windows
 Status: PARTIAL
 

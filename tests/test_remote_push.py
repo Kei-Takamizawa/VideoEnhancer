@@ -221,7 +221,7 @@ def test_unpaired_and_missing_subscription(setup_push):
     assert not sent
 
 
-def test_chrome_endpoint_and_strict_hosts(setup_push):
+def test_chrome_and_brave_fcm_endpoint_and_strict_hosts(setup_push):
     push, _, subscription, _, _, sent = setup_push
     subscription["endpoint"] = "https://fcm.googleapis.com/fcm/send/synthetic"
     push.subscribe("ipad", subscription)
