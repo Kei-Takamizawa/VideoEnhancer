@@ -31,7 +31,7 @@
 
 - Unit tests with a fake detector: scoring rules (all-visible beats bigger single face; unmasked preferred when present; masked accepted when never removed; edge-cut penalty; no-face fallback), people-count estimate, version bump triggers regeneration, GPU gate.
 - Integration on generated or licence-clear sample clips (no private videos in Git): one person, two people, one masked person, one person who removes the mask. If a real model is needed, skip the test cleanly when the model file is absent so CI passes offline.
-- Report the chosen time for each of the owner's three library videos on the real home (read-only: compute, do not write the real sidecar; the operator restarts the service after review).
+- Do **not** read the owner's real home or library (AGENTS.md). Use only generated or licence-clear clips in an isolated home. After the designer's review the operator restarts the real service, which regenerates the posters itself, and reports the chosen times from each `poster.json`.
 - `ruff check`, `ruff format --check`, `uv run pyright`, CI CPU pytest, node tests, desktop E2E.
 
 ## 4. Allowed files
@@ -40,8 +40,8 @@
 
 ## 5. Done when
 
-Sections 2 and 3 pass, the diff contains only allowed files, and the report lists test counts, timing for a 10-minute 1080p video, the chosen times for the owner's library videos, the mask-signal accuracy, disk baseline and growth, and owner re-check steps.
+Sections 2 and 3 pass, the diff contains only allowed files, and the report lists test counts, timing for a 10-minute 1080p video, the mask-signal accuracy, disk baseline and growth, and owner re-check steps.
 
 ## 6. Operator after the commit (after designer review)
 
-`ve remote restart`, then `ve remote status`, and report how many posters were regenerated after 10 minutes.
+`ve remote restart`, then `ve remote status`, and report how many posters were regenerated after 10 minutes and the chosen time, N, face count and unmasked count from each real `poster.json` (read-only).
