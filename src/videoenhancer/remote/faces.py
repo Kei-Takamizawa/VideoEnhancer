@@ -117,7 +117,7 @@ def measure(image, box, landmarks, confidence, mask_session):
 
 class Detector:
     def __init__(self, model, mask_model):
-        import onnxruntime as ort
+        import onnxruntime as ort  # pyright: ignore[reportMissingImports]
 
         options = ort.SessionOptions()
         options.intra_op_num_threads = 1
@@ -191,7 +191,7 @@ class Detector:
 
 def load_detector(home, cancelled):
     # Check the optional runtime before any download; offline CPU CI needs neither.
-    import onnxruntime  # noqa: F401
+    import onnxruntime  # noqa: F401  # pyright: ignore[reportMissingImports]
 
     for folder in (home / "models", home / "models" / "face"):
         if folder.is_symlink() or folder.is_junction():

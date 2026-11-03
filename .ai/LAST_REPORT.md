@@ -1,3 +1,180 @@
+Task ID / Cycle: VE-R1d-3 / Windows
+Status: COMPLETED
+
+## Implementation and changed files
+
+Added `# pyright: ignore[reportMissingImports]` to both optional onnxruntime
+imports in `src/videoenhancer/remote/faces.py`, following bench/scrfd.py.
+The unused-import noqa remains in place. No runtime behavior changed.
+Only faces.py and .ai/LAST_REPORT.md changed; older reports are preserved below.
+CURRENT_TASK.md was already present and was read in full without modification.
+
+Read-only Git verification (elevated because Git is unavailable in the sandbox):
+branch claude/project-thread-yyrl3q, HEAD 8f7e67c4eee9db315186b98cfd1dcaa022694f6b.
+Git status showed exactly the two allowed files. The source diff is exactly the
+two import annotations. No Git mutation, commit, push, fetch or merge was run.
+The operator remains responsible for Git recording. No subagents were used.
+
+## Optional-import regression proof
+
+All install/test shells dot-sourced ./local-env.ps1. The live .venv was not synced
+or stripped of its optional dependencies. Instead, a scratch venv was created
+with `.venv/Scripts/python.exe -m venv ../scratch/r1d3-no-ort`. Existing
+site-packages files were hard-linked into it, excluding onnxruntime*, including
+distribution metadata, and temporary ~ entries. This avoids duplicating Torch.
+The isolated Python reported `importlib.util.find_spec('onnxruntime') is None`;
+imports of torch and numpy succeeded.
+
+Scratch configuration ../scratch/r1d3-pyright.json:
+
+```json
+{
+  "venvPath": "D:\\my-workspace\\VideoEnhancer\\work\\scratch",
+  "venv": "r1d3-no-ort",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "include": [
+    "../repo/src"
+  ],
+  "extraPaths": [
+    "../repo/src"
+  ],
+  "reportMissingTypeStubs": false
+}
+```
+
+Exact command, run from repo before and after the source change:
+
+```powershell
+. ./local-env.ps1
+uv run --no-sync pyright --project ../scratch/r1d3-pyright.json
+```
+
+Expected: reproduce both missing imports before, then zero errors with no runtime.
+Actual before: faces.py:120:16 and faces.py:194:12 each reported
+`Import "onnxruntime" could not be resolved (reportMissingImports)`;
+2 errors, 0 warnings, exit 1.
+Actual after: 0 errors, 0 warnings, 0 informations, exit 0.
+The settings match the repository's pyright settings; only the venv and relative
+source paths differ. No diagnostic was disabled globally.
+
+An initial scratch-config attempt used absolute include paths: pyright warned
+that include was ignored and returned zero without checking the intended source.
+That run is NOT valid evidence. Relative includes were corrected before the
+valid red/green runs above. Both isolated environments/config were later removed.
+
+## Build and test results
+
+| Check | Result |
+| --- | --- |
+| No-onnxruntime pyright before change | Expected FAIL: exactly 2 missing-import errors |
+| Same pyright after change | PASS: 0 errors, 0 warnings |
+| uv run --no-sync ruff check . | PASS |
+| uv run --no-sync ruff format --check . | PASS: 259 files |
+| node --test tests/test_remote_web.mjs | PASS: 22 tests |
+| gui: npm test | PASS: 86 tests, 18 files |
+| gui: npm run test:payload | PASS: 1 test |
+| Initial sandbox CPU pytest, FFmpeg absent | FAIL: 12 failed, 755 passed, 191 skipped, 103 deselected; 484.19 s |
+| Sandbox CPU pytest with cache/r0b-ffmpeg on PATH | NOT_COMPLETED: interrupted after stalled child-process termination; no suite result |
+| Final elevated CPU pytest, normal Git/FFmpeg available | PASS: 929 passed, 29 skipped, 103 deselected; 540.46 s; exit 0 |
+| Read-only Git scope and diff --check | PASS: only allowed files; no whitespace errors |
+| Desktop E2E / physical GUI / package build / GPU / external device checks | NOT_RUN: not required for this import-annotation task |
+
+Exact final CPU test command (repo, elevated, after dot-sourcing local-env.ps1):
+
+```powershell
+$env:VE_HOME='D:\my-workspace\VideoEnhancer\work\scratch\r1d3-home-elevated'
+$env:VE_DEV_M3_MEDIA='0'
+uv run --no-sync pytest -m "not gpu and not soak" --basetemp=D:\my-workspace\VideoEnhancer\work\scratch\r1d3-pytest-elevated -o cache_dir=D:\my-workspace\VideoEnhancer\work\scratch\r1d3-cache-elevated
+```
+
+This uses the existing locked environment without resyncing optional packages;
+CPU test isolation and cache paths are wholly under scratch. Normal installed
+FFmpeg/Git were available in the elevated shell. No tests were edited, disabled,
+skipped explicitly or weakened. The 29 skips are suite-reported skips.
+No GUI operations were performed. Expected/actual runtime behavior is unchanged.
+
+## Errors, warnings and recovery
+
+- Git was initially absent from sandbox PATH; a direct .git Get-Content attempt
+  also treated the directory as a file and failed. Read-only HEAD/ref inspection
+  and index comparison worked; final real Git checks succeeded elevated.
+- `UV_PROJECT_ENVIRONMENT=.../scratch/r1d3-venv; uv sync --locked --python 3.12`
+  first failed fetching Torch with socket error 10013. The approved elevated sync
+  began downloading 1.9 GiB of Torch and was cancelled to enforce disk limits.
+  Its measured partial download was removed. The hard-link environment supplied
+  the actual no-onnxruntime proof, without any additional runtime installation.
+- Initial CPU failures included missing FFmpeg/ffprobe, sandbox WinError 5 on
+  subprocess startup, process-tree cancellation/timeout failures and a secondary
+  AV1 error-handler TypeError. Full output is in the cycle evidence pytest.txt.
+  The next sandbox run was interrupted; its log is pytest-final.txt. An elevated
+  task-scoped process scan found no remaining matching processes after interruption.
+  All CPU tests subsequently completed without failure in pytest-elevated.txt.
+- Git emitted the existing LF-to-CRLF working-copy warning for LAST_REPORT.md;
+  diff --check returned 0.
+- Final sandbox cleanup failed with WinError 5 on scratch/r1d3-cache-elevated.
+  No elevated deletion, ACL change or other workaround was attempted. A later
+  elevated operation measured remaining sizes only.
+
+## Disk baseline, end and growth
+
+Decimal GB; logical file lengths are not allocated disk usage. Free-space changes
+include concurrent activity and are not used as the cleanup-byte measurement.
+Final snapshot was taken after tests and attempted cleanup, immediately before
+this report rewrite; its small final text delta is below 0.00001 GB.
+
+| Measurement | Start GB | End GB |
+| --- | ---: | ---: |
+| C free | 343.274893 | 343.618699 |
+| D free | 872.703861 | 872.421126 |
+| repo logical file bytes | 3.729915 | 3.729840 |
+| package logical file bytes | 0.125289 | 0.125289 |
+| evidence/VE-R1d-3 logical file bytes | 0.000061 | 0.000478 |
+| scratch logical file bytes | 2.651289 | 2.651650 |
+| cache logical file bytes | 12.511813 | 12.644377 |
+
+Persistent growth (non-overlapping repo + package + this-cycle evidence + cache):
+0.132906 GB, below the 1 GB gate. Evidence is below 300 MB and cache below
+40 GB. Existing scratch contents and older evidence were preserved to protect
+other work; owner AppData, VE-check, media and the Recycle Bin were not accessed.
+Baseline/end inventories and per-item cleanup JSON are in evidence/VE-R1d-3.
+
+## Cleanup inventory and actual removed bytes
+
+These exact items were inventoried in the in-progress report before deletion.
+Logical removed bytes, independently measured (hard links do not imply equivalent
+reclaimed allocated space):
+
+| Work-relative item | Bytes removed |
+| --- | ---: |
+| cache/uv/.tmpUpbjlQ (cancelled Torch partial download) | 1,003,497,079 |
+| scratch/r1d3-no-ort (mostly hard links) | 3,277,621,753 |
+| scratch/r1d3-venv | 129,580 |
+| scratch/r1d3-pyright.json | 275 |
+| scratch/r1d3-cache | 85,994 |
+| scratch/r1d3-home | 0 |
+| scratch/r1d3-pytest | 0 |
+| scratch/r1d3-pytest-final | 178,658 |
+
+## For the owner to delete
+
+The deletion refusal is final for this cycle. The first sandbox size inventory of
+these elevated-created paths was incomplete (access denied); the following sizes
+were subsequently measured read-only with elevation:
+
+- D:\my-workspace\VideoEnhancer\work\scratch\r1d3-cache-elevated: 84,871 bytes.
+- D:\my-workspace\VideoEnhancer\work\scratch\r1d3-home-elevated: 0 bytes.
+- D:\my-workspace\VideoEnhancer\work\scratch\r1d3-pytest-elevated: 0 bytes.
+
+## Unresolved items / Questions for the designer
+
+No product/specification decision is needed. Required source fix and validations
+are complete. Only owner cleanup above remains; no cleanup retry is requested.
+Remote CI itself was NOT_RUN here and must be observed after the operator push.
+No additional tests, dependency changes, GUI work or behavioral changes were made.
+
+---
+
 Task ID / Cycle: VE-R1d-2 / Windows (resumed after 9eb0010)
 Status: COMPLETED
 
