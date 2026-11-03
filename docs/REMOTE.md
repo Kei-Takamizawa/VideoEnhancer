@@ -386,29 +386,36 @@ Keyframe-only decoding is used when the measured maximum keyframe gap fits the
 storyboard interval; otherwise decoding is full. No processing sources or job
 records are retained for this feature.
 
-The player has custom Play/Pause, time, seek and full-screen controls. Mac also
-has volume and Space/Left/Right shortcuts (seek by five seconds). Hovering or
-dragging the seek bar shows a bounded storyboard preview, or just its time while
-images are unavailable. Mac uses the Fullscreen API on the player container;
-iPad uses webkitEnterFullscreen on the video when available, handing control to
-the native player. Range playback, Download and permanent Delete remain available.
-
+The Library shows only 16:9 posters with 4-pixel gaps. Cards retain accessible
+names (title and duration), with title tooltips on Mac. Storage usage is at the
+top of Settings, together with the PC name; there is no global header. The cached
+Library DOM and poster images appear immediately on return, with scroll restored;
+background refresh reconciles items by id and preserves unchanged image nodes.
+No cache-busting parameters are added to poster URLs. Running jobs show one small
+count above the grid.
 
 ### Player keyboard and pointer controls
 
-Keyboard shortcuts work immediately after opening a Library video or a notification
-link, including when returning through browser history. Space/K plays or pauses;
-Left/Right seeks 5 seconds (Shift: 30 seconds); M mutes; F toggles fullscreen;
-Escape exits fullscreen. Up/Down changes the page-controlled Mac volume by 10%.
+The transparent overlay contains current time, a thin white seek bar and remaining
+time. Hovering or dragging shows a bounded frameless storyboard preview, or just
+the preview time while images are unavailable. Controls and cursor hide after
+2.5 seconds while playing; movement, keyboard input and pause reveal them, and
+hovering the bar or dragging keeps them visible. The centre feedback icon is small
+and translucent. Library, Download and Delete remain outside the video.
+
+Keyboard shortcuts work immediately after opening a Library video or notification
+link. Space/K plays or pauses; Left/Right seeks 5 seconds (Shift: 30 seconds);
+Up/Down adjusts Mac volume by 10%; M mutes; F toggles fullscreen; Escape exits
+fullscreen. On Mac, Escape outside fullscreen and Backspace return to the Library.
 Text entry and Cmd/Ctrl/Alt browser shortcuts retain their normal behavior.
 
-The original floating player controls and title fade after 2.5 seconds of playback
-inactivity. Pointer movement, a key press or pausing reveals them. Hovering over
-a bar or dragging the seek slider keeps controls visible. A mouse click on the
-video plays/pauses after a short double-click delay; a double click toggles
-fullscreen without changing playback. Touch taps reveal/hide controls; use the
-play button to play/pause. Mac fullscreen includes the control bars; iPad keeps
-its native video fullscreen. Storyboard previews remain above the seek slider.
+A mouse click plays/pauses after a short double-click delay; double click toggles
+fullscreen without changing playback. On iPad, tapping hidden controls reveals
+them without changing playback. A tap while controls are visible plays or pauses;
+a double tap calls native video fullscreen (`webkitEnterFullscreen`). During
+playback, inactivity hides the controls again. Mac fullscreen includes the seek
+bar; iPad native fullscreen uses the platform controls. Range playback, Download
+and permanent Delete remain available.
 
 If push registration fails in Brave, open `brave://settings/privacy`, enable
 **Use Google services for push messaging**, restart Brave, and retry **Turn on

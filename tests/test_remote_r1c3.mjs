@@ -15,7 +15,8 @@ function player(t, touch = false, userAgent = 'Macintosh') {
   Object.defineProperties(video, {paused: {get: () => paused}, duration: {get: () => 600}, readyState: {get: () => 1}, currentTime: {get: () => position, set: v => {position = v;}}});
   video.play = async () => {paused = false; video.dispatchEvent(new dom.window.Event('play'));};
   video.pause = () => {paused = true; video.dispatchEvent(new dom.window.Event('pause'));};
-  const root = mountPlayer(video, {id: 'synthetic', name: 'Synthetic landscape', duration: 600}, {element, button});
+  let returns = 0;
+  const root = mountPlayer(video, {id: 'synthetic', name: 'Synthetic landscape', duration: 600}, {element, button, backToLibrary: () => returns++});
   document.body.append(root);
   let full = false;
   root.requestFullscreen = async () => {full = true;};
@@ -24,7 +25,7 @@ function player(t, touch = false, userAgent = 'Macintosh') {
   const key = (code, options = {}, target = document.body) => {const event = new dom.window.KeyboardEvent('keydown', {code, bubbles: true, cancelable: true, ...options}); target.dispatchEvent(event); return event.defaultPrevented;};
   const pointer = (type, pointerType = 'mouse', target = video) => {const event = new dom.window.Event(type, {bubbles: true}); Object.defineProperty(event, 'pointerType', {value: pointerType}); target.dispatchEvent(event);};
   t.after(() => {root.dispose?.(); dom.window.close();});
-  return {dom, document, root, video, key, pointer, full: () => full};
+  return {dom, document, root, video, key, pointer, full: () => full, returns: () => returns};
 }
 
 test('document shortcuts work before focus and prevent browser defaults', async t => {
@@ -77,12 +78,19 @@ test('idle hides bars and cursor, movement and pause reveal, bars and drag pin',
   video.pause(); assert.equal(hidden(), false);
 });
 
-test('touch taps toggle bars without playing; remaining time is signed', t => {
+test('touch reveals hidden controls, visible tap toggles playback, double tap enters native fullscreen', t => {
   const {root, video, pointer} = player(t, true);
-  assert.equal(root.querySelector('.player-remaining')?.textContent, '-9:00');
-  pointer('pointerup', 'touch'); assert.equal(root.classList.contains('controls-hidden'), true);
-  pointer('pointerup', 'touch'); assert.equal(root.classList.contains('controls-hidden'), false);
-  t.mock.timers.tick(300); assert.equal(video.paused, true);
+  let fullscreen = 0; video.webkitEnterFullscreen = () => fullscreen++;
+  assert.equal(root.querySelector('.player-remaining').textContent, '-9:00');
+  root.classList.add('controls-hidden');
+  pointer('pointerup', 'touch'); t.mock.timers.tick(300);
+  assert.equal(root.classList.contains('controls-hidden'), false);
+  assert.equal(video.paused, true);
+  pointer('pointerup', 'touch'); t.mock.timers.tick(300);
+  assert.equal(video.paused, false);
+  pointer('pointerup', 'touch'); pointer('pointerup', 'touch');
+  assert.equal(fullscreen, 1);
+  t.mock.timers.tick(300); assert.equal(video.paused, false);
 });
 
 test('push failure preserves browser error and selects Brave guidance', async () => {
@@ -94,25 +102,19 @@ test('push failure preserves browser error and selects Brave guidance', async ()
 });
 
 
-test('fullscreen toggles on other keyboard devices and touch double taps do not enter it', t => {
-  const {key, full, pointer, video, dom} = player(t, false, 'Windows');
-  assert.equal(key('KeyF'), true); assert.equal(full(), true);
-  assert.equal(key('KeyF'), true); assert.equal(full(), false);
-  pointer('pointerup', 'touch'); pointer('pointerup', 'touch');
-  video.dispatchEvent(new dom.window.Event('dblclick', {bubbles: true}));
-  assert.equal(full(), false);
+test('minimal overlay has only time, seek and preview, with no title or buttons', t => {
+  const {root, video, key} = player(t);
+  assert.equal(root.querySelectorAll('.player-controls button, .volume, .player-title').length, 0);
+  assert.equal(root.querySelectorAll('.player-controls > *').length, 3);
+  video.currentTime = 595; key('ArrowRight'); assert.equal(video.currentTime, 600);
+  assert.equal(root.querySelector('.player-remaining').textContent, '-0:00');
+  video.currentTime = 2; key('ArrowLeft'); assert.equal(video.currentTime, 0);
 });
 
-test('skip buttons clamp to media bounds and paused state pins idle controls', t => {
-  const {root, video} = player(t);
-  video.currentTime = 4;
-  root.querySelector('[aria-label="Back 10 seconds"]').click();
-  assert.equal(video.currentTime, 0);
-  video.currentTime = 595;
-  root.querySelector('[aria-label="Forward 10 seconds"]').click();
-  assert.equal(video.currentTime, 600);
-  video.dispatchEvent(new root.ownerDocument.defaultView.Event('timeupdate'));
-  assert.equal(root.querySelector('.player-remaining').textContent, '-0:00');
-  t.mock.timers.tick(3000);
-  assert.equal(root.classList.contains('controls-hidden'), false);
+test('Mac Esc and Backspace return only outside fullscreen and editable fields', t => {
+  const {key, returns} = player(t);
+  key('KeyF'); key('Backspace'); assert.equal(returns(), 0);
+  key('Escape'); assert.equal(returns(), 0);
+  assert.equal(key('Escape'), true); assert.equal(returns(), 1);
+  assert.equal(key('Backspace'), true); assert.equal(returns(), 2);
 });

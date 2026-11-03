@@ -1,3 +1,193 @@
+Task ID / Cycle: VE-R1d / Windows
+Status: COMPLETED
+
+## Implementation
+
+- Transparent player overlay with current time, white seek bar, signed remaining
+  time and frameless storyboard preview. Removed overlay buttons and title.
+- Preserved idle hiding, cursor hiding, mouse playback/fullscreen and keyboard
+  shortcuts. Added Mac Escape/Backspace return and iPad reveal/playback/double-tap.
+- Thumbnail-only 16:9 Library with accessible names, Mac tooltips and 4 px gaps.
+  Storage moved to Settings; global header removed; safe-area padding retained.
+- Library DOM retained between views, keyed reconciliation keeps poster images,
+  synchronous return restores scroll, refresh runs in the background. Settings
+  renders its cached storage immediately. Add and Settings already mount their
+  content synchronously. Running jobs use a single small count above the grid.
+- Updated offline shell version and public remote documentation.
+
+## Verification results
+
+PASS: Node 34/34; GUI unit 86/86; payload 1/1; GUI build; ruff check;
+ruff format (257 files); pyright (0 errors, 0 warnings).
+PASS: WebKit and Chromium, 1440x900 mouse and 1180x820 touch, four scenarios.
+Every animation-frame sample during return preserved all 36 poster nodes
+(33, 33, 31, 31 samples respectively). Scroll restoration and tab return passed.
+Screenshots are in evidence/VE-R1d outside Git; player images show only the white
+bar/times and borderless preview over a synthetic landscape. Library images show
+four columns of posters with no visible card text. Native media state is stubbed;
+physical macOS/iPad decode and fullscreen are NOT_RUN.
+
+Initial Node regression: FAIL as expected, 2 changed-spec tests failed before
+implementation (touch behavior and overlay buttons); final mounted tests pass.
+Initial browser fixture: FAIL because the stub assignment returned a function
+which Playwright evaluated; wrapping the setup in a function fixed the fixture.
+A screenshot initially captured before lazy images loaded; the final browser
+check waits for decoded visible posters and its screenshots were inspected.
+
+Initial restricted desktop E2E: FAIL, 25 failed / 15 existing opt-in skips,
+including ffmpeg EPERM/missing PATH and WebView/CDP startup errors.
+Initial CPU run: incomplete; missing Git caused privacy-hygiene failure, missing
+FFmpeg skipped media checks, and the process-tree test stalled under restrictions.
+Only its verified isolated runner and descendants were terminated. Full CPU and
+desktop reruns use existing cached FFmpeg/Git on session PATH and approved
+execution with isolated scratch homes. Final elevated CPU: PASS, 912 passed, 25 skipped, 103 deselected in 511.54 s.
+Final elevated desktop E2E: 24 passed, 15 existing opt-in skips, 1 FAIL in 3.7 min.
+The only final failure is the expressly exempted p1f3-visual fresh-calibration
+check (line 72, video.readyState > 1, 5000 ms timeout), matching the known failure.
+It remains FAIL, not PASS; no test was disabled or loosened. Its bounded trace is
+preserved in evidence/VE-R1d. The exemption and cleanup-refusal rule in the task
+allow COMPLETED. No new failing gate or design decision remains.
+
+Initial ruff check/format found long lines and formatting in the new browser
+script; these were corrected. One mistaken ruff invocation explicitly targeted a
+JavaScript file and reported parser errors; the correct full-repo invocation
+passed. Final full checks: ruff check PASS; ruff format --check PASS (257 files);
+uv run pyright PASS (0 errors, 0 warnings). Initial CPU also showed media/pipeline
+failures before termination; only the complete rerun establishes the CPU verdict.
+
+Commands (each shell sourced local-env.ps1):
+- uv run ruff check .; uv run ruff format --check .; uv run pyright
+- uv run pytest -m "not gpu and not soak" with absolute --basetemp and
+  cache_dir under scratch/r1d-cpu-verified*, plus isolated VE_HOME.
+- node --test tests/test_remote*.mjs
+- GUI npm test; npm run test:payload; npm run build
+- GUI npm run test:e2e with absolute r1d-e2e-verified scratch output/home,
+  cached Tauri/fault-test executables, and cycle evidence outside the checkout.
+- Existing cache/ipad-venv Python tests/remote_r1d_browser.py (loopback synthetic
+  fixture only; service workers blocked; media state/native entry point stubbed).
+
+## Workflow and scope
+
+AGENTS.md, CLAUDE.md, WORKSPACE.md and CURRENT_TASK.md were read. The task already
+contained the complete instructions and was preserved. Branch confirmed as
+claude/project-thread-yyrl3q, HEAD 23434f65bdb26af0a4bc34989b984dd688e8cd09.
+Git was initially absent from PATH; read-only elevated inspection succeeded
+later. Initial clean tree could not be independently established before edits;
+the first successful status showed only this cycle's five then-modified files.
+No Git mutation, dependency changes, production service operation, package
+replacement or face-based poster selection was performed.
+
+Final read-only Git verification: PASS. Only the 10 allowed files are changed;
+whitespace check passes; prior reports remain byte-for-text identical after
+newline normalization; task, workflow files, HEAD and dependency files are
+unchanged. The first preservation-check helper used the Windows default output
+encoding and falsely reported a mismatch; the UTF-8 rerun passed.
+
+## Owner re-check
+
+Mac: open a video, check transparent time/seek overlay and borderless hover
+preview; try Space/K, arrows (Shift for 30 seconds), volume, M, F and Escape;
+Escape outside fullscreen or Backspace returns to the same Library position.
+Check Add/Settings returns and storage at the top of Settings.
+iPad: tap hidden controls to reveal; tap again to play/pause; double tap to enter
+native fullscreen. Playing controls hide after 2.5 seconds. Drag to preview/seek,
+then return to Library and check no flash or lost position. Native fullscreen
+uses iPad's controls. Operator restart remains after designer review.
+
+## Changed files
+
+src/videoenhancer/remote/web/{app.mjs,index.html,player.mjs,style.css,sw.js}
+tests/test_remote_r1c3.mjs
+tests/test_remote_r1d.mjs
+tests/remote_r1d_browser.py
+docs/REMOTE.md
+.ai/LAST_REPORT.md
+
+## Disk and cleanup
+
+Baseline logical bytes: repo 3,729,360,963; package 125,288,579;
+all evidence 160,087,238; scratch 2,651,143,921; cache 12,446,380,624.
+Initial PSDrive free-space values were null; initial C/D free space is unavailable,
+not inferred. A later .NET measurement was C 343.630 GB / D 872.426 GB.
+Scratch baseline omitted three inaccessible prior-cycle cache directories
+(r0c-cpu-final-cache, r1a-cpu-cache-elevated, r1a-cpu-cache-final), so attribution
+is incomplete. Final measurements and cleanup results follow. Logical file sizes are not allocated disk space.
+Pre-existing owner-check artifacts and older evidence are not cycle outputs.
+
+### Retention cleanup (logical bytes measured before deletion; all REMOVED)
+
+| Path | Bytes |
+| --- | ---: |
+| evidence\VE-R0 | 2318618 |
+| evidence\VE-R0b | 9131869 |
+| evidence\VE-R0c | 625362 |
+| evidence\VE-R1a | 975215 |
+| evidence\VE-R1a-2 | 1702370 |
+| evidence\VE-R1b | 2434403 |
+| evidence\VE-R1b-2 | 16589408 |
+| evidence\VE-R1b-3 | 2238833 |
+| evidence\VE-R1c | 8790885 |
+
+### Completed test scratch cleanup (all REMOVED)
+
+| Path | Bytes |
+| --- | ---: |
+| scratch\r1d-cpu | 181 |
+| scratch\r1d-e2e | 256938035 |
+| scratch\r1d-e2e-results | 500947 |
+| scratch\r1d-e2e-verified | 556031890 |
+| scratch\r1d-e2e-verified-results | 20522 |
+
+### Final CPU scratch cleanup
+
+| Path | Bytes |
+| --- | ---: |
+| scratch\r1d-cpu-verified | 0 |
+| scratch\r1d-cpu-verified-cache | 83381 |
+| scratch\r1d-cpu-verified-home | 0 |
+
+### Final disk table (decimal GB)
+
+| Folder | Start GB | End GB |
+| --- | ---: | ---: |
+| repo | 3.729361 | 3.729383 |
+| package | 0.125289 | 0.125289 |
+| evidence | 0.160087 | 0.123415 |
+| scratch | 2.651144 | 2.651213 |
+| cache | 12.446381 | 12.511813 |
+
+Current cycle evidence: 0.008200 GB (under 0.300 GB).
+Final free space: C 343.631983 GB;
+D 872.722534 GB. Initial free space was unavailable.
+Persistent growth (repo + package + all evidence + cache, excluding scratch):
+28782923 bytes (0.028783 GB), under the 1 GB gate.
+Measurements precede this final report's small text update. Cache growth was
+0.065433 GB; no dependencies were installed.
+Scratch totals exclude inaccessible directories listed above, including the new
+cache; its 83,381 bytes were measured with read-only elevation before deletion.
+Drive-wide free-space changes are not attributed to cleanup. The two cleanup
+tables above give independently measured bytes removed per item. The final CPU
+home and empty basetemp were removed (0 bytes). The cache delete was refused;
+it was not retried or bypassed.
+
+### For the owner to delete
+
+- scratch/r1d-cpu-verified-cache: 83,381 bytes; sandbox Remove-Item Access denied.
+  This is the only refused cycle cleanup. The task explicitly exempts this from
+  PARTIAL status. Pre-existing scratch data, owner-check artifacts and three
+  earlier inaccessible caches were preserved. Legacy P1e evidence and owner-check
+  evidence were retained; the three latest R1 cycle directories are R1c-2,
+  R1c-3 and R1d. Their previous Git reports remain unchanged below.
+
+## Outstanding / questions for the designer
+
+No new failing gate or product decision. Physical Apple-device playback/native
+fullscreen, optional desktop suites (15 existing skips), GPU/soak suites and the
+production restart were intentionally not run. The operator owns commit/push and
+the post-review restart; this cycle stops here.
+
+---
+
 Task ID / Cycle: VE-R1c-3 / Windows
 Status: COMPLETED
 

@@ -1,7 +1,7 @@
 import {platform, previewTile, previewLeft} from './platform.mjs';
 import {formatDuration} from './logic.mjs';
 
-export function mountPlayer(video, item, {element, button}) {
+export function mountPlayer(video, item, {element, backToLibrary = () => {}}) {
   const document = video.ownerDocument;
   const mac = platform() === 'mac';
   const container = element('div', undefined, 'player');
@@ -10,9 +10,9 @@ export function mountPlayer(video, item, {element, button}) {
   const controls = element('div', undefined, 'player-controls');
   const status = element('span', '', 'player-time'); status.setAttribute('aria-live', 'off');
   const remaining = element('span', '', 'player-time player-remaining');
-  const title = element('div', item.name, 'player-title');
   const feedback = element('div', undefined, 'player-feedback'); feedback.setAttribute('aria-hidden', 'true');
   let idleTimer, clickTimer, feedbackTimer;
+  let lastTouch = false;
   let overBar = false;
   let disposed = false;
   let mouseGesture = false;
@@ -26,9 +26,6 @@ export function mountPlayer(video, item, {element, button}) {
     const shapes = {
       Play: '<path d="M8 5L20 12L8 19Z" fill="currentColor"/>',
       Pause: '<path d="M8 5V19M16 5V19" stroke-width="4"/>',
-      'Back 10 seconds': '<path d="M8 8H3V3M3 8A9 9 0 1 1 3 16"/><text x="8" y="15" font-size="8" stroke="none" fill="currentColor">10</text>',
-      'Forward 10 seconds': '<path d="M16 8H21V3M21 8A9 9 0 1 0 21 16"/><text x="8" y="15" font-size="8" stroke="none" fill="currentColor">10</text>',
-      'Full screen': '<path d="M9 3H3V9M15 3H21V9M3 15V21H9M21 15V21H15"/>',
     };
     node.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">${shapes[name]}</svg>`;
     node.setAttribute('aria-label', name); node.title = name;
@@ -42,10 +39,7 @@ export function mountPlayer(video, item, {element, button}) {
     if (!video.paused) { video.pause(); flash(); return; }
     try { await video.play(); flash(); } catch { status.textContent = "Can't play this video."; }
   };
-  const play = button('Play', toggle);
   const skip = seconds => { if (video.readyState > 0) video.currentTime = Math.max(0, Math.min(duration(), video.currentTime + seconds)); };
-  const back = button('Back 10 seconds', () => {skip(-10); reveal();}); icon(back, 'Back 10 seconds');
-  const forward = button('Forward 10 seconds', () => {skip(10); reveal();}); icon(forward, 'Forward 10 seconds');
   const bar = element('div', undefined, 'seek-wrap');
   const seek = element('input'); seek.type = 'range'; seek.min = 0; seek.max = item.duration || 0; seek.step = .1; seek.value = 0;
   seek.setAttribute('aria-label', 'Seek');
@@ -95,20 +89,13 @@ export function mountPlayer(video, item, {element, button}) {
   function update() {
     seek.max = duration();
     if (!dragging) seek.value = video.currentTime;
-    icon(play, video.paused ? 'Play' : 'Pause');
+    seek.style.setProperty('--played', `${duration() ? video.currentTime / duration() * 100 : 0}%`);
     status.textContent = formatDuration(video.currentTime);
     remaining.textContent = `-${formatDuration(Math.max(0, duration() - video.currentTime))}`;
   }
   for (const name of ['loadedmetadata', 'durationchange', 'timeupdate', 'play', 'pause', 'ended']) video.addEventListener(name, update);
-  controls.append(back, play, forward, status, bar, remaining);
-  let volume;
-  if (mac) {
-    volume = element('input'); volume.type = 'range'; volume.min = 0; volume.max = 1; volume.step = .05; volume.value = video.volume;
-    volume.className = 'volume'; volume.setAttribute('aria-label', 'Volume');
-    volume.oninput = () => { video.volume = Number(volume.value); };
-    controls.append(volume);
-  }
-  const fullscreen = button('Full screen', async () => {
+  controls.append(status, bar, remaining);
+  const fullscreen = async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else if (mac && container.requestFullscreen) await container.requestFullscreen();
@@ -116,13 +103,12 @@ export function mountPlayer(video, item, {element, button}) {
       else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
       else if (container.requestFullscreen) await container.requestFullscreen();
     } catch { status.textContent = 'Full screen is unavailable.'; }
-  });
-  icon(fullscreen, 'Full screen');
-  controls.append(fullscreen); container.append(video, title, controls, feedback); update();
+  };
+  container.append(video, controls, feedback); update();
   const playback = () => {reveal(); update();};
   video.addEventListener('play', playback); video.addEventListener('pause', playback);
   container.addEventListener('pointermove', reveal);
-  for (const panel of [title, controls]) {
+  for (const panel of [controls]) {
     panel.addEventListener('pointerenter', () => {overBar = true; reveal();});
     panel.addEventListener('pointerleave', () => {overBar = false; reveal();});
     panel.addEventListener('pointerup', event => event.stopPropagation());
@@ -133,9 +119,18 @@ export function mountPlayer(video, item, {element, button}) {
     if (event.button > 0 || event.target !== video && event.target !== container) return;
     mouseGesture = event.pointerType === 'mouse';
     if (!mouseGesture) {
-      clearTimeout(idleTimer);
-      container.classList.toggle('controls-hidden');
-      if (!container.classList.contains('controls-hidden')) scheduleHide();
+      const wasHidden = container.classList.contains('controls-hidden');
+      reveal();
+      if (clickTimer && lastTouch) {
+        clearTimeout(clickTimer); clickTimer = undefined; lastTouch = false;
+        void fullscreen();
+      } else {
+        lastTouch = true;
+        clickTimer = setTimeout(() => {
+          clickTimer = undefined; lastTouch = false;
+          if (!wasHidden) void toggle();
+        }, 250);
+      }
     } else {
       reveal();
       if (clickTimer) {clearTimeout(clickTimer); clickTimer = undefined;}
@@ -144,7 +139,7 @@ export function mountPlayer(video, item, {element, button}) {
   });
   container.addEventListener('dblclick', event => {
     if (!mouseGesture || event.target !== video && event.target !== container) return;
-    clearTimeout(clickTimer); clickTimer = undefined; fullscreen.click(); reveal();
+    clearTimeout(clickTimer); clickTimer = undefined; void fullscreen(); reveal();
   });
   function keydown(event) {
     if (disposed || !container.isConnected || document.querySelector('dialog[open]')) return;
@@ -161,24 +156,27 @@ export function mountPlayer(video, item, {element, button}) {
         video.volume = Math.max(0, Math.min(1, video.volume + (event.code === 'ArrowUp' ? .1 : -.1)));
         break;
       case 'KeyM': video.muted = !video.muted; break;
-      case 'KeyF': fullscreen.click(); break;
+      case 'KeyF': void fullscreen(); break;
       case 'Escape':
         if (document.fullscreenElement) void document.exitFullscreen();
+        else if (video.webkitDisplayingFullscreen && video.webkitExitFullscreen) video.webkitExitFullscreen();
+        else if (mac) backToLibrary();
+        else handled = false;
+        break;
+      case 'Backspace':
+        if (mac && !document.fullscreenElement && !video.webkitDisplayingFullscreen) backToLibrary();
         else handled = false;
         break;
       default: handled = false;
     }
     if (handled) {event.preventDefault(); update();}
   }
-  const volumeChanged = () => { if (volume) volume.value = video.volume; };
-  video.addEventListener('volumechange', volumeChanged);
   document.addEventListener('keydown', keydown);
   container.dispose = () => {
     disposed = true;
     document.removeEventListener('keydown', keydown);
     clearTimeout(idleTimer); clearTimeout(clickTimer); clearTimeout(feedbackTimer);
     video.removeEventListener('play', playback); video.removeEventListener('pause', playback);
-    video.removeEventListener('volumechange', volumeChanged);
     for (const name of ['loadedmetadata', 'durationchange', 'timeupdate', 'play', 'pause', 'ended']) video.removeEventListener(name, update);
   };
   return container;
