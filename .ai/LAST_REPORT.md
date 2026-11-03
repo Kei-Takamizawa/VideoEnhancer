@@ -1,4 +1,179 @@
 Task ID / Cycle: VE-R1b-3 / Windows
+Status: COMPLETED
+
+## Outcome and classification
+
+PRE-EXISTING: all four measured runs failed at the same unchanged assertion in
+gui/tests/e2e/p1f3-visual.spec.ts:72. After opening the Japanese-named History
+video, video.readyState did not become greater than 1 within 5000 ms. Both runs
+on the operator-provided main b54f2b6 worktree reproduced it before testing the
+current branch. This is a local, pre-existing desktop playback issue outside
+R1b's scope; it is not classified as an R1b regression.
+
+Under CURRENT_TASK.md's acceptance rule, sections 1 to 6 of VE-R1b-2 pass and its
+remaining gate is satisfied by this classification. The local E2E remains FAIL,
+recorded as a known pre-existing local failure that CI passes. CI's two green
+Windows CPU/desktop runs on d22e389 and the section 6 owner check are supplied
+by the designer/current task and preceding report; they were not rerun or
+independently queried in this cycle. This cycle establishes the local comparison,
+not a playback fix or a new CI/device pass.
+
+## Instructions, environment and changed files
+
+The user's continuation resolves the earlier Git-worktree workflow blocker:
+the operator created work/scratch/r1b3-main detached at main b54f2b6, Codex runs
+the tests without any Git commands, and the operator removes the worktree.
+No Git command was run during this continuation. Branch/HEAD identity is
+operator-supplied, not newly verified with Git. Earlier reports are retained below.
+CURRENT_TASK.md already contains the full task and was preserved.
+
+Only .ai/LAST_REPORT.md is changed in repository source/document files.
+No product, GUI, test, dependency or lockfile edits were made. A SHA-256 manifest
+confirmed existing branch source/test files unchanged after the four runs.
+No commit, push, merge, real remote service, owner home/library, Scheduled Task
+or firewall operation was performed.
+
+Every build/test shell dot-sourced repo/local-env.ps1. Main reused the installed
+dependency environments through temporary .venv and gui/node_modules junctions;
+there was no dependency installation or synchronization. PYTHONPATH explicitly
+selected each checkout's src; a Python import-location assertion passed for
+each run. The spec prepended that checkout's synthetic environment shim.
+VE_HOME, TEMP/TMP, APPDATA, LOCALAPPDATA, WebView2 profiles and generated media
+were isolated under work/scratch. Absolute output paths were containment-checked.
+The existing installed FFmpeg was read/executed, not modified.
+
+Frontend output for main was built inside its scratch worktree. Both Cargo
+builds reused the configured work/cache/tauri-target dependency/build cache;
+the resulting separate executable snapshots and existing unchanged player/DLL
+payloads were copied to scratch/r1b3-runs/main-bin and branch-bin before testing.
+Native-player source matched across checkouts after line-ending normalization.
+The same normalization confirmed identical spec, desktop launch helper, fixture
+generator, npm lockfile and Cargo lockfile. Raw hashes differ where checkout
+line endings differ. No GUI assertion or timeout was changed.
+
+## Builds and verification
+
+| Check | Result | Exit code | Wall time |
+| --- | --- | ---: | ---: |
+| main: npm run build | PASS | 0 | 4.594992 s |
+| main: cargo build --offline --locked --manifest-path scratch/r1b3-main/gui/src-tauri/Cargo.toml --features e2e | PASS | 0 | 40.349433 s |
+| branch: npm run build | PASS | 0 | 3.510768 s |
+| branch: cargo build --offline --locked --manifest-path src-tauri/Cargo.toml --features e2e (from repo/gui) | PASS | 0 | 6.357800 s |
+
+Main executable SHA-256:
+f9ed48f8a5256cb77f8729c33795117b7624341f0f31d7ce80661bbf4681b037
+
+Branch executable SHA-256:
+78324d888288b7f0d686d460ff3e87bf6c77f29b99c49af145efc67d37467c49
+
+All four runs used this command from the respective checkout's gui directory:
+
+```powershell
+npm run test:e2e -- tests/e2e/p1f3-visual.spec.ts -g "fresh calibration" --output "$evidenceRoot/test-results"
+```
+
+The only additional option routes Playwright artifacts outside the checkout.
+For main runs 1/2, evidenceRoot was work/evidence/VE-R1b-3/main-1 and main-2;
+for branch runs 1/2 it was work/evidence/VE-R1b-3/branch-1 and branch-2.
+VE_GUI_TEST_ROOT selected scratch/r1b3-runs/<checkout>-<run>/fixtures;
+VE_GUI_EVIDENCE selected each evidenceRoot/screenshots directory.
+
+| Checkout / run | Result | Exit code | Total command wall time | Started UTC |
+| --- | --- | ---: | ---: | --- |
+| main / 1 | FAIL | 1 | 27.619623 s | 2026-11-03T05:29:58.0860707Z |
+| main / 2 | FAIL | 1 | 26.052173 s | 2026-11-03T05:30:33.7710477Z |
+| branch / 1 | FAIL | 1 | 25.740863 s | 2026-11-03T05:31:36.3982437Z |
+| branch / 2 | FAIL | 1 | 25.358567 s | 2026-11-03T05:32:11.3778124Z |
+
+Each invocation selected exactly one test, with one worker; no retries or
+overlapping E2E runners were used. Playwright's individual test durations were
+26.4, 24.9, 24.7 and 24.2 seconds respectively. The table includes npm/runner
+overhead. Each reported one failed test, with the same 5000 ms predicate timeout.
+Console logs, result.json, traces and synthetic screenshots are retained privately
+under work/evidence/VE-R1b-3, outside the checkout.
+
+## GUI operations / Expected / Actual
+
+Automated desktop GUI ran four times: launch at 1280x800, confirm synthetic
+health, open Settings, select dark theme, verify speed-profile notice, copy the
+synthetic startup warning, trigger/copy the synthetic save error and verify its
+fade, open Home and History, then open the Japanese-named video.
+Expected: video.readyState > 1, followed by Copy details and remaining scenarios.
+Actual: the video readiness predicate timed out on all four runs. Later details,
+Add scenarios and the light-theme iteration were not reached. This is not a
+PASS for the complete two-theme test. Additional manual Computer Use, full CPU,
+other E2E cases, GPU/soak and owner-device checks were NOT_RUN in this cycle.
+
+## Errors and warnings
+
+A preliminary direct ffmpeg -version probe failed in the sandbox with
+"Program 'ffmpeg.exe' failed to run: Access is denied" (exit 1). No E2E was
+attempted in that restricted context. All four E2E invocations then ran with
+reviewed escalation and reached the GUI/video assertion, so this setup denial
+is separate from the four measured playback failures. No auto-review rejection
+occurred. Node emitted NO_COLOR/FORCE_COLOR precedence warnings in all runs.
+PowerShell formatted native stderr as NativeCommandError, including normal
+Cargo progress; actual build exit codes were 0 as recorded above.
+
+## Disk baseline and growth
+
+Decimal GB; logical file lengths are not allocated disk size. Drive free space
+was obtained with Python shutil.disk_usage; Get-PSDrive had returned null in the
+earlier blocked attempt. Baseline was taken after operator worktree creation,
+before builds and E2E. Junction targets are excluded from folder sums.
+
+| Item | Baseline GB | End GB |
+| --- | ---: | ---: |
+| C:/ free | 343.088418816 | 343.709945856 |
+| D:/ free | 872.737251328 | 872.734932992 |
+| package | 0.125288579 | 0.125288579 |
+| evidence/VE-R1b-3 | 0.000111443 | 0.002234676 |
+| scratch | 2.655788900 | 2.655905936 |
+| cache | 12.446311928 | 12.446381743 |
+
+Measured persistent growth across non-overlapping package, cycle evidence and
+cache rows: 2193048 bytes (0.002193048 GB), below 1 GB. The cache is below
+40 GB and cycle evidence below 300 MB. Measurements exclude this report edit
+and later operator log growth. Drive-wide changes are not attributed to cleanup.
+Scratch inventory remains partial with the same three pre-existing access-denied
+directories: work/scratch/r0c-cpu-final-cache, r1a-cpu-cache-elevated and
+r1a-cpu-cache-final. Readable scratch grew by 117036 bytes; shared pre-existing temporary content
+was not independently attributed or deleted. Complete scratch size/growth is
+UNKNOWN; unreadable content
+was not treated as zero. No attempt was made to bypass these inherited denials.
+
+## Cleanup inventory and operator handoff
+
+These exact candidates were measured and listed in this report before cleanup.
+
+| Path | Logical bytes before removal | Action |
+| --- | ---: | --- |
+| work/scratch/r1b3-runs | 117460004 | Removed |
+| work/scratch/r1b3-main/gui/dist | 611732 | Removed |
+| work/scratch/r1b3-main/.venv | 0 | Removed (junction only) |
+| work/scratch/r1b3-main/gui/node_modules | 0 | Removed (junction only) |
+| work/scratch/r1b3-main/gui/src-tauri/gen/schemas | 303157 | Removed |
+
+Cleanup completed for all listed candidates; junction targets were preserved.
+The test finally blocks already removed their generated fixture homes/media;
+their transient peak size was not measured and is not claimed as removal bytes.
+The explicit cleanup removed 118374893
+measured logical bytes, independently of free-space changes.
+The operator-owned worktree itself remains at work/scratch/r1b3-main for the
+operator to remove, as instructed. No Git worktree metadata was modified by Codex.
+Other inherited scratch content was preserved; it was not authorized cycle output.
+No cleanup refusal occurred for this cycle's artifacts.
+
+## Questions for the designer / unresolved scope
+
+No design decision is needed for this classification. The underlying desktop
+playback issue remains unfixed and outside R1b scope. Operator worktree removal
+is the remaining operator action. No dependency changes, gui/** fixes, full-suite
+reruns, production deployment or service restart were performed.
+
+---
+
+Task ID / Cycle: VE-R1b-3 / Windows
 Status: BLOCKED
 
 ## Outcome
