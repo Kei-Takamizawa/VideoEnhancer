@@ -232,7 +232,7 @@ async function libraryView() {
       if (!li) {
         li = element('li'); li.dataset.id = item.id;
         const row = button('', () => {}, 'video-row');
-        const poster = element('img', undefined, 'poster'); poster.alt = ''; poster.loading = 'lazy';
+        const poster = element('img', undefined, 'poster'); poster.alt = ''; poster.dataset.id = item.id; poster.loading = 'lazy';
         poster.src = `/api/library/${encodeURIComponent(item.id)}/poster.jpg`;
         poster.onerror = () => { poster.style.visibility = 'hidden'; };
         const box = element('div', undefined, 'poster-box'); box.append(poster); row.append(box); li.append(row);
@@ -288,14 +288,29 @@ function itemView(item) {
     clientEvent('load_failure', error, item, 'playback');
     errorDetail(error, itemError);
   });
-  main.append(mountPlayer(video, item, {element, backToLibrary: openLibrary}), itemError);
+  main.append(mountPlayer(video, item, {element, backToLibrary: openLibrary, setThumbnail}), itemError);
   const actions = element('div', undefined, 'actions');
   const progress = element('p', '', 'muted');
   progress.setAttribute('aria-live', 'polite');
   const download = button('Download', () => downloadVideo(item, download, progress), 'primary');
   const deletion = button('Delete', () => confirmDelete(item), 'danger');
   if (downloadMode(platform(), item.size, session.share_limit_bytes) !== 'safari') actions.append(download);
-  actions.append(deletion);
+  const thumbnail = button('Set as thumbnail', setThumbnail);
+  actions.append(thumbnail, deletion);
+  async function setThumbnail() {
+    if (thumbnail.disabled) return;
+    thumbnail.disabled = true;
+    try {
+      const {etag} = await api(`/api/library/${encodeURIComponent(item.id)}/poster`, {method: 'POST', body: JSON.stringify({time: video.currentTime})});
+      const url = `/api/library/${encodeURIComponent(item.id)}/poster.jpg?v=${encodeURIComponent(etag)}`;
+      video.poster = url;
+      const image = [...(libraryPanel?.querySelectorAll('img') || [])].find(image => image.dataset.id === item.id);
+      if (image) { image.src = url; image.style.visibility = ''; }
+      progress.textContent = 'Thumbnail updated.';
+      setTimeout(() => { if (progress.textContent === 'Thumbnail updated.') progress.textContent = ''; }, 2500);
+    } catch (error) { progress.textContent = error.message; }
+    finally { thumbnail.disabled = false; }
+  }
   main.append(actions, progress);
   if (downloadMode(platform(), item.size, session.share_limit_bytes) === 'safari') safariOption(item, progress);
   if (sessionStorage.getItem('ve-loading-video')) {

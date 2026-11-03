@@ -8,13 +8,14 @@ test('Library returns synchronously, keeps unchanged images, diffs ids and resto
   const dom = new JSDOM(html, {url: 'https://synthetic.test/'});
   const {window} = dom;
   let items = [{id: 'a', name: 'Landscape', duration: 60}, {id: 'b', name: 'Portrait', duration: 90}];
-  let pending;
+  let pending, posterTime;
   window.scrollTo = (_, y) => { window.scrollY = y; };
   window.HTMLMediaElement.prototype.pause = () => {};
   window.HTMLMediaElement.prototype.load = () => {};
   const values = {window, document: window.document, navigator: {userAgent: 'Macintosh', maxTouchPoints: 0},
     location: window.location, history: window.history, sessionStorage: window.sessionStorage,
-    matchMedia: () => ({matches: false}), fetch: async path => {
+    matchMedia: () => ({matches: false}), fetch: async (path, options) => {
+      if (path.endsWith("/poster")) { posterTime = JSON.parse(options.body).time; return {ok: true, json: async () => ({etag: "new-poster"})}; }
       if (path === '/api/library' && pending) await pending;
       const data = path === '/api/session' ? {paired: true, notifications_on: true} :
         path === '/api/library' ? {items} : path === '/api/jobs/active' ? {jobs: []} : {};
@@ -38,6 +39,16 @@ test('Library returns synchronously, keeps unchanged images, diffs ids and resto
   assert.equal(document.querySelector('.video-row').getAttribute('aria-label'), 'Landscape, 1:00');
   window.scrollY = 350;
   document.querySelector('.video-row').click();
+  document.querySelector('video').currentTime = 12.5;
+  const thumbnail = [...document.querySelectorAll('button')].find(button => button.textContent === 'Set as thumbnail');
+  assert.ok(thumbnail); thumbnail.click(); await flush();
+  assert.equal(posterTime, 12.5);
+  assert.match(document.querySelector('#main').textContent, /Thumbnail updated\./);
+  assert.match(images[0].src, /v=new-poster/);
+  assert.doesNotMatch(images[1].src, /v=/);
+  document.querySelector('video').currentTime = 20;
+  document.body.dispatchEvent(new window.KeyboardEvent('keydown', {code: 'KeyT', bubbles: true}));
+  await flush(); assert.equal(posterTime, 20);
   let resolve;
   pending = new Promise(r => {resolve = r;});
   document.querySelector('.back').click();

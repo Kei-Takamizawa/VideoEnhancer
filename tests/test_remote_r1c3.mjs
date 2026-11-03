@@ -118,3 +118,23 @@ test('Mac Esc and Backspace return only outside fullscreen and editable fields',
   assert.equal(key('Escape'), true); assert.equal(returns(), 1);
   assert.equal(key('Backspace'), true); assert.equal(returns(), 2);
 });
+
+test('hover leaves playback thumb fixed, drag seeks, and released mouse resumes hover', t => {
+  const {root, video, dom} = player(t);
+  const seek = root.querySelector('[aria-label=Seek]');
+  seek.getBoundingClientRect = () => ({left: 0, width: 600});
+  seek.setPointerCapture = () => {};
+  const move = (type, x, buttons) => {
+    const event = new dom.window.MouseEvent(type, {clientX: x, buttons, bubbles: true, cancelable: true});
+    Object.defineProperty(event, 'pointerType', {value: 'mouse'});
+    seek.dispatchEvent(event);
+  };
+  move('pointermove', 200, 0);
+  assert.equal(Number(seek.value), 60); assert.equal(video.currentTime, 60);
+  assert.equal(root.querySelector('.seek-preview').hidden, false);
+  move('pointerdown', 200, 1);
+  move('pointermove', 300, 1);
+  assert.equal(Number(seek.value), 300); assert.equal(video.currentTime, 300);
+  move('pointermove', 400, 0);
+  assert.equal(Number(seek.value), 300); assert.equal(video.currentTime, 300);
+});

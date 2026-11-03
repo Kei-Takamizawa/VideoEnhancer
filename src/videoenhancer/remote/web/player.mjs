@@ -1,7 +1,7 @@
 import {platform, previewTile, previewLeft} from './platform.mjs';
 import {formatDuration} from './logic.mjs';
 
-export function mountPlayer(video, item, {element, backToLibrary = () => {}}) {
+export function mountPlayer(video, item, {element, backToLibrary = () => {}, setThumbnail = () => {}}) {
   const document = video.ownerDocument;
   const mac = platform() === 'mac';
   const container = element('div', undefined, 'player');
@@ -80,8 +80,8 @@ export function mountPlayer(video, item, {element, backToLibrary = () => {}}) {
     }
     show(seconds, event.clientX);
   }
-  seek.onpointerdown = event => { dragging = true; reveal(); seek.setPointerCapture(event.pointerId); scrub(event); };
-  seek.onpointermove = event => { hover = event.pointerType === 'mouse'; if (dragging || hover) scrub(event); };
+  seek.onpointerdown = event => { event.preventDefault(); seek.focus(); dragging = true; reveal(); seek.setPointerCapture(event.pointerId); scrub(event); };
+  seek.onpointermove = event => { hover = event.pointerType === 'mouse'; if (hover && event.buttons === 0) dragging = false; if (dragging || hover) scrub(event); };
   seek.onpointerup = event => { if (dragging) scrub(event); dragging = false; preview.hidden = !hover; reveal(); };
   seek.onpointercancel = () => { dragging = false; preview.hidden = true; reveal(); };
   seek.onpointerleave = () => { hover = false; if (!dragging) preview.hidden = true; };
@@ -155,6 +155,7 @@ export function mountPlayer(video, item, {element, backToLibrary = () => {}}) {
         if (!mac) {handled = false; break;}
         video.volume = Math.max(0, Math.min(1, video.volume + (event.code === 'ArrowUp' ? .1 : -.1)));
         break;
+      case 'KeyT': if (mac) void setThumbnail(); else handled = false; break;
       case 'KeyM': video.muted = !video.muted; break;
       case 'KeyF': void fullscreen(); break;
       case 'Escape':

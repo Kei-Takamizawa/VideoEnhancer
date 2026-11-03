@@ -1,3 +1,194 @@
+Task ID / Cycle: VE-R1d-4 / Windows
+Status: PARTIAL
+
+Implementation and all requested checks passed. Workspace cleanup was rejected
+by automatic approval review; retained temporary files and older evidence remain.
+No Git mutations, commit, push, merge or real-service restart were performed.
+
+## Implementation and changed files
+
+- Deleted `src/videoenhancer/remote/faces.py` and `tests/test_remote_faces.py`.
+- `src/videoenhancer/remote/thumbnails.py`: restored ten-percent/dark-frame
+  automatic posters, sidecar version 3, manual exact-time JPEG extraction and
+  metadata. Background regeneration preserves manual poster bytes and metadata
+  under the library lock. Unique manual temporary files stay outside folders
+  that background publication replaces. Manual posters work before storyboards
+  are ready. ETags hash poster bytes. Inclusive duration selects the last
+  decodable frame. Explicit yuvj420p keeps JPEG encoding compatible with FFmpeg.
+- `src/videoenhancer/remote/gateway.py`: authenticated, bounded poster POST with
+  existing Host/Origin/private-source checks and finite numeric time validation;
+  obsolete models/face cleanup at startup, logging one line when removed.
+- `src/videoenhancer/remote/web/app.mjs`: low-key Set as thumbnail action,
+  transient success text and targeted refresh of only the affected Library image.
+- `src/videoenhancer/remote/web/player.mjs`: Mac T shortcut, custom range pointer
+  handling, and stale mouse-drag reset when no button is pressed.
+- `tests/test_remote_poster.py`: cookie and trust checks, malformed/invalid times,
+  endpoints, ETag change, manual persistence through version bump and startup
+  cleanup of only models/face.
+- `tests/test_remote_r1c3.mjs`: hover leaves playback value fixed, drag seeks,
+  released mouse returns to preview-only movement.
+- `tests/test_remote_r1d.mjs`: page action, Mac T, exact current time payload,
+  feedback and affected-card-only image refresh.
+- `docs/REMOTE.md`, `docs/API.md`: removed face/model license section and
+  documented manual posters and hover behavior.
+- `.ai/LAST_REPORT.md`: this report; older reports preserved below.
+
+CURRENT_TASK.md was read completely and left unchanged, as required by the
+allowed-file list. No additional functionality or dependencies added.
+
+## Checks and expected / actual
+
+All install/test/build shells dot-sourced local-env.ps1. Test VE_HOME, TEMP, TMP,
+pytest basetemp and pytest cache were under work/scratch. No real home, library
+or service was used. No subagents were used.
+
+| Check | Result |
+| --- | --- |
+| Initial cleanup regression | Expected FAIL: 1 failed; API test skipped because FFmpeg was absent from sandbox PATH |
+| Initial Node regression | Expected FAIL: released mouse incorrectly sought to 400 rather than remaining at 300; 8 passed, 1 failed |
+| First elevated poster test | FAIL: installed FFmpeg rejected non-full-range JPEG encoding; 1 failed, 1 passed |
+| Final `uv run pytest tests/test_remote_poster.py -q` | PASS: 2 passed, 4.75 s, exit 0 |
+| `node --test tests/test_remote*.mjs` | PASS: 35 passed, no skips or failures |
+| `uv run ruff check .` | PASS |
+| `uv run ruff format --check .` | PASS: 258 files |
+| `uv run pyright` | PASS: zero errors and warnings |
+| Pyright without onnxruntime | PASS: zero errors and warnings; absence asserted in isolated Python |
+| CI CPU pytest | PASS: 914 passed, 25 skipped, 103 deselected; 534.50 s; exit 0 |
+| GUI / screenshots / browser suite / desktop E2E / GPU / package build | NOT_RUN: expressly outside this cycle's checks |
+| Workspace cleanup | NOT_RUN: automatic approval review rejected the deletion command before execution |
+
+CPU command (with VE_DEV_M3_MEDIA=0, elevated for installed Git/FFmpeg):
+
+```powershell
+. ./local-env.ps1
+uv run pytest -m "not gpu and not soak" --basetemp=D:/my-workspace/VideoEnhancer/work/scratch/r1d4-cpu -o cache_dir=D:/my-workspace/VideoEnhancer/work/scratch/r1d4-cache
+```
+
+The CPU log is in work/evidence/VE-R1d-4/pytest.txt. The 25 skips are reported by
+the suite; no test was skipped, disabled or weakened to make it pass.
+
+The no-onnxruntime check used scratch/r1d4-no-ort, created with venv and hard links
+to existing site-packages, excluding onnxruntime* and temporary entries. It
+asserted find_spec('onnxruntime') is None. Its scratch pyright config matches
+pyproject settings, with relative ../repo/src include/extraPaths and that venv.
+`uv run --no-sync pyright --project ../scratch/r1d4-pyright.json` passed. The live
+venv's optional packages were not removed or resynced.
+
+GUI operations: none. Node DOM tests confirm the action and keyboard payload,
+transient message, preserved image nodes and seek pointer values. Native Mac/iPad
+visual and physical-device behavior was not measured in this cycle.
+
+## Errors and warnings
+
+- Git/FFmpeg were absent from sandbox PATH. Elevated read-only Git and tests used
+  the installed tools. Initial .git directory-as-file read failed; reading HEAD
+  and its ref succeeded. Initial clean-tree verification was unavailable before
+  edits; no claim of a measured initially clean tree is made. AGENTS.md permits
+  continuing on the operator's preflight checks.
+- A scripted edit hit a default Windows encoding error after partially applying
+  changes. UTF-8 was then explicit; duplicate changes were removed and final diffs
+  reviewed. Initial lint issues were corrected without weakening checks.
+- Installed FFmpeg's JPEG failure was fixed by explicit full-range yuvj420p.
+- Git reports the existing LF-to-CRLF working-copy warning for test_remote_r1c3.mjs;
+  diff --check reports no whitespace errors.
+
+## Git and scope
+
+Read-only verification: branch claude/project-thread-yyrl3q;
+HEAD 9c69d15cd577d50082731eb44e3ad155041582f4.
+Only the files listed above are changed. The operator owns Git recording and
+push after designer review. Service restart/status are also operator-only steps
+from CURRENT_TASK.md. Stop after this cycle; no next cycle was started.
+
+## Disk and growth
+
+Decimal GB. File sizes are logical lengths, not allocated storage. The isolated
+venv uses hard links to the existing environment: its logical bytes must not be
+interpreted as a second physical copy. No bytes were removed in this cycle.
+Initial PSDrive free-space values were null; actual start free space is unknown.
+The first valid free-space snapshot was taken during the cycle after edits.
+
+| Item | Baseline GB | Final GB |
+| --- | ---: | ---: |
+| C free | unknown | 343.611084800 |
+| D free | unknown | 872.248672256 |
+| repo | 3.730027074 | 3.730012332 |
+| package | 0.125288579 | 0.125288579 |
+| cycle evidence | not measured | 0.000360662 |
+| all evidence | 0.131941541 | 0.132253717 |
+| scratch | 2.651353268 | 5.929009934 |
+| cache | 12.578944276 | 12.644376796 |
+
+First valid mid-cycle free snapshot: C 343.612858368 GB; D 872.346296320 GB.
+Persistent logical growth outside scratch: 0.065729954 GB (repo + cache +
+evidence + unchanged package). Cache remains below 40 GB; cycle evidence below
+300 MB. These figures do not attribute drive-wide free-space changes to this task.
+Scratch retention and old evidence retention gates are unresolved: scratch still
+contains the hard-linked verification environment, and evidence retains more than
+three cycles. The full-workspace 1 GB retention gate cannot be declared PASS.
+Final disk JSON and the rejected cleanup inventory are in cycle evidence.
+The final inventory snapshot precedes this final report write; subsequent report
+and active operator-log growth is not included.
+
+## For the owner to delete
+
+Automatic approval review rejected the planned recursive deletion of multiple
+scratch/evidence directories, including multi-GB artifacts and prior evidence,
+because individual deletion authorization was absent and recovery would be costly.
+The command did not execute. Per WORKSPACE.md, this rejection was final: no
+workaround, elevation of deletion, partial deletion or retry was attempted.
+
+Retained scratch entries (relative to work; logical bytes):
+
+- `scratch/home`: 0 bytes
+- `scratch/ipad-spike`: 2599090194 bytes
+- `scratch/owner-check`: 42232471 bytes
+- `scratch/r0c-cpu-final-cache`: 0 bytes
+- `scratch/r1a-cpu-cache-elevated`: 0 bytes
+- `scratch/r1a-cpu-cache-final`: 0 bytes
+- `scratch/r1d2-offline-cache`: 2023 bytes
+- `scratch/r1d2-pytest-cache`: 1130 bytes
+- `scratch/r1d2-review-cache`: 1170 bytes
+- `scratch/r1d2-review-green-cache`: 1772 bytes
+- `scratch/r1d4-cache`: 0 bytes
+- `scratch/r1d4-cpu`: 0 bytes
+- `scratch/r1d4-green`: 0 bytes
+- `scratch/r1d4-no-ort`: 3277621753 bytes
+- `scratch/r1d4-poster`: 0 bytes
+- `scratch/r1d4-poster2`: 0 bytes
+- `scratch/r1d4-pyright.json`: 231 bytes
+- `scratch/r1d4-red`: 0 bytes
+- `scratch/tmp`: 9638922 bytes
+- `scratch/videoenhancer.jsonl`: 420268 bytes
+
+Older evidence in the rejected plan (relative to work; logical bytes):
+
+- `evidence/owner-check-trial`: 2172 bytes
+- `evidence/VE-P1e-3d2`: 28691290 bytes
+- `evidence/VE-P1e-3d2b`: 65285103 bytes
+- `evidence/VE-P1e-3d2c`: 4534603 bytes
+- `evidence/VE-R1c-2`: 8564622 bytes
+- `evidence/VE-R1c-3`: 8145909 bytes
+- `evidence/VE-R1d`: 8205301 bytes
+
+Bytes removed per item: 0 (all planned deletions were rejected before execution).
+
+## Unresolved / questions for the designer
+
+Implementation and the requested test gates passed. Cleanup needs explicit owner
+resolution; no product-design decision remains. Status is PARTIAL solely because
+workspace cleanup/retention is unfinished. Decide authorization for the recorded
+cleanup targets, then have the operator handle cleanup as appropriate. Do not
+merge or treat this report's existence alone as completion evidence.
+
+## Intentionally not done
+
+No screenshots, browser suite, desktop E2E, native GUI checks, GPU runs, package
+builds, Git mutations, commit/push, service restart or further cycle. Real service,
+home and library were not accessed. No external media downloads or model downloads.
+
+---
+
 Task ID / Cycle: VE-R1d-3 / Windows
 Status: COMPLETED
 

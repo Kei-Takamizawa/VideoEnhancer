@@ -391,100 +391,31 @@ names (title and duration), with title tooltips on Mac. Storage usage is at the
 top of Settings, together with the PC name; there is no global header. The cached
 Library DOM and poster images appear immediately on return, with scroll restored;
 background refresh reconciles items by id and preserves unchanged image nodes.
-No cache-busting parameters are added to poster URLs. Running jobs show one small
+Unchanged cards retain their poster URLs; manually updated cards use the returned
+ETag in their poster URL. Running jobs show one small
 count above the grid.
 
-### Face-aware library posters (algorithm 2)
+### Automatic and manual library posters (version 3)
 
-Posters use local CPU face detection when the optional `models` runtime is
-installed. No Python dependency is installed by the service. The first use
-downloads two pinned, checksum-verified models into `VE_HOME/models/face/`:
+Posters use the frame at 10 percent, advancing past dark frames. Sidecar version 3
+regenerates older automatic posters once. At service start, obsolete
+`VE_HOME/models/face/` models are removed; no face models are downloaded or used.
 
-| Model | Pinned source | SHA-256 | License |
-| --- | --- | --- | --- |
-| YuNet 2023mar, 232,589 bytes | [OpenCV Zoo at 48b10fa](https://media.githubusercontent.com/media/opencv/opencv_zoo/48b10fa505aeb51fbd127fc60a5c660040e823b7/models/face_detection_yunet/face_detection_yunet_2023mar.onnx) | `8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4` | [MIT, Shiqi Yu](https://github.com/opencv/opencv_zoo/blob/48b10fa505aeb51fbd127fc60a5c660040e823b7/models/face_detection_yunet/LICENSE) |
-| MobileNetV2 mask classifier, 9,564,435 bytes | [Dao-Dung ONNX conversion at 7f17625](https://huggingface.co/Dao-Dung/face-mask-detector-onnx/resolve/7f17625a18e809737e4ac44d39fc949994c4c1d1/mask_detector.onnx) | `fcc9e8d5a19b8000e11fbae4e2cb40315c477c32c5dbf533d3a00f84fd258c00` | [MIT, chandrikadeb7](https://github.com/chandrikadeb7/Face-Mask-Detection/blob/master/LICENSE) |
-
-The classifier's [model card](https://huggingface.co/Dao-Dung/face-mask-detector-onnx)
-documents its upstream weights and RGB 224-pixel MobileNetV2 input. It classifies
-the in-memory face region; no heuristic mask signal is used. Neither model is
-bundled in Git. Downloads send no video data. Once downloaded, analysis works
-offline. Missing runtime, failed downloads/checksums, inference errors or a
-60-second analysis deadline produce the existing 10-percent/dark-frame fallback;
-the background worker retries after 60 seconds. A completed analysis with no faces
-also uses that fallback, without repeatedly regenerating the same sidecars.
-
-The pass samples roughly one frame per second, capped at 300 evenly spaced times,
-excluding the first and last 3 percent. Frames fit within 640 by 640 pixels
-(landscape width 640; portrait height 640), with CPU-only single-thread inference.
-The Windows thread runs in background mode and FFmpeg runs below normal priority.
-The existing GPU segment gate cancels work and waits before GPU work begins.
-Decoded frames, face regions and landmarks stay in RAM; no crops, embeddings or
-identities are saved or sent anywhere.
-
-N is the nearest-rank 90th percentile of detected face counts, excluding faces
-smaller than 3 percent of frame height. Selection first maximizes good faces up to
-N, then unmasked faces, then the sum of area times landmark symmetry times
-Laplacian variance times confidence. Cut-off faces lose quality and do not count
-as good; blur and large pose angles also prevent a face counting as good. Ties
-prefer the 10–50 percent interval, then its center. Masked faces remain eligible
-when no equally complete unmasked frame exists. Mask classification can still
-misclassify unusual masks, lighting or poses; it is a poster preference, not an
-identity or safety decision.
-
-`poster.json` records `time` (seconds), `N`, `face_count`, `unmasked_count`,
-`version`, `face_ready` and analysis `seconds`. No face coordinates are persisted.
-Algorithm version 2 triggers one background regeneration of older sidecars;
-incomplete face passes remain retryable. Poster dimensions and the 8 MB storyboard
-cap are unchanged. Image ETags hash the actual content, so a regenerated image
-cannot incorrectly validate an older image. Existing browser image caches may
-remain fresh for their normal 24-hour lifetime; a reload with cache disabled can
-be used for the operator's immediate poster check.
-
-Offline integration tests accept `VE_FACE_TEST_ASSETS` pointing to the two pinned
-models and `astronaut.png` (512 by 512) from scikit-image 0.25.2. The NASA photograph
-is [public domain](https://scikit-image.org/docs/stable/api/skimage.data.html#skimage.data.astronaut).
-Tests generate one-person, two-person, synthetic-mask and mask-removal clips in an
-isolated home; they skip cleanly when those optional assets are absent. Synthetic
-mask accuracy measures this small fixture set only, not accuracy on private or
-unseen real-world video.
-
-Both downloaded models carry the following MIT terms (copyright notices apply
-to their respective models):
-
-```text
-MIT License
-
-Copyright (c) 2020 Shiqi Yu
-Copyright (c) 2021 chandrikadeb7
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
+On a video page, **Set as thumbnail** saves the current playback frame (Mac: T).
+The manual selection is recorded in `poster.json` as `source: manual` and `time`
+in seconds and survives automatic regeneration and version changes. Image ETags
+hash the content. The Library refreshes only the changed card on return.
 
 ### Player keyboard and pointer controls
 
 The transparent overlay contains current time, a thin white seek bar and remaining
-time. Hovering or dragging shows a bounded frameless storyboard preview, or just
-the preview time while images are unavailable. Controls and cursor hide after
+time. Hovering keeps the thumb at playback time; pressing or dragging seeks. Both
+show a bounded frameless storyboard preview, or just the preview time while images
+are unavailable. Controls and cursor hide after
 2.5 seconds while playing; movement, keyboard input and pause reveal them, and
 hovering the bar or dragging keeps them visible. The centre feedback icon is small
-and translucent. Library, Download and Delete remain outside the video.
+and translucent. Library, Download, Set as thumbnail and Delete remain outside
+the video.
 
 Keyboard shortcuts work immediately after opening a Library video or notification
 link. Space/K plays or pauses; Left/Right seeks 5 seconds (Shift: 30 seconds);
