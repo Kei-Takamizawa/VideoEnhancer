@@ -2,7 +2,6 @@ import {platform, downloadMode, pushFailure} from './platform.mjs';
 import {mountPlayer} from './player.mjs';
 import {mountAdd} from './add-ui.mjs';
 import {mountPairing} from './pairing-ui.mjs';
-import {finishText} from './add.mjs';
 import {
   downloadProgress, formatDuration, formatSize, pairingScreen,
   shareFile, storageSegments, storageText, loadFile, safariURL, safariInstructions,
@@ -16,6 +15,8 @@ let session;
 let activeTab = 'library';
 let releaseDownload = () => {};
 let addedBanner = false;
+let libraryPanel, libraryScroll = 0, libraryRequest = 0;
+let storageData;
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -41,6 +42,7 @@ function clearView() {
     video.removeAttribute('src');
     video.load();
   }
+  if (libraryPanel?.parentElement === main) libraryScroll = window.scrollY;
   main.replaceChildren();
   main.setAttribute('aria-busy', 'false');
 }
@@ -198,54 +200,67 @@ function itemMetadata(item) {
 }
 
 async function libraryView() {
+  const request = ++libraryRequest;
+  const returning = !!libraryPanel;
   clearView();
   setTab('library');
-  main.append(element('h1', 'Library'));
-  const content = element('div');
-  main.append(content);
-  main.setAttribute('aria-busy', 'true');
+  if (!libraryPanel) {
+    libraryPanel = element('section');
+    libraryPanel.append(element('h1', 'Library'));
+    libraryPanel.append(element('div', undefined, 'running-jobs'), element('ul', undefined, 'videos'));
+  }
+  main.append(libraryPanel);
+  if (returning) window.scrollTo(0, libraryScroll);
+  main.setAttribute('aria-busy', String(!returning));
   try {
-    const [library, storage] = await Promise.all([api('/api/library'), api('/api/storage')]);
-    if (activeTab !== 'library' || !content.isConnected) return;
-    content.append(renderStorage(storage));
+    const library = await api('/api/library');
+    if (request !== libraryRequest || activeTab !== 'library' || !libraryPanel.isConnected) return;
+    libraryPanel.querySelector('.library-error')?.remove();
     if (addedBanner) {
       const banner = element('p', "Added. You'll get a notification when it's ready.");
-      banner.setAttribute('role', 'status'); content.append(banner); addedBanner = false;
+      banner.setAttribute('role', 'status'); libraryPanel.prepend(banner); addedBanner = false;
     }
-    if (!session.notifications_on) content.append(notificationCard());
-    const running = element('div', undefined, 'running-jobs'); content.append(running);
-    void activeJobs(running);
+    if (!session.notifications_on && !libraryPanel.querySelector('.notification-card')) libraryPanel.prepend(notificationCard());
+    void activeJobs(libraryPanel.querySelector('.running-jobs'));
     const requested = /^#item=([A-Za-z0-9_-]{1,128})$/.exec(location.hash);
+    const list = libraryPanel.querySelector('.videos');
+    const existing = new Map([...list.children].map(node => [node.dataset.id, node]));
+    const ids = new Set(library.items.map(item => item.id));
+    for (const node of [...list.children]) if (!ids.has(node.dataset.id)) node.remove();
+    library.items.forEach((item, position) => {
+      let li = existing.get(item.id);
+      if (!li) {
+        li = element('li'); li.dataset.id = item.id;
+        const row = button('', () => {}, 'video-row');
+        const poster = element('img', undefined, 'poster'); poster.alt = ''; poster.dataset.id = item.id; poster.loading = 'lazy';
+        poster.src = `/api/library/${encodeURIComponent(item.id)}/poster.jpg`;
+        poster.onerror = () => { poster.style.visibility = 'hidden'; };
+        const box = element('div', undefined, 'poster-box'); box.append(poster); row.append(box); li.append(row);
+      }
+      if (JSON.stringify(li.libraryItem) !== JSON.stringify(item)) {
+        li.libraryItem = item;
+        const row = li.firstElementChild;
+        row.onclick = () => itemView(item);
+        row.setAttribute('aria-label', `${item.name}, ${formatDuration(item.duration)}`);
+        row.title = platform() === 'mac' ? item.name : '';
+      }
+      if (list.children[position] !== li) list.insertBefore(li, list.children[position] || null);
+    });
+    libraryPanel.querySelector('.empty-library')?.remove();
+    if (!library.items.length) libraryPanel.append(element('p', 'Your library is empty.', 'muted empty-library'));
     if (requested) {
       const item = library.items.find(value => value.id === requested[1]);
-      if (item) { itemView(item); return; }
+      if (item) itemView(item);
     }
-    if (!library.items.length) content.append(element('p', 'Your library is empty.', 'muted'));
-    const list = element('ul', undefined, 'videos');
-    for (const item of library.items) {
-      const row = button('', () => itemView(item), 'video-row');
-      const poster = element('img', undefined, 'poster'); poster.alt = ''; poster.loading = 'lazy';
-      poster.src = `/api/library/${encodeURIComponent(item.id)}/poster.jpg`;
-      poster.onerror = () => { poster.style.visibility = 'hidden'; };
-      const box = element('div', undefined, 'poster-box'); box.append(poster); row.append(box);
-      const label = element('span');
-      label.append(element('span', item.name, 'video-name'), element('span', `${formatDuration(item.duration)} · ${formatSize(item.size)}`, 'metadata'));
-      if (item.error) label.append(element('span', "Can't read this video", 'metadata error'));
-      const chevron = element('span', '›', 'chevron');
-      chevron.setAttribute('aria-hidden', 'true');
-      row.append(label);
-      const li = element('li');
-      li.append(row);
-      list.append(li);
-    }
-    content.append(list);
   } catch (error) {
-    if (content.isConnected) {
-      if (error.status === 401) { await boot(); return; }
-      showFailure(error, libraryView, content);
+    if (request === libraryRequest && libraryPanel.isConnected) {
+      if (error.status === 401) { libraryPanel = undefined; await boot(); return; }
+      libraryPanel.querySelector('.library-error')?.remove();
+      const failure = element('div', undefined, 'library-error'); libraryPanel.append(failure);
+      showFailure(error, libraryView, failure);
     }
   } finally {
-    if (content.isConnected) main.setAttribute('aria-busy', 'false');
+    if (request === libraryRequest && libraryPanel?.isConnected) main.setAttribute('aria-busy', 'false');
   }
 }
 
@@ -255,6 +270,7 @@ function openLibrary() {
 }
 
 function itemView(item) {
+  libraryRequest++;
   if (location.hash !== `#item=${item.id}`) history.pushState(null, '', `#item=${item.id}`);
   clearView();
   main.append(button('‹ Library', openLibrary, 'back'), element('h1', item.name, 'item-title'),
@@ -272,14 +288,29 @@ function itemView(item) {
     clientEvent('load_failure', error, item, 'playback');
     errorDetail(error, itemError);
   });
-  main.append(mountPlayer(video, item, {element, button}), itemError);
+  main.append(mountPlayer(video, item, {element, backToLibrary: openLibrary, setThumbnail}), itemError);
   const actions = element('div', undefined, 'actions');
   const progress = element('p', '', 'muted');
   progress.setAttribute('aria-live', 'polite');
   const download = button('Download', () => downloadVideo(item, download, progress), 'primary');
   const deletion = button('Delete', () => confirmDelete(item), 'danger');
   if (downloadMode(platform(), item.size, session.share_limit_bytes) !== 'safari') actions.append(download);
-  actions.append(deletion);
+  const thumbnail = button('Set as thumbnail', setThumbnail);
+  actions.append(thumbnail, deletion);
+  async function setThumbnail() {
+    if (thumbnail.disabled) return;
+    thumbnail.disabled = true;
+    try {
+      const {etag} = await api(`/api/library/${encodeURIComponent(item.id)}/poster`, {method: 'POST', body: JSON.stringify({time: video.currentTime})});
+      const url = `/api/library/${encodeURIComponent(item.id)}/poster.jpg?v=${encodeURIComponent(etag)}`;
+      video.poster = url;
+      const image = [...(libraryPanel?.querySelectorAll('img') || [])].find(image => image.dataset.id === item.id);
+      if (image) { image.src = url; image.style.visibility = ''; }
+      progress.textContent = 'Thumbnail updated.';
+      setTimeout(() => { if (progress.textContent === 'Thumbnail updated.') progress.textContent = ''; }, 2500);
+    } catch (error) { progress.textContent = error.message; }
+    finally { thumbnail.disabled = false; }
+  }
   main.append(actions, progress);
   if (downloadMode(platform(), item.size, session.share_limit_bytes) === 'safari') safariOption(item, progress);
   if (sessionStorage.getItem('ve-loading-video')) {
@@ -389,6 +420,9 @@ function settingsView() {
   clearView();
   setTab('settings');
   main.append(element('h1', 'Settings'));
+  const storage = element('div'); main.append(storage);
+  if (storageData) storage.append(renderStorage(storageData));
+  void api('/api/storage').then(data => { storageData = data; storage.replaceChildren(renderStorage(data)); }).catch(error => showFailure(error, settingsView, storage));
   const details = element('dl');
   const date = value => value ? new Date(value).toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'}) : 'Unknown';
   for (const [name, value] of [
@@ -456,27 +490,16 @@ function notificationCard() {
 }
 
 async function activeJobs(container) {
+  clearTimeout(container.pollTimer);
   try {
     const {jobs} = await api('/api/jobs/active');
     if (!container.isConnected) return;
     container.replaceChildren();
     if (jobs?.length) {
       container.append(element('p', `${jobs.length} ${jobs.length === 1 ? 'video' : 'videos'} in progress`, 'muted'));
-      for (const job of jobs) {
-        const row = element('div', undefined, 'running-row');
-        row.append(element('small', `${job.title} ? ${finishText({finish: job.finish, seconds: job.seconds})}`, 'muted'));
-        row.append(button('Cancel', async () => {
-          if (!window.confirm('Cancel this video? Its source and unfinished files will be deleted.')) return;
-          try {
-            await api(`/api/jobs/${encodeURIComponent(job.id)}/cancel`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
-            await libraryView();
-          } catch (error) { row.append(element('p', error.message, 'error')); }
-        }));
-        container.append(row);
-      }
     }
   } catch (error) { if (container.isConnected) container.replaceChildren(element('p', error.message, 'error')); }
-  if (container.isConnected) setTimeout(() => { if (container.isConnected) void activeJobs(container); }, 15000);
+  if (container.isConnected) container.pollTimer = setTimeout(() => { if (container.isConnected) void activeJobs(container); }, 15000);
 }
 
 function addView() {
@@ -492,7 +515,6 @@ async function boot() {
     if (!session.paired) pairingView();
     else {
       tabs.hidden = false;
-      document.querySelector('#connection').textContent = session.pc_name || '';
       await libraryView();
     }
   } catch (error) {

@@ -132,7 +132,7 @@ def test_background_waits_for_gpu(tmp_path, monkeypatch):
     (library.folder / "clip.mp4").write_bytes(b"synthetic")
     images = Thumbnails(library)
     called = threading.Event()
-    monkeypatch.setattr(images, "generate", lambda identifier: called.set())
+    monkeypatch.setattr(images, "generate", lambda identifier: called.set() or {"face_ready": True})
     images.pause()
     images.thread.start()
     try:

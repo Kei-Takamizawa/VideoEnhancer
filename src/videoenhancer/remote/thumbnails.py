@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import secrets
 import shutil
 import subprocess
 import threading
@@ -14,7 +15,12 @@ from videoenhancer import proc
 from videoenhancer.config import executable
 from videoenhancer.service.settings import write_json
 
+VERSION = 3
 MAX_BYTES = 8_000_000
+
+
+def current_images(index, signature):
+    return index.get("signature") == signature and index.get("version") == VERSION
 
 
 def storyboard_plan(duration, width, height):
@@ -54,6 +60,8 @@ class Thumbnails:
         return self.stop.is_set() or self.busy.is_set()
 
     def _run(self, args):
+        if str(args[-1]).endswith(".jpg"):
+            args = [*args[:-1], "-pix_fmt", "yuvj420p", args[-1]]
         command = [
             executable("ffmpeg"),
             "-nostdin",
@@ -86,14 +94,89 @@ class Thumbnails:
         with self.library._lock:
             _, info = self.library._find(identifier)
             folder = self._folder(identifier)
-            index = json.loads((folder / "storyboard.json").read_text(encoding="utf-8"))
-            signature = self.signature(info)
-            if index.get("signature") != signature:
-                raise FileNotFoundError("Images are not ready.")
+            if name != "poster.jpg" or not self._manual(folder):
+                index = json.loads((folder / "storyboard.json").read_text(encoding="utf-8"))
+                if index.get("signature") != self.signature(info):
+                    raise FileNotFoundError("Images are not ready.")
             target = folder / name
             if target.is_symlink() or target.is_junction():
                 raise FileNotFoundError("Images are not ready.")
-            return target.read_bytes(), '"' + signature + '"'
+            data = target.read_bytes()
+            return data, '"' + hashlib.sha256(data).hexdigest() + '"'
+
+    @staticmethod
+    def _manual(folder):
+        try:
+            return (
+                json.loads((folder / "poster.json").read_text(encoding="utf-8")).get("source")
+                == "manual"
+            )
+        except (OSError, ValueError):
+            return False
+
+    def set_poster(self, identifier, position):
+        with self.library.acquire(identifier):
+            path, info = self.library._find(identifier)
+            duration = self.library._probe(path)["duration"]
+            if (
+                isinstance(position, bool)
+                or not isinstance(position, (int, float))
+                or not math.isfinite(position)
+                or not 0 <= position <= duration
+            ):
+                raise ValueError("The thumbnail time must be within the video.")
+            folder = self._folder(identifier)
+            folder.mkdir(exist_ok=True)
+            target = folder.with_name(identifier + "." + secrets.token_hex(16) + ".jpg")
+            try:
+                self._run(
+                    [
+                        "-protocol_whitelist",
+                        "file,pipe",
+                        "-i",
+                        str(path),
+                        "-ss",
+                        str(position),
+                        "-frames:v",
+                        "1",
+                        "-vf",
+                        "scale='if(gte(iw,ih),-2,270)':'if(gte(iw,ih),270,-2)'",
+                        "-q:v",
+                        "4",
+                        str(target),
+                    ]
+                )
+                # The inclusive duration endpoint selects the final decodable frame.
+                if not target.exists() and position == duration:
+                    self._run(
+                        [
+                            "-sseof",
+                            "-0.1",
+                            "-protocol_whitelist",
+                            "file,pipe",
+                            "-i",
+                            str(path),
+                            "-frames:v",
+                            "1",
+                            "-vf",
+                            "scale='if(gte(iw,ih),-2,270)':'if(gte(iw,ih),270,-2)'",
+                            "-q:v",
+                            "4",
+                            str(target),
+                        ]
+                    )
+                data = target.read_bytes()
+                if not data:
+                    raise ValueError("The thumbnail frame is unavailable.")
+                with self.library._lock:
+                    _, current = self.library._find(identifier)
+                    if self.signature(current) != self.signature(info):
+                        raise ValueError("The video changed. Try again.")
+                    target.replace(folder / "poster.jpg")
+                    write_json(folder / "poster.json", {"source": "manual", "time": position})
+                return {"etag": '"' + hashlib.sha256(data).hexdigest() + '"'}
+            finally:
+                target.unlink(missing_ok=True)
 
     def cleanup(self):
         with self.library._lock:
@@ -126,7 +209,9 @@ class Thumbnails:
                 raise ValueError("Invalid image folder.")
             staging.mkdir(exist_ok=True)
             try:
-                # A small gray sample measures luma without an image-library dependency.
+                if self._cancelled():
+                    raise InterruptedError("Poster interrupted.")
+                # Sample from ten percent, advancing past dark frames.
                 position = duration * 0.1
                 for attempt in range(4):
                     sample = staging / "luma.raw"
@@ -169,6 +254,10 @@ class Thumbnails:
                         "4",
                         str(staging / "poster.jpg"),
                     ]
+                )
+                write_json(
+                    staging / "poster.json",
+                    {"source": "auto", "time": position, "version": VERSION},
                 )
                 # Keyframe-only decoding is accurate enough only when no gap exceeds the interval.
                 keyframe_path = staging / "keyframes.json"
@@ -239,6 +328,7 @@ class Thumbnails:
                     sheets=sheets,
                     signature=self.signature(info),
                     keyframe_only=key_only,
+                    version=VERSION,
                 )
                 write_json(staging / "storyboard.json", index)
                 with self.library._lock:
@@ -246,6 +336,9 @@ class Thumbnails:
                     if self.signature(current) != self.signature(info) or self._cancelled():
                         raise InterruptedError("Video changed or generation interrupted.")
                     if folder.exists():
+                        if self._manual(folder):
+                            for name in ("poster.jpg", "poster.json"):
+                                shutil.copyfile(folder / name, staging / name)
                         shutil.rmtree(folder)
                     staging.replace(folder)
                 return index
@@ -267,7 +360,7 @@ class Thumbnails:
                                 encoding="utf-8"
                             )
                         )
-                        if index.get("signature") == self.signature(info):
+                        if current_images(index, self.signature(info)):
                             continue
                     except (OSError, ValueError):
                         pass

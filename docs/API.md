@@ -577,3 +577,12 @@ Tiles are row-major in 10-column sheets of at most 10 rows.
 Mac downloads use the existing one-time `/dl/{token}` attachment for every size.
 Push subscriptions additionally accept `https://fcm.googleapis.com/` endpoints
 under the same strict validation rules as Apple's push service.
+
+### Manual library poster
+
+`POST /api/library/{id}/poster` accepts `{"time": <seconds>}` with a paired
+device cookie and the standard private-source, Host and same-origin checks.
+Time must be a finite number within the inclusive range 0 to duration; invalid
+JSON or times return 400. The response contains the new content `etag`. The JPEG
+uses the normal poster dimensions and quality. Manual posters survive automatic
+sidecar regeneration and version bumps.

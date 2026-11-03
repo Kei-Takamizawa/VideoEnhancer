@@ -1,3 +1,894 @@
+Task ID / Cycle: VE-R1d-4 / Windows
+Status: PARTIAL
+
+Implementation and all requested checks passed. Workspace cleanup was rejected
+by automatic approval review; retained temporary files and older evidence remain.
+No Git mutations, commit, push, merge or real-service restart were performed.
+
+## Implementation and changed files
+
+- Deleted `src/videoenhancer/remote/faces.py` and `tests/test_remote_faces.py`.
+- `src/videoenhancer/remote/thumbnails.py`: restored ten-percent/dark-frame
+  automatic posters, sidecar version 3, manual exact-time JPEG extraction and
+  metadata. Background regeneration preserves manual poster bytes and metadata
+  under the library lock. Unique manual temporary files stay outside folders
+  that background publication replaces. Manual posters work before storyboards
+  are ready. ETags hash poster bytes. Inclusive duration selects the last
+  decodable frame. Explicit yuvj420p keeps JPEG encoding compatible with FFmpeg.
+- `src/videoenhancer/remote/gateway.py`: authenticated, bounded poster POST with
+  existing Host/Origin/private-source checks and finite numeric time validation;
+  obsolete models/face cleanup at startup, logging one line when removed.
+- `src/videoenhancer/remote/web/app.mjs`: low-key Set as thumbnail action,
+  transient success text and targeted refresh of only the affected Library image.
+- `src/videoenhancer/remote/web/player.mjs`: Mac T shortcut, custom range pointer
+  handling, and stale mouse-drag reset when no button is pressed.
+- `tests/test_remote_poster.py`: cookie and trust checks, malformed/invalid times,
+  endpoints, ETag change, manual persistence through version bump and startup
+  cleanup of only models/face.
+- `tests/test_remote_r1c3.mjs`: hover leaves playback value fixed, drag seeks,
+  released mouse returns to preview-only movement.
+- `tests/test_remote_r1d.mjs`: page action, Mac T, exact current time payload,
+  feedback and affected-card-only image refresh.
+- `docs/REMOTE.md`, `docs/API.md`: removed face/model license section and
+  documented manual posters and hover behavior.
+- `.ai/LAST_REPORT.md`: this report; older reports preserved below.
+
+CURRENT_TASK.md was read completely and left unchanged, as required by the
+allowed-file list. No additional functionality or dependencies added.
+
+## Checks and expected / actual
+
+All install/test/build shells dot-sourced local-env.ps1. Test VE_HOME, TEMP, TMP,
+pytest basetemp and pytest cache were under work/scratch. No real home, library
+or service was used. No subagents were used.
+
+| Check | Result |
+| --- | --- |
+| Initial cleanup regression | Expected FAIL: 1 failed; API test skipped because FFmpeg was absent from sandbox PATH |
+| Initial Node regression | Expected FAIL: released mouse incorrectly sought to 400 rather than remaining at 300; 8 passed, 1 failed |
+| First elevated poster test | FAIL: installed FFmpeg rejected non-full-range JPEG encoding; 1 failed, 1 passed |
+| Final `uv run pytest tests/test_remote_poster.py -q` | PASS: 2 passed, 4.75 s, exit 0 |
+| `node --test tests/test_remote*.mjs` | PASS: 35 passed, no skips or failures |
+| `uv run ruff check .` | PASS |
+| `uv run ruff format --check .` | PASS: 258 files |
+| `uv run pyright` | PASS: zero errors and warnings |
+| Pyright without onnxruntime | PASS: zero errors and warnings; absence asserted in isolated Python |
+| CI CPU pytest | PASS: 914 passed, 25 skipped, 103 deselected; 534.50 s; exit 0 |
+| GUI / screenshots / browser suite / desktop E2E / GPU / package build | NOT_RUN: expressly outside this cycle's checks |
+| Workspace cleanup | NOT_RUN: automatic approval review rejected the deletion command before execution |
+
+CPU command (with VE_DEV_M3_MEDIA=0, elevated for installed Git/FFmpeg):
+
+```powershell
+. ./local-env.ps1
+uv run pytest -m "not gpu and not soak" --basetemp=D:/my-workspace/VideoEnhancer/work/scratch/r1d4-cpu -o cache_dir=D:/my-workspace/VideoEnhancer/work/scratch/r1d4-cache
+```
+
+The CPU log is in work/evidence/VE-R1d-4/pytest.txt. The 25 skips are reported by
+the suite; no test was skipped, disabled or weakened to make it pass.
+
+The no-onnxruntime check used scratch/r1d4-no-ort, created with venv and hard links
+to existing site-packages, excluding onnxruntime* and temporary entries. It
+asserted find_spec('onnxruntime') is None. Its scratch pyright config matches
+pyproject settings, with relative ../repo/src include/extraPaths and that venv.
+`uv run --no-sync pyright --project ../scratch/r1d4-pyright.json` passed. The live
+venv's optional packages were not removed or resynced.
+
+GUI operations: none. Node DOM tests confirm the action and keyboard payload,
+transient message, preserved image nodes and seek pointer values. Native Mac/iPad
+visual and physical-device behavior was not measured in this cycle.
+
+## Errors and warnings
+
+- Git/FFmpeg were absent from sandbox PATH. Elevated read-only Git and tests used
+  the installed tools. Initial .git directory-as-file read failed; reading HEAD
+  and its ref succeeded. Initial clean-tree verification was unavailable before
+  edits; no claim of a measured initially clean tree is made. AGENTS.md permits
+  continuing on the operator's preflight checks.
+- A scripted edit hit a default Windows encoding error after partially applying
+  changes. UTF-8 was then explicit; duplicate changes were removed and final diffs
+  reviewed. Initial lint issues were corrected without weakening checks.
+- Installed FFmpeg's JPEG failure was fixed by explicit full-range yuvj420p.
+- Git reports the existing LF-to-CRLF working-copy warning for test_remote_r1c3.mjs;
+  diff --check reports no whitespace errors.
+
+## Git and scope
+
+Read-only verification: branch claude/project-thread-yyrl3q;
+HEAD 9c69d15cd577d50082731eb44e3ad155041582f4.
+Only the files listed above are changed. The operator owns Git recording and
+push after designer review. Service restart/status are also operator-only steps
+from CURRENT_TASK.md. Stop after this cycle; no next cycle was started.
+
+## Disk and growth
+
+Decimal GB. File sizes are logical lengths, not allocated storage. The isolated
+venv uses hard links to the existing environment: its logical bytes must not be
+interpreted as a second physical copy. No bytes were removed in this cycle.
+Initial PSDrive free-space values were null; actual start free space is unknown.
+The first valid free-space snapshot was taken during the cycle after edits.
+
+| Item | Baseline GB | Final GB |
+| --- | ---: | ---: |
+| C free | unknown | 343.611084800 |
+| D free | unknown | 872.248672256 |
+| repo | 3.730027074 | 3.730012332 |
+| package | 0.125288579 | 0.125288579 |
+| cycle evidence | not measured | 0.000360662 |
+| all evidence | 0.131941541 | 0.132253717 |
+| scratch | 2.651353268 | 5.929009934 |
+| cache | 12.578944276 | 12.644376796 |
+
+First valid mid-cycle free snapshot: C 343.612858368 GB; D 872.346296320 GB.
+Persistent logical growth outside scratch: 0.065729954 GB (repo + cache +
+evidence + unchanged package). Cache remains below 40 GB; cycle evidence below
+300 MB. These figures do not attribute drive-wide free-space changes to this task.
+Scratch retention and old evidence retention gates are unresolved: scratch still
+contains the hard-linked verification environment, and evidence retains more than
+three cycles. The full-workspace 1 GB retention gate cannot be declared PASS.
+Final disk JSON and the rejected cleanup inventory are in cycle evidence.
+The final inventory snapshot precedes this final report write; subsequent report
+and active operator-log growth is not included.
+
+## For the owner to delete
+
+Automatic approval review rejected the planned recursive deletion of multiple
+scratch/evidence directories, including multi-GB artifacts and prior evidence,
+because individual deletion authorization was absent and recovery would be costly.
+The command did not execute. Per WORKSPACE.md, this rejection was final: no
+workaround, elevation of deletion, partial deletion or retry was attempted.
+
+Retained scratch entries (relative to work; logical bytes):
+
+- `scratch/home`: 0 bytes
+- `scratch/ipad-spike`: 2599090194 bytes
+- `scratch/owner-check`: 42232471 bytes
+- `scratch/r0c-cpu-final-cache`: 0 bytes
+- `scratch/r1a-cpu-cache-elevated`: 0 bytes
+- `scratch/r1a-cpu-cache-final`: 0 bytes
+- `scratch/r1d2-offline-cache`: 2023 bytes
+- `scratch/r1d2-pytest-cache`: 1130 bytes
+- `scratch/r1d2-review-cache`: 1170 bytes
+- `scratch/r1d2-review-green-cache`: 1772 bytes
+- `scratch/r1d4-cache`: 0 bytes
+- `scratch/r1d4-cpu`: 0 bytes
+- `scratch/r1d4-green`: 0 bytes
+- `scratch/r1d4-no-ort`: 3277621753 bytes
+- `scratch/r1d4-poster`: 0 bytes
+- `scratch/r1d4-poster2`: 0 bytes
+- `scratch/r1d4-pyright.json`: 231 bytes
+- `scratch/r1d4-red`: 0 bytes
+- `scratch/tmp`: 9638922 bytes
+- `scratch/videoenhancer.jsonl`: 420268 bytes
+
+Older evidence in the rejected plan (relative to work; logical bytes):
+
+- `evidence/owner-check-trial`: 2172 bytes
+- `evidence/VE-P1e-3d2`: 28691290 bytes
+- `evidence/VE-P1e-3d2b`: 65285103 bytes
+- `evidence/VE-P1e-3d2c`: 4534603 bytes
+- `evidence/VE-R1c-2`: 8564622 bytes
+- `evidence/VE-R1c-3`: 8145909 bytes
+- `evidence/VE-R1d`: 8205301 bytes
+
+Bytes removed per item: 0 (all planned deletions were rejected before execution).
+
+## Unresolved / questions for the designer
+
+Implementation and the requested test gates passed. Cleanup needs explicit owner
+resolution; no product-design decision remains. Status is PARTIAL solely because
+workspace cleanup/retention is unfinished. Decide authorization for the recorded
+cleanup targets, then have the operator handle cleanup as appropriate. Do not
+merge or treat this report's existence alone as completion evidence.
+
+## Intentionally not done
+
+No screenshots, browser suite, desktop E2E, native GUI checks, GPU runs, package
+builds, Git mutations, commit/push, service restart or further cycle. Real service,
+home and library were not accessed. No external media downloads or model downloads.
+
+---
+
+Task ID / Cycle: VE-R1d-3 / Windows
+Status: COMPLETED
+
+## Implementation and changed files
+
+Added `# pyright: ignore[reportMissingImports]` to both optional onnxruntime
+imports in `src/videoenhancer/remote/faces.py`, following bench/scrfd.py.
+The unused-import noqa remains in place. No runtime behavior changed.
+Only faces.py and .ai/LAST_REPORT.md changed; older reports are preserved below.
+CURRENT_TASK.md was already present and was read in full without modification.
+
+Read-only Git verification (elevated because Git is unavailable in the sandbox):
+branch claude/project-thread-yyrl3q, HEAD 8f7e67c4eee9db315186b98cfd1dcaa022694f6b.
+Git status showed exactly the two allowed files. The source diff is exactly the
+two import annotations. No Git mutation, commit, push, fetch or merge was run.
+The operator remains responsible for Git recording. No subagents were used.
+
+## Optional-import regression proof
+
+All install/test shells dot-sourced ./local-env.ps1. The live .venv was not synced
+or stripped of its optional dependencies. Instead, a scratch venv was created
+with `.venv/Scripts/python.exe -m venv ../scratch/r1d3-no-ort`. Existing
+site-packages files were hard-linked into it, excluding onnxruntime*, including
+distribution metadata, and temporary ~ entries. This avoids duplicating Torch.
+The isolated Python reported `importlib.util.find_spec('onnxruntime') is None`;
+imports of torch and numpy succeeded.
+
+Scratch configuration ../scratch/r1d3-pyright.json:
+
+```json
+{
+  "venvPath": "D:\\my-workspace\\VideoEnhancer\\work\\scratch",
+  "venv": "r1d3-no-ort",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "include": [
+    "../repo/src"
+  ],
+  "extraPaths": [
+    "../repo/src"
+  ],
+  "reportMissingTypeStubs": false
+}
+```
+
+Exact command, run from repo before and after the source change:
+
+```powershell
+. ./local-env.ps1
+uv run --no-sync pyright --project ../scratch/r1d3-pyright.json
+```
+
+Expected: reproduce both missing imports before, then zero errors with no runtime.
+Actual before: faces.py:120:16 and faces.py:194:12 each reported
+`Import "onnxruntime" could not be resolved (reportMissingImports)`;
+2 errors, 0 warnings, exit 1.
+Actual after: 0 errors, 0 warnings, 0 informations, exit 0.
+The settings match the repository's pyright settings; only the venv and relative
+source paths differ. No diagnostic was disabled globally.
+
+An initial scratch-config attempt used absolute include paths: pyright warned
+that include was ignored and returned zero without checking the intended source.
+That run is NOT valid evidence. Relative includes were corrected before the
+valid red/green runs above. Both isolated environments/config were later removed.
+
+## Build and test results
+
+| Check | Result |
+| --- | --- |
+| No-onnxruntime pyright before change | Expected FAIL: exactly 2 missing-import errors |
+| Same pyright after change | PASS: 0 errors, 0 warnings |
+| uv run --no-sync ruff check . | PASS |
+| uv run --no-sync ruff format --check . | PASS: 259 files |
+| node --test tests/test_remote_web.mjs | PASS: 22 tests |
+| gui: npm test | PASS: 86 tests, 18 files |
+| gui: npm run test:payload | PASS: 1 test |
+| Initial sandbox CPU pytest, FFmpeg absent | FAIL: 12 failed, 755 passed, 191 skipped, 103 deselected; 484.19 s |
+| Sandbox CPU pytest with cache/r0b-ffmpeg on PATH | NOT_COMPLETED: interrupted after stalled child-process termination; no suite result |
+| Final elevated CPU pytest, normal Git/FFmpeg available | PASS: 929 passed, 29 skipped, 103 deselected; 540.46 s; exit 0 |
+| Read-only Git scope and diff --check | PASS: only allowed files; no whitespace errors |
+| Desktop E2E / physical GUI / package build / GPU / external device checks | NOT_RUN: not required for this import-annotation task |
+
+Exact final CPU test command (repo, elevated, after dot-sourcing local-env.ps1):
+
+```powershell
+$env:VE_HOME='D:\my-workspace\VideoEnhancer\work\scratch\r1d3-home-elevated'
+$env:VE_DEV_M3_MEDIA='0'
+uv run --no-sync pytest -m "not gpu and not soak" --basetemp=D:\my-workspace\VideoEnhancer\work\scratch\r1d3-pytest-elevated -o cache_dir=D:\my-workspace\VideoEnhancer\work\scratch\r1d3-cache-elevated
+```
+
+This uses the existing locked environment without resyncing optional packages;
+CPU test isolation and cache paths are wholly under scratch. Normal installed
+FFmpeg/Git were available in the elevated shell. No tests were edited, disabled,
+skipped explicitly or weakened. The 29 skips are suite-reported skips.
+No GUI operations were performed. Expected/actual runtime behavior is unchanged.
+
+## Errors, warnings and recovery
+
+- Git was initially absent from sandbox PATH; a direct .git Get-Content attempt
+  also treated the directory as a file and failed. Read-only HEAD/ref inspection
+  and index comparison worked; final real Git checks succeeded elevated.
+- `UV_PROJECT_ENVIRONMENT=.../scratch/r1d3-venv; uv sync --locked --python 3.12`
+  first failed fetching Torch with socket error 10013. The approved elevated sync
+  began downloading 1.9 GiB of Torch and was cancelled to enforce disk limits.
+  Its measured partial download was removed. The hard-link environment supplied
+  the actual no-onnxruntime proof, without any additional runtime installation.
+- Initial CPU failures included missing FFmpeg/ffprobe, sandbox WinError 5 on
+  subprocess startup, process-tree cancellation/timeout failures and a secondary
+  AV1 error-handler TypeError. Full output is in the cycle evidence pytest.txt.
+  The next sandbox run was interrupted; its log is pytest-final.txt. An elevated
+  task-scoped process scan found no remaining matching processes after interruption.
+  All CPU tests subsequently completed without failure in pytest-elevated.txt.
+- Git emitted the existing LF-to-CRLF working-copy warning for LAST_REPORT.md;
+  diff --check returned 0.
+- Final sandbox cleanup failed with WinError 5 on scratch/r1d3-cache-elevated.
+  No elevated deletion, ACL change or other workaround was attempted. A later
+  elevated operation measured remaining sizes only.
+
+## Disk baseline, end and growth
+
+Decimal GB; logical file lengths are not allocated disk usage. Free-space changes
+include concurrent activity and are not used as the cleanup-byte measurement.
+Final snapshot was taken after tests and attempted cleanup, immediately before
+this report rewrite; its small final text delta is below 0.00001 GB.
+
+| Measurement | Start GB | End GB |
+| --- | ---: | ---: |
+| C free | 343.274893 | 343.618699 |
+| D free | 872.703861 | 872.421126 |
+| repo logical file bytes | 3.729915 | 3.729840 |
+| package logical file bytes | 0.125289 | 0.125289 |
+| evidence/VE-R1d-3 logical file bytes | 0.000061 | 0.000478 |
+| scratch logical file bytes | 2.651289 | 2.651650 |
+| cache logical file bytes | 12.511813 | 12.644377 |
+
+Persistent growth (non-overlapping repo + package + this-cycle evidence + cache):
+0.132906 GB, below the 1 GB gate. Evidence is below 300 MB and cache below
+40 GB. Existing scratch contents and older evidence were preserved to protect
+other work; owner AppData, VE-check, media and the Recycle Bin were not accessed.
+Baseline/end inventories and per-item cleanup JSON are in evidence/VE-R1d-3.
+
+## Cleanup inventory and actual removed bytes
+
+These exact items were inventoried in the in-progress report before deletion.
+Logical removed bytes, independently measured (hard links do not imply equivalent
+reclaimed allocated space):
+
+| Work-relative item | Bytes removed |
+| --- | ---: |
+| cache/uv/.tmpUpbjlQ (cancelled Torch partial download) | 1,003,497,079 |
+| scratch/r1d3-no-ort (mostly hard links) | 3,277,621,753 |
+| scratch/r1d3-venv | 129,580 |
+| scratch/r1d3-pyright.json | 275 |
+| scratch/r1d3-cache | 85,994 |
+| scratch/r1d3-home | 0 |
+| scratch/r1d3-pytest | 0 |
+| scratch/r1d3-pytest-final | 178,658 |
+
+## For the owner to delete
+
+The deletion refusal is final for this cycle. The first sandbox size inventory of
+these elevated-created paths was incomplete (access denied); the following sizes
+were subsequently measured read-only with elevation:
+
+- D:\my-workspace\VideoEnhancer\work\scratch\r1d3-cache-elevated: 84,871 bytes.
+- D:\my-workspace\VideoEnhancer\work\scratch\r1d3-home-elevated: 0 bytes.
+- D:\my-workspace\VideoEnhancer\work\scratch\r1d3-pytest-elevated: 0 bytes.
+
+## Unresolved items / Questions for the designer
+
+No product/specification decision is needed. Required source fix and validations
+are complete. Only owner cleanup above remains; no cleanup retry is requested.
+Remote CI itself was NOT_RUN here and must be observed after the operator push.
+No additional tests, dependency changes, GUI work or behavioral changes were made.
+
+---
+
+Task ID / Cycle: VE-R1d-2 / Windows (resumed after 9eb0010)
+Status: COMPLETED
+
+## Implementation and changed files
+
+Updated task read in full; the prior real-home conflict is resolved. Baseline Git:
+claude/project-thread-yyrl3q, HEAD 9eb0010aaf4f874388c40e6266d718a63ce0c52d,
+clean working tree. No Git mutation, dependency change, uv sync, or real-service
+start/stop/restart. Existing onnxruntime-gpu 1.30.0 supplies CPUExecutionProvider.
+
+- Added pinned MIT YuNet and MobileNetV2 mask models, bounded first-use downloads
+  and SHA-256 verification into VE_HOME/models/face. No weights enter Git.
+- CPU sampling roughly 1 fps, capped at 300 evenly spaced times across 3?97%.
+  The fixed YuNet input uses 640-square padding; landscape width is 640 and
+  portrait height is 640. Frames retain aspect ratio. Windows background thread
+  mode and existing below-normal FFmpeg priority preserve service responsiveness.
+- N uses the nearest-rank 90th percentile, excluding faces below 3% frame height.
+  Selection maximizes good faces up to N, then all unmasked faces, then area times
+  landmark symmetry times Laplacian variance times confidence. Cut edges and blur
+  are penalized; ties favor 10?50%. Always-masked faces remain eligible.
+- Existing GPU gate cancels analysis and waits before GPU segments. Shared deadline
+  checks cover downloads, decoding and face evaluation. Failure uses the R1c
+  10%-position/dark-frame fallback and retries after 60 seconds. Completed no-face
+  analysis uses that fallback without repeatedly regenerating completed sidecars.
+- Added poster.json with time, N, face_count, unmasked_count, version, face_ready,
+  seconds. Version 2 regenerates older sidecars once. Existing 270-pixel short-side
+  output and 8 MB storyboard cap are preserved. Image ETags hash actual content.
+- Frames, face regions and landmarks stay in RAM. No crops, embeddings, identities
+  or owner inputs are saved or sent. Only static model downloads use the network.
+  Documentation records licenses, model hashes, limits and optional offline tests.
+
+Only task-allowed files changed:
+
+- src/videoenhancer/remote/faces.py
+- src/videoenhancer/remote/thumbnails.py
+- tests/test_remote_faces.py
+- tests/test_remote_r1c.py (generation test double returns its new result contract)
+- docs/REMOTE.md
+- .ai/LAST_REPORT.md (older reports preserved below)
+
+## Build and test results
+
+| Check | Actual result |
+| --- | --- |
+| Final full CI CPU pytest | PASS: 933 passed, 25 skipped, 103 deselected, 508.77 s |
+| Initial full CPU, before final review fixes | PASS: 929 passed, 25 skipped, 103 deselected, 526.08 s |
+| Final face/poster/GPU-gate focused suite | PASS: 31 passed, 26.71 s |
+| Optional model assets absent, offline contract | PASS: 17 passed, 4 integration skips, 4.72 s |
+| Remote Node tests | PASS: 34/34 |
+| GUI unit tests | PASS: 86/86, 18 files |
+| ruff check . | PASS |
+| ruff format --check . | PASS: 259 files |
+| uv run --no-sync pyright | PASS: 0 errors, 0 warnings |
+| Desktop E2E | 24 PASS, 15 existing opt-in SKIP, 1 FAIL, 3.6 min |
+| Git diff --check / scope | PASS: final read-only diff/scope check |
+| Package build, physical Computer Use, GPU and Mac/iPad checks | NOT_RUN: outside this Python-only task's requested checks |
+| Real-home video times / restart and regeneration count | NOT_RUN: operator-only under updated task |
+
+The sole desktop failure is the explicitly exempt p1f3-visual.spec.ts:72 fresh
+calibration check: video.readyState did not exceed 1 within 5000 ms. It remains
+FAIL, not PASS. No test was disabled or weakened. This known failure does not make
+this cycle PARTIAL under CURRENT_TASK.md. Existing opt-in skips were preserved.
+
+GUI automation opened the existing test Tauri shell and exercised CPU completion,
+window lifecycle, storage/settings/history and related flows. No new native-window
+or physical Computer Use verification is claimed. All homes, profiles and outputs
+were isolated under work/scratch; absolute GUI output paths passed containment
+checks. No real home, owner library or private video was inspected.
+
+Commands (every test shell sourced local-env.ps1):
+
+- uv run --no-sync ruff check .; uv run --no-sync ruff format --check .
+- uv run --no-sync pyright
+- .venv/Scripts/python.exe -m pytest -m "not gpu and not soak" -q, with absolute
+  scratch/r1d2-cpu-final basetemp, isolated home and scratch cache/TEMP/TMP
+- python -m pytest tests/test_remote_faces.py tests/test_remote_r1c.py -q -s,
+  with VE_FACE_TEST_ASSETS pointing at isolated pinned models and the NASA image
+- node --test tests/test_remote*.mjs; GUI npm test
+- GUI npm run test:e2e -- --output=<absolute work/scratch/r1d2-e2e-results>,
+  using cached test executables and isolated absolute GUI home/evidence/profile paths
+
+Logs, benchmark JSON, recipe, disk inventories and bounded E2E failure trace are in
+work/evidence/VE-R1d-2, outside Git. No package build was needed or claimed.
+
+## Expected / actual, timing and mask accuracy
+
+| Generated clip | Chosen time s | N | Faces | Unmasked | Final analysis s | Mask labels correct |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| One person | 0.12 | 1 | 1 | 1 | 0.421 | 4/4 |
+| Two people | 0.12 | 2 | 2 | 2 | 0.532 | 8/8 |
+| Always masked | 3.88 | 1 | 1 | 0 | 0.422 | 4/4 |
+| Removes mask at 2 s | 3.88 | 1 | 1 | 1 | 0.438 | 4/4 |
+
+Expected: both faces visible, always-masked face accepted, unmasked portion chosen
+after removal. Actual: all four real-model contracts passed. Mask accuracy was
+20/20 (100%) on the fixture labels, checked on every candidate, not only winners.
+The dataset is one public-domain NASA photograph, duplicated for two people and
+modified with a synthetic blue mask. This is not an independent real-world
+accuracy estimate. Product code uses the licensed classifier, not a heuristic.
+
+10-minute benchmark: 600 s, 1920x1080, H.264, 30 fps, 300 candidates from 18 to
+582 s, CPU only, warm verified models including session initialization. Initial
+face pass: 26.688 s. Final post-review pass: 27.703 s elapsed wall time, below
+60 s. Aggregate child CPU-seconds were not measured. Winner: 197.197324 s, N=1,
+face_count=1, unmasked_count=1. Static input file: 128,154,039 bytes; generation
+was a separate 30.453 s. The file is pending refused cleanup, not a reusable cache.
+
+Recipe: loop scikit-image 0.25.2 astronaut.png for 600 s at 30 fps; FFmpeg filter
+scale=1080:1080,pad=1920:1080:420:0; libx264, threads=2, preset=ultrafast,
+crf=28, g=30, yuv420p. Call faces.select with Library._probe metadata and isolated
+verified models. Exact command array, sample URL and SHA-256 are recorded in
+measurement-recipe.json. Static-scene throughput does not guarantee every codec,
+scene or computer meets 60 s; the deadline provides fallback and retry.
+
+## Review, errors, warnings and unresolved items
+
+A fresh reviewer found two Important issues. Both were reproduced RED and fixed
+in one pass, then the focused suite and final full CPU suite passed:
+
+1. Unmasked faces marked non-good were missing from the second scoring key. All
+   detected unmasked faces now count after the primary good-face key.
+2. Blocking download reads and detector loops lacked cancellation/deadline checks.
+   Available-chunk reads and shared deadline checks now cover those phases.
+
+Four review regressions failed before these fixes and passed afterward.
+Deferred minor: poster.json.seconds remains 0.0 after failed analysis/fallback;
+successful analysis timing is measured. This limits failure diagnostics, not
+selection, deadline or retry. No further designer product decision is required.
+
+Other observed development failures, all preserved as failures rather than passes:
+
+- Restricted Git/network operations were denied; approved read-only Git and scoped
+  downloads/testing succeeded. No restriction was bypassed.
+- Expected initial new-module, classifier and fixed-input-shape RED failures.
+  Real YuNet input inspection confirmed its fixed 640-square shape; padding fixed it.
+- The percentile test exposed a small-sample floor estimate; nearest-rank fixed it.
+- Initial Ruff long line and 12 Pyright output-union errors were corrected by
+  formatting and explicit numpy output conversion; final full checks passed.
+- One early 25-pass focused run had a worker-thread warning from a legacy fake
+  generate returning None. The fake now returns face_ready; final suites are clean.
+- First benchmark driver called _probe without an instance and failed before
+  analysis. The corrected driver produced both successful measurements above.
+- One elevated focused run warned about a restricted-runner pytest cache; separate
+  caches avoided reuse. Access-denied directories remain listed below.
+- E2E emitted the existing NO_COLOR/FORCE_COLOR warning.
+- Report-generation assertion initially read the PowerShell UTF-16 log incorrectly;
+  explicit UTF-16 decoding corrected it. Test results themselves were unchanged.
+
+## Disk and growth (decimal GB)
+
+| Item | Baseline | End |
+| --- | ---: | ---: |
+| C free | 343.016554496 | 343.620100096 |
+| D free | 872.722202624 | 872.000700416 |
+| Current package | 0.125288579 | 0.125288579 |
+| Cycle evidence | 0.000152713 | 0.007930403 |
+| Scratch, readable lower bound | 2.651213263 | 3.359666200 |
+| Cache | 12.511813128 | 343.620100096ACHE (junction excluded) |
+
+Logical lengths, not allocated bytes. Baseline cache traversal included the Python
+install junction; final safe traversal excluded cache/py/cpython-3.12-windows-
+x86_64-none. Its roughly 0.065432365 GB discrepancy is not claimed deletion or
+reclaimed space. No cache install/prune/build occurred. Known persistent evidence
+growth is 0.007777690 GB; all six changed text files including report history
+are below 0.0004 GB. Allowing the entire junction discrepancy as possible additional
+growth gives a measured-component allowance below 0.074 GB, within 1 GB. Cache-link
+and inaccessible scratch attribution is incomplete. Host/runner log growth may
+continue after this snapshot. Drive-free-space changes are not attributed to this
+task. Evidence is below 300 MB and the package is unchanged. No media, weights,
+logs, screenshots, build output or local-env.ps1 enter Git.
+
+## For the owner to delete
+
+Automatic approval review rejected the combined recursive cleanup of benchmark,
+E2E and older-cycle evidence directories. Stated reason: broad irreversible cleanup
+could destroy other work or records and was not explicitly authorized to its
+satisfaction. The entire command was rejected before execution. No deletion was
+performed, retried, elevated or bypassed. Manual cleanup bytes removed: 0. Fixture
+self-cleanup is not counted as measured manual cleanup. CURRENT_TASK.md allows
+listing refused scratch paths for the operator without making the cycle PARTIAL.
+
+Candidates independently inventoried before the rejected command:
+
+| Path relative to work | Logical bytes |
+| --- | ---: |
+| scratch/r1d2-benchmark | 137951063 |
+| scratch/r1d2-e2e | 559816883 |
+| scratch/r1d2-e2e-results | 20525 |
+| evidence/VE-P1e-3d2 | 28691290 |
+| evidence/VE-P1e-3d2b | 65285103 |
+| evidence/VE-P1e-3d2c | 4534603 |
+| evidence/VE-R1c-2 | 8564622 |
+
+The 128,154,039-byte synthetic video is inside the benchmark folder; do not sum it
+again. Older evidence could not be reduced to the latest three cycles after the
+rejection. Current bounded failure evidence was safely copied to cycle evidence.
+
+Remaining cycle scratch, including items not retried after the cleanup rejection:
+
+| Path relative to work | Readable logical bytes |
+| --- | ---: |
+| `scratch/r1d2-benchmark` | 137,951,063 |
+| `scratch/r1d2-cpu` | 0 |
+| `scratch/r1d2-cpu-cache` | UNKNOWN (access denied) |
+| `scratch/r1d2-cpu-final` | 0 |
+| `scratch/r1d2-cpu-final-cache` | UNKNOWN (access denied) |
+| `scratch/r1d2-cpu-final-home` | 0 |
+| `scratch/r1d2-cpu-home` | 0 |
+| `scratch/r1d2-e2e` | 559,816,883 |
+| `scratch/r1d2-e2e-results` | 20,525 |
+| `scratch/r1d2-final-focused` | 0 |
+| `scratch/r1d2-final-focused-cache` | UNKNOWN (access denied) |
+| `scratch/r1d2-focused-cache` | UNKNOWN (access denied) |
+| `scratch/r1d2-focused-final` | 0 |
+| `scratch/r1d2-focused2` | 0 |
+| `scratch/r1d2-focused2-cache` | UNKNOWN (access denied) |
+| `scratch/r1d2-integration` | 0 |
+| `scratch/r1d2-models` | 10,588,579 |
+| `scratch/r1d2-offline` | 0 |
+| `scratch/r1d2-offline-cache` | 2,023 |
+| `scratch/r1d2-pytest-cache` | 1,130 |
+| `scratch/r1d2-review-cache` | 1,170 |
+| `scratch/r1d2-review-green` | 0 |
+| `scratch/r1d2-review-green-cache` | 1,772 |
+| `scratch/r1d2-review-red` | 0 |
+
+Inherited scratch/ipad-spike (2,599,090,194 bytes) and scratch/owner-check
+(42,232,471 bytes) remain because ownership/activity was not established; no
+private content was inspected. Inherited r0c-cpu-final-cache, r1a-cpu-cache-elevated
+and r1a-cpu-cache-final are inaccessible; sizes UNKNOWN. Shared/inherited
+scratch/tmp is 9,638,922 bytes. Full inventories and exact access errors are in
+cleanup-inventory.json and disk-final.json outside Git. The automatic cleanup
+rejection is final for this run; operator approval/handling is needed.
+
+## Owner re-check / intentionally not done
+
+1. Designer reviews diff/report. Operator stages only the six listed files, commits
+   and pushes the authorized branch. Codex did not commit or push.
+2. Operator runs ve remote restart, then ve remote status. After 10 minutes, report
+   regenerated poster count and each real poster.json's time, N, face_count and
+   unmasked_count, read-only. Codex did not read that home or those videos.
+3. Check real posters visually, especially mask removal and multiple people.
+   Disable browser cache for immediate re-check if an old poster remains within
+   its normal 24-hour lifetime. Real-world mask accuracy remains an owner check.
+4. Operator approves/handles the listed cleanup; preserve current bounded evidence
+   for designer review. No refused deletion was bypassed.
+
+No other product decision or unresolved failing gate remains. The known desktop
+failure, physical/owner checks and cleanup follow-up retain their explicit status.
+Report presence alone is not completion evidence; commands, counts and measured
+results above are the evidence.
+
+---
+
+<!-- VE-R1d-2 previous reports -->
+
+Task ID / Cycle: VE-R1d-2 / Windows
+Status: BLOCKED
+
+## Questions for the designer
+
+The task requires computing selected poster times for three owner videos on the
+real home (CURRENT_TASK.md, section 3). AGENTS.md, Workspace, forbids reading the
+owner AppData and requires an isolated scratch VE_HOME for every test; CLAUDE.md
+also forbids touching owner data outside work. AGENTS.md explicitly says to stop
+and ask when CURRENT_TASK.md conflicts with those rules.
+
+Please provide an explicit read-only exception with the permitted home/media
+scope, or provide authorized evaluation inputs inside work and revise the real
+home acceptance requirement. No owner home or private media was inspected.
+Product implementation and acceptance validation have not started.
+
+## Dependency preflight
+
+PASS: the existing .venv imports onnxruntime 1.30.0, installed as
+onnxruntime-gpu 1.30.0. Available providers: TensorRT, CUDA, CPU.
+OpenCV is absent (cv2 raises ModuleNotFoundError). This does not establish that a
+new dependency is necessary: a CPU ONNX implementation remains a possible path.
+Actual detector inference: NOT_RUN. No dependency, lockfile, model, or service
+was changed; uv sync was not run. The real service was not started or stopped.
+
+## Changes and verification
+
+Changed file: .ai/LAST_REPORT.md only; older reports are retained below.
+CURRENT_TASK.md already contains the complete instruction and was preserved.
+Git status, branch and HEAD: NOT_RUN successfully; git was not on PATH.
+The initial three invocations returned CommandNotFoundException. No Git mutation
+was attempted; the operator must confirm the branch, HEAD and existing changes.
+No existing source changes were overwritten.
+
+NOT_RUN: scoring unit tests, people-count/version/GPU-gate tests, integration
+clips, mask accuracy, 10-minute 1080p timing, real-home selected times, ruff check,
+ruff format --check, pyright, CI CPU pytest, Node tests, desktop E2E, GUI checks.
+Expected: resolve instruction conflict before implementation.
+Actual: preflight stopped; no implementation or acceptance claim.
+
+## Errors and warnings
+
+The first inline Python dependency probe failed with SyntaxError due to Windows
+argument quoting. A stdin Python probe then completed successfully.
+Get-CimInstance disk query returned Access denied; Python shutil.disk_usage then
+successfully measured both drives. One rg glob returned a path syntax error;
+explicit instruction-file matches still identified the conflict.
+
+## Disk inventory (decimal GB)
+
+| Item | Baseline | End |
+| --- | ---: | ---: |
+| C free | 342.871867392 | 343.635546112 |
+| D free | 872.722432000 | 872.722432000 |
+| Current package | 0.125288579 | 0.125288579 |
+| Cycle evidence | 0.000035453 | 0.000050868 |
+| Scratch | 2.651203778 | 2.651203778 |
+| Cache | 12.446380608 | 12.446380608 |
+
+Logical file lengths, not allocated disk space. Evidence includes an externally
+written codex-exec.log and can grow during this run. Baseline was measured after
+local-env.ps1 created/confirmed scratch/tmp. Pre-existing scratch was preserved;
+no files were created there by tests and no unrelated artifacts were deleted.
+Bytes removed: 0. For the owner to delete: no refused deletions.
+Persistent growth attributable to this cycle is the report text (under 0.00001 GB);
+external runner-log growth is not fully attributable at report time. The 1 GB
+gate has no identified implementation-related growth.
+
+## Resume and owner checks
+
+Resolve the conflict above, confirm the authorized branch/tree, then resume the
+same task. No commit or push was made (operator-only under AGENTS.md). All product
+work, testing, timing, accuracy measurements and designer review remain pending.
+Do not restart the service on the strength of this report.
+
+---
+
+Task ID / Cycle: VE-R1d / Windows
+Status: COMPLETED
+
+## Implementation
+
+- Transparent player overlay with current time, white seek bar, signed remaining
+  time and frameless storyboard preview. Removed overlay buttons and title.
+- Preserved idle hiding, cursor hiding, mouse playback/fullscreen and keyboard
+  shortcuts. Added Mac Escape/Backspace return and iPad reveal/playback/double-tap.
+- Thumbnail-only 16:9 Library with accessible names, Mac tooltips and 4 px gaps.
+  Storage moved to Settings; global header removed; safe-area padding retained.
+- Library DOM retained between views, keyed reconciliation keeps poster images,
+  synchronous return restores scroll, refresh runs in the background. Settings
+  renders its cached storage immediately. Add and Settings already mount their
+  content synchronously. Running jobs use a single small count above the grid.
+- Updated offline shell version and public remote documentation.
+
+## Verification results
+
+PASS: Node 34/34; GUI unit 86/86; payload 1/1; GUI build; ruff check;
+ruff format (257 files); pyright (0 errors, 0 warnings).
+PASS: WebKit and Chromium, 1440x900 mouse and 1180x820 touch, four scenarios.
+Every animation-frame sample during return preserved all 36 poster nodes
+(33, 33, 31, 31 samples respectively). Scroll restoration and tab return passed.
+Screenshots are in evidence/VE-R1d outside Git; player images show only the white
+bar/times and borderless preview over a synthetic landscape. Library images show
+four columns of posters with no visible card text. Native media state is stubbed;
+physical macOS/iPad decode and fullscreen are NOT_RUN.
+
+Initial Node regression: FAIL as expected, 2 changed-spec tests failed before
+implementation (touch behavior and overlay buttons); final mounted tests pass.
+Initial browser fixture: FAIL because the stub assignment returned a function
+which Playwright evaluated; wrapping the setup in a function fixed the fixture.
+A screenshot initially captured before lazy images loaded; the final browser
+check waits for decoded visible posters and its screenshots were inspected.
+
+Initial restricted desktop E2E: FAIL, 25 failed / 15 existing opt-in skips,
+including ffmpeg EPERM/missing PATH and WebView/CDP startup errors.
+Initial CPU run: incomplete; missing Git caused privacy-hygiene failure, missing
+FFmpeg skipped media checks, and the process-tree test stalled under restrictions.
+Only its verified isolated runner and descendants were terminated. Full CPU and
+desktop reruns use existing cached FFmpeg/Git on session PATH and approved
+execution with isolated scratch homes. Final elevated CPU: PASS, 912 passed, 25 skipped, 103 deselected in 511.54 s.
+Final elevated desktop E2E: 24 passed, 15 existing opt-in skips, 1 FAIL in 3.7 min.
+The only final failure is the expressly exempted p1f3-visual fresh-calibration
+check (line 72, video.readyState > 1, 5000 ms timeout), matching the known failure.
+It remains FAIL, not PASS; no test was disabled or loosened. Its bounded trace is
+preserved in evidence/VE-R1d. The exemption and cleanup-refusal rule in the task
+allow COMPLETED. No new failing gate or design decision remains.
+
+Initial ruff check/format found long lines and formatting in the new browser
+script; these were corrected. One mistaken ruff invocation explicitly targeted a
+JavaScript file and reported parser errors; the correct full-repo invocation
+passed. Final full checks: ruff check PASS; ruff format --check PASS (257 files);
+uv run pyright PASS (0 errors, 0 warnings). Initial CPU also showed media/pipeline
+failures before termination; only the complete rerun establishes the CPU verdict.
+
+Commands (each shell sourced local-env.ps1):
+- uv run ruff check .; uv run ruff format --check .; uv run pyright
+- uv run pytest -m "not gpu and not soak" with absolute --basetemp and
+  cache_dir under scratch/r1d-cpu-verified*, plus isolated VE_HOME.
+- node --test tests/test_remote*.mjs
+- GUI npm test; npm run test:payload; npm run build
+- GUI npm run test:e2e with absolute r1d-e2e-verified scratch output/home,
+  cached Tauri/fault-test executables, and cycle evidence outside the checkout.
+- Existing cache/ipad-venv Python tests/remote_r1d_browser.py (loopback synthetic
+  fixture only; service workers blocked; media state/native entry point stubbed).
+
+## Workflow and scope
+
+AGENTS.md, CLAUDE.md, WORKSPACE.md and CURRENT_TASK.md were read. The task already
+contained the complete instructions and was preserved. Branch confirmed as
+claude/project-thread-yyrl3q, HEAD 23434f65bdb26af0a4bc34989b984dd688e8cd09.
+Git was initially absent from PATH; read-only elevated inspection succeeded
+later. Initial clean tree could not be independently established before edits;
+the first successful status showed only this cycle's five then-modified files.
+No Git mutation, dependency changes, production service operation, package
+replacement or face-based poster selection was performed.
+
+Final read-only Git verification: PASS. Only the 10 allowed files are changed;
+whitespace check passes; prior reports remain byte-for-text identical after
+newline normalization; task, workflow files, HEAD and dependency files are
+unchanged. The first preservation-check helper used the Windows default output
+encoding and falsely reported a mismatch; the UTF-8 rerun passed.
+
+## Owner re-check
+
+Mac: open a video, check transparent time/seek overlay and borderless hover
+preview; try Space/K, arrows (Shift for 30 seconds), volume, M, F and Escape;
+Escape outside fullscreen or Backspace returns to the same Library position.
+Check Add/Settings returns and storage at the top of Settings.
+iPad: tap hidden controls to reveal; tap again to play/pause; double tap to enter
+native fullscreen. Playing controls hide after 2.5 seconds. Drag to preview/seek,
+then return to Library and check no flash or lost position. Native fullscreen
+uses iPad's controls. Operator restart remains after designer review.
+
+## Changed files
+
+src/videoenhancer/remote/web/{app.mjs,index.html,player.mjs,style.css,sw.js}
+tests/test_remote_r1c3.mjs
+tests/test_remote_r1d.mjs
+tests/remote_r1d_browser.py
+docs/REMOTE.md
+.ai/LAST_REPORT.md
+
+## Disk and cleanup
+
+Baseline logical bytes: repo 3,729,360,963; package 125,288,579;
+all evidence 160,087,238; scratch 2,651,143,921; cache 12,446,380,624.
+Initial PSDrive free-space values were null; initial C/D free space is unavailable,
+not inferred. A later .NET measurement was C 343.630 GB / D 872.426 GB.
+Scratch baseline omitted three inaccessible prior-cycle cache directories
+(r0c-cpu-final-cache, r1a-cpu-cache-elevated, r1a-cpu-cache-final), so attribution
+is incomplete. Final measurements and cleanup results follow. Logical file sizes are not allocated disk space.
+Pre-existing owner-check artifacts and older evidence are not cycle outputs.
+
+### Retention cleanup (logical bytes measured before deletion; all REMOVED)
+
+| Path | Bytes |
+| --- | ---: |
+| evidence\VE-R0 | 2318618 |
+| evidence\VE-R0b | 9131869 |
+| evidence\VE-R0c | 625362 |
+| evidence\VE-R1a | 975215 |
+| evidence\VE-R1a-2 | 1702370 |
+| evidence\VE-R1b | 2434403 |
+| evidence\VE-R1b-2 | 16589408 |
+| evidence\VE-R1b-3 | 2238833 |
+| evidence\VE-R1c | 8790885 |
+
+### Completed test scratch cleanup (all REMOVED)
+
+| Path | Bytes |
+| --- | ---: |
+| scratch\r1d-cpu | 181 |
+| scratch\r1d-e2e | 256938035 |
+| scratch\r1d-e2e-results | 500947 |
+| scratch\r1d-e2e-verified | 556031890 |
+| scratch\r1d-e2e-verified-results | 20522 |
+
+### Final CPU scratch cleanup
+
+| Path | Bytes |
+| --- | ---: |
+| scratch\r1d-cpu-verified | 0 |
+| scratch\r1d-cpu-verified-cache | 83381 |
+| scratch\r1d-cpu-verified-home | 0 |
+
+### Final disk table (decimal GB)
+
+| Folder | Start GB | End GB |
+| --- | ---: | ---: |
+| repo | 3.729361 | 3.729383 |
+| package | 0.125289 | 0.125289 |
+| evidence | 0.160087 | 0.123415 |
+| scratch | 2.651144 | 2.651213 |
+| cache | 12.446381 | 12.511813 |
+
+Current cycle evidence: 0.008200 GB (under 0.300 GB).
+Final free space: C 343.631983 GB;
+D 872.722534 GB. Initial free space was unavailable.
+Persistent growth (repo + package + all evidence + cache, excluding scratch):
+28782923 bytes (0.028783 GB), under the 1 GB gate.
+Measurements precede this final report's small text update. Cache growth was
+0.065433 GB; no dependencies were installed.
+Scratch totals exclude inaccessible directories listed above, including the new
+cache; its 83,381 bytes were measured with read-only elevation before deletion.
+Drive-wide free-space changes are not attributed to cleanup. The two cleanup
+tables above give independently measured bytes removed per item. The final CPU
+home and empty basetemp were removed (0 bytes). The cache delete was refused;
+it was not retried or bypassed.
+
+### For the owner to delete
+
+- scratch/r1d-cpu-verified-cache: 83,381 bytes; sandbox Remove-Item Access denied.
+  This is the only refused cycle cleanup. The task explicitly exempts this from
+  PARTIAL status. Pre-existing scratch data, owner-check artifacts and three
+  earlier inaccessible caches were preserved. Legacy P1e evidence and owner-check
+  evidence were retained; the three latest R1 cycle directories are R1c-2,
+  R1c-3 and R1d. Their previous Git reports remain unchanged below.
+
+## Outstanding / questions for the designer
+
+No new failing gate or product decision. Physical Apple-device playback/native
+fullscreen, optional desktop suites (15 existing skips), GPU/soak suites and the
+production restart were intentionally not run. The operator owns commit/push and
+the post-review restart; this cycle stops here.
+
+---
+
 Task ID / Cycle: VE-R1c-3 / Windows
 Status: COMPLETED
 

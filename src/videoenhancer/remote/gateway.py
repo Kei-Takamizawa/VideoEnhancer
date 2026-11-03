@@ -10,6 +10,7 @@ import mimetypes
 import os
 import re
 import secrets
+import shutil
 import socket
 import ssl
 import threading
@@ -126,6 +127,13 @@ class Gateway:
     def start(self):
         if self.servers:
             return
+        face = self.home / "models" / "face"
+        if face.is_symlink() or face.is_junction():
+            face.unlink() if face.is_symlink() else face.rmdir()
+            self.logger.info("Removed obsolete face models.")
+        elif face.exists():
+            shutil.rmtree(face)
+            self.logger.info("Removed obsolete face models.")
         self.adapter.expire_uploads()
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -318,7 +326,11 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/push/test",
                 "/api/link-tools/check",
                 "/api/link-tools/install",
-            } or bool(re.fullmatch(r"/api/uploads/[0-9a-f]{32}/finish", path))
+            } or bool(
+                re.fullmatch(
+                    r"/api/uploads/[0-9a-f]{32}/finish|/api/library/[0-9a-f]{64}/poster", path
+                )
+            )
             if path == "/api/client-event" and length > 2048:
                 return self._error(413, "The request body is too large.")
             if streamed and not 0 < length <= MAX_CHUNK:
@@ -415,6 +427,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/storage" and self.command == "GET":
             return self._json(200, library.storage())
         parts = path.strip("/").split("/")
+        if (
+            len(parts) == 4
+            and parts[:2] == ["api", "library"]
+            and parts[3] == "poster"
+            and self.command == "POST"
+        ):
+            value = json.loads(self.body or b"{}")
+            if not isinstance(value, dict):
+                raise ValueError("The request body must be an object.")
+            if gateway.thumbnails is None:
+                raise FileNotFoundError("Images are not ready.")
+            return self._json(200, gateway.thumbnails.set_poster(parts[2], value.get("time")))
         image = re.fullmatch(
             r"/api/library/([0-9a-f]{64})/(poster\.jpg|storyboard\.json|storyboard/(\d{1,2})\.jpg)",
             path,
