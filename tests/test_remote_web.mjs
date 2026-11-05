@@ -218,3 +218,5 @@ test('worker displays encrypted notification content and opens only same-origin 
   await click('https://evil.test/');
   assert.equal(navigated.at(-1), 'https://pc.local:8443/');
 });
+
+import './test_remote_r1e.mjs';

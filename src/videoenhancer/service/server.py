@@ -393,6 +393,9 @@ class Handler(BaseHTTPRequestHandler):
 def serve(home: Path, *, remote: bool = False) -> int:
     try:
         with service_lock(home):
+            from videoenhancer.logging import capture_runtime_errors, get_logger
+
+            capture_runtime_errors(home)
             engine = Engine(home)
             from videoenhancer.service.settings import read_settings
 
@@ -423,8 +426,6 @@ def serve(home: Path, *, remote: bool = False) -> int:
 
             signal.signal(signal.SIGINT, stop)
             signal.signal(signal.SIGTERM, stop)
-            from videoenhancer.logging import get_logger
-
             get_logger(home).info("Service executable: %s", sys.executable)
             if sys.stdout is not None:
                 print(f"VideoEnhancer service on 127.0.0.1:{server.server_port}", flush=True)

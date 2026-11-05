@@ -120,8 +120,17 @@ async function transfer(file, id, request, progress) {
 // IndexedDB keeps the browser's Blob on disk instead of serializing a video in memory.
 export async function uploadRecord(action, value) {
   const db = await new Promise((resolve, reject) => {
-    const open = indexedDB.open('ve-upload-r1b', 1);
-    open.onupgradeneeded = () => open.result.createObjectStore('uploads');
+    const open = indexedDB.open('ve-upload-r1b', 2);
+    open.onupgradeneeded = () => {
+      if (!open.result.objectStoreNames.contains('uploads')) open.result.createObjectStore('uploads');
+      else {
+        const store = open.transaction.objectStore('uploads');
+        const legacy = store.get('current');
+        legacy.onsuccess = () => {
+          if (legacy.result?.id) { store.put(legacy.result, legacy.result.id); store.delete('current'); }
+        };
+      }
+    };
     open.onsuccess = () => resolve(open.result);
     open.onerror = () => reject(new Error('This iPad could not save the upload for resuming.'));
   });
@@ -129,7 +138,7 @@ export async function uploadRecord(action, value) {
     return await new Promise((resolve, reject) => {
       const tx = db.transaction('uploads', action === 'get' ? 'readonly' : 'readwrite');
       const store = tx.objectStore('uploads');
-      const request = action === 'get' ? store.get('current') : action === 'put' ? store.put(value, 'current') : store.delete('current');
+      const request = action === 'get' ? store.getAll() : action === 'put' ? store.put(value, value.id) : store.delete(value);
       tx.oncomplete = () => resolve(request.result);
       tx.onerror = tx.onabort = () => reject(new Error('This iPad could not save the upload for resuming.'));
     });

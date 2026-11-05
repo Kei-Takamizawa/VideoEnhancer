@@ -31,6 +31,7 @@ from videoenhancer.jobs.store import (
     validate_input,
 )
 from videoenhancer.logging import get_logger, log_job_header
+from videoenhancer.remote.diagnostics import job_stage, log_failure
 from videoenhancer.schedule.admission import admit_step
 
 
@@ -1262,9 +1263,7 @@ def run_queue(
                             else str(error)
                         )
                         store.save(manifest)
-                        job_logger.error(
-                            "Job %s input failed: %s", job_id, error, extra={"job_id": job_id}
-                        )
+                        log_failure(job_logger, "probe", error, extra={"job_id": job_id})
                         continue
                     if job_id not in validated:
                         if validate_done_segments(manifest, job_dir):
@@ -1393,9 +1392,7 @@ def run_queue(
                             try:
                                 record_completed(manifest, store.home)
                             except Exception as error:
-                                job_logger.warning(
-                                    "Local timing observation could not be saved: %s", error
-                                )
+                                log_failure(job_logger, "timing", error, level=30)
                             schedule_original_deletions(store)
                             if not manifest["settings"].get("keep_segments"):
                                 for path in job_dir.glob("seg_*.mp4"):
@@ -1430,7 +1427,7 @@ def run_queue(
                                 f"Assembly failed: {error}. Check disk space and retry."
                             )
                             store.save(manifest)
-                            job_logger.error(manifest["error"], extra={"job_id": job_id})
+                            log_failure(job_logger, "encode", error, extra={"job_id": job_id})
                         continue
                     if pending["state"] == "failed":
                         manifest["state"] = "failed"
@@ -1497,7 +1494,7 @@ def run_queue(
                         latest["state"] = "failed"
                         latest["error"] = f"Segment storage preflight failed: {error}"
                         store.save(latest)
-                        job_logger.error(latest["error"], extra={"job_id": job_id})
+                        log_failure(job_logger, "storage", error, extra={"job_id": job_id})
                         continue
                     manifest = latest
                     manifest["progress"] = dict(phase="processing", step="segments", percent=0.0)
@@ -1735,8 +1732,11 @@ def run_queue(
                             "Check the job log, then resume the job."
                         )
                         store.save(manifest)
-                        job_logger.error(
-                            manifest["error"], extra={"job_id": job_id, "segment": index}
+                        log_failure(
+                            job_logger,
+                            "enhance",
+                            RuntimeError(result.error),
+                            extra={"job_id": job_id, "segment": index},
                         )
                 except JobQuarantinedError as error:
                     if on_error is not None:
@@ -1744,7 +1744,7 @@ def run_queue(
                     continue
                 except Exception as error:
                     job_logger = get_logger(store.home, job_id=job_id)
-                    job_logger.exception("Controller error", extra={"job_id": job_id})
+                    log_failure(job_logger, job_stage(manifest), error, extra={"job_id": job_id})
                     if on_error is not None:
                         on_error(job_id, error)
                     failures[job_id] = failures.get(job_id, 0) + 1

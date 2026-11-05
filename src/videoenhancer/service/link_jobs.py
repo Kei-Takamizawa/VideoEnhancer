@@ -198,6 +198,7 @@ class LinkJobs:
 
     def download(self, job_id: str) -> None:
         engine = self.engine
+        stage = "download"
 
         def paused() -> bool:
             return engine.stop.is_set() or engine.paused or job_id in self.cancelled
@@ -276,6 +277,7 @@ class LinkJobs:
                     },
                 )
                 engine._preparations.append(threading.current_thread())
+            stage = "probe"
             media = probe(final, allow_hdr=True, read_timeline=False).to_dict()
             warning = source_warning(media)
             if warning:
@@ -308,9 +310,14 @@ class LinkJobs:
                     },
                 )
         except Exception as error:
+            from videoenhancer.remote.diagnostics import failure
+
+            detail = failure(stage, error)
             latest = engine.store.load_existing(job_id)
             if latest and latest["state"] not in {"cancelled", "done"}:
-                engine.store.patch_existing(job_id, {"state": "failed", "error": str(error)})
+                engine.store.patch_existing(
+                    job_id, {"state": "failed", "error": str(error), "failure": detail}
+                )
         finally:
             process_changed(None)
             try:

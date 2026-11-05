@@ -436,3 +436,11 @@ If push registration fails in Brave, open `brave://settings/privacy`, enable
 notifications**. The app preserves the browser's error and shows this hint when
 Brave identifies itself. Brave's `fcm.googleapis.com` push endpoints use the same
 server validation as Chrome.
+# Video cache
+
+Library playback uses the original video bytes without transcoding. The browser may
+keep cached video parts privately for at most one day and may drop them earlier on
+its own. File validators prevent resuming a range against a changed video. Deleting
+a library video requests that the browser clear this site's cached bytes; cookies
+and storage are preserved. API, pairing, setup and download-link responses remain
+`no-store`.

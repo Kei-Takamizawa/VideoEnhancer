@@ -51,7 +51,9 @@ def test_adapter_preserves_uploads_referenced_by_jobs(tmp_path):
     adapter = EngineAdapter(None, tmp_path, {})
     now = [0]
     adapter.uploads.clock = lambda: now[0]
-    owned, abandoned = [adapter.uploads.create("d", "clip.mp4", 1)["id"] for _ in range(2)]
+    owned, abandoned = [
+        adapter.uploads.create(device, "clip.mp4", 1)["id"] for device in ["d", "abandoned"]
+    ]
     folder = adapter.uploads.folder / owned
     adapter.engine = SimpleNamespace(
         store=SimpleNamespace(
