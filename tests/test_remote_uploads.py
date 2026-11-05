@@ -13,17 +13,17 @@ from videoenhancer.remote.uploads import Uploads
 def test_expiration_uses_last_chunk_or_finish_and_preserves_jobs(tmp_path):
     now = [100.0]
     uploads = Uploads(tmp_path, clock=lambda: now[0], probe=lambda _: {"width": 32, "height": 32})
-    unfinished, finished, owned = [uploads.create("d", "clip.mp4", 2)["id"] for _ in range(3)]
+    unfinished, finished, owned = [uploads.create(device, "clip.mp4", 2)["id"] for device in "dfo"]
     now[0] += 100
     uploads.chunk("d", unfinished, 0, io.BytesIO(b"x"), 1)
-    uploads.chunk("d", finished, 0, io.BytesIO(b"xx"), 2)
+    uploads.chunk("f", finished, 0, io.BytesIO(b"xx"), 2)
     now[0] += 100
-    uploads.finish("d", finished, hashlib.sha256(b"xx").hexdigest())
+    uploads.finish("f", finished, hashlib.sha256(b"xx").hexdigest())
     uploads.sweep({tmp_path / owned})
     now[0] += 86299
     uploads.sweep({tmp_path / owned})
     assert uploads.status("d", unfinished)["offset"] == 1
-    assert uploads.status("d", finished)["ready"]
+    assert uploads.status("f", finished)["ready"]
     now[0] += 1
     # A fresh service instance must expire persisted sessions too.
     uploads = Uploads(tmp_path, clock=lambda: now[0])
@@ -31,13 +31,13 @@ def test_expiration_uses_last_chunk_or_finish_and_preserves_jobs(tmp_path):
     with pytest.raises(ValueError, match="This upload expired. Choose the video again."):
         uploads.status("d", unfinished)
     assert not (tmp_path / unfinished).exists()
-    assert uploads.status("d", finished)["ready"]
+    assert uploads.status("f", finished)["ready"]
     now[0] += 100
     uploads.sweep({tmp_path / owned})
     with pytest.raises(ValueError, match="This upload expired. Choose the video again."):
-        uploads.status("d", finished)
+        uploads.status("f", finished)
     assert not (tmp_path / finished).exists()
-    assert uploads.status("d", owned)
+    assert uploads.status("o", owned)
 
 
 @pytest.mark.parametrize("operation", ["chunk", "finish"])
@@ -45,7 +45,7 @@ def test_slow_upload_does_not_block_status_and_rejects_concurrent_writes(
     tmp_path, monkeypatch, operation
 ):
     uploads = Uploads(tmp_path, probe=lambda _: {"width": 32, "height": 32})
-    identifier, other = [uploads.create("d", "clip.mp4", 1)["id"] for _ in range(2)]
+    identifier, other = [uploads.create(device, "clip.mp4", 1)["id"] for device in ["d", "other"]]
     entered, release = threading.Event(), threading.Event()
     digest = hashlib.sha256(b"x").hexdigest()
 
@@ -77,7 +77,7 @@ def test_slow_upload_does_not_block_status_and_rejects_concurrent_writes(
         pending = pool.submit(work)
         try:
             assert entered.wait(2)
-            assert pool.submit(uploads.status, "d", other).result(timeout=1)["offset"] == 0
+            assert pool.submit(uploads.status, "other", other).result(timeout=1)["offset"] == 0
             for action in (
                 lambda: uploads.chunk("d", identifier, 0, io.BytesIO(b"x"), 1),
                 lambda: uploads.finish("d", identifier, digest),

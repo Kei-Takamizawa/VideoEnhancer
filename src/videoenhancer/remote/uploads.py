@@ -23,6 +23,10 @@ MAX_CHUNK = 4 * 1024 * 1024
 class UploadConflict(ValueError):
     """A device must finish its current upload before starting another."""
 
+    def __init__(self, message, upload=None):
+        super().__init__(message)
+        self.upload = upload
+
 
 def probe_video(path):
     from videoenhancer.media.probe import probe
@@ -96,7 +100,10 @@ class Uploads:
             for metadata in self.folder.glob("*/upload.json"):
                 item = json.loads(metadata.read_text(encoding="utf-8"))
                 if item["device"] == device and not item["ready"]:
-                    raise UploadConflict("One upload at a time. Resume the unfinished upload.")
+                    raise UploadConflict(
+                        "One upload at a time. Resume the unfinished upload.",
+                        {key: item[key] for key in ("id", "name", "size", "offset")},
+                    )
                 reserved += max(0, item["size"] - item["offset"])
             if size + reserved > int(shutil.disk_usage(self.folder).free * 0.9):
                 raise ValueError("There is not enough free space on the PC for this upload.")
@@ -125,6 +132,16 @@ class Uploads:
         with self.lock:
             item, _ = self._load(device, identifier)
             return self._public(item)
+
+    def cancel(self, device, identifier, owned):
+        with self.lock:
+            try:
+                item, directory = self._load(device, identifier)
+            except ValueError:
+                raise FileNotFoundError from None
+            if identifier in self.busy or (item["ready"] and directory in owned):
+                raise UploadConflict("This upload is in use and cannot be cancelled.")
+            shutil.rmtree(directory)
 
     def source(self, device, identifier):
         with self.lock:

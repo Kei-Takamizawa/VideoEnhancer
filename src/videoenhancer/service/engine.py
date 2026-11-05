@@ -1631,6 +1631,7 @@ class Engine:
                 if remote and (latest["state"] == "cancelled" or self.stop.is_set()):
                     return  # Preserve interrupted preparation for the next service start.
                 self._error(job_id, error)
+                latest = self.store.load(job_id)
                 latest.update(state="failed", error=f"Preparation failed: {error}")
                 self.store.save(latest)
 

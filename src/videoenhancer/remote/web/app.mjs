@@ -58,19 +58,23 @@ async function response(path, options = {}) {
   }
   if (!result.ok) {
     let message = 'The request could not be completed. Try again.';
+    let upload;
     try {
       const body = await result.json();
       message = body.error?.message || body.error || body.message || message;
+      upload = body.upload;
     } catch { /* A disconnected PC can return an incomplete response. */ }
     const error = new Error(message);
     error.status = result.status;
+    error.upload = upload;
     throw error;
   }
   return result;
 }
 
 async function api(path, options) {
-  return (await response(path, options)).json();
+  const result = await response(path, options);
+  return result.status === 204 ? null : result.json();
 }
 
 function showFailure(error, retry, container = main) {

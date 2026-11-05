@@ -1,10 +1,41 @@
 ﻿import assert from 'node:assert/strict';
 import test from 'node:test';
-import {JSDOM} from '../gui/node_modules/jsdom/lib/api.js';
 import {uploadRecord} from '../src/videoenhancer/remote/web/add.mjs';
 import {mountAdd} from '../src/videoenhancer/remote/web/add-ui.mjs';
 
-// Only persistence is simulated; tests exercise the actual upload controls and API flow.
+// Only the DOM surface and persistence are simulated; the real Add flow runs unchanged.
+class Element {
+  constructor(tag, text = '') { this.tag = tag; this.children = []; this.text = text; }
+  get isConnected() { return this.tag === 'main' || Boolean(this.parent?.isConnected); }
+  get textContent() { return this.text + this.children.map(child => child.textContent).join(''); }
+  set textContent(value) { this.replaceChildren(); this.text = String(value); }
+  append(...children) {
+    for (const child of children) { child.parent = this; this.children.push(child); }
+  }
+  replaceChildren(...children) {
+    for (const child of this.children) child.parent = null;
+    this.children = []; this.text = ''; this.append(...children);
+  }
+  setAttribute(name, value) { this[name] = value; }
+  querySelectorAll(selector) {
+    assert.ok(['button', 'input[type=file]'].includes(selector), `Unsupported selector: ${selector}`);
+    return this.children.flatMap(child => [
+      ...(selector === child.tag || selector === 'input[type=file]' && child.tag === 'input' && child.type === 'file' ? [child] : []),
+      ...child.querySelectorAll(selector),
+    ]);
+  }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+}
+function documentFixture(t) {
+  const main = new Element('main');
+  t.after(() => main.replaceChildren());
+  return {
+    createElement: tag => new Element(tag),
+    createTextNode: text => new Element('#text', text),
+    querySelector: selector => { assert.equal(selector, 'main'); return main; },
+  };
+}
+
 function database(records) {
   const data = new Map(records.map(record => [record.id, record]));
   return {open() {
@@ -26,12 +57,71 @@ function database(records) {
 }
 const flush = async () => {for (let i = 0; i < 30; i++) await Promise.resolve();};
 
+for (const recovery of ['same', 'cancel', 'resume']) test(`lost start recovery: ${recovery}`, async t => {
+  for (const [name, value] of Object.entries({document: documentFixture(t),
+    navigator: {userAgent: 'Macintosh', maxTouchPoints: 0}, indexedDB: database([])})) {
+    const old = Object.getOwnPropertyDescriptor(globalThis, name);
+    Object.defineProperty(globalThis, name, {configurable: true, value});
+    t.after(() => {if (old) Object.defineProperty(globalThis, name, old); else delete globalThis[name];});
+  }
+  const main = document.querySelector('main');
+  const element = (tag, text) => {const node = document.createElement(tag); if (text) node.textContent = text; return node;};
+  const button = (text, click) => {const node = element('button', text); node.onclick = click; return node;};
+  let starts = 0, deletes = 0, release;
+  const api = async (path, options) => {
+    if (path === '/api/uploads') {
+      starts++;
+      if (starts === 1) throw Object.assign(new Error('conflict'), {status: 409,
+        upload: {id: 'lost', name: 'old.mp4', size: 2, offset: 1}});
+      return {id: 'new'};
+    }
+    if (options?.method === 'DELETE') {deletes++; await new Promise(resolve => {release = resolve;}); return null;}
+    if (path === '/api/estimate') return {entries: []};
+    if (path.endsWith('/finish')) return {ready: true};
+    if (path.includes('/chunk')) {
+      assert.match(path, recovery === 'cancel' ? /offset=0$/ : /offset=1$/);
+      await new Promise(resolve => {release = resolve;}); return {offset: 2};
+    }
+    return {offset: recovery === 'cancel' ? 0 : 1};
+  };
+  mountAdd({main, element, button, api, added: async () => {}});
+  await flush();
+  const input = main.querySelector('input[type=file]');
+  let file = new Blob(['xy']); file.name = recovery === 'same' ? 'old.mp4' : 'new.mp4';
+  Object.defineProperty(input, 'files', {configurable: true, get: () => [file]});
+  let running = input.onchange(); await flush();
+  if (recovery !== 'same') {
+    await running;
+    assert.match(main.textContent, /Another upload from this device is unfinished\./);
+    const action = [...main.querySelectorAll('button')].find(node => node.textContent === (recovery === 'cancel' ? 'Cancel it' : 'Resume it'));
+    assert.ok(action);
+    if (recovery === 'cancel') {
+      running = action.onclick(); await flush();
+      assert.equal(input.disabled, true); assert.equal(starts, 1); assert.equal(deletes, 1);
+      release(); await flush();
+    } else {
+      input.click = () => {};
+      await action.onclick();
+      // A wrong re-selection must keep the recovery prompt and avoid another start.
+      await input.onchange(); await flush(); assert.equal(starts, 1);
+      file = new Blob(['xy']); file.name = 'old.mp4';
+      running = input.onchange(); await flush();
+    }
+  }
+  assert.equal(input.disabled, true);
+  assert.equal(starts, recovery === 'cancel' ? 2 : 1);
+  await input.onchange();
+  release(); await running;
+  assert.equal(input.disabled, false);
+  const records = await uploadRecord('get');
+  assert.equal(records.length, 1);
+  assert.equal(records[0].id, recovery === 'cancel' ? 'new' : 'lost');
+});
+
 test('resume records keep separate ids and Add removes only its own record', async t => {
-  const dom = new JSDOM('<main></main>', {url: 'https://synthetic.test'});
-  t.after(() => dom.window.close());
   const first = {id: 'first', name: 'first.mp4', size: 1, file: new Blob(['x'])};
   const second = {id: 'second', name: 'second.mp4', size: 1, file: new Blob(['y'])};
-  for (const [name, value] of Object.entries({window: dom.window, document: dom.window.document,
+  for (const [name, value] of Object.entries({document: documentFixture(t),
     navigator: {userAgent: 'Macintosh', maxTouchPoints: 0}, indexedDB: database([first, second])})) {
     const old = Object.getOwnPropertyDescriptor(globalThis, name);
     Object.defineProperty(globalThis, name, {configurable: true, value});
@@ -55,9 +145,7 @@ test('resume records keep separate ids and Add removes only its own record', asy
 });
 
 test('upload stays busy through create, transfer, verification and estimate, including remount', async t => {
-  const dom = new JSDOM('<main></main>', {url: 'https://synthetic.test'});
-  t.after(() => dom.window.close());
-  for (const [name, value] of Object.entries({window: dom.window, document: dom.window.document,
+  for (const [name, value] of Object.entries({document: documentFixture(t),
     navigator: {userAgent: 'Macintosh', maxTouchPoints: 0}, indexedDB: database([])})) {
     const old = Object.getOwnPropertyDescriptor(globalThis, name);
     Object.defineProperty(globalThis, name, {configurable: true, value});

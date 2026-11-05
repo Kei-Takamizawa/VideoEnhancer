@@ -549,6 +549,22 @@ class Handler(BaseHTTPRequestHandler):
                 result = adapter.uploads.create(device, value.get("name"), value.get("size"))
             elif len(parts) == 3 and parts[:2] == ["api", "uploads"] and self.command == "GET":
                 result = adapter.uploads.status(device, parts[2])
+            elif len(parts) == 3 and parts[:2] == ["api", "uploads"] and self.command == "DELETE":
+                from videoenhancer.remote.metadata import remote_info
+
+                with adapter.lock:
+                    owned = {
+                        Path(remote["folder"]).resolve()
+                        for job in (adapter.engine.store.list_jobs() if adapter.engine else [])
+                        if (remote := remote_info(job)) and remote.get("folder")
+                    }
+                    try:
+                        adapter.uploads.cancel(device, parts[2], owned)
+                    except FileNotFoundError:
+                        self._error(404, "This upload is not available.")
+                        return True
+                self._send(204, b"", "application/json")
+                return True
             elif len(parts) == 4 and parts[:2] == ["api", "uploads"]:
                 if parts[3] == "chunk" and self.command == "PUT":
                     query = parse_qs(urlsplit(self.path).query, strict_parsing=True)
@@ -602,7 +618,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._json(200, result)
         except UploadConflict as error:
-            self._error(409, str(error))
+            self._json(
+                409, {"error": str(error), **({"upload": error.upload} if error.upload else {})}
+            )
         except (ValueError, KeyError, TypeError) as error:
             message = str(error)
             if (

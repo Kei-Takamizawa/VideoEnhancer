@@ -132,6 +132,36 @@ export function mountAdd({main, element, button, api, added}) {
   uploadControls.add(control);
   setBusy(busy);
   let current;
+  let recovery;
+  let pickingResume = false;
+  const matches = (file, status) => file.name === status.name && file.size === status.size;
+  async function resumeFile(file, status) {
+    recovery = null; pickingResume = false;
+    current = {id: status.id, file, name: file.name, size: file.size};
+    try { await uploadRecord('put', current); }
+    catch { resumeWarning.textContent = 'Keep this app open. This device could not save the video for resuming after reopening.'; }
+    await run(current, true);
+  }
+  function offerRecovery(file, status) {
+    recovery = {file, status};
+    uploadMessage.textContent = 'Another upload from this device is unfinished.';
+    uploadActions.replaceChildren(
+      button('Resume it', () => {
+        pickingResume = true; fileInput.value = ''; fileInput.click();
+      }),
+      button('Cancel it', async () => {
+        if (busy) return;
+        setBusy(true);
+        try {
+          await api(`/api/uploads/${encodeURIComponent(status.id)}`, {method: 'DELETE'});
+          await uploadRecord('delete', status.id).catch(() => {});
+          recovery = null; pickingResume = false;
+          await startFile(file, false);
+        } catch (error) { uploadMessage.textContent = error.message; }
+        finally { setBusy(false); }
+      }),
+    );
+  }
   async function run(record, chosen = false) {
     if (busy && !chosen) return;
     current = record;
@@ -157,17 +187,27 @@ export function mountAdd({main, element, button, api, added}) {
       uploadActions.append(button('Resume upload', () => run(record), 'primary'));
     } finally { setBusy(false); }
   }
-  async function chooseFile(file) { if (!file || busy) return;
-    if (file.size > 20000000000) { uploadMessage.textContent = 'Choose a video smaller than 20 GB.'; return; }
-    setBusy(true);
+  async function startFile(file, recover = true) {
     uploadMessage.textContent = 'Checking available space…';
     try {
       // The PC checks its incoming drive's free space before accepting any bytes.
       const status = await post('/api/uploads', {name: file.name, size: file.size});
-      current = {id: status.id, file, name: file.name, size: file.size};
-      try { await uploadRecord('put', current); }
-      catch { resumeWarning.textContent = 'Keep this app open. This device could not save the video for resuming after reopening.'; }
-      await run(current, true);
+      await resumeFile(file, status);
+    } catch (error) {
+      if (recover && error.status === 409 && error.upload) {
+        if (matches(file, error.upload)) await resumeFile(file, error.upload);
+        else offerRecovery(file, error.upload);
+      } else throw error;
+    }
+  }
+  async function chooseFile(file) { if (!file || busy) return;
+    if (file.size > 20000000000) { uploadMessage.textContent = 'Choose a video smaller than 20 GB.'; return; }
+    setBusy(true);
+    try {
+      if (pickingResume && recovery) {
+        if (matches(file, recovery.status)) await resumeFile(file, recovery.status);
+        else uploadMessage.textContent = 'Another upload from this device is unfinished.';
+      } else await startFile(file);
     } catch (error) { uploadMessage.textContent = error.message; }
     finally { setBusy(false); }
   };
@@ -187,14 +227,14 @@ export function mountAdd({main, element, button, api, added}) {
     const records = await uploadRecord('get').catch(() => []);
     const buttons = [];
     for (const record of records || []) {
-      if (!upload.isConnected || busy || current || version !== resumeVersion) return;
+      if (!upload.isConnected || busy || current || recovery || version !== resumeVersion) return;
       try {
         const status = await api(`/api/uploads/${encodeURIComponent(record.id)}`);
-        if (!upload.isConnected || busy || current || version !== resumeVersion) return;
+        if (!upload.isConnected || busy || current || recovery || version !== resumeVersion) return;
         buttons.push(button(`${record.name} · ${resumeText(status)}`, () => run(record), 'primary'));
       } catch { /* Keep local data until the server can be reached again. */ }
     }
-    if (upload.isConnected && !busy && !current && version === resumeVersion) uploadActions.replaceChildren(...buttons);
+    if (upload.isConnected && !busy && !current && !recovery && version === resumeVersion) uploadActions.replaceChildren(...buttons);
   };
   void control.refresh();
 }

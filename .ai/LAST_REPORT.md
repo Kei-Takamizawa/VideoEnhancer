@@ -1,3 +1,279 @@
+Task ID / Cycle: VE-R1e-2 / CI follow-up / Windows
+Status: COMPLETED
+
+The CI Node dependency is removed without dropping coverage. All requested local
+checks pass. The full CPU suite completed. Historical reports are restored
+verbatim from HEAD, with zero deleted report lines relative to HEAD.
+
+## Changes and coverage
+
+- tests/test_remote_r1e.mjs: replace jsdom/gui dependency with the small DOM
+  surface used by mountAdd, implemented entirely in test code. The actual Add
+  implementation, API flow, persistence stub and all scenario assertions remain.
+  Unsupported selectors fail explicitly; fixture teardown disconnects controls.
+  Coverage retained: server-offset same-file recovery, cancel/start exactly once,
+  wrong/correct file re-selection, independent resume records, Add deleting only
+  its own record, and busy create/chunk/finish/estimate including remount.
+- .ai/CURRENT_TASK.md: append the owner's entire CI follow-up instruction.
+- .ai/LAST_REPORT.md: this report, the preceding working VE-R1e-2 report, then
+  all reports from git show HEAD:.ai/LAST_REPORT.md, byte-for-byte.
+- No additional product or Python changes in this follow-up. Pre-existing
+  implementation/test changes from VE-R1e-2 were preserved.
+
+## Already-fixed CPU cases (not edited again)
+
+The four requested upload cases already use separate device ids in the preceding
+cycle's working changes. Existing expiry timing, preservation of job-owned
+uploads, nonblocking status and rejection of concurrent writes remain asserted.
+The warning/thread test already uses a fresh interpreter with stdout/stderr
+absent, avoiding pytest/global warning-hook state inherited from other tests.
+It checks both the Python warning and thread exception records and absence of
+synthetic private content. It uses cross-platform Python rather than requiring
+Windows pythonw. These existing fixes passed targeted and full runs again.
+
+## Final verification
+
+| Check | Result |
+| --- | --- |
+| node --test tests/test_remote_web.mjs, checkout | PASS, 27 passed, 0 failed/skipped |
+| Same Node entry point, isolated tree without gui or node_modules | PASS, 27 passed, 0 failed/skipped |
+| Targeted Python (R1e, uploads, jobs) | PASS, 43 passed, 58.11 s |
+| Full CPU pytest | PASS, 932 passed, 0 failed, 25 skipped, 103 deselected, 517.06 s |
+| ruff check . | PASS |
+| ruff format --check . | PASS, 260 files |
+| pyright | PASS, 0 errors/warnings |
+| pyright without onnxruntime | PASS, 0 errors/warnings; import-spec verified absent |
+| Linux CI execution | NOT_RUN locally; Windows host, no Linux PASS inferred |
+| Browser suite / desktop E2E / GPU suite / native GUI | NOT_RUN, excluded |
+
+The isolated Node run copied only the three transitively imported test files
+and remote web source/assets under work/scratch/VE-R1e-2-CI/node-only; assertions
+verified gui and node_modules absent. The owner's gui/node_modules was untouched.
+All three complete Node runs passed 27 tests; no Node test was removed or skipped.
+
+Full CPU command: python -m pytest -m "not gpu and not soak"
+-o cache_dir=<cycle scratch>/pytest-cache --basetemp=<cycle scratch>/cpu.
+Existing conditional skips were retained. No skip, assertion or timeout was
+relaxed. All shells sourced local-env.ps1. VE_HOME, TEMP/TMP, basetemp/cache,
+Node-only copy and no-onnx venv were cycle-isolated under work/scratch. Approved
+execution was used for full CPU because sandbox taskkill /T is denied (see prior
+report). No dependencies, tools or media were downloaded or installed.
+
+Expected: the CI Node entry point works without GUI packages, CPU regressions
+pass and older reports remain. Actual: all checks above passed; report history
+suffix equals the exact HEAD bytes. This follow-up had no failed acceptance run.
+No browser/native window was operated, and no GUI PASS is claimed.
+Evidence: work/evidence/VE-R1e-2-CI/{node*,targeted,cpu,ruff,format,pyright*}.txt.
+
+## Git / history preservation
+
+Initial branch claude/project-thread-yyrl3q; HEAD
+ d9cbe40a1c5de454622264a47476d2b139fb4dab. The twelve prior modified files were
+recorded by git status before editing and were preserved. Only this follow-up's
+three files listed above were additionally changed. No Git mutation, commit,
+push, branch change, merge, package replacement or remote restart occurred.
+Historical bytes were captured through subprocess stdout without text conversion.
+HEAD historical report: 243,313 bytes; SHA-256
+`bb42e36da52db398814a1e498736edbc396302021afaefd4ec85ad479649b586`.
+The historical suffix is verified byte-for-byte after each report write.
+The preceding uncommitted VE-R1e-2 report is also retained below, including its
+failure history and previously refused scratch deletion. Nothing is silently lost.
+
+## Disk and cleanup
+
+Logical sizes exclude junction/symlink targets; drive free-space changes are not
+counted as deleted bytes. Only this cycle's scratch was a cleanup candidate.
+
+Candidate listed before removal: `D:\my-workspace\VideoEnhancer\work\scratch\VE-R1e-2-CI`, 1,483,696 bytes.
+Removed: 1,436,094 bytes; remaining: 47,602 bytes.
+Deletion stopped on PermissionError at `D:\my-workspace\VideoEnhancer\work\scratch\VE-R1e-2-CI\pytest-cache`.
+No elevated retry, permission change or alternate deletion was attempted.
+
+### For the operator to delete
+
+- `D:\my-workspace\VideoEnhancer\work\scratch\VE-R1e-2-CI`: 47,602 remaining logical bytes.
+Prior refused VE-R1e-2 scratch remains untouched, as documented in the next report.
+
+## Remaining / intentionally not performed
+
+No product/design blocker remains. Scratch cleanup refusal alone is permitted
+by CURRENT_TASK and does not change COMPLETED. Linux CI, browser/desktop/GPU
+suites, owner checks, build/package replacement, Git writes and remote restart
+were not performed. The operator/designer retain their existing Git/review roles.
+
+| Item | Start GB | End GB |
+| --- | ---: | ---: |
+| C free | 336.274678 | 337.273012 |
+| D free | 859.711234 | 859.710476 |
+| Repository | 3.730231 | 3.730483 |
+| Package | 0.125289 | 0.125289 |
+| Cycle evidence | 0.000000 | 0.000278 |
+| Scratch | 0.000093 | 0.000141 |
+| Cache | 12.578944 | 12.578944 |
+
+Logical persistent growth (disjoint repo/package/cache/cycle evidence):
+529,862 bytes (0.000530 GB), PASS against 1 GB. Cache <40 GB;
+cycle evidence <300 MB. Inventory is a snapshot; final report/evidence writes
+add a few KB. Unrelated pre-existing scratch/evidence was preserved.
+
+---
+
+Previous working VE-R1e-2 report (preserved):
+
+Task ID / Cycle: VE-R1e-2 / Windows
+Status: COMPLETED
+
+All three designer decisions are implemented and all requested final checks pass.
+The cycle scratch deletion was partly refused; the task explicitly permits
+COMPLETED in this case. The remaining development files are listed below.
+
+## Implementation and changed files
+
+- src/videoenhancer/remote/uploads.py: conflict includes exactly id/name/size/offset;
+  locked cancellation checks ownership and protects active writes and queued ready sources.
+- src/videoenhancer/remote/gateway.py: authenticated DELETE upload (204/404/409),
+  serialized with Add; unfinished-session recovery fields in the 409 response.
+- src/videoenhancer/remote/web/app.mjs: preserve recovery metadata on API errors;
+  handle empty successful 204 responses.
+- src/videoenhancer/remote/web/add-ui.mjs: same-name/size resume using current server
+  offset, Resume it file re-selection, Cancel it followed by exactly one new start,
+  persisted resume record and busy state throughout recovery/transfer/verification/estimate.
+- src/videoenhancer/remote/diagnostics.py: shared classified failure logger.
+- src/videoenhancer/schedule/controller.py: replace raw error/traceback logging with
+  stage, reason, exception type and traceback basenames/line numbers. Only imports
+  and error-log calls changed; behavior, return values, manifests and retries did not.
+  Serialized SegmentResult.error contains no exception object; the existing
+  RuntimeError fallback convention is used, with no fabricated traceback locations.
+- src/videoenhancer/service/engine.py: reload after _error so preparation detail survives.
+- tests/test_remote_r1e.py: HTTPS recovery/cancellation, controller segment/exception,
+  assembly/storage/input privacy, and real invalid-media preparation regressions.
+  The pythonw warning/thread test now uses a fresh interpreter with stdout/stderr
+  absent, isolating process-wide hooks from pytest and earlier service-start tests.
+- tests/test_remote_r1e.mjs: lost-response same-file, cancel/start, wrong-file and
+  correct-file re-selection, persisted records and busy-state regressions.
+- tests/test_remote_uploads.py and tests/test_remote_jobs.py: separate devices in
+  old multi-upload fixtures while retaining expiry/concurrency/ownership assertions.
+- .ai/LAST_REPORT.md: this report. CURRENT_TASK.md is unchanged and kept verbatim.
+
+## Final checks
+
+Every check below ran on the final source/test code after the last test corrections.
+All test/build shells sourced local-env.ps1. VE_HOME, TEMP, TMP, basetemp and final
+pytest cache were contained in this cycle's work/scratch folder.
+
+| Check | Result |
+| --- | --- |
+| python -m ruff check . | PASS |
+| python -m ruff format --check . | PASS, 260 files |
+| python -m pyright | PASS, 0 errors/warnings |
+| pyright without onnxruntime | PASS, 0 errors/warnings |
+| Targeted Python: test_remote_r1e.py, test_remote_uploads.py, test_remote_jobs.py | PASS, 43 passed |
+| node --test tests/test_remote_web.mjs | PASS, 27 passed, 0 failed/skipped |
+| Full CPU pytest | PASS, 932 passed, 0 failed, 25 skipped, 103 deselected, 520.05 s |
+| Browser suite / desktop E2E / GPU suite / native GUI | NOT_RUN, explicitly excluded |
+| Package build | NOT_RUN, not requested |
+
+Full CPU command: python -m pytest -m "not gpu and not soak"
+-o cache_dir=<cycle scratch>/pytest-cache-final --basetemp=<cycle scratch>/cpu-final.
+The inherited conditional skips were retained; this cycle added no skip or relaxed
+assertion. The no-onnxruntime check used a separate scratch venv of junctions and
+hardlinks excluding that module; an import-spec assertion confirmed it absent.
+The installed environment and dependencies were not removed or changed.
+
+## Earlier failures and recovery
+
+- Python red baseline: 8 failed, including 2 incorrect test patch names corrected
+  before acceptance. The other failures reproduced recovery/privacy/detail defects.
+- Targeted checkpoints: 16 passed / 2 setup failures; then 22 passed / 4 failures
+  (one setup error and three old same-device fixtures); then 26 passed. Final: 43 passed.
+- Node red: 3 failed. Subsequent complete Node runs passed 27 tests each.
+- Initial Ruff: 4 import/format issues, corrected without suppression.
+- First full CPU run: interrupted, exit 15, without a result summary. Windows
+  taskkill /T returned exit 1, Access denied, on a separate synthetic-child probe;
+  the intentional stuck-trial test consequently could not stop its child. Only
+  the verified test tree was terminated: 5 processes, 0 survivors.
+- First approved elevated full run: 930 passed / 2 failed / 25 skipped / 103
+  deselected, 520.59 s. One more old same-device fixture and inherited global
+  warning-capture state caused the failures. Fixture/test isolation was fixed,
+  preserving all privacy assertions. The final full run above passed.
+- An approved-context synthetic-child taskkill probe returned exit 0. No product
+  timeout, test assertion or termination implementation was weakened.
+- The first elevated run emitted two pytest-cache access warnings; the final run
+  used cycle-contained cache and emitted no warning summary.
+- Initial no-onnx setup had a PowerShell argument-binding error; native junction
+  creation resolved it. A read-only diff script's binary decode error was corrected.
+
+Private evidence: work/evidence/VE-R1e-2/codex-*.txt and codex-cleanup.json.
+All failures above remain recorded; synthetic error content is not owner data.
+
+## Expected / Actual and GUI operations
+
+Expected: recover a lost upload id; allow only authorized safe cancellation; retain
+useful private error logs and preparation stage/reason. Actual: targeted and full
+CPU tests confirm server-offset resume, cancel/start once, re-selection validation,
+ownership/ready refusal, secret-free logs with stage/type, and retained probe detail
+from a real invalid-media preparation failure. No product blocker remains.
+Node DOM tests operated the actual Add controls with simulated API/persistence.
+No browser or native window was operated; no GUI PASS is claimed.
+
+## Git and scope
+
+Branch: claude/project-thread-yyrl3q.
+HEAD: d9cbe40a1c5de454622264a47476d2b139fb4dab, following the specified
+072f377e09235c9918b425290f9378627df30375 via fast-forward.
+Git was unavailable in the ordinary sandbox PATH. Read-only index/ref/blob checks
+were followed by approved-context git status, branch, rev-parse and diff --check.
+The changed files are all within the task's allowed scope. Initial clean-tree
+status was not established by Git; unrelated files were not overwritten.
+Git emitted informational LF-to-CRLF normalization notices. No staging, commit,
+push, branch change, merge, deployment or real-service restart occurred.
+
+## Disk and cleanup
+
+Logical file lengths, decimal GB, excluding junction/symlink targets. The start
+snapshot preceded implementation. Disjoint persistent rows are repository,
+package, cycle evidence and cache; scratch is temporary. Drive free-space changes
+are not treated as deletion measurements. No downloads or installs occurred.
+The prior report is preserved in private cycle evidence as well as Git history.
+Existing unrelated scratch/evidence was preserved; no owner media/home/log was read.
+
+Cleanup candidate before removal: `D:\my-workspace\VideoEnhancer\work\scratch\VE-R1e-2-codex`, 1,592,282 bytes.
+Measured removed: 1,505,200 bytes; remaining: 87,082 bytes.
+Deletion stopped on PermissionError at `D:\my-workspace\VideoEnhancer\work\scratch\VE-R1e-2-codex\pytest-cache-final`. No retry,
+permission change or alternative deletion was attempted after refusal.
+
+### For the operator to delete
+
+- `D:\my-workspace\VideoEnhancer\work\scratch\VE-R1e-2-codex`: 87,082 remaining logical bytes.
+  The refused entry is the pytest-cache-final subdirectory.
+
+## Unresolved / intentionally not performed
+
+No design decision is pending. Only the refused scratch cleanup remains for the
+operator. No browser, desktop E2E, GPU checks, package replacement, real URL
+download, owner check, Git mutation or remote restart/status was performed.
+After designer review, the operator handles Git and waits for the requested
+ve.exe remote restart/status instructions. Owner re-check: one URL job, one
+upload while trying a second, and scrubbing a long video.
+
+| Item | Start GB | End GB |
+| --- | ---: | ---: |
+| C free | 337.288225 | 337.286713 |
+| D free | 859.712176 | 859.711255 |
+| Repository | 3.730456 | 3.730230 |
+| Package | 0.125289 | 0.125289 |
+| Cycle evidence | 0.000472 | 0.001255 |
+| Scratch | 0.000006 | 0.000093 |
+| Cache | 12.578944 | 12.578944 |
+
+Measured logical persistent growth: 557,622 bytes (0.000558 GB),
+PASS against 1 GB. Cache and cycle evidence are below their limits.
+The table is a snapshot; subsequent report/evidence writes add only a few KB.
+
+---
+
+Historical reports from HEAD (verbatim bytes below):
+
 Task ID / Cycle: VE-R1e / Windows
 Status: BLOCKED
 

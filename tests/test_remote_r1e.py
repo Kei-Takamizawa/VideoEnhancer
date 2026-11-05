@@ -73,6 +73,159 @@ def test_second_upload_start_is_conflict(gateway):
     assert headers["Cache-Control"] == "no-store"
 
 
+def test_lost_upload_start_recovery_and_cancel(gateway):
+    cookie = pair(gateway)
+    other = pair(gateway)
+    body = json.dumps({"name": "synthetic.mp4", "size": 2})
+    first = json.loads(request(gateway, "/api/uploads", "POST", cookie=cookie, body=body)[2])
+    route = f"/api/uploads/{first['id']}"
+    assert request(gateway, route + "/chunk?offset=0", "PUT", cookie=cookie, body=b"x")[0] == 200
+    for name in ["synthetic.mp4", "different.mp4"]:
+        status, _, raw = request(
+            gateway,
+            "/api/uploads",
+            "POST",
+            cookie=cookie,
+            body=json.dumps({"name": name, "size": 2}),
+        )
+        assert status == 409
+        assert json.loads(raw)["upload"] == {
+            "id": first["id"],
+            "name": "synthetic.mp4",
+            "size": 2,
+            "offset": 1,
+        }
+    assert request(gateway, route, "DELETE", cookie=other)[0] == 404
+    assert request(gateway, route, "DELETE", cookie=cookie)[0] == 204
+    assert not (gateway.adapter.uploads.folder / first["id"]).exists()
+    assert request(gateway, route, "DELETE", cookie=cookie)[0] == 404
+    assert request(gateway, "/api/uploads", "POST", cookie=cookie, body=body)[0] == 200
+
+
+def test_cancel_ready_upload_protects_queued_source(gateway):
+    from types import SimpleNamespace
+
+    from videoenhancer.service.settings import write_json
+
+    cookie = pair(gateway)
+    first = json.loads(
+        request(
+            gateway,
+            "/api/uploads",
+            "POST",
+            cookie=cookie,
+            body=json.dumps({"name": "synthetic.mp4", "size": 1}),
+        )[2]
+    )
+    directory = gateway.adapter.uploads.folder / first["id"]
+    metadata = json.loads((directory / "upload.json").read_text())
+    metadata["ready"] = True
+    write_json(directory / "upload.json", metadata)
+    jobs = [{"source": {"remote": {"folder": str(directory), "device": metadata["device"]}}}]
+    gateway.adapter.engine = SimpleNamespace(store=SimpleNamespace(list_jobs=lambda: jobs))
+    route = f"/api/uploads/{first['id']}"
+    assert request(gateway, route, "DELETE", cookie=cookie)[0] == 409
+    assert directory.exists()
+    jobs.clear()
+    assert request(gateway, route, "DELETE", cookie=cookie)[0] == 204
+
+
+@pytest.mark.parametrize("branch", ["segment", "controller", "assembly", "storage", "input"])
+def test_controller_failure_logs_are_private(tmp_path, monkeypatch, branch):
+    from datetime import UTC, datetime
+
+    from test_controller import FakeClock, _job
+
+    from videoenhancer.jobs.store import JobStore
+    from videoenhancer.schedule import controller
+
+    secret = "Private Name C:\\secret\\private-clip.mp4 https://private.invalid/video"
+    store = JobStore(tmp_path / "home")
+    job = _job(store, tmp_path)
+    clock = FakeClock(datetime(2026, 1, 1, tzinfo=UTC))
+    monkeypatch.setattr(controller, "log_job_header", lambda *a: None)
+    monkeypatch.setattr(controller, "validate_done_segments", lambda *a: False)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError(secret)
+
+    class Executor:
+        def run(self, *args, **kwargs):
+            return controller.SegmentResult("failed", error=secret)
+
+    if branch == "controller":
+        monkeypatch.setattr(controller, "validate_done_segments", broken)
+    elif branch == "assembly":
+        job["segments"][0]["state"] = "done"
+        store.save(job)
+        monkeypatch.setattr("videoenhancer.media.mux.assemble", broken)
+    elif branch == "storage":
+
+        def full(*args, **kwargs):
+            raise OSError(secret)
+
+        monkeypatch.setattr(controller, "require_disk_space", full)
+    elif branch == "input":
+
+        def invalid(*args, **kwargs):
+            raise ValueError(secret)
+
+        monkeypatch.setattr(controller, "validate_input", invalid)
+    controller.run_queue(
+        home=store.home, clock=clock, executor=Executor(), ignore_schedule=True, disk_free=1_000_000
+    )
+    assert store.load(job["id"])["state"] == "failed"
+    output = (store.home / "videoenhancer.jsonl").read_text()
+    assert all(
+        value not in output
+        for value in ["Private Name", "secret", "private-clip", "private.invalid"]
+    )
+    assert "stage=" in output and "type=" in output
+    if branch == "controller":
+        assert "type=RuntimeError" in output and "test_remote_r1e.py:" in output
+
+
+def test_preparation_failure_preserves_detail(tmp_path, monkeypatch):
+    from videoenhancer.service.engine import Engine
+
+    engine = Engine(tmp_path / "home")
+    engine.remote_jobs = object()
+    source = tmp_path / "invalid.mp4"
+    source.write_bytes(b"not a video")
+    monkeypatch.setattr(
+        engine,
+        "estimate",
+        lambda *a: {
+            "warnings": [],
+            "presets": {"fast": {"seconds": 1, "finish": None}},
+        },
+    )
+    monkeypatch.setattr(
+        engine,
+        "chosen",
+        lambda *a: {
+            "preset": "passthrough",
+            "fps": "off",
+            "backend": "cpu",
+        },
+    )
+    try:
+        job = engine.add(
+            {"file": str(source), "settings": {"codec": "hevc", "preset": "fast"}},
+            remote={"device": "synthetic", "folder": str(tmp_path / "incoming")},
+        )
+        for thread in engine._preparations:
+            thread.join(15)
+            assert not thread.is_alive()
+        latest = engine.store.load(job["id"])
+        assert latest["state"] == "failed"
+        assert latest["failure"]["stage"] == "probe"
+        assert latest["failure"]["reason"]
+        assert latest["failure"]["type"]
+    finally:
+        engine.close()
+
+
 def test_failure_activity_is_private(tmp_path, caplog):
     from videoenhancer.remote.diagnostics import failure
     from videoenhancer.remote.jobs import activity
@@ -291,39 +444,34 @@ def test_notification_slow_writer_runs_outside_engine_lock(tmp_path, monkeypatch
 
 
 def test_pythonw_warnings_and_thread_errors_are_logged_privately(tmp_path):
-    import warnings
+    import subprocess
+    import sys
+    import textwrap
 
-    from videoenhancer.logging import capture_runtime_errors
+    # A fresh interpreter matches service startup and isolates process-wide hooks
+    # from pytest's per-test warning capture and earlier service-start tests.
+    script = textwrap.dedent(r"""
+        import sys, threading, warnings
+        from pathlib import Path
+        from videoenhancer.logging import capture_runtime_errors
 
-    old_hook = threading.excepthook
-    old_showwarning = warnings.showwarning
-    warning_logger = logging.getLogger("py.warnings")
-    old_handlers, old_propagate = warning_logger.handlers[:], warning_logger.propagate
-    try:
-        capture_runtime_errors(tmp_path)
-        with warnings.catch_warnings():
-            warnings.simplefilter("always")
-            warnings.warn(
-                "Private Name https://private.invalid C:\\secret\\clip.mp4",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-
+        sys.stdout = sys.stderr = None
+        capture_runtime_errors(Path(sys.argv[1]))
+        warnings.simplefilter('always')
+        warnings.warn('Private Name https://private.invalid C:\\secret\\clip.mp4', RuntimeWarning)
         def broken():
-            raise RuntimeError("Private Name https://private.invalid C:\\secret\\clip.mp4")
-
+            raise RuntimeError('Private Name https://private.invalid C:\\secret\\clip.mp4')
         thread = threading.Thread(target=broken)
         thread.start()
         thread.join(3)
-        output = (tmp_path / "videoenhancer.jsonl").read_text()
-        assert (
-            "Python warning:" in output and "uncaught thread exception type=RuntimeError" in output
-        )
-        assert all(
-            secret not in output for secret in ["Private Name", "private.invalid", "secret\\"]
-        )
-    finally:
-        threading.excepthook = old_hook
-        logging.captureWarnings(False)
-        warnings.showwarning = old_showwarning
-        warning_logger.handlers, warning_logger.propagate = old_handlers, old_propagate
+        assert not thread.is_alive()
+    """)
+    subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        check=True,
+        capture_output=True,
+        timeout=15,
+    )
+    output = (tmp_path / "videoenhancer.jsonl").read_text()
+    assert "Python warning:" in output and "uncaught thread exception type=RuntimeError" in output
+    assert all(secret not in output for secret in ["Private Name", "private.invalid", "secret\\"])

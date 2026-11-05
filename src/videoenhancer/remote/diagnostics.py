@@ -46,6 +46,19 @@ def frames(error):
     )
 
 
+def log_failure(logger, stage, error, *, extra=None, level=logging.ERROR):
+    """Use only classified text and traceback locations in controller logs."""
+    logger.log(
+        level,
+        "job failure stage=%s type=%s reason=%s traceback=%s",
+        stage,
+        type(error).__name__,
+        reason(error),
+        frames(error),
+        extra=extra,
+    )
+
+
 def job_stage(job):
     if job.get("state") == "downloading":
         return "download"
