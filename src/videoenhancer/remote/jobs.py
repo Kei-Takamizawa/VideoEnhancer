@@ -11,6 +11,7 @@ import unicodedata
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from videoenhancer.remote.diagnostics import failure, job_stage, reason
 from videoenhancer.remote.metadata import remote_info
 from videoenhancer.remote.power import Awake
 from videoenhancer.remote.thumbnails import Thumbnails
@@ -54,7 +55,14 @@ def activity(path, job, outcome, output_bytes, seconds, *, stamp=None):
         processing_seconds=round(seconds, 3),
     )
     if outcome == "failed":
-        row["error_category"] = "processing"
+        detail = job.get("failure") or {
+            "stage": job_stage(job),
+            "type": "JobError",
+            "reason": reason(job.get("error", "")),
+        }
+        row["error_category"] = detail["stage"]
+        row["error_type"] = detail["type"]
+        row["error_reason"] = detail["reason"]
     previous = path.read_bytes() if path.exists() else b""
     line = json.dumps(row).encode() + b"\n"
     if stamp and line in previous.splitlines(keepends=True):
@@ -203,10 +211,14 @@ class RemoteJobs:
             for identifier in list(self.records):
                 try:
                     self._finish(identifier)
-                except (OSError, ValueError):
-                    import logging
-
-                    logging.getLogger("videoenhancer.remote").warning("remote cleanup pending")
+                except (OSError, ValueError) as error:
+                    failure(
+                        "publish"
+                        if self.records[identifier]["job"]["state"] == "done"
+                        and not self.records[identifier].get("published")
+                        else "cleanup",
+                        error,
+                    )
 
     def _finish(self, identifier):
         import shutil
@@ -217,6 +229,24 @@ class RemoteJobs:
             record["job"] = live
             self._save()
         job = record["job"]
+        if job["state"] == "failed" and not record.get("failure_logged"):
+            detail = record.get("failure") or job.get("failure")
+            if detail:
+                import logging
+
+                logging.getLogger("videoenhancer.remote").error(
+                    "job failure stage=%s type=%s reason=%s",
+                    detail["stage"],
+                    detail["type"],
+                    detail["reason"],
+                )
+            else:
+                detail = failure(job_stage(job), RuntimeError(job.get("error", "")))
+            record["failure"] = detail
+            record["failure_logged"] = True
+            self._save()
+        if record.get("failure"):
+            job["failure"] = record["failure"]
         remote = remote_info(job)
         if not remote:
             raise ValueError("Remote ownership is missing.")
@@ -257,6 +287,7 @@ class RemoteJobs:
                 partial.unlink()
             if not final.is_file():
                 raise ValueError("The finished video is missing.")
+            record["published"] = True
         else:
             partial.unlink(missing_ok=True)
         # Delete job diagnostics before its input folder, so existing cleanup hooks can run.

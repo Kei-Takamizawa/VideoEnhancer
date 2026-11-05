@@ -20,6 +20,10 @@ MAX_FILE = 20_000_000_000
 MAX_CHUNK = 4 * 1024 * 1024
 
 
+class UploadConflict(ValueError):
+    """A device must finish its current upload before starting another."""
+
+
 def probe_video(path):
     from videoenhancer.media.probe import probe
 
@@ -91,6 +95,8 @@ class Uploads:
             reserved = 0
             for metadata in self.folder.glob("*/upload.json"):
                 item = json.loads(metadata.read_text(encoding="utf-8"))
+                if item["device"] == device and not item["ready"]:
+                    raise UploadConflict("One upload at a time. Resume the unfinished upload.")
                 reserved += max(0, item["size"] - item["offset"])
             if size + reserved > int(shutil.disk_usage(self.folder).free * 0.9):
                 raise ValueError("There is not enough free space on the PC for this upload.")

@@ -338,6 +338,19 @@ class Engine:
         changed(self.home)
 
     def _error(self, job_id: str | None, error: Exception) -> None:
+        if job_id and self.remote_jobs is not None:
+            from videoenhancer.remote.diagnostics import failure, job_stage
+
+            job = self.store.load_existing(job_id)
+            if job and remote_info(job):
+                detail = failure(job_stage(job), error)
+                self.store.patch_existing(job_id, {"failure": detail})
+                self.last_error = {
+                    "time": datetime.now(UTC).isoformat(),
+                    "job_id": job_id,
+                    "message": detail["reason"],
+                }
+                return
         self.last_error = {
             "time": datetime.now(UTC).isoformat(),
             "job_id": job_id,
@@ -350,8 +363,8 @@ class Engine:
         )
 
     def _progress(self, job: dict[str, Any], value: dict[str, Any]) -> None:
+        now = time.monotonic()
         with self.lock:
-            now = time.monotonic()
             previous = self._progress_received.get(job["id"])
             old = (previous[1].get("progress") or {}) if previous else {}
             self.live_progress[job["id"]] = dict(value)
@@ -360,27 +373,29 @@ class Engine:
                 for key in ("frames_done", "segment", "phase", "step")
             ):
                 return
-            measured = dict(value)
-            self._progress_received[job["id"]] = (
-                now,
-                copy.deepcopy(
-                    {
-                        **{
-                            key: value
-                            for key, value in job.items()
-                            if key
-                            not in {
-                                "cfr_map",
-                                "source_pts",
-                                "scene_cuts",
-                                "motion_scores",
-                                "keyframes",
-                            }
-                        },
-                        "progress": measured,
+        measured = dict(value)
+        snapshot = copy.deepcopy(
+            {
+                **{
+                    key: value
+                    for key, value in job.items()
+                    if key
+                    not in {
+                        "cfr_map",
+                        "source_pts",
+                        "scene_cuts",
+                        "motion_scores",
+                        "keyframes",
                     }
-                ),
-            )
+                },
+                "progress": measured,
+            }
+        )
+        with self.lock:
+            # A slower older callback must not replace a newer snapshot.
+            previous = self._progress_received.get(job["id"])
+            if previous is None or previous[0] <= now:
+                self._progress_received[job["id"]] = (now, snapshot)
 
     def _forecast_jobs(self, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         with self.lock:
@@ -1111,17 +1126,18 @@ class Engine:
                 self._structure_generation = current_generation
             revisions, health_jobs = self._structure_records
             with self.lock:
-                operation_key = tuple(
-                    (
-                        op["id"],
-                        op.get("state"),
-                        op.get("phase"),
-                        op.get("percent"),
-                        id(op.get("result")),
-                        op.get("error"),
-                    )
-                    for op in self.operations.values()
+                operations = [dict(op) for op in self.operations.values()]
+            operation_key = tuple(
+                (
+                    op["id"],
+                    op.get("state"),
+                    op.get("phase"),
+                    op.get("percent"),
+                    id(op.get("result")),
+                    op.get("error"),
                 )
+                for op in operations
+            )
             health = self.health(health_jobs)
             key = (
                 revisions,

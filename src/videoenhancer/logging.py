@@ -8,12 +8,39 @@ import logging
 import platform
 import subprocess
 import sys
+import threading
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
 from videoenhancer import proc
+
+
+def capture_runtime_errors(home: Path) -> None:
+    """Keep pythonw warnings and uncaught thread failures in the service log."""
+    from videoenhancer.remote.diagnostics import frames, reason
+
+    logger = get_logger(home)
+    logging.captureWarnings(True)
+    warnings = logging.getLogger("py.warnings")
+
+    class WarningLog(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            logger.warning("Python warning: %s", reason(record.getMessage()))
+
+    warnings.handlers = [WarningLog()]
+    warnings.propagate = False
+
+    def thread_error(args: threading.ExceptHookArgs) -> None:
+        logger.error(
+            "uncaught thread exception type=%s reason=%s traceback=%s",
+            args.exc_type.__name__,
+            reason(args.exc_value),
+            frames(args.exc_value),
+        )
+
+    threading.excepthook = thread_error
 
 
 class JsonFormatter(logging.Formatter):

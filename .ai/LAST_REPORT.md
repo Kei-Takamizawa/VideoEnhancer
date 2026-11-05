@@ -1,3 +1,182 @@
+Task ID / Cycle: VE-R1e / Windows
+Status: BLOCKED
+
+Implementation stopped after read-only review identified a recovery decision and
+an unresolved privacy gap. This is an uncommitted work in progress, not a candidate
+for release. No real service, home, library or owner media was accessed.
+
+## Questions for the designer
+
+1. Upload recovery needs an approved behavior. The new server rejects a second
+   start while any same-device session is unfinished. Reproduction: create an
+   upload, lose the successful POST response before receiving its id, then choose
+   the file again. Every start returns 409 until the 24-hour expiry. The same
+   problem occurs after IndexedDB cannot persist a record and the app is reopened.
+   The client has no id and there is no server upload discovery/cancel endpoint.
+   Decide whether to provide authenticated session discovery plus file re-selection
+   or cancellation, or an idempotent start/recovery contract. An idle lease is
+   another option but must define behavior during slow transfers and client hashing.
+   This affects API/UI behavior and was not independently designed or implemented.
+   Relevant code: remote/uploads.py create; remote/web/add-ui.mjs chooseFile.
+2. Failure logging is not yet end-to-end private. schedule/controller.py logs
+   manifest.error (including result.error) verbatim at the segment failure branch,
+   and logs a full traceback before Engine._error in the controller exception
+   branch. Both reach the global log. The new sanitized remote log does not remove
+   those earlier records. Decide whether to authorize changes to this controller
+   (outside the allowed files), or use a remote-aware filter in the allowed logging
+   setup. Preserve useful stage/type information without reading owner logs. The
+   targeted sanitizer tests alone do not prove this real processing path is safe.
+3. A concrete remaining implementation fix: the preparation exception handler in
+   service/engine.py loads latest, calls _error (which now patches failure details),
+   then saves stale latest and overwrites those details. Reload or merge the new
+   failure detail before save and test an actual preparation failure. This was
+   identified during review and left visible after the required BLOCKED stop.
+
+## Implementation and changed files
+
+- src/videoenhancer/remote/diagnostics.py: safe classified reasons, stage helpers,
+  exception types and traceback file/line locations without arbitrary tool text.
+- src/videoenhancer/remote/gateway.py: video keep-alive, 30-second idle timeout,
+  100-request cap, 1 MiB reads/writes, five-second stalled-write timeout, byte counts,
+  disconnect logging, safe unhandled exception diagnostics, validators/If-Range,
+  private one-day library caching, cache-only Clear-Site-Data on delete, upload 409.
+  Final adjustment avoids a second HTTP response after streaming headers and keeps
+  HTTP/1.0 connections closed. This final adjustment has not had a Python rerun.
+- src/videoenhancer/remote/jobs.py: stage/type/reason activity rows and failure logs
+  before cleanup, plus publish/cleanup failures. Serialized worker errors still
+  use a RuntimeError fallback; actual original type is not established on that path.
+- src/videoenhancer/remote/uploads.py: serialized same-device unfinished-start guard.
+  Its recovery defect above remains unresolved.
+- src/videoenhancer/remote/web/add.mjs: per-id IndexedDB records and legacy migration.
+- src/videoenhancer/remote/web/add-ui.mjs: busy state through creation, transfer,
+  verification and estimate; disabled upload control with approved text, per-record
+  resume offers and Add deletion, busy state and resume refresh across remount.
+- src/videoenhancer/remote/thumbnails.py: input-side seek and shared 30-second manual
+  extraction deadline, including endpoint fallback; background timeout preserved.
+- src/videoenhancer/service/engine.py: deepcopy and notification key construction
+  moved outside the state lock; remote error detail logging. Existing lock warning
+  preserved. Remaining preparation overwrite is documented above.
+- src/videoenhancer/service/link_jobs.py: safe download/probe exception logging and
+  persisted failure detail.
+- src/videoenhancer/logging.py and src/videoenhancer/service/server.py: warning and
+  uncaught-thread logging for pythonw, installed before engine startup.
+- tests/test_remote_r1e.py, tests/test_remote_r1e.mjs, tests/test_remote_web.mjs:
+  targeted regressions and inclusion in the existing Node entry point.
+- docs/REMOTE.md: private one-day video cache and cache-clear documentation.
+- .ai/LAST_REPORT.md: this report, with prior reports preserved below.
+
+## Checks and evidence
+
+- Initial read-only Git check: PASS after escalation. Initial tree clean; branch
+  claude/project-thread-yyrl3q; HEAD 657aae19d37f3ea9098239a0d380cfa9db8f7a3a.
+  The normal sandbox initially denied git.exe execution. No Git mutations occurred.
+- Regression baseline: FAIL as expected, 4 tests failed. The first lock-test attempt
+  used an unsupported acquire API; corrected to the underlying lock and rerun,
+  confirming acquisition timed out while the old deepcopy held the state lock.
+- Targeted Python checkpoint: PASS, 10 passed. Actual HTTPS consecutive range requests,
+  ETag/date If-Range, mismatch full 200, cache/delete headers, 409, safe activity,
+  aborted stream releasing library handles, unhandled gateway error privacy,
+  long-clip poster, link failure log, slow writer/lock, warnings/thread errors.
+  An earlier run was 7 passed / 1 skipped because FFmpeg was not on PATH; rerun used
+  the existing work cache FFmpeg and executed the media test successfully.
+- Poster measurement: generated 3,600-second 32x32 CPU H.264 clip at 1 fps;
+  position 3,590 seconds; measured extraction 0.078 s in the latest targeted run
+  (prior run 0.422 s). Seek ordering and <=30 s timeout verified. Timeout error
+  message checked with an injected timeout, not a real 30-second wait.
+- Lock measurement: fake 1.05-second writer outside the lock; sampled maximum hold
+  0.000000 s at this Windows clock's displayed precision. The blocked-deepcopy test
+  acquired the state lock within 0.5 s. This is synthetic callback/status evidence,
+  not a claim of owner-workload lock latency or a completed end-to-end CPU job.
+- Node: PASS, 25 tests, latest run after the final upload remount changes. Includes
+  busy through create/chunk/finish/estimate and separate records/own Add deletion.
+- ruff check .: PASS, latest run after final code edits.
+- ruff format --check .: PASS, 260 files, latest run after final code edits.
+  Earlier format check hit a Ruff renderer panic on BOM/unformatted input; rewriting
+  the test without BOM and formatting resolved it. No rule was disabled.
+- uv run pyright: PASS, 0 errors at the pre-review checkpoint, onnxruntime installed.
+  An earlier run found two timeout float/int type errors; those were corrected.
+- pyright without onnxruntime: PASS, 0 errors at the pre-review checkpoint, using a
+  scratch venv of junctions/hardlinks excluding onnxruntime. A direct import-spec
+  check confirmed it absent. First config attempt ignored absolute include paths;
+  it was corrected to a relative src include and rerun. Original dependencies unchanged.
+- CI CPU command: NOT_RUN to completion. uv run pytest -m "not gpu and not soak"
+  --basetemp=<isolated cycle scratch>/cpu selected 949 of 1,052 tests, 103 deselected.
+  Interrupted intentionally after the BLOCKED finding, process exit 15. Output reached
+  test_p1c2_reliability after 27%; no failure summary was produced. This is not PASS.
+  Only the verified cycle pytest process and its descendants were stopped (6 stopped,
+  0 still running). Output is retained in work/evidence/VE-R1e/cpu.txt.
+- Python rerun/type-check after the final gateway streaming-error adjustment:
+  NOT_RUN after the mandatory stop. Full final acceptance remains NOT_RUN.
+- Browser suite, desktop E2E, screenshots and native GUI checks: NOT_RUN as instructed.
+
+All build/test shells sourced local-env.ps1. Tests used cycle-isolated VE_HOME,
+TEMP/TMP and absolute pytest basetemp under work/scratch/VE-R1e. No dependency,
+configuration, system setting or real-service changes were made.
+
+## Expected / Actual and owner re-check
+
+Expected: all five reliability changes and section 3 checks pass, with private logs
+and usable upload recovery. Actual: implementation and targeted checks above exist,
+but recovery/privacy blockers remain and full acceptance is incomplete.
+
+After the designer resolves the blockers, finish the missing regressions and full
+checks. Only after review/commit by the operator, restart/status the remote service
+as specified. Then the owner should try one URL job (confirm useful private failure
+stage if it fails), one upload while attempting a second, and scrubbing a long video.
+Verify the completed library video plays normally and deleted-video cache is cleared.
+No owner check was performed during this cycle.
+
+## Disk and cleanup
+
+Logical file lengths, decimal GB; allocated disk growth is not inferred from free
+space. Baseline used Path.rglob; the final inventory explicitly excludes directory
+junction targets. Therefore scratch/cache differences are not attributed as cleanup
+or claimed as a directly comparable persistent-growth measurement. An exact growth
+gate is not established for this BLOCKED cycle; no downloads or installs occurred.
+
+| Item | Start GB | Before cleanup GB |
+| --- | ---: | ---: |
+| C free | 337.289486 | 337.284055 |
+| D free | 857.058931 | 859.699483 |
+| Package | 0.125289 | 0.125289 |
+| Cycle evidence | 0.000226 | 0.000727 |
+| Scratch | 2.651388 | 0.011146 |
+| Cache | 12.644377 | 12.578944 |
+
+Cleanup candidate (measured before any removal): work/scratch/VE-R1e,
+1,501,203 logical bytes excluding junction targets. Python 3.12 rmtree removes
+Windows junctions without traversing their targets. Only this cycle's scratch
+folder is authorized for removal; pre-existing scratch/evidence is preserved.
+Cleanup result and final disk inventory are appended before the historical reports.
+
+Final read-only status confirms only allowed files changed. Git diff --check found
+a trailing blank line in docs/REMOTE.md; that whitespace was removed. Git also
+reported LF-to-CRLF normalization warnings for uploads.py and test_remote_web.mjs.
+
+## Intentionally not performed
+
+No commit, staging, push, branch change, PR, merge, deployment, remote restart,
+real URL download, owner-log/media inspection, browser or desktop suite. Task input
+already existed as .ai/CURRENT_TASK.md and was kept verbatim. No new design was
+chosen to bypass the repository's BLOCKED rule.
+
+## Cleanup result and final disk inventory
+
+Cycle scratch cleanup: removed. Measured bytes removed: 1,501,203. No owner deletion needed for this cycle.
+
+| Item | End GB |
+| --- | ---: |
+| C free | 337.283912 |
+| D free | 859.700224 |
+| Package | 0.125289 |
+| Cycle evidence | 0.000742 |
+| Scratch | 0.009645 |
+| Cache | 12.578944 |
+
+Final inventory excludes junction targets; differences from the original baseline are not a measured deletion total.
+
+---
+
 Task ID / Cycle: VE-R1d-4 / Windows
 Status: PARTIAL
 
@@ -1477,6 +1656,10 @@ retention rule, or of an empty scratch folder, is made.
 - Existing scratch and evidence retention qualifications above are inherited;
   this cycle does not claim an initially empty scratch folder.
 
+Final read-only status confirms only allowed files changed. Git diff --check found
+a trailing blank line in docs/REMOTE.md; that whitespace was removed. Git also
+reported LF-to-CRLF normalization warnings for uploads.py and test_remote_web.mjs.
+
 ## Intentionally not performed
 
 No Git writes, commit, push, merge, dependency change, native rebuild/package
@@ -1761,6 +1944,10 @@ isolated artifacts were submitted to cleanup.
 - Physical Mac/iPad checks and post-review real-service restart/count remain NOT_RUN.
 - Disk baseline/retention qualifications and pre-existing scratch assets must remain
   visible in the final report; they are not evidence of a clean initial workspace.
+
+Final read-only status confirms only allowed files changed. Git diff --check found
+a trailing blank line in docs/REMOTE.md; that whitespace was removed. Git also
+reported LF-to-CRLF normalization warnings for uploads.py and test_remote_web.mjs.
 
 ## Intentionally not performed
 
@@ -2264,6 +2451,10 @@ not expanded into an unrelated cleanup cycle.
    inherited artifacts were preserved.
 3. Review the implementation/diff before the operator performs any real-service
    restart. Codex did not commit/push or restart it.
+
+Final read-only status confirms only allowed files changed. Git diff --check found
+a trailing blank line in docs/REMOTE.md; that whitespace was removed. Git also
+reported LF-to-CRLF normalization warnings for uploads.py and test_remote_web.mjs.
 
 ## Intentionally not performed
 
@@ -2794,6 +2985,10 @@ presented as bytes removed.
 None requested. The refused native-extension removal is a dependency/runtime
 problem, not a request to delete that file. Pre-existing scratch cleanup is
 deferred because ownership and access were not established.
+
+Final read-only status confirms only allowed files changed. Git diff --check found
+a trailing blank line in docs/REMOTE.md; that whitespace was removed. Git also
+reported LF-to-CRLF normalization warnings for uploads.py and test_remote_web.mjs.
 
 ## Intentionally not performed
 
@@ -3400,6 +3595,10 @@ the start/growth baseline is missing.
   checks. No workaround to cookie retention was attempted.
 - Pre-cycle disk baseline was not captured, so full persistent-growth compliance
   cannot be claimed from the later inventory alone.
+
+Final read-only status confirms only allowed files changed. Git diff --check found
+a trailing blank line in docs/REMOTE.md; that whitespace was removed. Git also
+reported LF-to-CRLF normalization warnings for uploads.py and test_remote_web.mjs.
 
 ## Intentionally not performed
 
@@ -4101,6 +4300,10 @@ Evidence/report writes after the table can add a few KB; the table is a snapshot
   Home Screen app and synthetic Files/Photos videos afterwards.
 - Preserve or independently review pre-existing scratch/owner-check. It belongs
   to no confirmed VE-R0 generated artifact and was left untouched.
+
+Final read-only status confirms only allowed files changed. Git diff --check found
+a trailing blank line in docs/REMOTE.md; that whitespace was removed. Git also
+reported LF-to-CRLF normalization warnings for uploads.py and test_remote_web.mjs.
 
 ## Intentionally not performed
 

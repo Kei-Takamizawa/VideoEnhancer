@@ -59,7 +59,7 @@ class Thumbnails:
     def _cancelled(self):
         return self.stop.is_set() or self.busy.is_set()
 
-    def _run(self, args):
+    def _run(self, args, *, timeout: float = 600):
         if str(args[-1]).endswith(".jpg"):
             args = [*args[:-1], "-pix_fmt", "yuvj420p", args[-1]]
         command = [
@@ -74,7 +74,14 @@ class Thumbnails:
             "1",
             *args,
         ]
-        proc.run_cancellable(command, self._cancelled, timeout=600)
+        try:
+            proc.run_cancellable(command, self._cancelled, timeout=timeout)
+        except TimeoutError:
+            if timeout == 600:
+                raise
+            raise ValueError(
+                "The thumbnail could not be created within 30 seconds. Try another time."
+            ) from None
 
     def _folder(self, identifier):
         root = self.library.folder / ".videoenhancer"
@@ -115,6 +122,7 @@ class Thumbnails:
             return False
 
     def set_poster(self, identifier, position):
+        deadline = time.monotonic() + 30
         with self.library.acquire(identifier):
             path, info = self.library._find(identifier)
             duration = self.library._probe(path)["duration"]
@@ -133,10 +141,10 @@ class Thumbnails:
                     [
                         "-protocol_whitelist",
                         "file,pipe",
-                        "-i",
-                        str(path),
                         "-ss",
                         str(position),
+                        "-i",
+                        str(path),
                         "-frames:v",
                         "1",
                         "-vf",
@@ -144,7 +152,8 @@ class Thumbnails:
                         "-q:v",
                         "4",
                         str(target),
-                    ]
+                    ],
+                    timeout=max(0, deadline - time.monotonic()),
                 )
                 # The inclusive duration endpoint selects the final decodable frame.
                 if not target.exists() and position == duration:
@@ -163,7 +172,8 @@ class Thumbnails:
                             "-q:v",
                             "4",
                             str(target),
-                        ]
+                        ],
+                        timeout=max(0, deadline - time.monotonic()),
                     )
                 data = target.read_bytes()
                 if not data:

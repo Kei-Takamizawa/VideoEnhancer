@@ -17,6 +17,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from email.utils import formatdate
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlsplit
@@ -25,7 +26,7 @@ from videoenhancer.remote.adapter import EngineAdapter
 from videoenhancer.remote.certificates import ensure_certificates, local_addresses
 from videoenhancer.remote.power import Awake
 from videoenhancer.remote.security import Devices, cookie_secret, private_ipv4
-from videoenhancer.remote.uploads import MAX_CHUNK
+from videoenhancer.remote.uploads import MAX_CHUNK, UploadConflict
 
 WEB = Path(__file__).with_name("web")
 CSP = (
@@ -65,7 +66,7 @@ class LANServer(ThreadingHTTPServer):
         if not private_ipv4(address[0]):
             connection.close()
             raise OSError("Source address is not allowed.")
-        connection.settimeout(15)
+        connection.settimeout(30)
         if self.context is not None:
             try:
                 connection = self.context.wrap_socket(
@@ -220,6 +221,7 @@ class Handler(BaseHTTPRequestHandler):
             if key != "Cache-Control":
                 self.send_header(key, value)
         self.end_headers()
+        self._response_started = True
         self._status = status
         if getattr(self, "command", None) != "HEAD":
             self.wfile.write(body)
@@ -230,6 +232,9 @@ class Handler(BaseHTTPRequestHandler):
     def _error(self, status, message):
         from videoenhancer.remote.http import drain_error_body
 
+        if getattr(self, "_response_started", False):
+            self.close_connection = True
+            return
         status = drain_error_body(self, status)
         if status == 413:
             message = "The request body is too large."
@@ -261,13 +266,29 @@ class Handler(BaseHTTPRequestHandler):
 
     def _request(self):
         self._body_consumed = False
+        self._response_started = False
+        self._bytes_sent = 0
+        self._request_count = getattr(self, "_request_count", 0) + 1
         started = time.monotonic()
         path = urlsplit(self.path).path
         self._status = 500
         try:
             self._dispatch(path)
-        except (BrokenPipeError, ConnectionResetError, TimeoutError):
-            pass
+        except (
+            BrokenPipeError,
+            ConnectionResetError,
+            ConnectionAbortedError,
+            TimeoutError,
+            ssl.SSLEOFError,
+            ssl.SSLZeroReturnError,
+        ):
+            self.close_connection = True
+            self.server.gateway.logger.info(
+                "client disconnected route=%s bytes_sent=%s elapsed=%.3f",
+                self._route_template(path),
+                self._bytes_sent,
+                time.monotonic() - started,
+            )
         except FileNotFoundError:
             self._error(404, "This video is no longer available.")
         except PermissionError:
@@ -276,18 +297,32 @@ class Handler(BaseHTTPRequestHandler):
             )
         except ValueError:
             self._error(400, "The request is invalid.")
-        except OSError:
+        except OSError as error:
+            self._log_failure(path, error)
             self._error(503, "The PC cannot read the library right now. Try again.")
-        except Exception:
+        except Exception as error:
+            self._log_failure(path, error)
             self._error(500, "The PC could not complete this request. Try again.")
         finally:
             self.server.gateway.logger.info(
-                "%s %s %s %.3f",
+                "%s %s %s %.3f bytes_sent=%s",
                 self.command,
                 self._route_template(path),
                 self._status,
                 time.monotonic() - started,
+                self._bytes_sent,
             )
+
+    def _log_failure(self, path, error):
+        from videoenhancer.remote.diagnostics import frames, reason
+
+        self.server.gateway.logger.error(
+            "gateway failure route=%s type=%s reason=%s traceback=%s",
+            self._route_template(path),
+            type(error).__name__,
+            reason(error),
+            frames(error),
+        )
 
     def _dispatch(self, path):
         gateway = self.server.gateway
@@ -482,7 +517,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._video(parts[2])
         if len(parts) == 3 and parts[:2] == ["api", "library"] and self.command == "DELETE":
             library.delete(parts[2])
-            return self._json(200, {"deleted": True})
+            return self._json(200, {"deleted": True}, {"Clear-Site-Data": '"cache"'})
         return self._error(404, "This page is not available.")
 
     def _remote_api(self, path, device):
@@ -566,6 +601,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._error(404, "This page is not available.")
             else:
                 self._json(200, result)
+        except UploadConflict as error:
+            self._error(409, str(error))
         except (ValueError, KeyError, TypeError) as error:
             message = str(error)
             if (
@@ -747,14 +784,20 @@ In Safari, tap Share &gt; Add to Home Screen, with Open as Web App on.</li>
 
         with self.server.gateway.adapter.library.acquire(identifier) as (stream, item):
             size = item["size"]
+            info = os.fstat(stream.fileno())
+            etag = '"' + hashlib.sha256(f"{size}:{info.st_mtime_ns}".encode()).hexdigest() + '"'
+            modified = formatdate(info.st_mtime, usegmt=True)
+            requested_range = self.headers.get("Range")
+            if self.headers.get("If-Range") not in {None, etag, modified}:
+                requested_range = None
             try:
-                start, end = parse_range(self.headers.get("Range"), size)
+                start, end = parse_range(requested_range, size)
             except ValueError:
                 return self._send(
                     416, headers={"Content-Range": f"bytes */{size}", "Accept-Ranges": "bytes"}
                 )
             count = max(0, end - start + 1)
-            self.send_response(206 if self.headers.get("Range") else 200)
+            self.send_response(206 if requested_range else 200)
             self.send_header("Content-Type", item.get("mime", "video/mp4"))
             self.send_header("Content-Length", str(count))
             self.send_header("Accept-Ranges", "bytes")
@@ -763,26 +806,51 @@ In Safari, tap Share &gt; Add to Home Screen, with Open as Web App on.</li>
                     "Content-Disposition",
                     "attachment; filename*=UTF-8''" + quote(item["filename"], safe=""),
                 )
-            if self.headers.get("Range"):
+            if requested_range:
                 self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
             self.send_header("Content-Security-Policy", CSP)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Connection", "close")
-            self.close_connection = True
+            self.send_header(
+                "Cache-Control", "no-store" if attachment else "private, max-age=86400"
+            )
+            if not attachment:
+                self.send_header("ETag", etag)
+                self.send_header("Last-Modified", modified)
+            self.close_connection = (
+                self.request_version != "HTTP/1.1"
+                or self.headers.get("Connection", "").lower() == "close"
+                or getattr(self, "_request_count", 1) >= 100
+            )
+            if self.close_connection:
+                self.send_header("Connection", "close")
+            else:
+                self.send_header("Keep-Alive", "timeout=30, max=100")
+            # Idle reads may wait 30 s; a stalled writer releases its thread sooner.
+            self.connection.settimeout(5)
             self.end_headers()
-            self._status = 206 if self.headers.get("Range") else 200
+            self._response_started = True
+            self._status = 206 if requested_range else 200
             if self.command == "HEAD":
+                self.connection.settimeout(30)
                 return
             stream.seek(start)
             while count:
-                data = stream.read(min(256 * 1024, count))
+                data = stream.read(min(1024 * 1024, count))
                 if not data:
-                    break
-                self.wfile.write(data)
-                count -= len(data)
+                    self.close_connection = True
+                    raise OSError("Video changed during streaming.")
+                # Count successful socket writes even if a later write is aborted.
+                view = memoryview(data)
+                while view:
+                    sent = self.connection.send(view)
+                    if not sent:
+                        raise ConnectionResetError("Client disconnected.")
+                    self._bytes_sent += sent
+                    count -= sent
+                    view = view[sent:]
             self.wfile.flush()
+            self.connection.settimeout(30)
             if count == 0:
                 return start, end, size
 
