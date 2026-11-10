@@ -102,7 +102,7 @@ A 21-frame full-frame pilot at 1440×2560 reached 12,580,814,848 bytes Torch-res
 
 ### Review videos
 
-The external folder `owner-review-2` contains two H.264 8-bit videos with panels ordered Degraded, C1, C2, C5, C7. Clip A is 300 frames (10.01 seconds); clip B is 150 frames (5.005 seconds). See `.ai/LAST_REPORT.md` for their local paths.
+The external folder `owner-review-2` contains two H.264 8-bit videos with panels ordered Degraded, C1, C2, C5, C7. Clip A is 300 frames (10.01 seconds); clip B is 150 frames (5.005 seconds). See [historical development reports](archive/claude-codex/README.md) for their local paths.
 
 ## Reproduction artifacts
 
@@ -168,4 +168,4 @@ Chain fps is frame count divided by the **sum of measured sequential step times*
 - For the review panels, candidates were ranked by mean SSIM-Y across A/B, then mean PSNR-Y. C2 is a reference baseline; C11 is excluded because it fails its non-regression rule. The top two new candidates are C5 and C9 + C1 (50/50).
 - No new candidate improves both PSNR-Y and SSIM-Y over C1 on both clips. No visual-quality conclusion or default-preset change is made.
 
-The external `owner-review-3` videos show Original / Degraded / C1 / C5 / C9 + C1 (50/50), using the same full 10.010 s and 5.005 s windows. Exact paths and reproduction commands are in `.ai/LAST_REPORT.md`.
+The external `owner-review-3` videos show Original / Degraded / C1 / C5 / C9 + C1 (50/50), using the same full 10.010 s and 5.005 s windows. Exact paths and reproduction commands are in [historical development reports](archive/claude-codex/README.md).

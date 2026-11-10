@@ -1,5 +1,11 @@
 # Development
 
+Claude handles implementation, tests, review and Git directly. Start with
+[CLAUDE.md](../CLAUDE.md) for the workflow and safety rules, and the
+[project handoff](../MIGRATION_HANDOFF.md) for the verified baseline and context.
+The previous task/report exchange is retained only in the
+[historical archive](archive/claude-codex/README.md).
+
 ## Playback measurements
 
 Historical comparative measurements and their exact recipes are retained in the

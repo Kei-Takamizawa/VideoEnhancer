@@ -32,7 +32,7 @@ VideoEnhancer is organized as a local conversion engine. A job is probed and nor
 
 The media layer owns probing, decode, color conversion, encode and mux. Standard restoration is split into overlapping clips. Clips stop at hard scene cuts; overlap frames are emitted once by the clip in which the frame is farthest from an edge (ties go to the later clip). A bounded frame buffer supplies context across segment boundaries and releases frames after their final clip use. Interpolated frames belong to the left source frame. Job storage owns the manifest and atomic segment state. The scheduler decides when segments may run, while the estimator uses a per-machine profile plus observed job timings.
 
-CUDA decode, processing and encode are hardware-dependent. CPU support exists for deterministic development and CI. Reports must distinguish measured hardware results from skipped or uncalibrated paths. P1a GPU validation is recorded in `.ai/LAST_REPORT.md`; its short clip measurements do not establish long-job stability or visual quality.
+CUDA decode, processing and encode are hardware-dependent. CPU support exists for deterministic development and CI. Reports must distinguish measured hardware results from skipped or uncalibrated paths. P1a GPU validation is recorded in [historical development reports](archive/claude-codex/README.md); its short clip measurements do not establish long-job stability or visual quality.
 
 Model selection uses data-only `model.json` manifests under `VE_HOME/models/<id>`.
 The Standard release model is `basicvsrpp-ntire21-decompress` (C1); interpolation
