@@ -5,7 +5,8 @@ upload, playback, downloads, sharing and reconnect behavior. It imports no produ
 code. Results from desktop WebKit do not establish iPadOS Safari support.
 
 Run from the repository in PowerShell. All commands use session-only environment
-variables. The operator, not Codex, starts the owner session and leaves it running.
+variables. Claude Code on the Windows PC starts the owner session and leaves it running.
+In this spike's checklists, "operator" means that Claude Code session.
 
 ```powershell
 . .\local-env.ps1

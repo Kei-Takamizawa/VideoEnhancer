@@ -10,12 +10,12 @@ events and retains Alt+Arrow keyboard reordering.
 History playback uses the shell's bounded media protocol. On PCs without HEVC
 playback support, the player offers the Microsoft Store codec page and the default
 player. The default output codec is unchanged. Test results and remaining acceptance
-items are recorded in `.ai/LAST_REPORT.md`.
+items are recorded in [historical development reports](archive/claude-codex/README.md).
 
 ## P1e owner-check update
 
 The P1e update follows the owner-check instructions while retaining the cafe
-palette and dock. See `.ai/LAST_REPORT.md` for measured acceptance results.
+palette and dock. See [historical development reports](archive/claude-codex/README.md) for measured acceptance results.
 
 The five-screen floating dock supports Ctrl+1 through Ctrl+5. The Windows title
 bar supports native window controls. Settings offers System, Dark and Light
@@ -160,7 +160,7 @@ production restoration weights. This verifies desktop/API/SSE integration, not
 GPU restoration quality. `VE_GUI_EVIDENCE` selects an external screenshot folder;
 otherwise ignored `gui/test-results/evidence` is used. Engine regression checks
 are listed in DEVELOPMENT.md. GPU acceptance requires separate owner-hardware
-checks; measured results and remaining limitations are in `.ai/LAST_REPORT.md`.
+checks; measured results and remaining limitations are in [historical development reports](archive/claude-codex/README.md).
 
 Owner-only GPU checks are opt-in. Set `VE_GUI_GPU_HOME` to a fresh isolated home
 with verified built-in models and adapter sources, and `VE_GUI_EVIDENCE` to an

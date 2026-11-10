@@ -113,7 +113,9 @@ production-readiness claim follows from this spike.
 CPU CI can lint the scripts and build an isolated Windows host. It cannot prove
 hardware decoding, alpha/z-order, real DPI moves, display timing or GPU memory.
 The measured recommendation, failures and remaining product decisions are in
-`.ai/LAST_REPORT.md`; final commit and CI publication belong to the operator.
+[historical development reports](../../docs/archive/claude-codex/README.md).
+Claude handles implementation, testing, commits and CI review under
+[the current development rules](../../CLAUDE.md).
 
 At cycle end, close only cycle-owned processes, inventory cleanup paths/sizes
 in the report, validate their absolute paths and remove the generated scratch

@@ -6,7 +6,7 @@ starts the PC test server; no PC window needs to stay visible to you.
 
 1. Ask the operator to generate the samples and start the server using the
    commands in README.md. If Windows asks about the firewall, the owner allows
-   **Private networks only**. Codex must not change this setting.
+   **Private networks only**. Claude must not change this setting.
 2. Within two minutes, open Safari on the iPad and visit
    **http://videoenhancer.local:8080/pair**. Do not let another device open it
    first. Keep this tab open. If the name does not work, ask the operator for the

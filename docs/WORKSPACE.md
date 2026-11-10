@@ -1,6 +1,10 @@
 # Workspace and disk budget
 
-All local cycle work belongs under `D:\my-workspace\VideoEnhancer\work`:
+On the owner's Windows PC, all development work belongs under `D:\my-workspace\VideoEnhancer\work`.
+Claude follows these rules directly; "cycle" below means a development task,
+without a separate assistant handoff. Other checkouts keep generated artifacts
+inside their own isolated workspace and report Windows-only measurements as
+not run when unavailable.
 
 | Folder | Purpose |
 | --- | --- |
@@ -29,7 +33,7 @@ remain recorded and do not delay that removal.
 
 Use a Git-ignored `repo/local-env.ps1` and dot-source it before installing, building or testing. Set `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`, `npm_config_cache`, `PLAYWRIGHT_BROWSERS_PATH`, `ELECTRON_CACHE`, `HF_HOME`, `TORCH_HOME`, `TEMP` and `TMP` to subfolders of `work/cache` or `work/scratch`. Use an isolated `VE_HOME` under scratch and `VE_GPU_TEST_MODEL_HOME` under cache. These variables apply only to the current shell or command. Never change system or user environment variables, long-path policy, drivers or Recycle Bin settings.
 
-Windows-managed event logs, crash reporting and application compatibility data can still be written to the system drive. The Codex host's own installation, sessions and runtime are outside this project's control. Do not clean these as project cache. The Tauri shell and engine share the roaming `VideoEnhancer/storage-location.json` pointer, outside movable app data; a legacy Electron pointer is migrated only if the canonical pointer is missing. Development GUI launches must isolate roaming/local app data and the WebView2 profile under scratch. Installed system FFmpeg and Git remain where the owner installed them; development does not modify them.
+Windows-managed event logs, crash reporting and application compatibility data can still be written to the system drive. The development assistant's own installation, sessions and runtime are outside this project's control. Do not clean these as project cache. The Tauri shell and engine share the roaming `VideoEnhancer/storage-location.json` pointer, outside movable app data; a legacy Electron pointer is migrated only if the canonical pointer is missing. Development GUI launches must isolate roaming/local app data and the WebView2 profile under scratch. Installed system FFmpeg and Git remain where the owner installed them; development does not modify them.
 
 ## Retention
 

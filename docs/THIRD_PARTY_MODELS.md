@@ -20,7 +20,7 @@ Sources were checked against the linked project documentation and release pages 
 
 The following optional entries passed source, license, adapter load, the synthetic
 reference budget and GPU comparison checks. Default tensor/CPU regression checks
-are recorded in `.ai/LAST_REPORT.md`. No weights or preview media are distributed
+are recorded in [historical development reports](archive/claude-codex/README.md). No weights or preview media are distributed
 in Git. Downloads require consent. Source sizes and hashes were measured locally.
 
 | Model | Exact license | Original publisher download | Checkpoint bytes | SHA-256 |

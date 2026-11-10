@@ -217,6 +217,6 @@ no Python from a user model folder is imported. Archive-backed downloads require
 `weights.archive.sha256` and a safe `member` path, as well as the extracted
 checkpoint hash. DRUNet strengths share one card and one checkpoint.
 
-See [third-party model sources](THIRD_PARTY_MODELS.md) and `.ai/LAST_REPORT.md`
+See [third-party model sources](THIRD_PARTY_MODELS.md) and [historical development reports](archive/claude-codex/README.md)
 for source hashes, licenses, omissions, and measured results. Existing C1,
 RIFE 4.25, and Standard resize remain the defaults.

@@ -105,7 +105,7 @@ shows the measured/current driver note. With no profile, the uncalibrated range
 remains. Speed unknown means the chosen model has no reference: run manual
 speed calibration, or add the job with its time left unknown. Calibration's
 button shows an approximate duration and offers Cancel while running. See
-`.ai/LAST_REPORT.md` for measured accuracy and calibration wall times; these
+[historical development reports](archive/claude-codex/README.md) for measured accuracy and calibration wall times; these
 measurements do not establish performance on other GPUs.
 
 History removal preserves videos. Delete video files is a separate action.

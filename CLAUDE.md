@@ -1,47 +1,72 @@
-# Instructions for Claude
+# Development with Claude
 
-This project uses two Claude roles and Codex. Read `AGENTS.md` for Codex's rules and `MIGRATION_HANDOFF.md` for the project state.
+Claude handles design, product and test code, builds, verification, review and Git
+operations directly. The owner ended the Claude-Codex loop on 2026-11-10. Do not
+start Codex or require a separate designer, operator or implementer handoff.
 
-## Which Claude are you?
+Read [the project handoff](MIGRATION_HANDOFF.md), [development setup](docs/DEVELOPMENT.md)
+and [workspace rules](docs/WORKSPACE.md) before working. The records under
+`docs/archive/claude-codex/` are historical evidence, not active instructions or a
+queue of work. New work comes from the owner's current request; no
+`CURRENT_TASK.md` / `LAST_REPORT.md` exchange is required.
 
-- **Designer and reviewer** (the cloud project, or any session not running on the owner's Windows PC): write specifications and Codex tasks, review reports, diffs and CI. Do not write product code or test code.
-- **Operator** (a Claude Code session on the owner's Windows PC, usually started from the cloud project through Remote Control): run Codex, do the Git work, report results. Do not write product code or test code either.
+## Workflow
 
-## Operator: running a cycle
+1. Inspect the current branch, working tree and relevant code. Preserve existing
+   changes and avoid simultaneous sessions changing the same checkout. A cloud
+   Claude session may plan or review, and Claude Code may work on Windows through
+   Remote Control; both follow these rules and may implement directly.
+2. Agree on the requested scope from the owner's instructions, implement it and
+   add meaningful regression coverage where needed. Do not skip, disable or
+   weaken tests to make a change pass.
+3. Run the checks appropriate to the change, using the commands in
+   `docs/DEVELOPMENT.md` and `.github/workflows/ci.yml`. Windows desktop, GPU and
+   physical-device checks require their actual environments. Distinguish passed,
+   failed and not-run checks; a CPU or browser result does not prove a hardware or
+   owner check passed. Report every run of a gated measurement, including failures.
+4. Review the diff, stage only intended source and documentation, commit and push
+   the task branch, and inspect CI on the latest commit. Report the change,
+   verification results, remaining limitations and any owner actions. Keep
+   durable task notes when useful; do not overwrite historical reports.
+5. Preserve the owner's existing merge conditions: squash a pull request only
+   when implementation is complete, review accepts the change, every CI check on
+   the latest commit passed, and the diff stays within the agreed scope.
+   Otherwise report the missing conditions. A seemingly flaky CI failure may be
+   rerun once; it must not be skipped. Other merges need the owner's authorization.
 
-1. **Before starting**, confirm all of these and report any that fail:
-   - no other Codex job is running for this repository (the Codex desktop app is idle and no `codex exec` is running);
-   - `git status` in `D:\my-workspace\VideoEnhancer\work\repo` is clean;
-   - the cycle branch named by the designer exists. Fetch it explicitly (`git fetch origin <branch>`), because this clone's fetch setting does not cover every branch. Check it out.
-   - `.ai/CURRENT_TASK.md` on that branch has the Task ID the designer gave you.
-2. **Start Codex** from the work folder, with the approval mode the owner chose on 2026-10-21 (on request, reviewed automatically, as in the Codex desktop app):
+No force push, `reset --hard` or history rewrite. Do not commit media, weights,
+downloaded tools, packages, `node_modules`, build output, screenshots,
+`local-env.ps1`, or private logs, links, paths or names.
 
-   ```powershell
-   codex exec -C D:\my-workspace\VideoEnhancer\work --skip-git-repo-check -s workspace-write `
-     -c 'approval_policy="on-request"' -c 'approvals_reviewer="guardian_subagent"' `
-     "Follow work\repo\AGENTS.md and complete the task in work\repo\.ai\CURRENT_TASK.md."
-   ```
+## Workspace and verification
 
-   - Do not use the plugin's `/codex:rescue` for implementation: it runs Codex without approvals, so FFmpeg, network and Git fail. `/codex:review`, `/codex:status` and `/codex:result` are fine.
-   - `--skip-git-repo-check` is needed because `work\` itself is not a Git repository.
-   - Never use `danger-full-access` or any bypass flag. Never edit `~/.codex/config.toml`.
-   - Save Codex's output to `work\evidence\<Task ID>\codex-exec.log` and record its session ID, so the run can continue with `codex exec resume` after an interruption.
-3. **After Codex finishes:**
-   - check that `.ai/LAST_REPORT.md` was rewritten for this Task ID;
-   - review `git status` and `git diff --stat`. Refuse to stage media, weights, packages, `node_modules`, build output, screenshots, `local-env.ps1` or private data;
-   - stage only the files the report lists as changed, commit with a clear message, and push the cycle branch. Report the commit hash.
-4. **Report back** with the Task ID, the commit, the report's status line, failures, and anything the owner must do.
+- On the owner's Windows PC, work under
+  `D:\my-workspace\VideoEnhancer\work`, with the checkout in `work\repo`.
+  Dot-source the Git-ignored `repo/local-env.ps1` in each shell before installing,
+  building or testing. Use session-only environment variables.
+- Never read, write, clean or move the owner's `VE-check`, `AppData`, the Recycle
+  Bin, or anything else in `D:\my-workspace` outside `work`.
+- Isolate `VE_HOME`, `TEMP`, `TMP`, pytest's `--basetemp`, GUI app-data roots and
+  the WebView2 profile under task-owned scratch. Do not touch another session's
+  scratch or the owner's running app, queue or service.
+- Keep one current package, at most 300 MB of evidence per task and the last
+  three tasks' evidence, a complete cache below 40 GB, and persistent growth at
+  most 1 GB per task unless an explicit task exception applies. Record the disk
+  table, growth, cleanup paths and measured removed bytes as described in
+  `docs/WORKSPACE.md`. Do not invent Windows drive measurements from another host.
+- Inventory exact paths and sizes before deleting confirmed development
+  artifacts. Clean only this task's scratch after saving required evidence.
+  If deletion is refused, record the remaining path and size for the owner;
+  never bypass the refusal or assume old cleanup succeeded.
 
-## Always
+## Boundaries
 
-- One Codex job at a time per repository.
-- No force push, no `reset --hard`, no history rewrite.
-- **Merging (owner decision, 2026-10-21):** the designer merges a cycle's pull request (squash) only when all of these hold; otherwise it reports what is missing and does not merge:
-  1. `.ai/LAST_REPORT.md` for the cycle's Task ID says COMPLETED (not PARTIAL or BLOCKED);
-  2. the designer's review accepts the change;
-  3. every CI check on the latest commit passed (a failure that looks flaky may be re-run once; it is never skipped);
-  4. the diff contains only files the task allowed.
-  The operator never merges. Any other merge needs the owner.
-- Never touch `D:\my-workspace\VideoEnhancer\VE-check`, `D:\my-workspace\VideoEnhancer\AppData`, the Recycle Bin, or anything in `D:\my-workspace` outside `work\`.
-- If a usage limit, sign-in error, permission error or environment failure stops the work, record the state (Task ID, Codex session ID, `git status`) and stop. Do not retry in a loop and do not buy extra usage.
-- Report only what you actually ran and saw.
+- Do not change system or user environment variables, drivers, Windows settings
+  or assistant-wide configuration. Do not bypass permission controls.
+- Tests must not download from YouTube, TikTok, Instagram or X. CI uses local
+  servers and synthetic media. Use owner media only when explicitly requested.
+- If a usage limit, sign-in error, permission error or environment failure blocks
+  work, record what is done, what remains, the branch/commit and working-tree
+  state. Stop the blocked operation; do not retry in a loop or buy extra usage.
+- Report only what actually ran and was observed. Code, comments, UI text and
+  repository documentation are in English.

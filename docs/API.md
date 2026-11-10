@@ -170,7 +170,7 @@ the manifest and the last 40 segment-log lines.
 SSE snapshot exceptions emit `event: error` with plain text and are retried
 within the same stream. Heartbeats remain every ten seconds. Snapshot generation,
 estimates, thumbnails and input analysis do not hold the shared mutation lock.
-See `.ai/LAST_REPORT.md` for measured acceptance results and remaining gaps.
+See [historical development reports](archive/claude-codex/README.md) for measured acceptance results and remaining gaps.
 
 ## P1c-3 additions
 
