@@ -14,6 +14,7 @@ so the report does not disclose a public address.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import ipaddress
 import json
 import os
@@ -29,6 +30,8 @@ from typing import Any
 REQUIRED_GLIBC = (2, 28)
 ENCODERS = ("hevc_nvenc", "h264_nvenc", "av1_nvenc")
 DECODERS = ("hevc_cuvid", "h264_cuvid")
+# FFmpeg's NVENC/CUVID and PyNvVideoCodec load these driver libraries at run time.
+VIDEO_LIBRARIES = ("libnvidia-encode.so.1", "libnvcuvid.so.1")
 PRIVATE = tuple(
     ipaddress.ip_network(value)
     for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16")
@@ -73,6 +76,7 @@ def operating_system() -> dict[str, Any]:
             bool(parts) and parts >= REQUIRED_GLIBC and platform.machine() == "x86_64"
         ),
         "hostname": socket.gethostname().split(".")[0],
+        "container": container(),
     }
 
 
@@ -146,7 +150,30 @@ def gpus() -> dict[str, Any]:
         "driver_maximum_cuda": driver_cuda,
         "persistence_mode_available": shutil.which("nvidia-persistenced") is not None,
         "container_toolkit": shutil.which("nvidia-ctk") is not None,
+        "video_libraries": video_libraries(),
     }
+
+
+def video_libraries() -> dict[str, bool]:
+    """Whether the driver's encode/decode libraries load; loading changes nothing."""
+    found = {}
+    for name in VIDEO_LIBRARIES:
+        try:
+            ctypes.CDLL(name)
+            found[name] = True
+        except OSError:
+            found[name] = False
+    return found
+
+
+def container() -> str | None:
+    code, output, _ = run(["systemd-detect-virt", "--container"])
+    if code == 0 and output and output != "none":
+        return output
+    marker = Path("/run/systemd/container")
+    if marker.is_file():
+        return marker.read_text(encoding="utf-8", errors="replace").strip() or "unknown"
+    return None
 
 
 def ffmpeg() -> dict[str, Any]:
@@ -261,17 +288,48 @@ def blockers(data: dict[str, Any]) -> list[str]:
         found.append("FFmpeg is missing; probing, muxing and CPU encoding need it.")
     elif not any(data["ffmpeg"]["hardware_codecs"].get(name) for name in ENCODERS):
         found.append("This FFmpeg build has no NVENC encoder, so hardware encoding is unavailable.")
+    missing = [
+        name
+        for name, loaded in data["gpu"].get("video_libraries", {}).items()
+        if data["gpu"].get("nvidia_present") and not loaded
+    ]
+    if missing:
+        found.append(
+            f"The NVIDIA video libraries do not load ({', '.join(missing)}), so NVENC, NVDEC "
+            "and PyNvVideoCodec fail. In a container, allow the driver's 'video' capability."
+        )
     if not data["service_platform"]["systemd"]:
         found.append("systemd was not found, so the service needs another supervisor.")
-    if not data["service_platform"]["avahi_active"]:
+    inside = data["operating_system"].get("container")
+    if not data["service_platform"]["avahi_active"] and not inside:
         found.append(
             "Avahi is not active, so the certificate's <hostname>.local name will not "
             "resolve for an iPad; a fixed private IPv4 address would be needed instead."
         )
+    if inside:
+        # A container's own address and name are not what iPads use; see notes().
+        return found
     if not data["network"]["reachable_by_ipad_as_built"]:
         found.append(
             "This host has no private IPv4 address. The remote gateway only accepts "
             "clients in the private ranges, so an iPad cannot reach it without a VPN."
+        )
+    return found
+
+
+def notes(data: dict[str, Any]) -> list[str]:
+    found = []
+    inside = data["operating_system"].get("container")
+    if inside:
+        found.append(
+            f"Running in a container ({inside}). iPads cannot reach its private bridge "
+            "address: forward the gateway ports from the host's home-network address and "
+            "install with --name and --address for the host. Avahi belongs on the host."
+        )
+    if data["ffmpeg"]["present"]:
+        found.append(
+            "FFmpeg codec names show build support only; the video library check shows "
+            "whether the driver libraries actually load."
         )
     return found
 
@@ -285,7 +343,8 @@ def lines(data: dict[str, Any]) -> list[str]:
     text = [
         "VideoEnhancer Linux host report",
         "",
-        f"Host           {system['hostname']} ({system['architecture']})",
+        f"Host           {system['hostname']} ({system['architecture']})"
+        + (f", container {system['container']}" if system.get("container") else ""),
         f"Distribution   {system['distribution']}",
         f"Kernel / libc  {system['kernel']} / {system['libc']}",
         f"CPU / memory   {machine['logical_cpus']} logical CPUs / {machine['memory_gb']} GB",
@@ -305,6 +364,11 @@ def lines(data: dict[str, Any]) -> list[str]:
                 f"driver {device['driver_version']}, compute {device['compute_capability']}"
             )
         text.append(f"Driver CUDA    up to {gpu.get('driver_maximum_cuda') or 'unknown'}")
+        libraries = ", ".join(
+            f"{name}={'loads' if loaded else 'missing'}"
+            for name, loaded in gpu.get("video_libraries", {}).items()
+        )
+        text.append(f"Video libraries {libraries}")
     else:
         text.append(f"GPU            none usable ({gpu.get('reason', 'unknown')})")
     if tools["present"]:
@@ -313,7 +377,7 @@ def lines(data: dict[str, Any]) -> list[str]:
             for name, present in tools["hardware_codecs"].items()
         )
         text.append(f"FFmpeg         {tools['version']}")
-        text.append(f"Hardware codecs {codecs}")
+        text.append(f"FFmpeg builds  {codecs}")
     else:
         text.append(f"FFmpeg         missing ({tools['reason']})")
     text += [
@@ -334,6 +398,10 @@ def lines(data: dict[str, Any]) -> list[str]:
         text += [f"  - {item}" for item in found]
     else:
         text.append("No blocking finding was measured by this report.")
+    remarks = notes(data)
+    if remarks:
+        text.append("Notes:")
+        text += [f"  - {item}" for item in remarks]
     return text
 
 

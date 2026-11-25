@@ -2,6 +2,7 @@
 
 import importlib
 import itertools
+import os
 import subprocess
 from collections.abc import Callable, Iterator
 from fractions import Fraction
@@ -20,6 +21,11 @@ SMART_APP_CONTROL_MESSAGE = (
     "PyNvVideoCodec could not start. Windows Smart App Control may have blocked its "
     "unsigned NVIDIA video component (VersionCheck.cp312-win_amd64.pyd). See "
     "docs/TROUBLESHOOTING.md for details and options."
+)
+LINUX_VIDEO_LIBRARIES_MESSAGE = (
+    "PyNvVideoCodec could not load the NVIDIA driver's video libraries "
+    "(libnvidia-encode.so.1 and libnvcuvid.so.1). In a container, allow the driver's "
+    "'video' capability as well as 'compute'. See docs/LINUX_SERVER.md."
 )
 
 
@@ -52,14 +58,20 @@ class TimestampSequence:
 def _load_pynvcodec() -> Any:
     try:
         return importlib.import_module("PyNvVideoCodec")
-    except (ImportError, OSError) as exc:
-        # Windows returns ERROR_INVALID_IMAGE_HASH (577) when policy blocks an
-        # image. ImportError also covers a blocked extension reported by Python.
-        winerror = getattr(exc, "winerror", None)
+    except (ImportError, OSError, RuntimeError) as exc:
         missing_optional_package = (
             isinstance(exc, ModuleNotFoundError) and exc.name == "PyNvVideoCodec"
         )
-        if not missing_optional_package and (winerror == 577 or isinstance(exc, ImportError)):
+        if missing_optional_package:
+            raise
+        if os.name != "nt":
+            # PyNvVideoCodec loads NVENC and NVDEC from the driver at import time and
+            # raises RuntimeError when a container exposes only the compute libraries.
+            raise RuntimeError(f"{LINUX_VIDEO_LIBRARIES_MESSAGE} Details: {exc}") from None
+        # Windows returns ERROR_INVALID_IMAGE_HASH (577) when policy blocks an
+        # image. ImportError also covers a blocked extension reported by Python.
+        winerror = getattr(exc, "winerror", None)
+        if winerror == 577 or isinstance(exc, ImportError):
             raise RuntimeError(f"{SMART_APP_CONTROL_MESSAGE} Details: {exc}") from None
         raise
 

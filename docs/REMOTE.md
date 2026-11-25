@@ -9,6 +9,10 @@ completed or failed videos.
 
 ## Install and manage the service
 
+To run the service on a Linux server instead, see
+[Running the service on a Linux server](LINUX_SERVER.md). The rest of this
+section describes Windows.
+
 Run these commands from the engine checkout using its `.venv`. Set `VE_HOME` to
 the active engine home first. Installation changes only the current user's
 Scheduled Task and Start-menu shortcut without administrator rights. Firewall

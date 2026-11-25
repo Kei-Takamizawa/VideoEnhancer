@@ -66,10 +66,14 @@ def test_uninstall_only_removes_named_videoenhancer_rule(monkeypatch):
 
 
 def test_status_command_uses_fake_firewall_and_prints_public_warning(tmp_path, monkeypatch, capsys):
+    import os
     from argparse import Namespace
+    from types import SimpleNamespace
 
     from videoenhancer.remote import firewall
 
+    # The Windows firewall status applies only to the Windows service platform.
+    monkeypatch.setattr(install, "os", SimpleNamespace(name="nt", environ=os.environ))
     monkeypatch.setattr(install, "running", lambda _: None)
     monkeypatch.setattr(
         install,

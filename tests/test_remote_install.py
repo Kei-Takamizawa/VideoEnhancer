@@ -9,11 +9,13 @@ from videoenhancer.service.settings import read_settings, save_settings
 
 
 @pytest.fixture(autouse=True)
-def fake_firewall_powershell(monkeypatch):
+def fake_firewall_powershell(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "videoenhancer.remote.install._powershell",
         lambda _: '{"interfaces":[],"allow_rule":false,"block_rules":[]}',
     )
+    # Status may describe a systemd user unit; never read the developer's own.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "user-config"))
 
 
 def test_remote_cli_options():
@@ -63,7 +65,9 @@ def test_install_uninstall_fake_windows(tmp_path, monkeypatch):
             calls.append(("remove",))
 
     monkeypatch.setattr(install, "prepare_certificates", lambda home: calls.append(("cert", home)))
-    monkeypatch.setattr(install, "ensure_running", lambda home: calls.append(("start", home)))
+    monkeypatch.setattr(
+        install, "ensure_running", lambda home, service=None: calls.append(("start", home))
+    )
     monkeypatch.setattr(install, "stop_service", lambda home: calls.append(("stop", home)))
     monkeypatch.setattr(
         install, "request", lambda *a, **k: {"setup_address": "http://pc.local:8080/"}

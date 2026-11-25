@@ -2,19 +2,44 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import math
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any
 
 from videoenhancer.files import retry_permission
 
+REMOTE_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
+LAN_NETWORKS = tuple(
+    ipaddress.ip_network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+
+
+def lan_ipv4(value: str) -> bool:
+    """An RFC 1918 IPv4 address, in canonical form, that an iPad on the home network can use."""
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return (
+        isinstance(address, ipaddress.IPv4Address)
+        and any(address in network for network in LAN_NETWORKS)
+        and str(address) == value
+    )
+
+
 DEFAULTS: dict[str, Any] = {
     "remote_enabled": False,
     "remote_https_port": 8443,
     "remote_setup_port": 8080,
+    # Name and private IPv4 addresses iPads use when the service runs behind a
+    # forwarder, for example in a container. Empty values use this host's own.
+    "remote_name": "",
+    "remote_addresses": [],
     "share_limit_bytes": 900_000_000,
     "library_folder": "",
     "cleanup_working_files": True,
@@ -101,6 +126,23 @@ def save_settings(home: Path, value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("Remote ports must be integers between 1 and 65535.")
     if value["remote_https_port"] == value["remote_setup_port"]:
         raise ValueError("HTTPS and setup must use different ports.")
+    if not isinstance(value["remote_name"], str) or (
+        value["remote_name"] and not REMOTE_NAME.fullmatch(value["remote_name"])
+    ):
+        raise ValueError(
+            "The remote name must be one host-name label: letters, digits and inner hyphens."
+        )
+    addresses = value["remote_addresses"]
+    if (
+        not isinstance(addresses, list)
+        or len(addresses) > 8
+        or len(set(map(str, addresses))) != len(addresses)
+        or not all(isinstance(item, str) and lan_ipv4(item) for item in addresses)
+    ):
+        raise ValueError(
+            "Remote addresses must be up to eight different private IPv4 addresses "
+            "reachable from the home network."
+        )
     if (
         type(value["share_limit_bytes"]) is not int
         or not 0 <= value["share_limit_bytes"] <= 2**53 - 1

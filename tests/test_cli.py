@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -24,6 +25,8 @@ def test_smart_app_control_block_is_specific_in_probe_and_enhance(
     source = video_factory(frames=2)
     monkeypatch.setenv("VE_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    # Smart App Control exists only on Windows; Linux reports missing video libraries.
+    monkeypatch.setattr("videoenhancer.media.decode.os", SimpleNamespace(name="nt"))
     original = importlib.import_module
 
     def blocked(name, *args, **kwargs):
@@ -39,6 +42,32 @@ def test_smart_app_control_block_is_specific_in_probe_and_enhance(
         args += ["-o", str(tmp_path / "output.mp4"), "--backend", "cuda"]
     assert cli.main(args) == 1
     assert SMART_APP_CONTROL_MESSAGE in json.loads(capsys.readouterr().err)["error"]
+
+
+def test_missing_linux_video_libraries_are_named_not_smart_app_control(monkeypatch):
+    import importlib
+
+    import torch
+
+    from videoenhancer.media import decode
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr("videoenhancer.media.decode.os", SimpleNamespace(name="posix"))
+    original = importlib.import_module
+
+    def without_video_capability(name, *args, **kwargs):
+        if name == "PyNvVideoCodec":
+            # What PyNvVideoCodec 2.2.3 raised in an Incus container without 'video'.
+            raise RuntimeError("Failed to load NVENC library: libnvidia-encode.so.1")
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib, "import_module", without_video_capability)
+    with pytest.raises(RuntimeError) as raised:
+        decode.choose_backend("auto")
+    message = str(raised.value)
+    assert decode.LINUX_VIDEO_LIBRARIES_MESSAGE in message
+    assert "libnvidia-encode.so.1" in message
+    assert "Smart App Control" not in message
 
 
 def test_help_lists_engine_commands(capsys: Any) -> None:

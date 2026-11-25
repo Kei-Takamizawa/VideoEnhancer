@@ -110,7 +110,20 @@ def _parser() -> argparse.ArgumentParser:
     service.add_argument("--remote", action="store_true", help="Enable the iPad HTTPS gateway")
     remote = commands.add_parser("remote", help="Manage the headless iPad service")
     remote_commands = remote.add_subparsers(dest="remote_command", required=True)
-    remote_commands.add_parser("install", help="Install the per-user sign-in task")
+    install = remote_commands.add_parser(
+        "install", help="Install the per-user startup task (Windows) or systemd user service"
+    )
+    install.add_argument(
+        "--name",
+        help="Host name iPads use, without .local, when the service runs behind a forwarder",
+    )
+    install.add_argument(
+        "--address",
+        action="append",
+        dest="addresses",
+        metavar="IPV4",
+        help="Private IPv4 address iPads use; repeat for several. Default: this host's own",
+    )
     remote_commands.add_parser("restart", help="Gracefully restart the remote service")
     remote_commands.add_parser("stop", help="Gracefully stop the remote service")
     uninstall = remote_commands.add_parser("uninstall", help="Remove the task and stop the service")
