@@ -199,13 +199,13 @@ class Systemd:
     """Per-user systemd service; it changes nothing outside the user's own manager."""
 
     def __init__(self, run=None, unit_path: Path | None = None):
+        self.run = run or self._run
+        config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+        self.unit_path = unit_path or config / "systemd/user" / UNIT_NAME
         if os.name == "nt":
             raise RuntimeError("Use the Windows task on Windows.")
         if run is None and shutil.which("systemctl") is None:
             raise RuntimeError("Remote startup installation needs systemd (systemctl).")
-        self.run = run or self._run
-        config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-        self.unit_path = unit_path or config / "systemd/user" / UNIT_NAME
 
     @staticmethod
     def _run(arguments: list[str]) -> subprocess.CompletedProcess:
@@ -399,7 +399,8 @@ def install(
     service.shortcut(home, engine_root())
     firewall_status = service.firewall(read_settings(home))
     result: dict[str, Any] = {}
-    if hasattr(service, "enable_linger") and not service.enable_linger():
+    enable_linger = getattr(service, "enable_linger", None)
+    if enable_linger is not None and not enable_linger():
         user = os.environ.get("USER") or Path.home().name
         result["starts_at_boot"] = False
         result["message"] = (
