@@ -1,17 +1,18 @@
-"""Per-user Windows startup and authenticated local management commands."""
+"""Per-user service startup (Windows task or systemd user unit) and local management."""
 
 from __future__ import annotations
 
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 from xml.sax.saxutils import escape
 
@@ -20,6 +21,7 @@ from videoenhancer.service.settings import read_settings, save_settings
 
 TASK_NAME = "VideoEnhancer"
 SHORTCUT_NAME = "VideoEnhancer - Redo pairing.lnk"
+UNIT_NAME = "videoenhancer.service"
 
 
 def engine_root() -> Path:
@@ -131,6 +133,186 @@ class Windows:
 
         firewall.remove()
 
+    def firewall_status(self, settings: dict) -> dict:
+        from videoenhancer.remote import firewall
+
+        return firewall.status(
+            firewall.program(engine_root()),
+            settings["remote_https_port"],
+            settings["remote_setup_port"],
+        )
+
+    def start(self) -> None:
+        # Discovery disappears just before the task process exits. IgnoreNew would
+        # discard a start request while that process is still finishing.
+        _powershell(
+            "$ErrorActionPreference='Stop'; $deadline=[DateTime]::UtcNow.AddSeconds(25); "
+            "while ((Get-ScheduledTask -TaskName 'VideoEnhancer').State -eq 'Running') { "
+            "if ([DateTime]::UtcNow -ge $deadline) { throw 'The service task did not stop.' }; "
+            "Start-Sleep -Milliseconds 200 }; Start-ScheduledTask -TaskName 'VideoEnhancer'"
+        )
+
+    def describe(self) -> dict:
+        return {"manager": "Windows Task Scheduler", "task": TASK_NAME}
+
+
+def _unit_value(value: str | PurePath) -> str:
+    text = str(value)
+    if any(character in text for character in "\n\r\0"):
+        raise ValueError("Service paths cannot contain line breaks.")
+    return text.replace("%", "%%")
+
+
+def _unit_argument(value: str | PurePath) -> str:
+    text = _unit_value(value).replace("\\", "\\\\").replace('"', '\\"').replace("$", "$$")
+    return f'"{text}"'
+
+
+def unit_text(python: PurePath, home: PurePath, root: PurePath) -> str:
+    """A systemd user unit equivalent to the Windows sign-in task."""
+    command = " ".join(
+        _unit_argument(part)
+        for part in (python, "-m", "videoenhancer.remote.launcher", "--home", home)
+    )
+    return (
+        "[Unit]\n"
+        "Description=VideoEnhancer headless service\n"
+        # Like the Windows task: a failed start is retried three times, one minute apart.
+        "StartLimitIntervalSec=900\n"
+        "StartLimitBurst=4\n"
+        "\n"
+        "[Service]\n"
+        "Type=simple\n"
+        f"WorkingDirectory={_unit_value(root)}\n"
+        f"ExecStart={command}\n"
+        "Restart=on-failure\n"
+        "RestartSec=60\n"
+        "UMask=0077\n"
+        "NoNewPrivileges=yes\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=default.target\n"
+    )
+
+
+class Systemd:
+    """Per-user systemd service; it changes nothing outside the user's own manager."""
+
+    def __init__(self, run=None, unit_path: Path | None = None):
+        self.run = run or self._run
+        config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+        self.unit_path = unit_path or config / "systemd/user" / UNIT_NAME
+        if run is None:
+            # An injected runner (tests) never reaches a real service manager.
+            if os.name == "nt":
+                raise RuntimeError("Use the Windows task on Windows.")
+            if shutil.which("systemctl") is None:
+                raise RuntimeError("Remote startup installation needs systemd (systemctl).")
+
+    @staticmethod
+    def _run(arguments: list[str]) -> subprocess.CompletedProcess:
+        return proc.run(
+            arguments,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+
+    def _systemctl(self, *arguments: str, check: bool = True) -> str:
+        result = self.run(["systemctl", "--user", *arguments])
+        if check and result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(
+                f"systemctl --user {' '.join(arguments)} failed: {detail or result.returncode}"
+            )
+        return (result.stdout or "").strip()
+
+    def register(self, home: Path, root: Path) -> None:
+        python = root / ".venv/bin/python"
+        if not python.is_file():
+            raise FileNotFoundError("This checkout needs .venv/bin/python.")
+        self.unit_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.unit_path.with_name(f".{UNIT_NAME}.tmp")
+        temporary.write_text(unit_text(python, home, root), encoding="utf-8")
+        temporary.replace(self.unit_path)
+        self._systemctl("daemon-reload")
+        self._systemctl("enable", UNIT_NAME)
+
+    def shortcut(self, home: Path, root: Path) -> None:
+        # A headless server has no Start menu; pairing opens with 've remote pair'.
+        return None
+
+    def remove(self) -> None:
+        if self.unit_path.exists():
+            self._systemctl("disable", UNIT_NAME, check=False)
+            self.unit_path.unlink()
+            self._systemctl("daemon-reload")
+
+    def firewall(self, settings: dict) -> dict:
+        return {**self.firewall_status(settings), "setup": "not_managed"}
+
+    def remove_firewall(self) -> None:
+        return None
+
+    def firewall_status(self, settings: dict) -> dict:
+        return {
+            "managed": False,
+            "message": (
+                "VideoEnhancer does not change the Linux firewall. If one is active, "
+                f"allow TCP {settings['remote_https_port']} and "
+                f"{settings['remote_setup_port']} from the home network only."
+            ),
+        }
+
+    def start(self) -> None:
+        # A gracefully stopped service may still be exiting; starting an active
+        # unit would be a no-op, so wait until systemd reports it inactive.
+        deadline = time.monotonic() + 25
+        while self._systemctl("is-active", UNIT_NAME, check=False) in {
+            "active",
+            "activating",
+            "deactivating",
+            "reloading",
+        }:
+            if time.monotonic() >= deadline:
+                raise RuntimeError("The service unit did not stop.")
+            time.sleep(0.2)
+        self._systemctl("reset-failed", UNIT_NAME, check=False)
+        self._systemctl("start", UNIT_NAME)
+
+    def linger(self) -> bool | None:
+        user = os.environ.get("USER") or Path.home().name
+        result = self.run(["loginctl", "show-user", user, "--property=Linger", "--value"])
+        if result.returncode != 0:
+            return None
+        return (result.stdout or "").strip() == "yes"
+
+    def enable_linger(self) -> bool:
+        """Ask logind, without a password prompt, to start this user's services at boot."""
+        if self.linger():
+            return True
+        self.run(["loginctl", "enable-linger", "--no-ask-password"])
+        return bool(self.linger())
+
+    def describe(self) -> dict:
+        result: dict[str, Any] = {
+            "manager": "systemd user service",
+            "unit": str(self.unit_path),
+            "installed": self.unit_path.exists(),
+        }
+        if result["installed"]:
+            result["enabled"] = self._systemctl("is-enabled", UNIT_NAME, check=False)
+            result["active"] = self._systemctl("is-active", UNIT_NAME, check=False)
+            result["starts_at_boot"] = self.linger()
+        return result
+
+
+def service_platform():
+    return Windows() if os.name == "nt" else Systemd()
+
 
 def request(home: Path, route: str, method: str = "GET", body=None) -> dict:
     discovery = json.loads((home / "serve.json").read_text(encoding="utf-8"))
@@ -174,20 +356,13 @@ def stop_service(home: Path) -> None:
         time.sleep(0.1)
 
 
-def ensure_running(home: Path) -> None:
+def ensure_running(home: Path, service=None) -> None:
     health = running(home)
     if health and health.get("remote", {}).get("gateway_running"):
         return
     if health:
         stop_service(home)
-    # Discovery disappears just before the task process exits. IgnoreNew would
-    # discard a start request while that process is still finishing.
-    _powershell(
-        "$ErrorActionPreference='Stop'; $deadline=[DateTime]::UtcNow.AddSeconds(25); "
-        "while ((Get-ScheduledTask -TaskName 'VideoEnhancer').State -eq 'Running') { "
-        "if ([DateTime]::UtcNow -ge $deadline) { throw 'The service task did not stop.' }; "
-        "Start-Sleep -Milliseconds 200 }; Start-ScheduledTask -TaskName 'VideoEnhancer'"
-    )
+    (service or service_platform()).start()
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         health = running(home)
@@ -198,29 +373,50 @@ def ensure_running(home: Path) -> None:
 
 
 def prepare_certificates(home: Path) -> None:
-    import socket
+    from videoenhancer.remote.certificates import advertised_identity, ensure_certificates
 
-    from videoenhancer.remote.certificates import ensure_certificates, local_addresses
-
-    name = os.environ.get("COMPUTERNAME") or socket.gethostname().split(".")[0]
-    ensure_certificates(home / "remote", name, local_addresses())
+    name, addresses = advertised_identity(read_settings(home))
+    ensure_certificates(home / "remote", name, addresses)
 
 
-def install(home: Path, windows=None) -> dict:
-    windows = windows or Windows()
+def install(
+    home: Path,
+    service=None,
+    *,
+    name: str | None = None,
+    addresses: list[str] | None = None,
+) -> dict:
+    service = service or service_platform()
+    identity: dict[str, Any] = {}
+    if name is not None:
+        identity["remote_name"] = name
+    if addresses is not None:
+        identity["remote_addresses"] = addresses
+    if identity:
+        # Validate before touching the service, so a typo changes nothing.
+        save_settings(home, identity)
     prepare_certificates(home)
     save_settings(home, {"remote_enabled": True})
-    windows.register(home, engine_root())
-    windows.shortcut(home, engine_root())
-    firewall_status = windows.firewall(read_settings(home))
-    ensure_running(home)
-    return {**request(home, "remote/pairing", "POST"), "firewall": firewall_status}
+    service.register(home, engine_root())
+    service.shortcut(home, engine_root())
+    firewall_status = service.firewall(read_settings(home))
+    result: dict[str, Any] = {}
+    enable_linger = getattr(service, "enable_linger", None)
+    if enable_linger is not None and not enable_linger():
+        user = os.environ.get("USER") or Path.home().name
+        result["starts_at_boot"] = False
+        result["message"] = (
+            f"The service runs now but will not start at boot until lingering is on: "
+            f"run 'sudo loginctl enable-linger {user}' once."
+        )
+    ensure_running(home, service)
+    return {**request(home, "remote/pairing", "POST"), "firewall": firewall_status, **result}
 
 
-def uninstall(home: Path, forget_devices: bool = False, windows=None) -> dict:
-    windows = windows or Windows()
-    windows.remove()
-    windows.remove_firewall()
+def uninstall(home: Path, forget_devices: bool = False, service=None) -> dict:
+    service = service or service_platform()
+    service.remove()
+    service.remove_firewall()
     stop_service(home)
     save_settings(home, {"remote_enabled": False})
     if forget_devices:
@@ -234,7 +430,11 @@ def uninstall(home: Path, forget_devices: bool = False, windows=None) -> dict:
 
 def command(args, home: Path) -> dict:
     if args.remote_command == "install":
-        return install(home)
+        return install(
+            home,
+            name=getattr(args, "name", None),
+            addresses=getattr(args, "addresses", None),
+        )
     if args.remote_command == "uninstall":
         return uninstall(home, args.forget_devices)
     if args.remote_command in {"stop", "restart"}:
@@ -252,10 +452,10 @@ def command(args, home: Path) -> dict:
             )
         return result
     health = running(home)
-    import socket
+    from videoenhancer.remote.certificates import advertised_identity
 
     settings = read_settings(home)
-    pc_name = os.environ.get("COMPUTERNAME") or socket.gethostname().split(".")[0]
+    pc_name, _ = advertised_identity(settings)
     result: dict[str, Any] = {
         "service_running": False,
         "gateway_running": False,
@@ -286,13 +486,14 @@ def command(args, home: Path) -> dict:
     if health:
         result.update(health.get("remote", {}))
         result["service_running"] = True
-    from videoenhancer.remote import firewall
-
-    result["firewall"] = firewall.status(
-        firewall.program(engine_root()),
-        settings["remote_https_port"],
-        settings["remote_setup_port"],
-    )
+    try:
+        service = service_platform()
+    except RuntimeError as error:
+        result["service"] = {"error": str(error)}
+        result["firewall"] = {"managed": False}
+        return result
+    result["service"] = service.describe()
+    result["firewall"] = service.firewall_status(settings)
     if result["firewall"].get("warning"):
         print(result["firewall"]["warning"], file=sys.stderr)
     return result

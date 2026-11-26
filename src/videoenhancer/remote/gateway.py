@@ -23,7 +23,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlsplit
 
 from videoenhancer.remote.adapter import EngineAdapter
-from videoenhancer.remote.certificates import ensure_certificates, local_addresses
+from videoenhancer.remote.certificates import (
+    advertised_identity,
+    ensure_certificates,
+    local_addresses,
+)
 from videoenhancer.remote.power import Awake
 from videoenhancer.remote.security import Devices, cookie_secret, private_ipv4
 from videoenhancer.remote.uploads import MAX_CHUNK, UploadConflict
@@ -95,8 +99,8 @@ class Gateway:
     def __init__(self, engine, home: Path, settings: dict):
         self.home = home
         self.settings = settings
-        self.pc_name = os.environ.get("COMPUTERNAME") or socket.gethostname().split(".")[0]
-        self.certificates = ensure_certificates(home / "remote", self.pc_name, local_addresses())
+        self.pc_name, addresses = advertised_identity(settings, local_addresses)
+        self.certificates = ensure_certificates(home / "remote", self.pc_name, addresses)
         self.devices = Devices(home / "remote")
         self.adapter = EngineAdapter(engine, home, settings)
         self.servers: list[LANServer] = []

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import plistlib
 import socket
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,6 +37,22 @@ def local_addresses() -> list[str]:
         if address.family == socket.AF_INET and private_ipv4(address.address)
     }
     return sorted(found)
+
+
+def advertised_identity(
+    settings: dict, discover: Callable[[], list[str]] | None = None
+) -> tuple[str, list[str]]:
+    """Return the host name and addresses that iPads use to reach this service.
+
+    A service behind a forwarder, such as one in a container whose ports are
+    forwarded from the host, must present the host's name and LAN addresses:
+    its own hostname and bridge address are unreachable from the home network.
+    """
+    name = settings.get("remote_name") or (
+        os.environ.get("COMPUTERNAME") or socket.gethostname().split(".")[0]
+    )
+    addresses = list(settings.get("remote_addresses") or (discover or local_addresses)())
+    return name, addresses
 
 
 def ensure_certificates(
