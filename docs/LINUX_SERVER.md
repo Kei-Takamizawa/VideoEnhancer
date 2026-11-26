@@ -135,11 +135,17 @@ RTX 4060 Ti (8 GB, driver 595.91.07, CUDA 13.2):
   | Standard | 166.8 s | 1.01 | 7,737 of 8,188 MiB |
 
   Standard finished, but the run logged 50 out-of-memory warnings for requests
-  of about 2.3 GiB while the card was nearly full. Where they come from is not
-  yet known.
+  of about 2.3 GiB while the card was nearly full. They come from PyTorch's
+  CUDA allocator (`CUDACachingAllocator.cpp`), all within 72 ms at a change of
+  processing stage, and the application neither failed nor retried. The most
+  likely cause, not yet confirmed, is cuDNN trying a convolution method with a
+  large workspace and falling back to another.
+
+Standard uses almost all of an 8 GB card. If other containers share the GPU,
+do not run GPU work in them during a Standard job, or the job can run out of
+memory.
 
 Not yet measured: pairing an iPad through the forwarded ports, a job started
-from the iPad, estimate accuracy on this server, long videos, and the source of
-the Standard out-of-memory warnings. On Linux, the per-process GPU memory
+from the iPad, estimate accuracy on this server, and long videos. On Linux, the per-process GPU memory
 counters used on Windows are unavailable; reports show them as unavailable and
 keep the PyTorch and NVML device figures.
