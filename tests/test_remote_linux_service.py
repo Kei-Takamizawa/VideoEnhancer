@@ -5,7 +5,7 @@ import socket
 import ssl
 import subprocess
 from argparse import Namespace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -58,8 +58,9 @@ def make_root(tmp_path: Path) -> Path:
 
 
 def test_unit_matches_windows_task_policy_and_quotes_paths(tmp_path):
-    root = Path("/srv/ve 100%/engine")
-    unit = install.unit_text(root / ".venv/bin/python", Path('/data/home "$X"'), root)
+    # Unit paths are POSIX paths; PurePosixPath keeps this check the same on Windows CI.
+    root = PurePosixPath("/srv/ve 100%/engine")
+    unit = install.unit_text(root / ".venv/bin/python", PurePosixPath('/data/home "$X"'), root)
     exec_line = next(line for line in unit.splitlines() if line.startswith("ExecStart="))
     assert exec_line == (
         'ExecStart="/srv/ve 100%%/engine/.venv/bin/python" "-m" '
@@ -78,7 +79,9 @@ def test_unit_matches_windows_task_policy_and_quotes_paths(tmp_path):
     # A user manager has no system network targets; depending on them only logs errors.
     assert "network-online.target" not in unit
     with pytest.raises(ValueError):
-        install.unit_text(Path("/a\n[Service]"), Path("/home"), Path("/root"))
+        install.unit_text(
+            PurePosixPath("/a\n[Service]"), PurePosixPath("/home"), PurePosixPath("/root")
+        )
 
 
 def test_register_writes_user_unit_then_reloads_and_enables(tmp_path):
@@ -87,7 +90,8 @@ def test_register_writes_user_unit_then_reloads_and_enables(tmp_path):
     service = install.Systemd(run=fake, unit_path=unit)
     root = make_root(tmp_path)
     service.register(tmp_path / "home", root)
-    assert str(root / ".venv/bin/python") in unit.read_text(encoding="utf-8")
+    expected = install.unit_text(root / ".venv/bin/python", tmp_path / "home", root)
+    assert unit.read_text(encoding="utf-8") == expected
     assert fake.systemctl() == [["daemon-reload"], ["enable", install.UNIT_NAME]]
     assert not list(unit.parent.glob(".*.tmp"))
     with pytest.raises(FileNotFoundError):

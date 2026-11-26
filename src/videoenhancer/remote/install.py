@@ -12,7 +12,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 from xml.sax.saxutils import escape
 
@@ -156,19 +156,19 @@ class Windows:
         return {"manager": "Windows Task Scheduler", "task": TASK_NAME}
 
 
-def _unit_value(value: str | Path) -> str:
+def _unit_value(value: str | PurePath) -> str:
     text = str(value)
     if any(character in text for character in "\n\r\0"):
         raise ValueError("Service paths cannot contain line breaks.")
     return text.replace("%", "%%")
 
 
-def _unit_argument(value: str | Path) -> str:
+def _unit_argument(value: str | PurePath) -> str:
     text = _unit_value(value).replace("\\", "\\\\").replace('"', '\\"').replace("$", "$$")
     return f'"{text}"'
 
 
-def unit_text(python: Path, home: Path, root: Path) -> str:
+def unit_text(python: PurePath, home: PurePath, root: PurePath) -> str:
     """A systemd user unit equivalent to the Windows sign-in task."""
     command = " ".join(
         _unit_argument(part)
@@ -202,10 +202,12 @@ class Systemd:
         self.run = run or self._run
         config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
         self.unit_path = unit_path or config / "systemd/user" / UNIT_NAME
-        if os.name == "nt":
-            raise RuntimeError("Use the Windows task on Windows.")
-        if run is None and shutil.which("systemctl") is None:
-            raise RuntimeError("Remote startup installation needs systemd (systemctl).")
+        if run is None:
+            # An injected runner (tests) never reaches a real service manager.
+            if os.name == "nt":
+                raise RuntimeError("Use the Windows task on Windows.")
+            if shutil.which("systemctl") is None:
+                raise RuntimeError("Remote startup installation needs systemd (systemctl).")
 
     @staticmethod
     def _run(arguments: list[str]) -> subprocess.CompletedProcess:
