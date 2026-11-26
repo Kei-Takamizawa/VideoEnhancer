@@ -68,6 +68,9 @@ network filter (ACL) does not need to change. The gateway sees forwarded
 connections from `127.0.0.1`, which it accepts like any private address. Keep
 the listen address on the home network only.
 
+The forwarding and the certificate both name this address. Reserve it for the
+server in the router (a DHCP reservation), so that it does not change.
+
 ## Install the service (inside the container)
 
 ```bash
@@ -107,7 +110,14 @@ is set.
 On 2026-11-25, in an Ubuntu 26.04 Incus container on an RTX 4060 Ti (8 GB,
 driver 595.91.07, CUDA 13.2):
 
-- PyTorch 2.14.1+cu130 ran on the GPU (a 4096 x 4096 FP16 matrix product).
+- `uv sync --locked --extra gpu --extra models` installed PyTorch
+  2.14.1+cu130 and torchvision 0.29.1+cu130 from PyPI. A 4096 x 4096 FP16
+  matrix product ran on the GPU at 42.6 TFLOPS, and `torchvision.ops.nms` ran
+  on CUDA. The environment used 5.9 GB.
+- `ve remote install --name ... --address ...` started the systemd user service
+  with lingering on. Through the two Incus proxy devices, another computer on
+  the home network received HTTP 200 from the setup port and from
+  `/api/session` on the HTTPS port.
 - NVENC, NVDEC and PyNvVideoCodec failed to load their libraries, both without
   the `video` capability and with it, because the host had the headless driver
   without the encode and decode packages.
