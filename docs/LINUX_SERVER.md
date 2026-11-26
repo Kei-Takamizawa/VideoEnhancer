@@ -10,9 +10,9 @@ host only manages the container and forwards two ports from its home-network
 address. Nothing is published outside the home network: no router change is
 needed or wanted.
 
-> Status: the service, certificates and pairing for this layout are covered by
-> CPU tests. GPU processing inside the container still needs the measurements
-> listed under [What is verified](#what-is-verified).
+> Status: the service, GPU processing and port forwarding of this layout were
+> measured on one server, as listed under [What is verified](#what-is-verified).
+> iPad pairing through the forwarded ports is not yet measured.
 
 ## Requirements
 
@@ -107,23 +107,39 @@ is set.
 
 ## What is verified
 
-On 2026-11-25, in an Ubuntu 26.04 Incus container on an RTX 4060 Ti (8 GB,
-driver 595.91.07, CUDA 13.2):
+On 2026-11-25 and 2026-11-26, in an Ubuntu 26.04 Incus container on an
+RTX 4060 Ti (8 GB, driver 595.91.07, CUDA 13.2):
 
 - `uv sync --locked --extra gpu --extra models` installed PyTorch
   2.14.1+cu130 and torchvision 0.29.1+cu130 from PyPI. A 4096 x 4096 FP16
   matrix product ran on the GPU at 42.6 TFLOPS, and `torchvision.ops.nms` ran
   on CUDA. The environment used 5.9 GB.
+- Without the host encode and decode packages, NVENC, NVDEC and PyNvVideoCodec
+  failed to load, with and without the `video` capability. After the packages
+  were installed on the host (two new packages at the running driver's version,
+  no other package changed, no host restart) and the container was restarted,
+  both libraries loaded and FFmpeg encoded with `h264_nvenc` and decoded with
+  `hevc_cuvid`. The service started again by itself with the container.
 - `ve remote install --name ... --address ...` started the systemd user service
   with lingering on. Through the two Incus proxy devices, another computer on
   the home network received HTTP 200 from the setup port and from
   `/api/session` on the HTTPS port.
-- NVENC, NVDEC and PyNvVideoCodec failed to load their libraries, both without
-  the `video` capability and with it, because the host had the headless driver
-  without the encode and decode packages.
+- The two default models (BasicVSR++ C1 and RIFE 4.25) downloaded through the
+  service with a recorded licence consent, and their SHA-256 matched.
+- `ve trial --seconds 5` on a synthetic 1080p30 clip (FFmpeg `testsrc2`) gave
+  1080p60 output with both presets:
 
-Not yet measured: NVENC, NVDEC and PyNvVideoCodec with the `video` capability,
-a complete Standard or Fast job, GPU memory use on an 8 GB card, calibration and
-estimate accuracy on this GPU, and pairing an iPad through the forwarded ports.
-On Linux, the per-process GPU memory counters used on Windows are unavailable;
-reports show them as unavailable and keep the PyTorch and NVML device figures.
+  | Preset | Wall time | Input frames per second | Peak GPU memory |
+  | --- | --- | --- | --- |
+  | Fast | 24.0 s | 15.6 | 2,223 MiB |
+  | Standard | 166.8 s | 1.01 | 7,737 of 8,188 MiB |
+
+  Standard finished, but the run logged 50 out-of-memory warnings for requests
+  of about 2.3 GiB while the card was nearly full. Where they come from is not
+  yet known.
+
+Not yet measured: pairing an iPad through the forwarded ports, a job started
+from the iPad, estimate accuracy on this server, long videos, and the source of
+the Standard out-of-memory warnings. On Linux, the per-process GPU memory
+counters used on Windows are unavailable; reports show them as unavailable and
+keep the PyTorch and NVML device figures.
